@@ -86,12 +86,12 @@ assert(#expanded_region == 2)
 assert(expanded_region[1] == Tr.StmtExpr(Tr.StmtSurface, lit("1")))
 assert(expanded_region[2] == Tr.StmtExpr(Tr.StmtSurface, lit("2")))
 
-local item_stream = as_list(E.item_stream(Tr.ItemUseItemsSlot(items_slot), env))
-assert(#item_stream == 2)
-assert(item_stream[1] == Tr.ItemConst(Tr.ConstItem("a", i32, lit("3"))))
-assert(item_stream[2] == Tr.ItemConst(Tr.ConstItem("b", i32, lit("4"))))
+local item_region = as_list(E.item_region(Tr.ItemUseItemsSlot(items_slot), env))
+assert(#item_region == 2)
+assert(item_region[1] == Tr.ItemConst(Tr.ConstItem("a", i32, lit("3"))))
+assert(item_region[2] == Tr.ItemConst(Tr.ConstItem("b", i32, lit("4"))))
 
-local module_items = as_list(E.item_stream(Tr.ItemUseModuleSlot("use.mod", module_slot, {}), env))
+local module_items = as_list(E.item_region(Tr.ItemUseModuleSlot("use.mod", module_slot, {}), env))
 assert(#module_items == 1)
 assert(module_items[1] == Tr.ItemConst(Tr.ConstItem("nested", i32, lit("5"))))
 

@@ -111,7 +111,7 @@ local function bind_context(T)
         return nil, tostring(analysis)
     end
 
-    local document_events_process = llb.process. lsp_document (function(ctx, doc, opts)
+    local function lsp_document_process_body(ctx, doc, opts)
         opts = opts or {}
         local function gen(param, state)
             local doc0, opts0, mode = param.doc, param.opts, param.mode
@@ -208,7 +208,9 @@ local function bind_context(T)
             return nil
         end
         return gen, { ctx = ctx, doc = doc, opts = opts, mode = opts.mode or "light" }, { phase = "load" }
-    end)
+    end
+
+    local document_events_process = llb.process. lsp_document { "doc", "opts" } (lsp_document_process_body)
 
     local function collect_document_events(doc, opts)
         local out = {}

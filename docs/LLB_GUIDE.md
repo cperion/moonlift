@@ -88,15 +88,42 @@ backend behavior belong to Moonlift, not LLB.
 
 LLB's runtime compilation strategy is documented in
 [`LLB_CODEGEN_APPROACH.md`](LLB_CODEGEN_APPROACH.md). Codegen specializes the
-workbench machinery declared by LLB grammars: stream plans, role normalizers,
-future staged head machines, fragment expanders, family projectors, diagnostics,
-indexing, formatting, and environment installers.
+workbench machinery declared by LLB grammars: region plans, protocol exits,
+role normalizers, future staged head machines, fragment expanders, family
+projectors, diagnostics, indexing, formatting, and environment installers.
 
-The stream architecture is documented in
-[`LLB_STREAM_WORKBENCH_DESIGN.md`](LLB_STREAM_WORKBENCH_DESIGN.md). This is the
-architectural rule for new LLB work: streams are demand boundaries, and arrays,
-trees, reports, indexes, diagnostic lists, or backend buffers are explicit
-materializing sinks.
+The region architecture is documented in
+[`LLB_REGION_WORKBENCH_DESIGN.md`](LLB_REGION_WORKBENCH_DESIGN.md). This is the
+architectural rule for new LLB work: region is the semantic control machine,
+protocol names exits, GPS is one lowering ABI, and arrays, trees, reports,
+indexes, diagnostic lists, or backend buffers are explicit materializers.
+
+The generic semantic model is documented in
+[`LLB_GENERIC_REGION_ALGEBRA.md`](LLB_GENERIC_REGION_ALGEBRA.md). Use it as the
+design checklist before adding new process, phase, parser, scheduler,
+diagnostic, or lowering machinery.
+
+LLB owns the bare `region.` head in managed environments:
+
+```lua
+region. scan { input... } { exits... } { body... }
+```
+
+That creates a generic LLB `Region` descriptor. `region [Type]` remains normal
+typed-name syntax; only dot-head use starts a region. Member languages consume
+the descriptor according to their own backend. Moonlift consumes it as native
+typed control when the body uses Moonlift block/jump/emit vocabulary.
+
+Most workbench code should use a protocol-specific head instead of spelling the
+full generic constructor. For example:
+
+```lua
+llb.process. records { "bytes" } (records_body)
+llb.role_region. product ["role_items"] (product_body)
+```
+
+These are thin region-native heads. They still create `Region` descriptors; they
+just own obvious protocol and input defaults.
 
 ## Surfaces
 
@@ -819,7 +846,7 @@ object.owner
 
 ## Processes And GPS
 
-LLB processes are `gen,param,state` event streams.
+LLB processes are event-protocol regions lowered to `gen,param,state`.
 
 A process is pull-driven. The consumer asks for the next event; the generator
 computes only enough work to produce that event. Do not prebuild an event array
@@ -827,7 +854,9 @@ unless the process is explicitly wrapping a materializing boundary such as a
 whole backend call.
 
 ```lua
-local records = llb.process. records (function(ctx, bytes)
+local region = llb.region
+
+local function records_body(ctx, bytes)
   local function gen(param, state)
     if state == 0 then
       return 1, ctx:make_event("header", { bytes = #param.bytes })
@@ -838,7 +867,9 @@ local records = llb.process. records (function(ctx, bytes)
     return nil
   end
   return gen, { bytes = bytes }, 0
-end)
+end
+
+local records = llb.process. records { "bytes" } (records_body)
 
 for ev in records(image) do
   print(ev.seq, ev.kind)
@@ -848,7 +879,8 @@ end
 A process is:
 
 ```text
-gen,param,state machine
+region with event protocol
+  + gen,param,state lowering
   + LLB event protocol
   + diagnostics bag
   + origin/provenance
@@ -856,7 +888,7 @@ gen,param,state machine
   + resumable handle
 ```
 
-Each yielded payload becomes a `ProcessEvent`:
+Each `event` exit payload becomes a `ProcessEvent`:
 
 ```text
 process  process name
@@ -945,7 +977,7 @@ The architectural rule:
 ```text
 Functions compute values.
 Fragments compose role-shaped values.
-Processes stream language work.
+Processes run region-shaped language work.
 ```
 
 ## Traits
@@ -1030,13 +1062,17 @@ workbench structure and smaller language analyses.
 For long-running phase progress, expose a process:
 
 ```lua
-local analyze = llb.process. analyze (function(ctx, unit)
+local region = llb.region
+
+local function analyze_body(ctx, unit)
   local events = {
     ctx:make_event("phase", { name = "normalize" }),
     ctx:make_event("phase", { name = "bind" }),
   }
-  return llb.stream.raw(llb.stream.from.array(events))
-end)
+  return llb.gps.raw(llb.gps.from.array(events))
+end
+
+local analyze = llb.process. analyze { "unit" } (analyze_body)
 ```
 
 ## LSP and indexing
@@ -1044,7 +1080,7 @@ end)
 LLB does not implement an LSP server. It gives language authors the right event
 shape for LSP tools.
 
-A good language should be able to stream:
+A good language should expose pull-shaped process regions for:
 
 ```text
 load
@@ -1060,7 +1096,9 @@ definition
 Use processes for this:
 
 ```lua
-local document = llb.process. document (function(ctx, src, uri)
+local region = llb.region
+
+local function document_body(ctx, src, uri)
   local function gen(param, state)
     if state.phase == "load" then
       state.phase = "index"
@@ -1098,7 +1136,9 @@ local document = llb.process. document (function(ctx, src, uri)
     return nil
   end
   return gen, {}, { phase = "load" }
-end)
+end
+
+local document = llb.process. document { "src", "uri" } (document_body)
 ```
 
 Moonlift's LSP dispatch exposes `lsp_document` this way and routes symbol,
@@ -1369,7 +1409,7 @@ hidden global dependency installation inside use()
 stringly typed semantics inside callbacks
 heads that duplicate role normalization rules
 formatters that guess from source text instead of evaluated values
-generators yielding arbitrary values instead of process events
+generators returning arbitrary values instead of process events
 metatables mutated ad hoc instead of protocol-generated behavior
 factories that lose caller origin
 ```

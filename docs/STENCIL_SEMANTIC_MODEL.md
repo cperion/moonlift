@@ -29,7 +29,7 @@ set of reusable semantic shapes.
 
 ## Current Vocabulary
 
-The LuaJIT C stencil vocabulary currently validated by
+The LuaJIT stencil vocabulary currently validated by
 `benchmarks/bench_luajit_lower_stencil_matrix.lua` is:
 
 ```text
@@ -71,6 +71,26 @@ The raw stencil vocabulary is separately measured against direct GCC loops:
 luajit benchmarks/bench_luajit_stencil_matrix.lua full
 ```
 
+The same descriptor vocabulary also has a LuaTrace materializer:
+
+```text
+StencilDescriptor
+  -> StencilProviderC
+     -> C source
+     -> binary stencil bank
+     -> copy-patch FFI callable
+
+StencilDescriptor
+  -> StencilProviderLuaTrace
+     -> LuaJIT trace function
+     -> emitted Lua source artifact
+     -> direct Lua stencil symbol
+```
+
+The provider choice is below stencil semantics. `StencilProviderC` and
+`StencilProviderLuaTrace` must consume the same descriptor, schedule, topology,
+operator, reducer, skeleton, and memory facts.
+
 ## Layering
 
 The stencil path is deliberately split into layers.
@@ -81,7 +101,9 @@ MoonCode loops/fragments
   -> MoonKernel semantic skeletons
   -> Llisle stencil selection
   -> stencil_artifact_plan descriptor-backed artifact
-  -> stencil_c source realization
+  -> provider materialization
+       StencilProviderC        -> stencil_c source realization
+       StencilProviderLuaTrace -> stencil_luajit trace/source realization
   -> LuaJIT machine call/effect
 ```
 

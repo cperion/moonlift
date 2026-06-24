@@ -174,7 +174,7 @@ local function collecting_context(ctx, events)
     })
 end
 
-local function materialized_event_stream(ctx, fn)
+local function materialized_event_region(ctx, fn)
     local function gen(param, state)
         if state == nil then
             local events = {}
@@ -190,13 +190,13 @@ local function materialized_event_stream(ctx, fn)
     return gen, { ctx = ctx, fn = fn }, nil
 end
 
-M.process = llb.process.phase_execute {
-    stream = function(ctx, executor, plan, input, opts)
-        return materialized_event_stream(ctx, function(event_ctx)
+local function phase_execute_process_body(ctx, executor, plan, input, opts)
+        return materialized_event_region(ctx, function(event_ctx)
             return execute_plan(event_ctx, executor, plan, input, opts)
         end)
-    end,
-}
+end
+
+M.process = llb.process.phase_execute { "executor", "plan", "input", "opts" } (phase_execute_process_body)
 
 function Executor:run(plan, input, opts)
     local handle = M.process:start(self, plan, input, opts)

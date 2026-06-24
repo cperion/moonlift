@@ -635,7 +635,7 @@ function M.transform_source(src, opts)
                 variable = phase.assignment.name,
                 phase_name = phase.phase_name,
                 kind = phase.kind,
-                stream_erased = true,
+                gps_erased = true,
             }
         else
             report.unsupported[#report.unsupported + 1] = {

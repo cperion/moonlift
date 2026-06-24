@@ -24,6 +24,7 @@ Environment
 Phase
 Trait
 Protocol
+Region
 ```
 
 The architecture is:
@@ -43,6 +44,7 @@ Environment exposes language exports.
 Phases analyze or transform normalized values.
 Traits package reusable behavior.
 Protocols define object behavior families.
+Regions define pull-shaped control machines with named exit protocols.
 ```
 
 ## Surfaces
@@ -248,9 +250,9 @@ g.role. product {
   algebra = "product",
   unique_names = true,
 
-  stream = function(lang, ctx, value)
+  region = llb.role_region. ProductRole ["role_items"] (function(lang, ctx, value)
     return gen, param, state
-  end,
+  end),
 
   check = function(ctx, fields)
     ctx:reject_duplicate_names(fields)
@@ -833,7 +835,7 @@ format
   formatting metadata retained where useful
 
 trace
-  channel/event stream recorded
+  channel/event protocol exits recorded
 ```
 
 API:

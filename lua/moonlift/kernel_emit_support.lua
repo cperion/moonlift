@@ -103,7 +103,7 @@ local function bind_context(T)
         return false, "unsupported KernelExpr " .. class_name(expr)
     end
 
-    local function stream_supported(lane)
+    local function lane_supported(lane)
         if pvm.classof(lane) ~= Kernel.KernelLane then return false, "not a KernelLane" end
         if not is_scalar_code_ty(lane.elem_ty) then return false, "lane element type is not scalar-lowerable" end
         local pat_cls = pvm.classof(lane.pattern)
@@ -165,7 +165,7 @@ local function bind_context(T)
         end
         if pvm.classof(body.domain) ~= Kernel.KernelDomainFlow then rejects[#rejects + 1] = reject_target("kernel domain is not Flow-backed") end
         for _, lane in ipairs(body.lanes or {}) do
-            local ok, reason = stream_supported(lane)
+            local ok, reason = lane_supported(lane)
             if not ok then rejects[#rejects + 1] = reject_memory(reason) end
         end
         for _, binding in ipairs(body.bindings or {}) do
@@ -176,7 +176,7 @@ local function bind_context(T)
         for _, effect in ipairs(body.effects or {}) do
             local ecls = pvm.classof(effect)
             if ecls == Kernel.KernelEffectStore then
-                local ok, reason = stream_supported(effect.dst)
+                local ok, reason = lane_supported(effect.dst)
                 if not ok then rejects[#rejects + 1] = reject_memory(reason) end
                 ok, reason = value_expr_supported(effect.index)
                 if not ok then rejects[#rejects + 1] = reject_algebra(reason) end
@@ -346,7 +346,7 @@ local function bind_context(T)
     api.classify = classify
     api.value_expr_supported = value_expr_supported
     api.kernel_expr_supported = kernel_expr_supported
-    api.stream_supported = stream_supported
+    api.lane_supported = lane_supported
 
     T._moonlift_api_cache.kernel_emit_support = api
     return api

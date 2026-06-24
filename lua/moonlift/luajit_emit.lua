@@ -481,15 +481,15 @@ local function bind_context(T)
             body_cb(n + 1, idx)
             line(out, n, "end")
         elseif cls == LJ.LJMachineMap then
-            emit_machine_loop(out, n, machines, k.input, id_name(k.binding), function(inner_n, upstream)
+            emit_machine_loop(out, n, machines, k.input, id_name(k.binding), function(inner_n, source_value)
                 local mapped = "__mapped_" .. sanitize(m.id.text)
                 line(out, inner_n, "local " .. mapped .. " = " .. expr(k.expr))
                 body_cb(inner_n, mapped)
             end)
         elseif cls == LJ.LJMachineFilter then
-            emit_machine_loop(out, n, machines, k.input, id_name(k.binding), function(inner_n, upstream)
+            emit_machine_loop(out, n, machines, k.input, id_name(k.binding), function(inner_n, source_value)
                 line(out, inner_n, "if " .. expr(k.pred) .. " then")
-                body_cb(inner_n + 1, upstream)
+                body_cb(inner_n + 1, source_value)
                 line(out, inner_n, "end")
             end)
         elseif cls == LJ.LJMachineConcat then
@@ -525,7 +525,7 @@ local function bind_context(T)
             end
             local acc = id_name(k.acc)
             line(out, n, "local " .. acc .. " = " .. expr(k.init))
-            emit_machine_loop(out, n, machines, k.input, id_name(k.item), function(inner_n, upstream)
+            emit_machine_loop(out, n, machines, k.input, id_name(k.item), function(inner_n, source_value)
                 line(out, inner_n, acc .. " = " .. expr(k.step))
             end)
             body_cb(n, acc)
@@ -577,6 +577,12 @@ local function bind_context(T)
             if m ~= nil and mcls == LJ.LJMachineStencilEffect and term.default == nil then
                 emit_machine_loop(out, n, machines, body.machine, "__terminal_item", function() end)
                 line(out, n, "return")
+                return
+            end
+            if m ~= nil and mcls == LJ.LJMachineStencilCall and term.default == nil then
+                emit_machine_loop(out, n, machines, body.machine, "__terminal_item", function(inner_n, item)
+                    line(out, inner_n, "return " .. item)
+                end)
                 return
             end
             if m ~= nil and mcls == LJ.LJMachineFold and term.default == nil then

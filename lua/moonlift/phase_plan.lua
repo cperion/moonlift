@@ -230,7 +230,7 @@ local function collecting_context(ctx, events)
     })
 end
 
-local function materialized_event_stream(ctx, fn)
+local function materialized_event_region(ctx, fn)
     local function gen(param, state)
         if state == nil then
             local events = {}
@@ -246,13 +246,13 @@ local function materialized_event_stream(ctx, fn)
     return gen, { ctx = ctx, fn = fn }, nil
 end
 
-M.process = llb.process.phase_plan {
-    stream = function(ctx, package, root_spec)
-        return materialized_event_stream(ctx, function(event_ctx)
+local function phase_plan_process_body(ctx, package, root_spec)
+        return materialized_event_region(ctx, function(event_ctx)
             return plan_package(event_ctx, package, root_spec)
         end)
-    end,
-}
+end
+
+M.process = llb.process.phase_plan { "package", "root_spec" } (phase_plan_process_body)
 
 function M.plan(package, root_spec)
     local handle = M.process:start(package, root_spec)

@@ -22,7 +22,8 @@ llisle.dsl
 
 llb
   The shared language-workbench substrate: symbols, fragments, origins,
-  diagnostics, formatting, use sessions, language families, and processes.
+  diagnostics, formatting, use sessions, language families, generic regions,
+  and processes.
 ```
 
 The DSLs are ordinary Lua. Lua performs the mechanical parse, evaluates
@@ -31,6 +32,10 @@ control, LLPVM, and tooling heads are hosted by `lua/llb.lua`; each member
 language normalizes those values by role and emits explicit typed values.
 Moonlift core emits `MoonTree` and `MoonOpen` ASDL. LLPVM emits typed LLPVM
 program specs, bytecode images, and task/run records.
+
+`region.` is the LLB-owned generic control-machine head. Moonlift consumes
+generic Region descriptors and lowers them through its native typed CFG
+vocabulary; Moonlift does not own the base region semantics.
 
 There is no second source parser in the normal authoring path.
 This is the recommended path for new generated/metaprogrammed Moonlift code.
@@ -222,7 +227,7 @@ member in the family owns.
 The family has one collision policy. Important choices:
 
 ```text
-process  belongs to LLB GPS process streams
+process  belongs to LLB event-protocol regions lowered to GPS
 task     belongs to LLPVM typed process/task declarations
 record   belongs to LLPVM tape records
 value    is not a reserved family keyword; it is available as a user field/name
@@ -505,7 +510,7 @@ normalizes them.
 | `static` | `static. name [Type] { value }` | Typed static declaration. |
 | `fn` | `fn. name { params... } [result] { body... }` | Internal function. Result is optional for void. |
 | `export_fn` | `export_fn. name { params... } [result] { body... }` | Exported function. |
-| `region` | `region. name { params... } { exits... } { blocks... }` | Typed control fragment with named continuation protocol. |
+| `region` | `region. name { params... } { exits... } { blocks... }` | LLB generic region descriptor; Moonlift consumes it as a typed native control fragment when the body uses `entry`/`block`/`jump`/`emit`. |
 | `expr_frag` | `expr_frag. name { params... } [result] { expr }` | Reusable expression fragment declaration. |
 
 Declaration names are dot-headed:
@@ -728,7 +733,8 @@ Family methods are dot-only. Do not use colon syntax.
 
 | API | Meaning |
 |---|---|
-| `llb.process. name (function(ctx, ...) return gen, param, state end)` | Define GPS-backed event stream. |
+| `llb.process. name { "arg", ... } (body_fn)` | Define an event-protocol region process lowered to the LuaJIT pull ABI. |
+| `llb.role_region. name ["role_items"] (body_fn)` | Define a role-normalizer region with the standard role input product. |
 | `process:start(...)` | Start resumable process handle. |
 | `process(...)` | Iterate process events directly. |
 | `handle:events()` | Iterate emitted events. |
@@ -746,8 +752,8 @@ generator returns the event explicitly:
 return next_state, ctx:make_event("record", payload)
 ```
 
-LLB streams are demand boundaries. A process should compute only the next
-semantic event unless it is explicitly wrapping a materializing sink such as a
+LLB process regions are demand boundaries. A process should compute only the
+next semantic event unless it is explicitly wrapping a materializer such as a
 complete report, backend command buffer, or user-requested collection.
 
 ### Grammar/meta API
@@ -1436,13 +1442,13 @@ The hard naming rule is:
 ```text
 record  is the LLPVM tape item head
 task    is the LLPVM typed process declaration head
-process is the LLB GPS process helper
+process is the LLB event-protocol process helper
 value   is ordinary user space
 ```
 
 Use `task. compile { ... }` when progress/event structure is part of the typed
-compiler/runtime model. Use `llb.process. name(function(ctx, ...) return gen, param, state end)` for
-the GPS stream that emits events.
+compiler/runtime model. Use `llb.process. name { ... } (body_fn)` for the LLB
+event-protocol region lowered to the LuaJIT pull ABI.
 
 Moonlift phase execution reports expose `LlPvm.TaskRun` records, so compiler
 progress, validation, source analysis, LSP indexing, and debugger stepping can
@@ -1462,7 +1468,7 @@ _ / spread            structural splice markers
 origins/provenance    diagnostic blame across helpers/factories
 diagnostics           structured failures and notes
 formatting            semantic formatting of evaluated DSL values
-processes             GPS-backed demand streams
+processes             event-protocol regions lowered to GPS
 families              dependency/collision/environment policy
 ```
 
@@ -1481,10 +1487,10 @@ struct. Point {
 ```
 
 Use functions when computing one value. Use fragments when composing
-role-shaped values. Use processes when work should stream events, diagnostics,
-progress, or debugger steps. Materialized arrays, trees, reports, indexes, and
-diagnostic lists are explicit sinks over streams, not the default hidden
-representation of work.
+role-shaped values. Use processes when work should emit protocol exits for
+events, diagnostics, progress, or debugger steps. Materialized arrays, trees,
+reports, indexes, and diagnostic lists are explicit materializers over protocol
+exits, not the default hidden representation of work.
 
 ### Header / implementation split
 

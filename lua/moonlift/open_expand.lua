@@ -1706,7 +1706,7 @@ local function bind_context(T, opts)
         type = function(ty, env) return one(expand_type, ty, env or empty_env()) end,
         expr = function(expr, env) return one(expand_expr, expr, env or empty_env()) end,
         stmts = function(stmts, env) return expand_stmts(stmts, env or empty_env()) end,
-        item_stream = function(item, env) return expand_item(item, env or empty_env()) end,
+        item_region = function(item, env) return expand_item(item, env or empty_env()) end,
         module = function(module, env) return one(expand_module, module, env or empty_env()) end,
     }
 end

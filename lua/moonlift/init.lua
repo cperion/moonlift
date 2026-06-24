@@ -455,6 +455,7 @@ M.family = llb.family. moonlift {
     shared = {
         "origin",
         "fragment",
+        "generic-region",
         "type_value",
         "diagnostic",
         "process",
@@ -503,7 +504,7 @@ M.family = llb.family. moonlift {
         semantics = {
             owns = {
                 "native-program",
-                "native-control",
+                "native-region-lowering",
                 "native-type-values",
                 "resource-discipline",
                 "native-compilation",
@@ -513,6 +514,7 @@ M.family = llb.family. moonlift {
                 "diagnostics",
                 "family-composition",
                 "fragments",
+                "generic-region",
                 "namespaces",
                 "origins",
                 "type-family",
@@ -668,7 +670,14 @@ local function module_ast_from(value, name)
     local pvm = require("moonlift.pvm")
     local ok, cls = pcall(pvm.classof, value)
     if ok and cls and tostring(cls) == "Class(MoonTree.Module)" then return value end
-    if type(value) == "table" and type(value.ast) == "function" then return value:ast() end
+    if type(value) == "table" and type(value.ast) == "function" then
+        local ast = value:ast()
+        local ast_ok, ast_cls = pcall(pvm.classof, ast)
+        if ast_ok and ast_cls and tostring(ast_cls) == "Class(MoonTree.Module)" then return ast end
+        local unit = M.dsl.to_unit(name or "Unit", value)
+        if type(unit.ast) == "function" then return unit:ast() end
+        return unit
+    end
     if type(value) == "table" and rawget(value, "__module_ast") ~= nil then return rawget(value, "__module_ast") end
     local projected = M.dsl.to_unit(name or "Unit", value)
     if type(projected.ast) == "function" then return projected:ast() end
@@ -841,6 +850,10 @@ function M.emit_luajit_artifact(decl, path_or_opts, name, opts)
 
     local Pipeline = require("moonlift.frontend_pipeline")(T)
     local Backend = require("moonlift.luajit_backend")(T)
+    local stencil_provider = opts.stencil_provider or opts.provider
+    local function is_luatrace_provider(provider)
+        return provider == "lua_trace" or provider == "luatrace" or provider == "gps"
+    end
     local checked = Pipeline.typecheck_module(module_ast, {
         context = T,
         site = "emit_luajit_artifact:typecheck",
@@ -866,13 +879,15 @@ function M.emit_luajit_artifact(decl, path_or_opts, name, opts)
         schedule = opts.schedule,
         schedule_plan = opts.schedule_plan,
         collect_rejects = opts.collect_rejects,
+        stencil_provider = stencil_provider,
+        provider = opts.provider,
     })
     if opts.reject_on_stencil_rejects ~= false and rejects and #rejects > 0 then
         error("emit_luajit_artifact rejected module: " .. tostring(rejects[1].reason or rejects[1]), 2)
     end
 
     local bank = opts.bank
-    if bank == nil and #(artifacts or {}) > 0 then
+    if bank == nil and #(artifacts or {}) > 0 and not is_luatrace_provider(stencil_provider) then
         local bank_opts = opts.bank_opts or {}
         bank_opts.stem = bank_opts.stem or opts.stem or sanitize(name)
         bank_opts.dir = bank_opts.dir or opts.bank_dir
@@ -892,6 +907,8 @@ function M.emit_luajit_artifact(decl, path_or_opts, name, opts)
         path = path,
         chunk_name = opts.chunk_name or name,
         patch_values = opts.patch_values,
+        stencil_provider = stencil_provider,
+        provider = opts.provider,
     })
     if source == nil then error(err or "emit_luajit_artifact failed", 2) end
 

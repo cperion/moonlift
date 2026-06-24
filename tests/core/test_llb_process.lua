@@ -2,7 +2,7 @@ package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local llb = require("llb")
 
-local records = llb.process. records (function(ctx, bytes)
+local function records_process_body(ctx, bytes)
   local function gen(param, state)
     if state == 0 then
       return 5, ctx:make_event("header", {
@@ -20,7 +20,9 @@ local records = llb.process. records (function(ctx, bytes)
     return nil
   end
   return gen, { bytes = bytes }, 0
-end)
+end
+
+local records = llb.process. records { "bytes" } (records_process_body)
 
 local seen = {}
 for ev in records("LLPVabc") do
@@ -42,7 +44,7 @@ assert(budgeted:resume().kind == "header", "budgeted process first event")
 assert(budgeted:resume().kind == "budget_exhausted", "budget exhaustion is an event")
 assert(budgeted:resume { budget = 10 }.kind == "record", "resume can refresh budget")
 
-local checked = llb.process. checked (function(ctx)
+local function checked_process_body(ctx)
   local events = {
     ctx:diagnostic_event {
       severity = "warning",
@@ -55,8 +57,9 @@ local checked = llb.process. checked (function(ctx)
       message = "error event",
     },
   }
-  return llb.stream.raw(llb.stream.from.array(events))
-end)
+  return llb.gps.raw(llb.gps.from.array(events))
+end
+local checked = llb.process. checked {} (checked_process_body)
 local ch = checked:start()
 local w = ch:resume()
 local e = ch:resume()

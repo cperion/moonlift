@@ -1,6 +1,6 @@
 --[[
 LLB: Lua Language Builder
-Version: 0.5.0 stream-vm atom/protocol model
+Version: 0.5.0 gps-vm atom/protocol model
 Target: LuaJIT / Lua 5.1
 
 LLB is a parserless language workbench:
@@ -61,7 +61,7 @@ User DSL:
 -- The implementation is organized from low-level atoms upward:
 --
 --   utilities/source/diagnostics
---   stream VM/process event streams
+--   gps VM/process event streams
 --   symbols/expressions/captures
 --   fragments/zones
 --   grammar declarations
@@ -69,7 +69,7 @@ User DSL:
 --   environments/families
 --   analysis/formatting
 
-local llb = { _VERSION = "llb-0.5.0-streamvm", VERSION = "llb-0.5.0-streamvm" }
+local llb = { _VERSION = "llb-0.6.0-region-gps", VERSION = "llb-0.6.0-region-gps" }
 
 local unpack = unpack or table.unpack
 local loadstring0 = loadstring or load
@@ -782,20 +782,655 @@ function llb.fail(message, spec, level)
   error(llb.diagnostic(spec), level or 0)
 end
 
+do
+-- ---------------------------------------------------------------------------
+-- Generic region algebra
+-- ---------------------------------------------------------------------------
+--
+-- Region is the LLB-owned control abstraction:
+--
+--   input product + state product + named exit protocol + transition body
+--
+-- Moonlift native regions, LLPVM phases, process machines, parsers, and GPS
+-- streams are lowerings/projections of this shared shape. LLB owns the
+-- semantics and the bare `region.` head; member languages consume or lower
+-- region descriptors through their own typed backends.
+
+local Exit, Protocol, Region, RegionLowering, RegionMaterializer = {}, {}, {}, {}, {}
+Exit.__index = Exit
+Protocol.__index = Protocol
+Region.__index = Region
+RegionLowering.__index = RegionLowering
+RegionMaterializer.__index = RegionMaterializer
+
+llb.exits = {}
+llb.protocols = {}
+llb.regions = {}
+llb.region_lowerings = {}
+llb.region_materializers = {}
+
+local exit_classes = {
+  resumable = true,
+  terminal = true,
+  failure = true,
+  blocking = true,
+  effect = true,
+}
+
+local function protocol_name(protocol)
+  if protocol == nil then return nil end
+  if is_tag(protocol, "Protocol") then return protocol.name end
+  return tostring(protocol)
+end
+llb.protocol_name = protocol_name
+
+local function resolve_protocol(protocol)
+  if protocol == nil then return nil end
+  if is_tag(protocol, "Protocol") then return protocol end
+  return llb.protocols[tostring(protocol)]
+end
+
+local function normalize_exit_class(cls)
+  cls = cls or "resumable"
+  if cls == "done" or cls == "return" then cls = "terminal" end
+  if cls == "error" or cls == "failed" then cls = "failure" end
+  if not exit_classes[cls] then
+    llb.fail("unknown LLB region exit class " .. tostring(cls), {
+      code = "E_BAD_REGION_EXIT_CLASS",
+    }, 2)
+  end
+  return cls
+end
+
+local function normalize_product_spec(v)
+  if v == nil then return {} end
+  if type(v) ~= "table" then return { v } end
+  return shallow_copy(v)
+end
+
+local function normalize_exit(name, spec)
+  if is_tag(spec, "Exit") then return spec end
+  if type(spec) == "string" then spec = { class = spec } end
+  spec = shallow_copy(spec or {})
+  local cls = normalize_exit_class(spec.class or spec.kind)
+  local e = setmetatable({
+    __llb_tag = "Exit",
+    name = tostring(spec.name or name),
+    class = cls,
+    payload = normalize_product_spec(spec.payload or spec.product or spec.fields),
+    next = normalize_product_spec(spec.next or spec.state),
+    terminal = spec.terminal ~= nil and spec.terminal or cls == "terminal" or cls == "failure",
+    resumable = spec.resumable ~= nil and spec.resumable or cls == "resumable" or cls == "blocking",
+    effect = spec.effect ~= nil and spec.effect or cls == "effect",
+    origin = spec.origin or source.capture("region-exit", { hint = name }),
+    spec = spec,
+  }, Exit)
+  llb.exits[e.name] = e
+  return e
+end
+
+local function normalize_exits(spec)
+  local exits = spec and spec.exits or nil
+  local by_name, list = {}, {}
+  if exits == nil then return by_name, list end
+  if type(exits) ~= "table" then
+    llb.fail("protocol exits must be a table", { code = "E_BAD_PROTOCOL_EXITS", primary = origin_of(exits) }, 2)
+  end
+  if #exits > 0 then
+    for i = 1, #exits do
+      local raw = exits[i]
+      local name = type(raw) == "table" and (raw.name or raw[1]) or raw
+      local e = normalize_exit(name, raw)
+      by_name[e.name] = e
+      list[#list + 1] = e
+    end
+  else
+    for name, raw in pairs(exits) do
+      local e = normalize_exit(name, raw)
+      by_name[e.name] = e
+      list[#list + 1] = e
+    end
+  end
+  table.sort(list, function(a, b) return a.name < b.name end)
+  return by_name, list
+end
+
+function llb.exit(name, spec)
+  return normalize_exit(name, spec)
+end
+
+-- Protocols are public metadata for behavior/control families. They still
+-- manufacture Lua metatables for existing fragment/operator protocols, but
+-- now also carry typed region exits.
+local operator_metamethod = {
+  concat = "__concat",
+  choice = "__add",
+  decorate = "__mul",
+  len = "__len",
+  tostring = "__tostring",
+  call = "__call",
+  index = "__index",
+  newindex = "__newindex",
+}
+
+function llb.protocol(name, spec)
+  spec = shallow_copy(spec or {})
+  local exits, exit_list = normalize_exits(spec)
+  local p = setmetatable({
+    __llb_tag = "Protocol",
+    name = tostring(name),
+    exits = exits,
+    exit_list = exit_list,
+    spec = spec,
+    origin = spec.origin or source.capture("protocol", { hint = name }),
+  }, Protocol)
+  llb.protocols[p.name] = p
+  return p
+end
+
+function Protocol:metatable(fields)
+  fields = fields or {}
+  local mt = {}
+  for k, v in pairs(self.spec.metatable or {}) do mt[k] = v end
+  for k, v in pairs(self.spec.metamethods or {}) do mt[k] = v end
+  for op, fn in pairs(self.spec.operators or {}) do
+    local mm = operator_metamethod[op] or op
+    if type(mm) == "string" and mm:sub(1, 2) ~= "__" then mm = "__" .. mm end
+    mt[mm] = fn
+  end
+  for k, v in pairs(fields) do mt[k] = v end
+  mt.__llb_protocol = self
+  return mt
+end
+
+function llb.validate_protocol(protocol)
+  if type(protocol) == "string" then protocol = llb.protocols[protocol] end
+  if not is_tag(protocol, "Protocol") then
+    llb.fail("expected LLB protocol", { code = "E_EXPECTED_PROTOCOL", primary = origin_of(protocol) })
+  end
+  local mt = protocol:metatable()
+  for k, v in pairs(mt) do
+    if type(k) == "string" and k:sub(1, 2) == "__" and k ~= "__llb_protocol" and type(v) ~= "function" and k ~= "__index" then
+      llb.fail("protocol " .. tostring(protocol.name) .. " installs non-function metamethod " .. tostring(k), {
+        code = "E_BAD_PROTOCOL_METAMETHOD",
+        primary = protocol.origin,
+      })
+    end
+  end
+  return true
+end
+
+function llb.describe_exit(exit)
+  if not is_tag(exit, "Exit") then return nil end
+  return {
+    tag = "Exit",
+    name = exit.name,
+    class = exit.class,
+    payload = shallow_copy(exit.payload or {}),
+    next = shallow_copy(exit.next or {}),
+    terminal = exit.terminal,
+    resumable = exit.resumable,
+    effect = exit.effect,
+    origin = exit.origin,
+  }
+end
+
+function llb.describe_metatable(mt)
+  local out = { tag = "Metatable", metamethods = {}, keys = {} }
+  if type(mt) ~= "table" then out.kind = type(mt); return out end
+  local p = rawget(mt, "__llb_protocol")
+  out.protocol = p and p.name or nil
+  for _, k in ipairs(sorted_keys(mt)) do
+    if type(k) == "string" and k:sub(1, 2) == "__" then out.metamethods[#out.metamethods + 1] = k
+    else out.keys[#out.keys + 1] = k end
+  end
+  return out
+end
+
+function llb.describe_protocol(protocol)
+  if type(protocol) == "string" then protocol = llb.protocols[protocol] end
+  if not is_tag(protocol, "Protocol") then return nil end
+  local spec = protocol.spec or {}
+  local exits = {}
+  for i = 1, #(protocol.exit_list or {}) do exits[i] = llb.describe_exit(protocol.exit_list[i]) end
+  return {
+    tag = "Protocol",
+    name = protocol.name,
+    exits = exits,
+    operators = sorted_keys(spec.operators or {}),
+    metamethods = sorted_keys(spec.metamethods or spec.metatable or {}),
+    origin = protocol.origin,
+  }
+end
+
+local function normalize_region_lowering(region, target, spec)
+  if is_tag(spec, "RegionLowering") then return spec end
+  spec = shallow_copy(spec or {})
+  local target_name = tostring(target or spec.target or spec.backend or "gps")
+  return setmetatable({
+    __llb_tag = "RegionLowering",
+    region = region,
+    target = target_name,
+    kind = spec.kind or spec.body_kind or target_name,
+    body = spec.body or spec.fn or spec.gen or spec.plan,
+    metadata = spec.metadata,
+    origin = spec.origin or (region and region.origin) or source.capture("region-lowering", { hint = target_name }),
+    spec = spec,
+  }, RegionLowering)
+end
+
+local function normalize_region_materializer(region, name, spec)
+  if is_tag(spec, "RegionMaterializer") then return spec end
+  spec = shallow_copy(spec or {})
+  local mat_name = tostring(name or spec.name or spec.kind or "collect")
+  return setmetatable({
+    __llb_tag = "RegionMaterializer",
+    region = region,
+    name = mat_name,
+    kind = spec.kind or mat_name,
+    body = spec.body or spec.fn,
+    metadata = spec.metadata,
+    origin = spec.origin or (region and region.origin) or source.capture("region-materializer", { hint = mat_name }),
+    spec = spec,
+  }, RegionMaterializer)
+end
+
+local function region_construct(name, spec)
+  spec = shallow_copy(spec or {})
+  local protocol = resolve_protocol(spec.protocol or spec.protocol_name)
+  local protocol_label = protocol and protocol.name or protocol_name(spec.protocol or spec.protocol_name)
+  local owner = spec.owner or tostring(name):match("^([^%.]+)%.") or "llb"
+  local id = tostring(spec.id or ((spec.owner and (tostring(spec.owner) .. ".")) or "") .. tostring(name))
+  local r = setmetatable({
+    __llb_tag = "Region",
+    id = id,
+    name = tostring(name),
+    owner = owner,
+    input = normalize_product_spec(spec.input or spec.params),
+    state = normalize_product_spec(spec.state),
+    protocol = protocol,
+    protocol_name = protocol_label,
+    body_kind = spec.body_kind or spec.kind or "descriptor",
+    body = spec.body or spec.region or spec.fn,
+    lowerings = {},
+    materializers = {},
+    metadata = spec.metadata,
+    origin = spec.origin or source.capture("region", { hint = name }),
+    spec = spec,
+  }, Region)
+  for target, lowering in pairs(spec.lowerings or {}) do
+    r.lowerings[target] = normalize_region_lowering(r, target, lowering)
+  end
+  for mat_name, mat in pairs(spec.materializers or {}) do
+    r.materializers[mat_name] = normalize_region_materializer(r, mat_name, mat)
+  end
+  llb.regions[r.id] = r
+  llb.regions[r.name] = r
+  return r
+end
+
+function Region:lowering(target, spec)
+  local l = normalize_region_lowering(self, target, spec)
+  self.lowerings[l.target] = l
+  llb.region_lowerings[self.id .. "." .. l.target] = l
+  return l
+end
+
+function Region:materializer(name, spec)
+  local m = normalize_region_materializer(self, name, spec)
+  self.materializers[m.name] = m
+  llb.region_materializers[self.id .. "." .. m.name] = m
+  return m
+end
+
+function Region:describe()
+  return llb.describe_region(self)
+end
+
+local function region_gps_body(region, target)
+  local lowering = region.lowerings and region.lowerings[target or "gps"]
+  return (lowering and lowering.body) or region.body
+end
+
+function Region:gps(...)
+  if not llb.gps then
+    llb.fail("GPS lowering requested before llb.gps is initialized", {
+      code = "E_REGION_GPS_UNAVAILABLE",
+      primary = self.origin,
+    }, 2)
+  end
+  local body = region_gps_body(self, "gps")
+  if body == nil then
+    llb.fail("region " .. tostring(self.id or self.name) .. " has no GPS lowering", {
+      code = "E_REGION_NO_GPS_LOWERING",
+      primary = self.origin,
+    }, 2)
+  end
+  if is_tag(body, "GpsPlan") then
+    return llb.gps.raw(body)
+  end
+  if is_tag(body, "Gps") or is_tag(body, "GpsSource") then
+    return llb.gps.raw(body)
+  end
+  if type(body) == "function" then
+    local r = pack(body(...))
+    if is_tag(r[1], "GpsPlan") then return llb.gps.raw(r[1]) end
+    return llb.gps.raw(unpack(r, 1, r.n))
+  end
+  return llb.gps.raw(body)
+end
+
+function Region:materialize(name, ...)
+  name = name or "collect"
+  local materializer = self.materializers and self.materializers[name]
+  if not materializer then
+    llb.fail("region " .. tostring(self.id or self.name) .. " has no materializer " .. tostring(name), {
+      code = "E_REGION_NO_MATERIALIZER",
+      primary = self.origin,
+    }, 2)
+  end
+  if type(materializer.body) == "function" then return materializer.body(...) end
+  return materializer.body
+end
+
+function llb.region_gps(region, ...)
+  if type(region) == "string" then region = llb.regions[region] end
+  if not is_tag(region, "Region") then
+    llb.fail("llb.region_gps expects a Region", { code = "E_EXPECTED_REGION", primary = origin_of(region) }, 2)
+  end
+  return region:gps(...)
+end
+
+function llb.region_materialize(region, name, ...)
+  if type(region) == "string" then region = llb.regions[region] end
+  if not is_tag(region, "Region") then
+    llb.fail("llb.region_materialize expects a Region", { code = "E_EXPECTED_REGION", primary = origin_of(region) }, 2)
+  end
+  return region:materialize(name, ...)
+end
+
+function llb.lowering(region, target, spec)
+  if type(region) == "string" then region = llb.regions[region] end
+  if not is_tag(region, "Region") then
+    llb.fail("llb.lowering expects a Region", { code = "E_EXPECTED_REGION", primary = origin_of(region) }, 2)
+  end
+  return region:lowering(target, spec)
+end
+
+function llb.materializer(region, name, spec)
+  if type(region) == "string" then region = llb.regions[region] end
+  if not is_tag(region, "Region") then
+    llb.fail("llb.materializer expects a Region", { code = "E_EXPECTED_REGION", primary = origin_of(region) }, 2)
+  end
+  return region:materializer(name, spec)
+end
+
+function llb.describe_region(region)
+  if type(region) == "string" then region = llb.regions[region] end
+  if not is_tag(region, "Region") then return nil end
+  local lowerings, materializers = {}, {}
+  for _, name in ipairs(sorted_keys(region.lowerings or {})) do
+    local l = region.lowerings[name]
+    lowerings[#lowerings + 1] = { target = l.target, kind = l.kind, origin = l.origin }
+  end
+  for _, name in ipairs(sorted_keys(region.materializers or {})) do
+    local m = region.materializers[name]
+    materializers[#materializers + 1] = { name = m.name, kind = m.kind, origin = m.origin }
+  end
+  return {
+    tag = "Region",
+    id = region.id,
+    name = region.name,
+    owner = region.owner,
+    input = shallow_copy(region.input or {}),
+    state = shallow_copy(region.state or {}),
+    protocol = region.protocol_name,
+    body_kind = region.body_kind,
+    lowerings = lowerings,
+    materializers = materializers,
+    origin = region.origin,
+  }
+end
+
+local RegionFactory, RegionStage = {}, {}
+local function looks_like_region_descriptor(spec)
+  if type(spec) ~= "table" then return false end
+  return rawget(spec, "input") ~= nil
+    or rawget(spec, "params") ~= nil
+    or rawget(spec, "state") ~= nil
+    or rawget(spec, "protocol") ~= nil
+    or rawget(spec, "protocol_name") ~= nil
+    or rawget(spec, "exits") ~= nil
+    or rawget(spec, "body") ~= nil
+    or rawget(spec, "region") ~= nil
+    or rawget(spec, "lowerings") ~= nil
+    or rawget(spec, "materializers") ~= nil
+    or rawget(spec, "owner") ~= nil
+    or rawget(spec, "kind") ~= nil
+    or rawget(spec, "body_kind") ~= nil
+end
+
+local function region_exit_name(raw, index)
+  if is_tag(raw, "Symbol") or is_tag(raw, "Name") then return raw.text end
+  if type(raw) == "table" then
+    if raw.name ~= nil then
+      if is_tag(raw.name, "Symbol") or is_tag(raw.name, "Name") then return raw.name.text end
+      return tostring(raw.name)
+    end
+    local subject = raw.subject or raw[1]
+    if is_tag(subject, "Symbol") or is_tag(subject, "Name") then return subject.text end
+    if type(subject) == "string" then return subject end
+  end
+  if type(raw) == "string" then return raw end
+  return "exit" .. tostring(index)
+end
+
+local function region_protocol_from_exits(region_name, exits, origin)
+  if is_tag(exits, "Protocol") then return exits end
+  if type(exits) == "string" then return exits end
+  if type(exits) ~= "table" then return nil end
+  local ps = {}
+  if #exits > 0 then
+    for i = 1, #exits do
+      local raw = exits[i]
+      ps[region_exit_name(raw, i)] = { class = "terminal", payload = raw, origin = origin_of(raw) }
+    end
+  else
+    for name, raw in pairs(exits) do
+      ps[tostring(name)] = { class = "terminal", payload = raw, origin = origin_of(raw) }
+    end
+  end
+  return llb.protocol(tostring(region_name) .. ".protocol", {
+    exits = ps,
+    origin = origin,
+  })
+end
+
+RegionFactory.__index = function(_, key)
+  if type(key) ~= "string" and llb.symbol then
+    return llb.symbol("region")[key]
+  end
+  local name = tostring(key)
+  return setmetatable({
+    __llb_tag = "RegionStage",
+    name = name,
+    stage = 0,
+    origin = source.capture("region-head", { hint = name }),
+  }, RegionStage)
+end
+RegionFactory.__call = function(_, name, spec)
+  if spec == nil then
+    return setmetatable({
+      __llb_tag = "RegionStage",
+      name = tostring(name),
+      stage = 0,
+      origin = source.capture("region-head", { hint = name }),
+    }, RegionStage)
+  end
+  return region_construct(name, spec)
+end
+RegionStage.__index = function(self, key)
+  local method = rawget(RegionStage, key)
+  if method then return method end
+  local patch = shallow_copy(rawget(self, "spec") or {})
+  patch.protocol = patch.protocol or key
+  return setmetatable({
+    __llb_tag = "RegionStage",
+    name = rawget(self, "name"),
+    spec = patch,
+    input = rawget(self, "input"),
+    exits = rawget(self, "exits"),
+    stage = rawget(self, "stage") or 0,
+    origin = rawget(self, "origin"),
+  }, RegionStage)
+end
+RegionStage.__call = function(self, spec)
+  local stage = rawget(self, "stage") or 0
+  if stage == 0 and looks_like_region_descriptor(spec) then
+    spec = shallow_copy(spec or {})
+    for k, v in pairs(rawget(self, "spec") or {}) do if spec[k] == nil then spec[k] = v end end
+    spec.origin = spec.origin or rawget(self, "origin")
+    return region_construct(rawget(self, "name"), spec)
+  end
+  if stage == 0 then
+    return setmetatable({
+      __llb_tag = "RegionStage",
+      name = rawget(self, "name"),
+      spec = shallow_copy(rawget(self, "spec") or {}),
+      input = spec,
+      stage = 1,
+      origin = rawget(self, "origin"),
+    }, RegionStage)
+  end
+  if stage == 1 then
+    if type(spec) == "function" or is_tag(spec, "GpsPlan") or is_tag(spec, "Gps") or is_tag(spec, "GpsSource") then
+      local out = shallow_copy(rawget(self, "spec") or {})
+      out.input = out.input or rawget(self, "input")
+      out.body = out.body or spec
+      out.body_kind = out.body_kind or "region-head"
+      if type(spec) == "function" or is_tag(spec, "GpsPlan") or is_tag(spec, "Gps") or is_tag(spec, "GpsSource") then
+        out.lowerings = out.lowerings or { gps = { kind = "gps", body = spec } }
+      end
+      out.origin = out.origin or rawget(self, "origin")
+      return region_construct(rawget(self, "name"), out)
+    end
+    return setmetatable({
+      __llb_tag = "RegionStage",
+      name = rawget(self, "name"),
+      spec = shallow_copy(rawget(self, "spec") or {}),
+      input = rawget(self, "input"),
+      exits = spec,
+      stage = 2,
+      origin = rawget(self, "origin"),
+    }, RegionStage)
+  end
+  local out = shallow_copy(rawget(self, "spec") or {})
+  out.input = out.input or rawget(self, "input")
+  out.exits = out.exits or rawget(self, "exits")
+  out.protocol = out.protocol or region_protocol_from_exits(rawget(self, "name"), rawget(self, "exits"), rawget(self, "origin"))
+  out.body = out.body or spec
+  out.body_kind = out.body_kind or "region-head"
+  if (type(spec) == "function" or is_tag(spec, "GpsPlan") or is_tag(spec, "Gps") or is_tag(spec, "GpsSource")) and out.lowerings == nil then
+    out.lowerings = { gps = { kind = "gps", body = spec } }
+  end
+  out.origin = out.origin or rawget(self, "origin")
+  return region_construct(rawget(self, "name"), out)
+end
+
+llb.Region = Region
+llb.Exit = Exit
+llb.Protocol = Protocol
+llb.RegionLowering = RegionLowering
+llb.RegionMaterializer = RegionMaterializer
+llb.region = setmetatable({ __llb_tag = "RegionFactory" }, RegionFactory)
+
+local RoleRegionFactory, RoleRegionStage = {}, {}
+local function role_region_construct(name, protocol, body)
+  return llb.region(tostring(name))[protocol or "role_value"] { "lang", "ctx", "value" } (body)
+end
+RoleRegionFactory.__index = function(_, key)
+  return setmetatable({
+    __llb_tag = "RoleRegionStage",
+    name = tostring(key),
+    protocol = "role_value",
+    origin = source.capture("role-region", { hint = key }),
+  }, RoleRegionStage)
+end
+RoleRegionFactory.__call = function(_, name, body)
+  if body ~= nil then return role_region_construct(name, "role_value", body) end
+  return setmetatable({
+    __llb_tag = "RoleRegionStage",
+    name = tostring(name),
+    protocol = "role_value",
+    origin = source.capture("role-region", { hint = name }),
+  }, RoleRegionStage)
+end
+RoleRegionStage.__index = function(self, key)
+  local method = rawget(RoleRegionStage, key)
+  if method then return method end
+  return setmetatable({
+    __llb_tag = "RoleRegionStage",
+    name = rawget(self, "name"),
+    protocol = tostring(key),
+    origin = rawget(self, "origin"),
+  }, RoleRegionStage)
+end
+RoleRegionStage.__call = function(self, body)
+  return role_region_construct(rawget(self, "name"), rawget(self, "protocol") or "role_value", body)
+end
+llb.role_region = setmetatable({ __llb_tag = "RoleRegionFactory" }, RoleRegionFactory)
+
+llb.protocol("pull", {
+  exits = {
+    item = { class = "resumable", payload = { "value" }, next = { "state" } },
+    done = { class = "terminal" },
+  },
+})
+llb.protocol("process", {
+  exits = {
+    event = { class = "resumable", payload = { "event" }, next = { "state" } },
+    diagnostic = { class = "effect", resumable = true, payload = { "diagnostic" }, next = { "state" } },
+    result = { class = "terminal", payload = { "result" } },
+    failed = { class = "failure", payload = { "diagnostic" } },
+    done = { class = "terminal" },
+  },
+})
+llb.protocol("role_value", {
+  exits = {
+    value = { class = "terminal", payload = { "value" } },
+    failed = { class = "failure", payload = { "diagnostic" } },
+  },
+})
+llb.protocol("role_items", {
+  exits = {
+    item = { class = "resumable", payload = { "value" }, next = { "state" } },
+    failed = { class = "failure", payload = { "diagnostic" } },
+    done = { class = "terminal" },
+  },
+})
+llb.protocol("tool_events", {
+  exits = {
+    event = { class = "resumable", payload = { "event" }, next = { "state" } },
+    diagnostic = { class = "effect", resumable = true, payload = { "diagnostic" }, next = { "state" } },
+    done = { class = "terminal" },
+  },
+})
+
+end
 
 do
 -- ---------------------------------------------------------------------------
--- Stream VM: LuaJIT gen,param,state substrate
+-- Gps VM: LuaJIT gen,param,state substrate
 -- ---------------------------------------------------------------------------
 --
 -- This is the low-level LLB runtime shape extracted from Lua's generic-for
 -- protocol and from the design lessons of fun.lua. It is not a functional
--- programming API. It is a tiny stream VM ABI:
+-- programming API. It is a tiny gps VM ABI:
 --
 --   gen(param, state) -> nil
 --   gen(param, state) -> next_state, payload...
 --
--- param is the machine closure: grammar constants, upstream generators,
+-- param is the machine closure: grammar constants, source generators,
 -- functions, immutable source references. state is the explicit continuation:
 -- cursor, counters, buffers, child states. payload is semantic data: events,
 -- diagnostics, nodes, tokens, index records, etc.
@@ -803,88 +1438,88 @@ do
 -- The public LLB process API is GPS-based: every process and compiled tooling
 -- pass runs as gen,param,state.
 
-local Stream, StreamPlan = {}, {}
-Stream.__index = Stream
-StreamPlan.__index = StreamPlan
+local Gps, GpsPlan = {}, {}
+Gps.__index = Gps
+GpsPlan.__index = GpsPlan
 
-local stream = { __llb_tag = "StreamModule", VERSION = "llb-stream-0.5.0" }
-llb.stream = stream
+local gps = { __llb_tag = "GpsModule", VERSION = "llb-gps-0.5.0" }
+llb.gps = gps
 
-local function stream_is(v) return is_tag(v, "Stream") end
-local function stream_source_is(v) return is_tag(v, "StreamSource") end
-local function stream_op_is(v) return is_tag(v, "StreamOp") end
-local function stream_plan_is(v) return is_tag(v, "StreamPlan") end
+local function gps_is(v) return is_tag(v, "Gps") end
+local function gps_source_is(v) return is_tag(v, "GpsSource") end
+local function gps_op_is(v) return is_tag(v, "GpsOp") end
+local function gps_plan_is(v) return is_tag(v, "GpsPlan") end
 
-local function stream_unpack_payload(r, first)
+local function gps_unpack_payload(r, first)
   return unpack(r, first or 2, r.n)
 end
 
-local function stream_repack_return(r)
+local function gps_repack_return(r)
   return unpack(r, 1, r.n)
 end
 
-local function stream_as_state_table(state)
+local function gps_as_state_table(state)
   if type(state) == "table" then return state end
   return { state }
 end
 
-local function stream_meta(meta)
+local function gps_meta(meta)
   meta = meta or {}
-  meta.origin = meta.origin or source.capture("stream")
+  meta.origin = meta.origin or source.capture("gps")
   return meta
 end
 
-function stream.wrap(gen, param, state, meta)
+function gps.wrap(gen, param, state, meta)
   if type(gen) ~= "function" and not (type(gen) == "table" and getmetatable(gen) and getmetatable(gen).__call) then
-    llb.fail("stream.wrap expects a generator function/callable", {
-      code = "E_STREAM_GENERATOR",
+    llb.fail("gps.wrap expects a generator function/callable", {
+      code = "E_GPS_GENERATOR",
       primary = meta and meta.origin,
-      notes = { "A stream generator must implement gen(param, state) -> nil | next_state, payload..." },
+      notes = { "A gps generator must implement gen(param, state) -> nil | next_state, payload..." },
     }, 2)
   end
   local s0 = setmetatable({
-    __llb_tag = "Stream",
+    __llb_tag = "Gps",
     gen = gen,
     param = param,
     state = state,
-    meta = stream_meta(meta),
-  }, Stream)
+    meta = gps_meta(meta),
+  }, Gps)
   return s0, param, state
 end
 
-function stream.unwrap(s0)
-  if stream_is(s0) then return s0.gen, s0.param, s0.state end
-  return stream.raw(s0)
+function gps.unwrap(s0)
+  if gps_is(s0) then return s0.gen, s0.param, s0.state end
+  return gps.raw(s0)
 end
 
-local function stream_empty_gen(_param, _state)
+local function gps_empty_gen(_param, _state)
   return nil
 end
 
-local function stream_string_gen(param, state)
+local function gps_string_gen(param, state)
   state = (state or 0) + 1
   if state > #param then return nil end
   return state, string.sub(param, state, state)
 end
 
-local function stream_array_gen(param, state)
+local function gps_array_gen(param, state)
   state = (state or 0) + 1
   if state > #param then return nil end
   return state, param[state]
 end
 
-local function stream_record_gen(param, state)
+local function gps_record_gen(param, state)
   local k, v = next(param, state)
   if k == nil then return nil end
   return k, k, v
 end
 
-local function stream_once_gen(param, state)
+local function gps_once_gen(param, state)
   if state ~= nil then return nil end
   return true, unpack(param, 1, param.n)
 end
 
-local function stream_range_gen(param, state)
+local function gps_range_gen(param, state)
   local stop, step = param[2], param[3]
   local next_state = state + step
   if step > 0 then
@@ -895,122 +1530,122 @@ local function stream_range_gen(param, state)
   return next_state, next_state
 end
 
-local function stream_source_to_raw(src)
-  if stream_source_is(src) then
+local function gps_source_to_raw(src)
+  if gps_source_is(src) then
     local kind = src.kind
-    if kind == "empty" then return stream_empty_gen, nil, nil end
-    if kind == "array" then return stream_array_gen, src.value or {}, 0 end
-    if kind == "record" then return stream_record_gen, src.value or {}, nil end
+    if kind == "empty" then return gps_empty_gen, nil, nil end
+    if kind == "array" then return gps_array_gen, src.value or {}, 0 end
+    if kind == "record" then return gps_record_gen, src.value or {}, nil end
     if kind == "string" then
-      if src.value == nil or src.value == "" then return stream_empty_gen, nil, nil end
-      return stream_string_gen, src.value, 0
+      if src.value == nil or src.value == "" then return gps_empty_gen, nil, nil end
+      return gps_string_gen, src.value, 0
     end
-    if kind == "once" then return stream_once_gen, src.values or pack(), nil end
+    if kind == "once" then return gps_once_gen, src.values or pack(), nil end
     if kind == "range" then
       local start = src.start or 1
       local stop = src.stop or 0
       local step = src.step or (start <= stop and 1 or -1)
-      if step == 0 then llb.fail("stream range step must not be zero", { code = "E_STREAM_RANGE_STEP", primary = src.origin }, 2) end
-      return stream_range_gen, { start, stop, step }, start - step
+      if step == 0 then llb.fail("gps range step must not be zero", { code = "E_GPS_RANGE_STEP", primary = src.origin }, 2) end
+      return gps_range_gen, { start, stop, step }, start - step
     end
-    if kind == "raw" then return stream.raw(src.gen, src.param, src.state) end
-    llb.fail("unknown stream source kind " .. tostring(kind), { code = "E_STREAM_SOURCE", primary = src.origin }, 2)
+    if kind == "raw" then return gps.raw(src.gen, src.param, src.state) end
+    llb.fail("unknown gps source kind " .. tostring(kind), { code = "E_GPS_SOURCE", primary = src.origin }, 2)
   end
   return nil
 end
 
-function stream.raw(obj, param, state)
-  local g, p0, s0 = stream_source_to_raw(obj)
+function gps.raw(obj, param, state)
+  local g, p0, s0 = gps_source_to_raw(obj)
   if g then return g, p0, s0 end
-  if stream_plan_is(obj) then return stream.unwrap(stream.interpret(obj)) end
-  if stream_is(obj) then return obj.gen, obj.param, obj.state end
-  if obj == nil then return stream_empty_gen, nil, nil end
+  if gps_plan_is(obj) then return gps.unwrap(gps.interpret(obj)) end
+  if gps_is(obj) then return obj.gen, obj.param, obj.state end
+  if obj == nil then return gps_empty_gen, nil, nil end
   local tv = type(obj)
   if tv == "function" or (tv == "table" and getmetatable(obj) and getmetatable(obj).__call) then
     return obj, param, state
   end
   if tv == "string" then
-    if obj == "" then return stream_empty_gen, nil, nil end
-    return stream_string_gen, obj, 0
+    if obj == "" then return gps_empty_gen, nil, nil end
+    return gps_string_gen, obj, 0
   end
   if tv == "table" then
     local mt = getmetatable(obj)
     if mt ~= nil then
-      if mt == Stream then return obj.gen, obj.param, obj.state end
+      if mt == Gps then return obj.gen, obj.param, obj.state end
       if mt.__ipairs ~= nil then return mt.__ipairs(obj) end
       if mt.__pairs ~= nil then return mt.__pairs(obj) end
     end
-    if #obj > 0 then return stream_array_gen, obj, 0 end
-    return stream_record_gen, obj, nil
+    if #obj > 0 then return gps_array_gen, obj, 0 end
+    return gps_record_gen, obj, nil
   end
-  llb.fail("object " .. repr(obj) .. " of type " .. type(obj) .. " is not streamable", {
-    code = "E_STREAM_RAW",
+  llb.fail("object " .. repr(obj) .. " of type " .. type(obj) .. " cannot be lowered to GPS", {
+    code = "E_GPS_RAW",
     primary = origin_of(obj),
   }, 2)
 end
 
-function stream.iter(obj, param, state)
-  return stream.wrap(stream.raw(obj, param, state))
+function gps.iter(obj, param, state)
+  return gps.wrap(gps.raw(obj, param, state))
 end
 
-stream.from = {}
+gps.from = {}
 
-function stream.empty()
-  return stream.wrap(stream_empty_gen, nil, nil, { kind = "empty" })
+function gps.empty()
+  return gps.wrap(gps_empty_gen, nil, nil, { kind = "empty" })
 end
 
-function stream.once(...)
-  return stream.wrap(stream_once_gen, pack(...), nil, { kind = "once" })
+function gps.once(...)
+  return gps.wrap(gps_once_gen, pack(...), nil, { kind = "once" })
 end
 
-function stream.from.empty()
-  return stream.empty()
+function gps.from.empty()
+  return gps.empty()
 end
 
-function stream.from.once(...)
-  return stream.once(...)
+function gps.from.once(...)
+  return gps.once(...)
 end
 
-function stream.from.array(t)
-  return stream.wrap(stream_array_gen, t or {}, 0, { kind = "array" })
+function gps.from.array(t)
+  return gps.wrap(gps_array_gen, t or {}, 0, { kind = "array" })
 end
 
-function stream.from.record(t)
-  return stream.wrap(stream_record_gen, t or {}, nil, { kind = "record" })
+function gps.from.record(t)
+  return gps.wrap(gps_record_gen, t or {}, nil, { kind = "record" })
 end
 
-function stream.from.string(s0)
-  if s0 == nil or s0 == "" then return stream.empty() end
-  return stream.wrap(stream_string_gen, s0, 0, { kind = "string" })
+function gps.from.string(s0)
+  if s0 == nil or s0 == "" then return gps.empty() end
+  return gps.wrap(gps_string_gen, s0, 0, { kind = "string" })
 end
 
-function stream.from.range(start, stop, step)
+function gps.from.range(start, stop, step)
   if stop == nil then stop = start; start = stop > 0 and 1 or -1 end
   step = step or (start <= stop and 1 or -1)
-  if step == 0 then llb.fail("stream range step must not be zero", { code = "E_STREAM_RANGE_STEP" }, 2) end
-  return stream.wrap(stream_range_gen, { start, stop, step }, start - step, { kind = "range" })
+  if step == 0 then llb.fail("gps range step must not be zero", { code = "E_GPS_RANGE_STEP" }, 2) end
+  return gps.wrap(gps_range_gen, { start, stop, step }, start - step, { kind = "range" })
 end
 
-stream.spec = {}
-function stream.spec.empty() return { __llb_tag = "StreamSource", kind = "empty", origin = source.capture("stream-source", { hint = "empty" }) } end
-function stream.spec.array(t) return { __llb_tag = "StreamSource", kind = "array", value = t or {}, origin = source.capture("stream-source", { hint = "array" }) } end
-function stream.spec.record(t) return { __llb_tag = "StreamSource", kind = "record", value = t or {}, origin = source.capture("stream-source", { hint = "record" }) } end
-function stream.spec.string(s0) return { __llb_tag = "StreamSource", kind = "string", value = s0 or "", origin = source.capture("stream-source", { hint = "string" }) } end
-function stream.spec.once(...) return { __llb_tag = "StreamSource", kind = "once", values = pack(...), origin = source.capture("stream-source", { hint = "once" }) } end
-function stream.spec.range(start, stop, step) return { __llb_tag = "StreamSource", kind = "range", start = start, stop = stop, step = step, origin = source.capture("stream-source", { hint = "range" }) } end
-function stream.spec.raw(gen, param, state) return { __llb_tag = "StreamSource", kind = "raw", gen = gen, param = param, state = state, origin = source.capture("stream-source", { hint = "raw" }) } end
-function stream.spec.any(v, param, state)
-  local gen, p0, s0 = stream.raw(v, param, state)
-  return stream.spec.raw(gen, p0, s0)
+gps.spec = {}
+function gps.spec.empty() return { __llb_tag = "GpsSource", kind = "empty", origin = source.capture("gps-source", { hint = "empty" }) } end
+function gps.spec.array(t) return { __llb_tag = "GpsSource", kind = "array", value = t or {}, origin = source.capture("gps-source", { hint = "array" }) } end
+function gps.spec.record(t) return { __llb_tag = "GpsSource", kind = "record", value = t or {}, origin = source.capture("gps-source", { hint = "record" }) } end
+function gps.spec.string(s0) return { __llb_tag = "GpsSource", kind = "string", value = s0 or "", origin = source.capture("gps-source", { hint = "string" }) } end
+function gps.spec.once(...) return { __llb_tag = "GpsSource", kind = "once", values = pack(...), origin = source.capture("gps-source", { hint = "once" }) } end
+function gps.spec.range(start, stop, step) return { __llb_tag = "GpsSource", kind = "range", start = start, stop = stop, step = step, origin = source.capture("gps-source", { hint = "range" }) } end
+function gps.spec.raw(gen, param, state) return { __llb_tag = "GpsSource", kind = "raw", gen = gen, param = param, state = state, origin = source.capture("gps-source", { hint = "raw" }) } end
+function gps.spec.any(v, param, state)
+  local gen, p0, s0 = gps.raw(v, param, state)
+  return gps.spec.raw(gen, p0, s0)
 end
 
-local function stream_step(gen, param, state)
+local function gps_step(gen, param, state)
   return gen(param, state)
 end
-stream.step = stream_step
+gps.step = gps_step
 
-function stream.values(gen, param, state)
-  gen, param, state = stream.raw(gen, param, state)
+function gps.values(gen, param, state)
+  gen, param, state = gps.raw(gen, param, state)
   return function()
     local r = pack(gen(param, state))
     if r[1] == nil then return nil end
@@ -1019,8 +1654,8 @@ function stream.values(gen, param, state)
   end
 end
 
-function stream.each(fn, gen, param, state)
-  gen, param, state = stream.raw(gen, param, state)
+function gps.each(fn, gen, param, state)
+  gen, param, state = gps.raw(gen, param, state)
   while true do
     local r = pack(gen(param, state))
     if r[1] == nil then return nil end
@@ -1029,41 +1664,41 @@ function stream.each(fn, gen, param, state)
   end
 end
 
-local function stream_map_gen(param, state)
+local function gps_map_gen(param, state)
   local r = pack(param[1](param[2], state))
   if r[1] == nil then return nil end
   return r[1], param[3](unpack(r, 2, r.n))
 end
-function stream.map(fn, gen, param, state)
-  gen, param, state = stream.raw(gen, param, state)
-  return stream.wrap(stream_map_gen, { gen, param, fn }, state, { kind = "map" })
+function gps.map(fn, gen, param, state)
+  gen, param, state = gps.raw(gen, param, state)
+  return gps.wrap(gps_map_gen, { gen, param, fn }, state, { kind = "map" })
 end
 
-local function stream_tap_gen(param, state)
+local function gps_tap_gen(param, state)
   local r = pack(param[1](param[2], state))
   if r[1] == nil then return nil end
   param[3](unpack(r, 2, r.n))
-  return stream_repack_return(r)
+  return gps_repack_return(r)
 end
-function stream.tap(fn, gen, param, state)
-  gen, param, state = stream.raw(gen, param, state)
-  return stream.wrap(stream_tap_gen, { gen, param, fn }, state, { kind = "tap" })
+function gps.tap(fn, gen, param, state)
+  gen, param, state = gps.raw(gen, param, state)
+  return gps.wrap(gps_tap_gen, { gen, param, fn }, state, { kind = "tap" })
 end
 
-local function stream_filter_gen(param, state)
+local function gps_filter_gen(param, state)
   while true do
     local r = pack(param[1](param[2], state))
     if r[1] == nil then return nil end
     state = r[1]
-    if param[3](unpack(r, 2, r.n)) then return stream_repack_return(r) end
+    if param[3](unpack(r, 2, r.n)) then return gps_repack_return(r) end
   end
 end
-function stream.filter(pred, gen, param, state)
-  gen, param, state = stream.raw(gen, param, state)
-  return stream.wrap(stream_filter_gen, { gen, param, pred }, state, { kind = "filter" })
+function gps.filter(pred, gen, param, state)
+  gen, param, state = gps.raw(gen, param, state)
+  return gps.wrap(gps_filter_gen, { gen, param, pred }, state, { kind = "filter" })
 end
 
-local function stream_filter_map_gen(param, state)
+local function gps_filter_map_gen(param, state)
   while true do
     local r = pack(param[1](param[2], state))
     if r[1] == nil then return nil end
@@ -1072,48 +1707,48 @@ local function stream_filter_map_gen(param, state)
     if m.n > 0 and m[1] ~= nil then return r[1], unpack(m, 1, m.n) end
   end
 end
-function stream.filter_map(fn, gen, param, state)
-  gen, param, state = stream.raw(gen, param, state)
-  return stream.wrap(stream_filter_map_gen, { gen, param, fn }, state, { kind = "filter_map" })
+function gps.filter_map(fn, gen, param, state)
+  gen, param, state = gps.raw(gen, param, state)
+  return gps.wrap(gps_filter_map_gen, { gen, param, fn }, state, { kind = "filter_map" })
 end
 
-local function stream_take_gen(param, state)
+local function gps_take_gen(param, state)
   local i, inner_state = state[1], state[2]
   if i >= param[1] then return nil end
   local r = pack(param[2](param[3], inner_state))
   if r[1] == nil then return nil end
   return { i + 1, r[1] }, unpack(r, 2, r.n)
 end
-function stream.take(n, gen, param, state)
-  if type(n) ~= "number" or n < 0 then llb.fail("stream.take expects a non-negative number", { code = "E_STREAM_TAKE" }, 2) end
-  if n == 0 then return stream.empty() end
-  gen, param, state = stream.raw(gen, param, state)
-  return stream.wrap(stream_take_gen, { n, gen, param }, { 0, state }, { kind = "take" })
+function gps.take(n, gen, param, state)
+  if type(n) ~= "number" or n < 0 then llb.fail("gps.take expects a non-negative number", { code = "E_GPS_TAKE" }, 2) end
+  if n == 0 then return gps.empty() end
+  gen, param, state = gps.raw(gen, param, state)
+  return gps.wrap(gps_take_gen, { n, gen, param }, { 0, state }, { kind = "take" })
 end
 
-function stream.drop(n, gen, param, state)
-  if type(n) ~= "number" or n < 0 then llb.fail("stream.drop expects a non-negative number", { code = "E_STREAM_DROP" }, 2) end
-  gen, param, state = stream.raw(gen, param, state)
+function gps.drop(n, gen, param, state)
+  if type(n) ~= "number" or n < 0 then llb.fail("gps.drop expects a non-negative number", { code = "E_GPS_DROP" }, 2) end
+  gen, param, state = gps.raw(gen, param, state)
   for _ = 1, n do
     local next_state = gen(param, state)
-    if next_state == nil then return stream.empty() end
+    if next_state == nil then return gps.empty() end
     state = next_state
   end
-  return stream.wrap(gen, param, state, { kind = "drop" })
+  return gps.wrap(gen, param, state, { kind = "drop" })
 end
 
-local function stream_enumerate_gen(param, state)
+local function gps_enumerate_gen(param, state)
   local i, inner_state = state[1], state[2]
   local r = pack(param[1](param[2], inner_state))
   if r[1] == nil then return nil end
   return { i + 1, r[1] }, i, unpack(r, 2, r.n)
 end
-function stream.enumerate(gen, param, state)
-  gen, param, state = stream.raw(gen, param, state)
-  return stream.wrap(stream_enumerate_gen, { gen, param }, { 1, state }, { kind = "enumerate" })
+function gps.enumerate(gen, param, state)
+  gen, param, state = gps.raw(gen, param, state)
+  return gps.wrap(gps_enumerate_gen, { gen, param }, { 1, state }, { kind = "enumerate" })
 end
 
-local function stream_flatmap_gen(param, state)
+local function gps_flatmap_gen(param, state)
   state = state or { outer = param[3] }
   while true do
     if state.inner_gen ~= nil then
@@ -1128,26 +1763,26 @@ local function stream_flatmap_gen(param, state)
     if outer[1] == nil then return nil end
     state.outer = outer[1]
     local made = pack(param[4](unpack(outer, 2, outer.n)))
-    state.inner_gen, state.inner_param, state.inner_state = stream.raw(unpack(made, 1, made.n))
+    state.inner_gen, state.inner_param, state.inner_state = gps.raw(unpack(made, 1, made.n))
   end
 end
-function stream.flatmap(fn, gen, param, state)
-  gen, param, state = stream.raw(gen, param, state)
-  return stream.wrap(stream_flatmap_gen, { gen, param, state, fn }, { outer = state }, { kind = "flatmap" })
+function gps.flatmap(fn, gen, param, state)
+  gen, param, state = gps.raw(gen, param, state)
+  return gps.wrap(gps_flatmap_gen, { gen, param, state, fn }, { outer = state }, { kind = "flatmap" })
 end
 
-local function stream_numargs(...)
+local function gps_numargs(...)
   local n = select("#", ...)
   if n >= 3 then
-    local maybe_stream = select(n - 2, ...)
-    if stream_is(maybe_stream) and maybe_stream.param == select(n - 1, ...) and maybe_stream.state == select(n, ...) then
+    local maybe_gps = select(n - 2, ...)
+    if gps_is(maybe_gps) and maybe_gps.param == select(n - 1, ...) and maybe_gps.state == select(n, ...) then
       return n - 2
     end
   end
   return n
 end
 
-local function stream_zip_gen(param, state)
+local function gps_zip_gen(param, state)
   local new_state, payload = {}, { n = 0 }
   for i = 1, param.n do
     local triple = param[i]
@@ -1158,20 +1793,20 @@ local function stream_zip_gen(param, state)
   end
   return new_state, unpack(payload, 1, payload.n)
 end
-function stream.zip(...)
-  local n = stream_numargs(...)
-  if n == 0 then return stream.empty() end
+function gps.zip(...)
+  local n = gps_numargs(...)
+  if n == 0 then return gps.empty() end
   local param, state = { n = n }, {}
   for i = 1, n do
     local elem = select(i, ...)
-    local g, p0, s0 = stream.raw(elem)
+    local g, p0, s0 = gps.raw(elem)
     param[i] = { gen = g, param = p0 }
     state[i] = s0
   end
-  return stream.wrap(stream_zip_gen, param, state, { kind = "zip" })
+  return gps.wrap(gps_zip_gen, param, state, { kind = "zip" })
 end
 
-local function stream_chain_gen(param, state)
+local function gps_chain_gen(param, state)
   local i, inner_state = state[1], state[2]
   while i <= param.n do
     local triple = param[i]
@@ -1183,20 +1818,20 @@ local function stream_chain_gen(param, state)
   end
   return nil
 end
-function stream.chain(...)
-  local n = stream_numargs(...)
-  if n == 0 then return stream.empty() end
+function gps.chain(...)
+  local n = gps_numargs(...)
+  if n == 0 then return gps.empty() end
   local param = { n = n }
   for i = 1, n do
     local elem = select(i, ...)
-    local g, p0, s0 = stream.raw(elem)
+    local g, p0, s0 = gps.raw(elem)
     param[i] = { gen = g, param = p0, state = s0 }
   end
-  return stream.wrap(stream_chain_gen, param, { 1, param[1].state }, { kind = "chain" })
+  return gps.wrap(gps_chain_gen, param, { 1, param[1].state }, { kind = "chain" })
 end
 
-function stream.fold(fn, acc, gen, param, state)
-  gen, param, state = stream.raw(gen, param, state)
+function gps.fold(fn, acc, gen, param, state)
+  gen, param, state = gps.raw(gen, param, state)
   while true do
     local r = pack(gen(param, state))
     if r[1] == nil then return acc end
@@ -1205,8 +1840,8 @@ function stream.fold(fn, acc, gen, param, state)
   end
 end
 
-function stream.drain(fn, gen, param, state)
-  gen, param, state = stream.raw(gen, param, state)
+function gps.drain(fn, gen, param, state)
+  gen, param, state = gps.raw(gen, param, state)
   while true do
     local r = pack(gen(param, state))
     if r[1] == nil then return nil end
@@ -1215,157 +1850,159 @@ function stream.drain(fn, gen, param, state)
   end
 end
 
-function stream.collect_array(gen, param, state)
+function gps.collect_array(gen, param, state)
   local out = {}
-  stream.each(function(v) out[#out + 1] = v end, gen, param, state)
+  gps.each(function(v) out[#out + 1] = v end, gen, param, state)
   return out
 end
 
-function stream.collect_map(gen, param, state)
+function gps.collect_map(gen, param, state)
   local out = {}
-  stream.each(function(k, v) out[k] = v end, gen, param, state)
+  gps.each(function(k, v) out[k] = v end, gen, param, state)
   return out
 end
 
-stream.collect = {}
-function stream.collect.array(gen, param, state) return stream.collect_array(gen, param, state) end
-function stream.collect.map(gen, param, state) return stream.collect_map(gen, param, state) end
+gps.collect = {}
+function gps.collect.array(gen, param, state) return gps.collect_array(gen, param, state) end
+function gps.collect.map(gen, param, state) return gps.collect_map(gen, param, state) end
 
-stream.sink = {}
-function stream.sink.array() return { __llb_tag = "StreamSink", tag = "array" } end
-function stream.sink.map() return { __llb_tag = "StreamSink", tag = "map" } end
-function stream.sink.fold(fn, init) return { __llb_tag = "StreamSink", tag = "fold", fn = fn, init = init } end
-function stream.sink.drain(fn) return { __llb_tag = "StreamSink", tag = "drain", fn = fn } end
+gps.materializer = {}
+function gps.materializer.array() return { __llb_tag = "GpsMaterializer", tag = "array" } end
+function gps.materializer.map() return { __llb_tag = "GpsMaterializer", tag = "map" } end
+function gps.materializer.fold(fn, init) return { __llb_tag = "GpsMaterializer", tag = "fold", fn = fn, init = init } end
+function gps.materializer.drain(fn) return { __llb_tag = "GpsMaterializer", tag = "drain", fn = fn } end
 
-local function stream_apply_sink(sink, gen, param, state)
-  if sink == nil then return stream.wrap(gen, param, state, { kind = "sink:none" }) end
-  local tag = type(sink) == "table" and sink.tag or nil
-  if tag == "array" then return stream.collect_array(gen, param, state) end
-  if tag == "map" then return stream.collect_map(gen, param, state) end
-  if tag == "fold" then return stream.fold(sink.fn, sink.init, gen, param, state) end
-  if tag == "drain" then return stream.drain(sink.fn, gen, param, state) end
-  if type(sink) == "function" then return sink(gen, param, state) end
-  llb.fail("unknown stream sink " .. tostring(tag), { code = "E_STREAM_SINK", primary = origin_of(sink) }, 2)
+local function gps_apply_materializer(materializer, gen, param, state)
+  if materializer == nil then return gps.wrap(gen, param, state, { kind = "materializer:none" }) end
+  local tag = type(materializer) == "table" and materializer.tag or nil
+  if tag == "array" then return gps.collect_array(gen, param, state) end
+  if tag == "map" then return gps.collect_map(gen, param, state) end
+  if tag == "fold" then return gps.fold(materializer.fn, materializer.init, gen, param, state) end
+  if tag == "drain" then return gps.drain(materializer.fn, gen, param, state) end
+  if type(materializer) == "function" then return materializer(gen, param, state) end
+  llb.fail("unknown gps materializer " .. tostring(tag), { code = "E_GPS_MATERIALIZER", primary = origin_of(materializer) }, 2)
 end
 
-Stream.__call = function(self, param, state)
+Gps.__call = function(self, param, state)
   if param == nil then param = self.param end
   if state == nil then state = self.state end
   return self.gen(param, state)
 end
-Stream.__tostring = function(self)
+Gps.__tostring = function(self)
   local meta = rawget(self, "meta") or {}
-  return "<llb.stream:" .. tostring(meta.kind or "raw") .. ">"
+  return "<llb.gps:" .. tostring(meta.kind or "raw") .. ">"
 end
-function Stream:unwrap() return self.gen, self.param, self.state end
-function Stream:values() return stream.values(self.gen, self.param, self.state) end
-function Stream:each(fn) return stream.each(fn, self.gen, self.param, self.state) end
-function Stream:map(fn) return stream.map(fn, self.gen, self.param, self.state) end
-function Stream:tap(fn) return stream.tap(fn, self.gen, self.param, self.state) end
-function Stream:filter(fn) return stream.filter(fn, self.gen, self.param, self.state) end
-function Stream:filter_map(fn) return stream.filter_map(fn, self.gen, self.param, self.state) end
-function Stream:flatmap(fn) return stream.flatmap(fn, self.gen, self.param, self.state) end
-function Stream:take(n) return stream.take(n, self.gen, self.param, self.state) end
-function Stream:drop(n) return stream.drop(n, self.gen, self.param, self.state) end
-function Stream:enumerate() return stream.enumerate(self.gen, self.param, self.state) end
-function Stream:fold(fn, acc) return stream.fold(fn, acc, self.gen, self.param, self.state) end
-function Stream:collect_array() return stream.collect_array(self.gen, self.param, self.state) end
-function Stream:collect_map() return stream.collect_map(self.gen, self.param, self.state) end
-function Stream:to_array() return self:collect_array() end
-function Stream:to_map() return self:collect_map() end
-function Stream:totable() return self:collect_array() end
-function Stream:tomap() return self:collect_map() end
-function Stream:describe() return stream.describe(self) end
+function Gps:unwrap() return self.gen, self.param, self.state end
+function Gps:values() return gps.values(self.gen, self.param, self.state) end
+function Gps:each(fn) return gps.each(fn, self.gen, self.param, self.state) end
+function Gps:map(fn) return gps.map(fn, self.gen, self.param, self.state) end
+function Gps:tap(fn) return gps.tap(fn, self.gen, self.param, self.state) end
+function Gps:filter(fn) return gps.filter(fn, self.gen, self.param, self.state) end
+function Gps:filter_map(fn) return gps.filter_map(fn, self.gen, self.param, self.state) end
+function Gps:flatmap(fn) return gps.flatmap(fn, self.gen, self.param, self.state) end
+function Gps:take(n) return gps.take(n, self.gen, self.param, self.state) end
+function Gps:drop(n) return gps.drop(n, self.gen, self.param, self.state) end
+function Gps:enumerate() return gps.enumerate(self.gen, self.param, self.state) end
+function Gps:fold(fn, acc) return gps.fold(fn, acc, self.gen, self.param, self.state) end
+function Gps:collect_array() return gps.collect_array(self.gen, self.param, self.state) end
+function Gps:collect_map() return gps.collect_map(self.gen, self.param, self.state) end
+function Gps:to_array() return self:collect_array() end
+function Gps:to_map() return self:collect_map() end
+function Gps:totable() return self:collect_array() end
+function Gps:tomap() return self:collect_map() end
+function Gps:describe() return gps.describe(self) end
 
-stream.Stream = Stream
+gps.Gps = Gps
 
-stream.op = {}
-local function stream_op(tag, spec)
+gps.op = {}
+local function gps_op(tag, spec)
   spec = shallow_copy(spec or {})
-  spec.__llb_tag = "StreamOp"
+  spec.__llb_tag = "GpsOp"
   spec.tag = tag
-  spec.origin = spec.origin or source.capture("stream-op", { hint = tag })
+  spec.origin = spec.origin or source.capture("gps-op", { hint = tag })
   return spec
 end
-function stream.op.map(fn) return stream_op("map", { fn = fn }) end
-function stream.op.tap(fn) return stream_op("tap", { fn = fn }) end
-function stream.op.filter(fn) return stream_op("filter", { fn = fn }) end
-function stream.op.filter_map(fn) return stream_op("filter_map", { fn = fn }) end
-function stream.op.flatmap(fn) return stream_op("flatmap", { fn = fn }) end
-function stream.op.take(n) return stream_op("take", { n = n }) end
-function stream.op.drop(n) return stream_op("drop", { n = n }) end
-function stream.op.enumerate() return stream_op("enumerate", {}) end
-function stream.op.chain(...) return stream_op("chain", { streams = pack(...) }) end
-function stream.op.zip(...) return stream_op("zip", { streams = pack(...) }) end
+function gps.op.map(fn) return gps_op("map", { fn = fn }) end
+function gps.op.tap(fn) return gps_op("tap", { fn = fn }) end
+function gps.op.filter(fn) return gps_op("filter", { fn = fn }) end
+function gps.op.filter_map(fn) return gps_op("filter_map", { fn = fn }) end
+function gps.op.flatmap(fn) return gps_op("flatmap", { fn = fn }) end
+function gps.op.take(n) return gps_op("take", { n = n }) end
+function gps.op.drop(n) return gps_op("drop", { n = n }) end
+function gps.op.enumerate() return gps_op("enumerate", {}) end
+function gps.op.chain(...) return gps_op("chain", { sources = pack(...) }) end
+function gps.op.zip(...) return gps_op("zip", { sources = pack(...) }) end
 
-local function stream_apply_op(op, gen, param, state)
-  if not stream_op_is(op) then llb.fail("stream plan expected StreamOp, got " .. repr(op), { code = "E_STREAM_PLAN_OP", primary = origin_of(op) }, 2) end
+local function gps_apply_op(op, gen, param, state)
+  if not gps_op_is(op) then llb.fail("gps plan expected GpsOp, got " .. repr(op), { code = "E_GPS_PLAN_OP", primary = origin_of(op) }, 2) end
   local tag = op.tag
-  if tag == "map" then return stream.raw(stream.map(op.fn, gen, param, state)) end
-  if tag == "tap" then return stream.raw(stream.tap(op.fn, gen, param, state)) end
-  if tag == "filter" then return stream.raw(stream.filter(op.fn, gen, param, state)) end
-  if tag == "filter_map" then return stream.raw(stream.filter_map(op.fn, gen, param, state)) end
-  if tag == "flatmap" then return stream.raw(stream.flatmap(op.fn, gen, param, state)) end
-  if tag == "take" then return stream.raw(stream.take(op.n, gen, param, state)) end
-  if tag == "drop" then return stream.raw(stream.drop(op.n, gen, param, state)) end
-  if tag == "enumerate" then return stream.raw(stream.enumerate(gen, param, state)) end
+  if tag == "map" then return gps.raw(gps.map(op.fn, gen, param, state)) end
+  if tag == "tap" then return gps.raw(gps.tap(op.fn, gen, param, state)) end
+  if tag == "filter" then return gps.raw(gps.filter(op.fn, gen, param, state)) end
+  if tag == "filter_map" then return gps.raw(gps.filter_map(op.fn, gen, param, state)) end
+  if tag == "flatmap" then return gps.raw(gps.flatmap(op.fn, gen, param, state)) end
+  if tag == "take" then return gps.raw(gps.take(op.n, gen, param, state)) end
+  if tag == "drop" then return gps.raw(gps.drop(op.n, gen, param, state)) end
+  if tag == "enumerate" then return gps.raw(gps.enumerate(gen, param, state)) end
   if tag == "chain" then
-    local cur = stream.wrap(gen, param, state)
+    local cur = gps.wrap(gen, param, state)
     local xs = { cur }
-    for i = 1, op.streams.n do xs[#xs + 1] = op.streams[i] end
-    return stream.raw(stream.chain(unpack(xs, 1, #xs)))
+    for i = 1, op.sources.n do xs[#xs + 1] = op.sources[i] end
+    return gps.raw(gps.chain(unpack(xs, 1, #xs)))
   end
   if tag == "zip" then
-    local cur = stream.wrap(gen, param, state)
+    local cur = gps.wrap(gen, param, state)
     local xs = { cur }
-    for i = 1, op.streams.n do xs[#xs + 1] = op.streams[i] end
-    return stream.raw(stream.zip(unpack(xs, 1, #xs)))
+    for i = 1, op.sources.n do xs[#xs + 1] = op.sources[i] end
+    return gps.raw(gps.zip(unpack(xs, 1, #xs)))
   end
-  llb.fail("unknown stream op " .. tostring(tag), { code = "E_STREAM_OP", primary = op.origin }, 2)
+  llb.fail("unknown gps op " .. tostring(tag), { code = "E_GPS_OP", primary = op.origin }, 2)
 end
 
-function stream.plan(spec)
-  if stream_plan_is(spec) then return spec end
+function gps.plan(spec)
+  if gps_plan_is(spec) then return spec end
   spec = spec or {}
   local ops = {}
   for i = 1, #(spec.ops or spec) do
     local op = (spec.ops or spec)[i]
-    if not stream_op_is(op) then llb.fail("stream plan op #" .. tostring(i) .. " is not a StreamOp", { code = "E_STREAM_PLAN_OP", primary = origin_of(op) }, 2) end
+    if not gps_op_is(op) then llb.fail("gps plan op #" .. tostring(i) .. " is not a GpsOp", { code = "E_GPS_PLAN_OP", primary = origin_of(op) }, 2) end
     ops[#ops + 1] = op
   end
   return setmetatable({
-    __llb_tag = "StreamPlan",
-    name = spec.name or "stream-plan",
-    source = spec.source or stream.spec.empty(),
+    __llb_tag = "GpsPlan",
+    name = spec.name or "gps-plan",
+    source = spec.source or gps.spec.empty(),
     ops = ops,
-    sink = spec.sink,
+    protocol = llb.protocol_name(spec.protocol) or "pull",
+    region = spec.region,
+    materializer = spec.materializer,
     metadata = spec.metadata,
-    origin = spec.origin or source.capture("stream-plan", { hint = spec.name or "stream" }),
-  }, StreamPlan)
+    origin = spec.origin or source.capture("gps-plan", { hint = spec.name or "gps" }),
+  }, GpsPlan)
 end
 
-function stream.interpret(plan)
-  plan = stream.plan(plan)
-  local gen, param, state = stream.raw(plan.source)
+function gps.interpret(plan)
+  plan = gps.plan(plan)
+  local gen, param, state = gps.raw(plan.source)
   for i = 1, #(plan.ops or {}) do
-    gen, param, state = stream_apply_op(plan.ops[i], gen, param, state)
+    gen, param, state = gps_apply_op(plan.ops[i], gen, param, state)
   end
-  return stream.wrap(gen, param, state, { kind = "plan", plan = plan, backend = "interpret" })
+  return gps.wrap(gen, param, state, { kind = "plan", plan = plan, backend = "interpret" })
 end
 
-function stream.fuse(plan)
+function gps.fuse(plan)
   -- Reference fusion pass. It currently preserves semantics by interpreting the
   -- plan graph through raw machine primitives. The explicit object exists so
   -- future passes can collapse adjacent maps/filters without changing callers.
-  local s0 = stream.interpret(plan)
+  local s0 = gps.interpret(plan)
   s0.meta.backend = "fuse"
   return s0, s0.param, s0.state
 end
 
-local function stream_compile_array_plan(plan, opts)
+local function gps_compile_array_plan(plan, opts)
   opts = opts or {}
   local src = plan.source
-  if not stream_source_is(src) or src.kind ~= "array" then return nil, "source is not a stream.spec.array spec" end
+  if not gps_source_is(src) or src.kind ~= "array" then return nil, "source is not a gps.spec.array spec" end
   local ops = plan.ops or {}
   for i = 1, #ops do
     local tag = ops[i].tag
@@ -1424,86 +2061,94 @@ local function stream_compile_array_plan(plan, opts)
   lines[#lines + 1] = "  end"
   lines[#lines + 1] = "end"
   local src_code = table.concat(lines, "\n")
-  local source_name = "@llb.codegen/stream/" .. tostring(plan.name or "array")
+  local source_name = "@llb.codegen/gps/" .. tostring(plan.name or "array")
   local chunk, err = compile_lua(src_code, source_name)
   if not chunk then return nil, err, src_code end
   local ok, gen_or_err = pcall(chunk)
   if not ok then return nil, gen_or_err, src_code end
   llb.codegen.register(gen_or_err, {
-    id = "llb.stream." .. tostring(plan.name or "array"),
-    kind = "stream",
+    id = "llb.gps." .. tostring(plan.name or "array"),
+    kind = "gps",
     mode = "fast",
     source_name = source_name,
     source_text = src_code,
     line_map = {
-      [1] = { kind = "stream-entry", plan = plan.name },
-      [3] = { kind = "stream-source", source = "array" },
+      [1] = { kind = "gps-entry", plan = plan.name },
+      [3] = { kind = "gps-source", source = "array" },
     },
     origin = plan.origin,
     generated = true,
   })
   local init_state = { 0 }
   for i = 1, counter_count do init_state[i + 1] = 0 end
-  local s0 = stream.wrap(gen_or_err, param, init_state, { kind = "compiled-plan", plan = plan, backend = "array-codegen", source = src_code })
+  local s0 = gps.wrap(gen_or_err, param, init_state, { kind = "compiled-plan", plan = plan, backend = "array-codegen", source = src_code })
   return s0
 end
 
-function stream.compile(plan, opts)
+function gps.compile(plan, opts)
   opts = opts or {}
-  plan = stream.plan(plan)
-  if opts.codegen == false then return stream.fuse(plan) end
-  local s0, err, src_code = stream_compile_array_plan(plan, opts)
+  plan = gps.plan(plan)
+  if opts.codegen == false then return gps.fuse(plan) end
+  local s0, err, src_code = gps_compile_array_plan(plan, opts)
   if s0 then return s0, s0.param, s0.state end
   if opts.strict then
-    llb.fail("stream plan " .. tostring(plan.name) .. " cannot be codegenerated: " .. tostring(err), {
-      code = "E_STREAM_CODEGEN",
+    llb.fail("gps plan " .. tostring(plan.name) .. " cannot be codegenerated: " .. tostring(err), {
+      code = "E_GPS_CODEGEN",
       primary = plan.origin,
       notes = src_code and { src_code } or nil,
     }, 2)
   end
-  local fallback = stream.fuse(plan)
+  local fallback = gps.fuse(plan)
   fallback.meta.backend = "fallback-fuse"
   fallback.meta.codegen_error = err
   return fallback, fallback.param, fallback.state
 end
 
-function stream.run(plan, opts)
-  plan = stream.plan(plan)
-  local s0 = stream.compile(plan, opts)
-  local gen, param, state = stream.raw(s0)
-  return stream_apply_sink(plan.sink, gen, param, state)
+function gps.run(plan, opts)
+  plan = gps.plan(plan)
+  local s0 = gps.compile(plan, opts)
+  local gen, param, state = gps.raw(s0)
+  return gps_apply_materializer(plan.materializer, gen, param, state)
 end
 
-function StreamPlan:run(opts) return stream.run(self, opts) end
-function StreamPlan:interpret() return stream.interpret(self) end
-function StreamPlan:fuse() return stream.fuse(self) end
-function StreamPlan:compile(opts) return stream.compile(self, opts) end
-function StreamPlan:describe() return stream.describe(self) end
+function GpsPlan:run(opts) return gps.run(self, opts) end
+function GpsPlan:interpret() return gps.interpret(self) end
+function GpsPlan:fuse() return gps.fuse(self) end
+function GpsPlan:compile(opts) return gps.compile(self, opts) end
+function GpsPlan:describe() return gps.describe(self) end
 
-function stream.describe(v)
-  if stream_is(v) then
-    return { tag = "Stream", kind = v.meta and v.meta.kind, backend = v.meta and v.meta.backend, origin = v.meta and v.meta.origin }
+function gps.describe(v)
+  if gps_is(v) then
+    return { tag = "Gps", kind = v.meta and v.meta.kind, backend = v.meta and v.meta.backend, origin = v.meta and v.meta.origin }
   end
-  if stream_source_is(v) then
-    return { tag = "StreamSource", kind = v.kind, origin = v.origin }
+  if gps_source_is(v) then
+    return { tag = "GpsSource", kind = v.kind, origin = v.origin }
   end
-  if stream_op_is(v) then
-    return { tag = "StreamOp", op = v.tag, origin = v.origin }
+  if gps_op_is(v) then
+    return { tag = "GpsOp", op = v.tag, origin = v.origin }
   end
-  if stream_plan_is(v) then
+  if gps_plan_is(v) then
     local ops = {}
     for i = 1, #(v.ops or {}) do ops[i] = v.ops[i].tag end
-    return { tag = "StreamPlan", name = v.name, source = stream.describe(v.source), ops = ops, origin = v.origin }
+    return {
+      tag = "GpsPlan",
+      name = v.name,
+      protocol = v.protocol,
+      region = is_tag(v.region, "Region") and v.region.id or v.region,
+      source = gps.describe(v.source),
+      ops = ops,
+      origin = v.origin,
+    }
   end
   return nil
 end
 
-stream.StreamPlan = StreamPlan
+gps.GpsPlan = GpsPlan
 
 -- Process adapters. These helpers are defined here, but the process section
 -- below installs the actual ProcessHandle implementation.
-function stream.process_events(gen, param, state)
-  gen, param, state = stream.raw(gen, param, state)
+function gps.process_events(gen, param, state)
+  gen, param, state = gps.raw(gen, param, state)
   return function()
     local r = pack(gen(param, state))
     if r[1] == nil then return nil end
@@ -1511,31 +2156,32 @@ function stream.process_events(gen, param, state)
     return unpack(r, 2, r.n)
   end
 end
-stream.events = stream.process_events
+gps.events = gps.process_events
 
 
-stream._is_stream = stream_is
-stream._is_source = stream_source_is
-stream._is_op = stream_op_is
-stream._is_plan = stream_plan_is
-llb.Stream = Stream
-llb.StreamPlan = StreamPlan
+gps._is_gps = gps_is
+gps._is_source = gps_source_is
+gps._is_op = gps_op_is
+gps._is_plan = gps_plan_is
+llb.Gps = Gps
+llb.GpsPlan = GpsPlan
 end
 
 do
-local stream = llb.stream
-local stream_plan_is = stream._is_plan
+local gps = llb.gps
+local gps_plan_is = gps._is_plan
 
 -- ---------------------------------------------------------------------------
 -- Processes: GPS-backed resumable protocols
 -- ---------------------------------------------------------------------------
 --
 -- Processes are LLB's operation model. Every process handle runs as a
--- gen,param,state machine. Process definitions provide a `stream` function or a
--- stream plan; there is no coroutine execution path.
+-- gen,param,state machine. Process definitions provide a semantic `region`
+-- factory or a GPS plan; there is no coroutine execution path.
 
-local Process, ProcessStage, ProcessHandle, ProcessContext = {}, {}, {}, {}
+local Process, ProcessStage, ProcessInputStage, ProcessHandle, ProcessContext = {}, {}, {}, {}, {}
 Process.__index = Process
+ProcessInputStage.__index = ProcessInputStage
 ProcessHandle.__index = ProcessHandle
 
 local function process_event(ctx, kind, payload, origin)
@@ -1627,9 +2273,9 @@ function ProcessContextMethods:cancelled()
   return self.handle.cancelled and true or false
 end
 
-function ProcessContextMethods:stream(source0, ops)
-  local plan = stream_plan_is(source0) and source0 or stream.plan { source = source0, ops = ops or {} }
-  return stream.compile(plan)
+function ProcessContextMethods:gps(source0, ops)
+  local plan = gps_plan_is(source0) and source0 or gps.plan { source = source0, ops = ops or {} }
+  return gps.compile(plan)
 end
 
 ProcessContext.__index = function(ctx, key)
@@ -1655,25 +2301,74 @@ local function process_context(handle)
 end
 
 local function normalize_process_spec(name, body, origin)
-  if type(body) == "function" then body = { stream = body } end
-  local has_stream_plan = stream_plan_is(body)
-  if has_stream_plan then body = { plan = body } end
+  if is_tag(body, "Region") then body = { region_descriptor = body } end
+  local has_region_plan = gps_plan_is(body)
+  if has_region_plan then body = { plan = body } end
   if type(body) ~= "table" then
-    llb.fail("process " .. tostring(name) .. " expects a stream function or stream plan", { code = "E_BAD_PROCESS", primary = origin })
+    llb.fail("process " .. tostring(name) .. " expects a Region or GPS plan", { code = "E_BAD_PROCESS", primary = origin })
   end
-  local has_stream = type(body.stream) == "function" or stream_plan_is(body.plan) or body.plan ~= nil
-  if not has_stream then
-    llb.fail("process " .. tostring(name) .. " expects a stream function or stream plan", { code = "E_BAD_PROCESS", primary = origin })
+  if is_tag(body.region, "Region") and body.region_descriptor == nil then
+    body.region_descriptor = body.region
+    body.region = nil
+  end
+  local has_region = is_tag(body.region_descriptor, "Region") or gps_plan_is(body.plan) or body.plan ~= nil
+  if not has_region then
+    llb.fail("process " .. tostring(name) .. " expects a Region or GPS plan", { code = "E_BAD_PROCESS", primary = origin })
+  end
+  local process_name = tostring(name)
+  local region_descriptor = body.region_descriptor or body.descriptor
+  if region_descriptor == nil then
+    local region_body = body.plan ~= nil and gps.plan(body.plan) or body.plan
+    region_descriptor = llb.region("llb.process." .. process_name)["process"] { "context", "args" } (region_body)
+    region_descriptor.body_kind = "gps-plan"
+    region_descriptor.origin = origin or region_descriptor.origin
+    if region_descriptor.materializers.events == nil then
+      region_descriptor:materializer("events", { kind = "process-events", origin = origin })
+    end
   end
   return setmetatable({
     __llb_tag = "Process",
-    name = tostring(name),
-    stream = body.stream,
+    name = process_name,
+    region = body.region,
     plan = body.plan,
+    region_descriptor = region_descriptor,
     backend = "gps",
     spec = body,
     origin = origin or source.capture("process", { hint = name }),
   }, Process)
+end
+
+local function is_process_definition_spec(body)
+  return type(body) == "table" and (
+    is_tag(body, "Region")
+    or gps_plan_is(body)
+    or rawget(body, "region") ~= nil
+    or rawget(body, "region_descriptor") ~= nil
+    or rawget(body, "descriptor") ~= nil
+    or rawget(body, "plan") ~= nil
+  )
+end
+
+local function normalize_process_inputs(inputs)
+  if inputs == nil then inputs = {}
+  elseif type(inputs) ~= "table" then inputs = { inputs }
+  else inputs = shallow_copy(inputs) end
+  local out = { "ctx" }
+  if inputs[1] == "ctx" or inputs[1] == "context" then
+    out = {}
+  end
+  for i = 1, #inputs do out[#out + 1] = inputs[i] end
+  return out
+end
+
+local function process_region_from_body(name, inputs, body, origin)
+  local r = llb.region("llb.process." .. tostring(name))["process"] (normalize_process_inputs(inputs)) (body)
+  r.body_kind = "process-region"
+  r.origin = origin or r.origin
+  if r.materializers.events == nil then
+    r:materializer("events", { kind = "process-events", origin = origin })
+  end
+  return r
 end
 
 local function process_take_opts(args)
@@ -1686,31 +2381,31 @@ local function process_take_opts(args)
   return opts
 end
 
-local function process_stream_raw(h, ctx, opts)
+local function process_region_raw(h, ctx, opts)
   local p = h.process
   local made
-  if type(p.stream) == "function" then
-    made = pack(p.stream(ctx, unpack(h.args, 1, h.args.n)))
-  elseif stream_plan_is(p.plan) then
+  if is_tag(p.region_descriptor, "Region") then
+    made = pack(p.region_descriptor:gps(ctx, unpack(h.args, 1, h.args.n)))
+  elseif gps_plan_is(p.plan) then
     made = pack(p.plan)
   elseif p.plan ~= nil then
-    made = pack(stream.plan(p.plan))
+    made = pack(gps.plan(p.plan))
   else
-    llb.fail("process " .. tostring(p.name) .. " has no stream backend", { code = "E_PROCESS_NO_STREAM", primary = p.origin }, 2)
+    llb.fail("process " .. tostring(p.name) .. " has no region/GPS backend", { code = "E_PROCESS_NO_GPS", primary = p.origin }, 2)
   end
 
   local first = made[1]
   local gen, param, state
-  if stream_plan_is(first) then
-    local compiled = (opts.codegen == false) and stream.fuse(first) or stream.compile(first, opts.stream or opts)
-    gen, param, state = stream.raw(compiled)
-  elseif type(first) ~= "function" and not is_tag(first, "Stream") and not stream._is_source(first) then
-    llb.fail("process " .. tostring(p.name) .. " stream factory must return gen,param,state, Stream, StreamSource, or StreamPlan", {
-      code = "E_PROCESS_STREAM",
+  if gps_plan_is(first) then
+    local compiled = (opts.codegen == false) and gps.fuse(first) or gps.compile(first, opts.region or opts)
+    gen, param, state = gps.raw(compiled)
+  elseif type(first) ~= "function" and not is_tag(first, "Gps") and not gps._is_source(first) then
+    llb.fail("process " .. tostring(p.name) .. " region factory must return gen,param,state, Gps, GpsSource, or GpsPlan", {
+      code = "E_PROCESS_GPS",
       primary = p.origin,
     }, 2)
   else
-    gen, param, state = stream.raw(unpack(made, 1, made.n))
+    gen, param, state = gps.raw(unpack(made, 1, made.n))
   end
   return gen, param, state
 end
@@ -1733,12 +2428,12 @@ function Process:start(...)
   }, ProcessHandle)
   local ctx = process_context(h)
   h.context = ctx
-  local ok, g, p0, s0 = pcall(process_stream_raw, h, ctx, opts)
+  local ok, g, p0, s0 = pcall(process_region_raw, h, ctx, opts)
   if not ok then
     h.status_value = "failed"
     h.error_value = g
   else
-    h.stream_gen, h.stream_param, h.stream_state = g, p0, s0
+    h.gps_gen, h.gps_param, h.gps_state = g, p0, s0
   end
   return h
 end
@@ -1756,7 +2451,7 @@ function ProcessHandle:resume(opts)
   end
 
   self.status_value = "running"
-  local ok, next_state, a, b, c, d, e = pcall(self.stream_gen, self.stream_param, self.stream_state)
+  local ok, next_state, a, b, c, d, e = pcall(self.gps_gen, self.gps_param, self.gps_state)
   if not ok then
     self.status_value = "failed"
     self.error_value = next_state
@@ -1766,7 +2461,7 @@ function ProcessHandle:resume(opts)
     self.status_value = "done"
     return nil
   end
-  self.stream_state = next_state
+  self.gps_state = next_state
   if self.budget ~= nil then self.budget = self.budget - 1 end
   self.status_value = "suspended"
   local ev = process_payload_event(self.context, a, b, c, d, e)
@@ -1790,13 +2485,13 @@ function ProcessHandle:failed() return self.status_value == "failed" end
 function ProcessHandle:error() return self.error_value end
 function ProcessHandle:result() return self.result_value end
 function ProcessHandle:cancel() self.cancelled = true end
-function ProcessHandle:stream()
+function ProcessHandle:gps()
   local function gen(param, state)
     local ev = param:resume()
     if ev == nil then return nil end
     return true, ev
   end
-  return stream.wrap(gen, self, true, { kind = "process-handle", process = self.process.name })
+  return gps.wrap(gen, self, true, { kind = "process-handle", process = self.process.name })
 end
 
 function Process:each(...)
@@ -1813,10 +2508,27 @@ ProcessFactory.__index = function(_, key)
   return setmetatable({ __llb_tag = "ProcessStage", name = tostring(key), origin = source.capture("process", { hint = key }) }, ProcessStage)
 end
 ProcessFactory.__call = function(_, name, body)
+  if body == nil then
+    return setmetatable({ __llb_tag = "ProcessStage", name = tostring(name), origin = source.capture("process", { hint = name }) }, ProcessStage)
+  end
   return normalize_process_spec(name, body, source.capture("process", { hint = name }))
 end
 ProcessStage.__call = function(self, body)
+  if type(body) == "table" and not is_process_definition_spec(body) then
+    return setmetatable({
+      __llb_tag = "ProcessInputStage",
+      name = self.name,
+      inputs = body,
+      origin = self.origin,
+    }, ProcessInputStage)
+  end
   local p = normalize_process_spec(self.name, body, self.origin)
+  llb.processes[p.name] = p
+  return p
+end
+ProcessInputStage.__call = function(self, body)
+  local descriptor = process_region_from_body(self.name, self.inputs, body, self.origin)
+  local p = normalize_process_spec(self.name, descriptor, self.origin)
   llb.processes[p.name] = p
   return p
 end
@@ -1835,7 +2547,8 @@ function llb.describe_process(process)
     name = process.name,
     origin = process.origin,
     backend = process.backend,
-    has_stream = type(process.stream) == "function" or process.plan ~= nil,
+    region = llb.describe_region(process.region_descriptor),
+    has_region = is_tag(process.region_descriptor, "Region") or process.plan ~= nil,
   }
 end
 
@@ -2435,95 +3148,6 @@ FamilyBundle.__tostring = function(self) return "llb.family_bundle(" .. tostring
 function Zone:describe() return llb.describe_zone(self) end
 function FamilyBundle:describe() return llb.describe_family_bundle(self) end
 
-local Protocol = {}
-Protocol.__index = Protocol
-llb.protocols = {}
-
--- Protocols are public metadata for behavior families. They do not rely on Lua
--- metatable inheritance, because Lua metamethods must live on the immediate
--- metatable. A protocol manufactures/validates/describes those immediate
--- metatables instead.
-local operator_metamethod = {
-  concat = "__concat",
-  choice = "__add",
-  decorate = "__mul",
-  len = "__len",
-  tostring = "__tostring",
-  call = "__call",
-  index = "__index",
-  newindex = "__newindex",
-}
-
-function llb.protocol(name, spec)
-  spec = spec or {}
-  local p = setmetatable({
-    __llb_tag = "Protocol",
-    name = tostring(name),
-    spec = spec,
-    origin = spec.origin or source.capture("protocol", { hint = name }),
-  }, Protocol)
-  llb.protocols[p.name] = p
-  return p
-end
-
-function Protocol:metatable(fields)
-  fields = fields or {}
-  local mt = {}
-  for k, v in pairs(self.spec.metatable or {}) do mt[k] = v end
-  for k, v in pairs(self.spec.metamethods or {}) do mt[k] = v end
-  for op, fn in pairs(self.spec.operators or {}) do
-    local mm = operator_metamethod[op] or op
-    if type(mm) == "string" and mm:sub(1, 2) ~= "__" then mm = "__" .. mm end
-    mt[mm] = fn
-  end
-  for k, v in pairs(fields) do mt[k] = v end
-  mt.__llb_protocol = self
-  return mt
-end
-
-function llb.validate_protocol(protocol)
-  if type(protocol) == "string" then protocol = llb.protocols[protocol] end
-  if not is_tag(protocol, "Protocol") then
-    llb.fail("expected LLB protocol", { code = "E_EXPECTED_PROTOCOL", primary = origin_of(protocol) })
-  end
-  local mt = protocol:metatable()
-  for k, v in pairs(mt) do
-    if type(k) == "string" and k:sub(1, 2) == "__" and k ~= "__llb_protocol" and type(v) ~= "function" and k ~= "__index" then
-      llb.fail("protocol " .. tostring(protocol.name) .. " installs non-function metamethod " .. tostring(k), {
-        code = "E_BAD_PROTOCOL_METAMETHOD",
-        primary = protocol.origin,
-      })
-    end
-  end
-  return true
-end
-
-function llb.describe_metatable(mt)
-  local out = { tag = "Metatable", metamethods = {}, keys = {} }
-  if type(mt) ~= "table" then out.kind = type(mt); return out end
-  local p = rawget(mt, "__llb_protocol")
-  out.protocol = p and p.name or nil
-  for _, k in ipairs(sorted_keys(mt)) do
-    if type(k) == "string" and k:sub(1, 2) == "__" then out.metamethods[#out.metamethods + 1] = k
-    else out.keys[#out.keys + 1] = k end
-  end
-  return out
-end
-
-function llb.describe_protocol(protocol)
-  if type(protocol) == "string" then protocol = llb.protocols[protocol] end
-  if not is_tag(protocol, "Protocol") then return nil end
-  local spec = protocol.spec or {}
-  return {
-    tag = "Protocol",
-    name = protocol.name,
-    operators = sorted_keys(spec.operators or {}),
-    metamethods = sorted_keys(spec.metamethods or spec.metatable or {}),
-    origin = protocol.origin,
-  }
-end
-
-llb.Protocol = Protocol
 llb.protocol("fragment", {
   operators = {
     concat = llb.concat,
@@ -2670,7 +3294,7 @@ llb.grammar = setmetatable({
 -- which channel they accept; roles decide how to interpret the value delivered
 -- through that channel. This is the central replacement for parser productions.
 
-local normalize_role, normalize_expr, role_stream, collect_role, spread_stream
+local normalize_role, normalize_expr, role_region, collect_role, spread_region
 
 local function norm_name(ctx, v)
   if is_tag(v, "Name") then return v end
@@ -2730,14 +3354,14 @@ local function role_context(ctx, role_name, spec)
   return subctx
 end
 
-local function stream_single_value(gen, param, state)
+local function gps_single_value(gen, param, state)
   local r = pack(gen(param, state))
   if r[1] == nil then return nil end
   return r[2]
 end
 
-local function append_stream_payloads(out, n, gen, param, state)
-  gen, param, state = llb.stream.raw(gen, param, state)
+local function append_gps_payloads(out, n, gen, param, state)
+  gen, param, state = llb.gps.raw(gen, param, state)
   while true do
     local r = pack(gen(param, state))
     if r[1] == nil then return n end
@@ -2747,12 +3371,12 @@ local function append_stream_payloads(out, n, gen, param, state)
   end
 end
 
-local function collect_role_stream(kind, gen, param, state)
-  if kind == "record" then return llb.stream.collect.map(gen, param, state) end
+local function collect_role_region(kind, gen, param, state)
+  if kind == "record" then return llb.gps.collect.map(gen, param, state) end
   if kind == "array" or kind == "product" or kind == "sum" or kind == "protocol" then
-    return llb.stream.collect.array(gen, param, state)
+    return llb.gps.collect.array(gen, param, state)
   end
-  return stream_single_value(gen, param, state)
+  return gps_single_value(gen, param, state)
 end
 
 local function ensure_table_for_role(ctx, role_name, code, label, v)
@@ -2762,7 +3386,7 @@ local function ensure_table_for_role(ctx, role_name, code, label, v)
 end
 
 local function role_array_gen(param, state)
-  state = state or { upstream_state = param.upstream_state }
+  state = state or { source_state = param.source_state }
   while true do
     if state.inner_gen then
       local r = pack(state.inner_gen(state.inner_param, state.inner_state))
@@ -2773,11 +3397,11 @@ local function role_array_gen(param, state)
       state.inner_gen, state.inner_param, state.inner_state = nil, nil, nil
     end
 
-    local next_state, item = param.upstream_gen(param.upstream_param, state.upstream_state)
+    local next_state, item = param.source_gen(param.source_param, state.source_state)
     if next_state == nil then return nil end
-    state.upstream_state = next_state
+    state.source_state = next_state
     if is_tag(item, "Spread") then
-      state.inner_gen, state.inner_param, state.inner_state = spread_stream(param.ctx, param.role_name, item)
+      state.inner_gen, state.inner_param, state.inner_state = spread_region(param.ctx, param.role_name, item)
     elseif param.item_role then
       return state, collect_role(param.ctx, param.item_role, item)
     else
@@ -2787,9 +3411,9 @@ local function role_array_gen(param, state)
 end
 
 local function role_record_gen(param, state)
-  state = state or param.upstream_state
+  state = state or param.source_state
   while true do
-    local next_state, k, v = param.upstream_gen(param.upstream_param, state)
+    local next_state, k, v = param.source_gen(param.source_param, state)
     if next_state == nil then return nil end
     state = next_state
     if type(k) ~= "number" then
@@ -2810,7 +3434,7 @@ local function check_product_field_unique(param, seen, f)
 end
 
 local function role_product_gen(param, state)
-  state = state or { upstream_state = param.upstream_state, seen = {} }
+  state = state or { source_state = param.source_state, seen = {} }
   while true do
     if state.inner_gen then
       local r = pack(state.inner_gen(state.inner_param, state.inner_state))
@@ -2823,11 +3447,11 @@ local function role_product_gen(param, state)
       state.inner_gen, state.inner_param, state.inner_state = nil, nil, nil
     end
 
-    local next_state, item = param.upstream_gen(param.upstream_param, state.upstream_state)
+    local next_state, item = param.source_gen(param.source_param, state.source_state)
     if next_state == nil then return nil end
-    state.upstream_state = next_state
+    state.source_state = next_state
     if is_tag(item, "Spread") then
-      state.inner_gen, state.inner_param, state.inner_state = spread_stream(param.ctx, param.role_name, item)
+      state.inner_gen, state.inner_param, state.inner_state = spread_region(param.ctx, param.role_name, item)
     elseif is_tag(item, "Capture") then
       if not is_tag(item.subject, "Symbol") then llb.fail("product capture subject must be a symbol", { primary = item.origin }) end
       local f = { tag = "field", name = item.subject.text, type = collect_role(param.ctx, param.type_role, item.value), origin = item.origin }
@@ -2861,7 +3485,7 @@ local function check_sum_variant_unique(seen, name, origin)
 end
 
 local function role_sum_gen(param, state)
-  state = state or { upstream_state = param.upstream_state, seen = {} }
+  state = state or { source_state = param.source_state, seen = {} }
   while true do
     if state.inner_gen then
       local r = pack(state.inner_gen(state.inner_param, state.inner_state))
@@ -2874,11 +3498,11 @@ local function role_sum_gen(param, state)
       state.inner_gen, state.inner_param, state.inner_state = nil, nil, nil
     end
 
-    local next_state, item = param.upstream_gen(param.upstream_param, state.upstream_state)
+    local next_state, item = param.source_gen(param.source_param, state.source_state)
     if next_state == nil then return nil end
-    state.upstream_state = next_state
+    state.source_state = next_state
     if is_tag(item, "Spread") then
-      state.inner_gen, state.inner_param, state.inner_state = spread_stream(param.ctx, param.role_name, item)
+      state.inner_gen, state.inner_param, state.inner_state = spread_region(param.ctx, param.role_name, item)
     elseif is_tag(item, "Symbol") or is_tag(item, "Name") then
       check_sum_variant_unique(state.seen, item.text, item.origin)
       return state, { tag = "variant", name = item.text, payload = nil, origin = item.origin }
@@ -2897,96 +3521,102 @@ local function role_sum_gen(param, state)
   end
 end
 
-local function array_role_stream(ctx, role_name, spec, v)
+local function array_role_region(ctx, role_name, spec, v)
   ensure_table_for_role(ctx, role_name, "E_EXPECTED_TABLE", "table for " .. role_name .. " role", v)
-  local gen, param, state = llb.stream.raw(llb.stream.from.array(v))
-  return llb.stream.raw(llb.stream.wrap(role_array_gen, {
+  local gen, param, state = llb.gps.raw(llb.gps.from.array(v))
+  return llb.gps.raw(llb.gps.wrap(role_array_gen, {
     ctx = ctx,
     role_name = role_name,
     item_role = spec.item_role or spec.item,
-    upstream_gen = gen,
-    upstream_param = param,
-    upstream_state = state,
+    source_gen = gen,
+    source_param = param,
+    source_state = state,
   }, nil, { kind = "role:array", role = role_name }))
 end
 
-local function record_role_stream(ctx, role_name, spec, v)
+local function record_role_region(ctx, role_name, spec, v)
   ensure_table_for_role(ctx, role_name, "E_EXPECTED_RECORD", "record table", v)
-  local gen, param, state = llb.stream.raw(llb.stream.from.record(v))
-  return llb.stream.raw(llb.stream.wrap(role_record_gen, {
+  local gen, param, state = llb.gps.raw(llb.gps.from.record(v))
+  return llb.gps.raw(llb.gps.wrap(role_record_gen, {
     ctx = ctx,
     role_name = role_name,
     value_role = spec.value_role or spec.value,
-    upstream_gen = gen,
-    upstream_param = param,
-    upstream_state = state,
+    source_gen = gen,
+    source_param = param,
+    source_state = state,
   }, nil, { kind = "role:record", role = role_name }))
 end
 
-local function product_role_stream(ctx, role_name, spec, v)
+local function product_role_region(ctx, role_name, spec, v)
   ensure_table_for_role(ctx, role_name, "E_EXPECTED_PRODUCT", "product table", v)
   local unique = spec.unique_names
   if unique == nil then unique = true end
-  local gen, param, state = llb.stream.raw(llb.stream.from.array(v))
-  return llb.stream.raw(llb.stream.wrap(role_product_gen, {
+  local gen, param, state = llb.gps.raw(llb.gps.from.array(v))
+  return llb.gps.raw(llb.gps.wrap(role_product_gen, {
     ctx = ctx,
     role_name = role_name,
     type_role = spec.type_role or "type",
     unique = unique,
-    upstream_gen = gen,
-    upstream_param = param,
-    upstream_state = state,
+    source_gen = gen,
+    source_param = param,
+    source_state = state,
   }, nil, { kind = "role:product", role = role_name }))
 end
 
-local function sum_role_stream(ctx, role_name, spec, v)
+local function sum_role_region(ctx, role_name, spec, v)
   ensure_table_for_role(ctx, role_name, "E_EXPECTED_SUM", "sum/protocol table", v)
-  local gen, param, state = llb.stream.raw(llb.stream.from.array(v))
-  return llb.stream.raw(llb.stream.wrap(role_sum_gen, {
+  local gen, param, state = llb.gps.raw(llb.gps.from.array(v))
+  return llb.gps.raw(llb.gps.wrap(role_sum_gen, {
     ctx = ctx,
     role_name = role_name,
     payload_role = spec.payload_role or "product",
-    upstream_gen = gen,
-    upstream_param = param,
-    upstream_state = state,
+    source_gen = gen,
+    source_param = param,
+    source_state = state,
   }, nil, { kind = "role:sum", role = role_name }))
 end
 
-local function role_stream_by_spec(ctx, role_name, spec, v)
+local function role_region_by_spec(ctx, role_name, spec, v)
   local kind = spec.kind or role_name
-  if spec.stream then return llb.stream.raw(spec.stream(ctx.lang, ctx, v)) end
-  if kind == "name" then return llb.stream.raw(llb.stream.once(norm_name(ctx, v))) end
-  if kind == "type" then return llb.stream.raw(llb.stream.once(norm_type(ctx, v))) end
-  if kind == "expr" then return llb.stream.raw(llb.stream.once(normalize_expr(ctx, v))) end
-  if kind == "array" then return array_role_stream(ctx, role_name, spec, v) end
-  if kind == "record" then return record_role_stream(ctx, role_name, spec, v) end
-  if kind == "product" then return product_role_stream(ctx, role_name, spec, v) end
-  if kind == "sum" or kind == "protocol" then return sum_role_stream(ctx, role_name, spec, v) end
-  if kind == "mixed" then return llb.stream.raw(llb.stream.once({
-    array = collect_role_stream("array", array_role_stream(ctx, role_name, spec, v)),
-    record = collect_role_stream("record", record_role_stream(ctx, role_name, spec, v)),
+  if spec.region then
+    if is_tag(spec.region, "Region") then return spec.region:gps(ctx.lang, ctx, v) end
+    llb.fail("role " .. tostring(role_name) .. " custom region must be an LLB Region descriptor", {
+      code = "E_ROLE_REGION_DESCRIPTOR",
+      primary = spec.origin or origin_of(spec.region),
+    }, 2)
+  end
+  if kind == "name" then return llb.gps.raw(llb.gps.once(norm_name(ctx, v))) end
+  if kind == "type" then return llb.gps.raw(llb.gps.once(norm_type(ctx, v))) end
+  if kind == "expr" then return llb.gps.raw(llb.gps.once(normalize_expr(ctx, v))) end
+  if kind == "array" then return array_role_region(ctx, role_name, spec, v) end
+  if kind == "record" then return record_role_region(ctx, role_name, spec, v) end
+  if kind == "product" then return product_role_region(ctx, role_name, spec, v) end
+  if kind == "sum" or kind == "protocol" then return sum_role_region(ctx, role_name, spec, v) end
+  if kind == "mixed" then return llb.gps.raw(llb.gps.once({
+    array = collect_role_region("array", array_role_region(ctx, role_name, spec, v)),
+    record = collect_role_region("record", record_role_region(ctx, role_name, spec, v)),
   })) end
   if kind == "string" then
     if type(v) ~= "string" then llb.fail("expected string", { primary = ctx.origin }) end
-    return llb.stream.raw(llb.stream.once(v))
+    return llb.gps.raw(llb.gps.once(v))
   end
   if kind == "number" then
     if type(v) ~= "number" then llb.fail("expected number", { primary = ctx.origin }) end
-    return llb.stream.raw(llb.stream.once(v))
+    return llb.gps.raw(llb.gps.once(v))
   end
   if kind == "boolean" then
     if type(v) ~= "boolean" then llb.fail("expected boolean", { primary = ctx.origin }) end
-    return llb.stream.raw(llb.stream.once(v))
+    return llb.gps.raw(llb.gps.once(v))
   end
-  if kind == "value" or kind == "identity" then return llb.stream.raw(llb.stream.once(v)) end
+  if kind == "value" or kind == "identity" then return llb.gps.raw(llb.gps.once(v)) end
   llb.fail("unknown role kind " .. tostring(kind), { primary = ctx.origin, code = "E_UNKNOWN_ROLE_KIND" })
 end
 
-local function role_stream_reflective(ctx, role_name, v)
+local function role_region_reflective(ctx, role_name, v)
   ctx = ctx or {}
   local lang = ctx.lang
   local spec = (lang and lang.roles and lang.roles[role_name]) or {}
-  return role_stream_by_spec(role_context(ctx, role_name, spec), role_name, spec, v)
+  return role_region_by_spec(role_context(ctx, role_name, spec), role_name, spec, v)
 end
 
 local function collect_role_reflective(ctx, role_name, v)
@@ -2996,19 +3626,19 @@ local function collect_role_reflective(ctx, role_name, v)
   local kind = spec.kind or role_name
   local subctx = role_context(ctx, role_name, spec)
   local out
-  if kind == "mixed" and not spec.stream then
+  if kind == "mixed" and not spec.region then
     out = {
-      array = collect_role_stream("array", array_role_stream(subctx, role_name, spec, v)),
-      record = collect_role_stream("record", record_role_stream(subctx, role_name, spec, v)),
+      array = collect_role_region("array", array_role_region(subctx, role_name, spec, v)),
+      record = collect_role_region("record", record_role_region(subctx, role_name, spec, v)),
     }
   else
-    out = collect_role_stream(kind, role_stream_by_spec(subctx, role_name, spec, v))
+    out = collect_role_region(kind, role_region_by_spec(subctx, role_name, spec, v))
   end
   if spec.check then spec.check(subctx, out, v) end
   return out
 end
 
-spread_stream = function(ctx, role_name, spread)
+spread_region = function(ctx, role_name, spread)
   if not is_tag(spread, "Spread") then
     llb.fail("expected spread value", { primary = origin_of(spread) or (ctx and ctx.origin), code = "E_EXPECTED_SPREAD" })
   end
@@ -3021,30 +3651,30 @@ spread_stream = function(ctx, role_name, spread)
         labels = { { origin = v.origin, message = "fragment created here as role " .. tostring(v.role) } },
       })
     end
-    return llb.stream.raw(llb.stream.from.array(v.items or {}))
+    return llb.gps.raw(llb.gps.from.array(v.items or {}))
   end
-  if type(v) == "table" then return role_stream(ctx, role_name, v) end
+  if type(v) == "table" then return role_region(ctx, role_name, v) end
   llb.fail("cannot spread value " .. repr(v), { primary = spread.origin, code = "E_BAD_SPREAD" })
 end
 
 local function expand_spread(ctx, role_name, out, spread)
-  append_stream_payloads(out, #(out or {}), spread_stream(ctx, role_name, spread))
+  append_gps_payloads(out, #(out or {}), spread_region(ctx, role_name, spread))
 end
 
 local function norm_array(ctx, role_name, spec, v)
-  return collect_role_stream("array", array_role_stream(ctx, role_name, spec, v))
+  return collect_role_region("array", array_role_region(ctx, role_name, spec, v))
 end
 
 local function norm_record(ctx, role_name, spec, v)
-  return collect_role_stream("record", record_role_stream(ctx, role_name, spec, v))
+  return collect_role_region("record", record_role_region(ctx, role_name, spec, v))
 end
 
 local function norm_product(ctx, role_name, spec, v)
-  return collect_role_stream("product", product_role_stream(ctx, role_name, spec, v))
+  return collect_role_region("product", product_role_region(ctx, role_name, spec, v))
 end
 
 local function norm_sum(ctx, role_name, spec, v)
-  return collect_role_stream(spec.kind or role_name, sum_role_stream(ctx, role_name, spec, v))
+  return collect_role_region(spec.kind or role_name, sum_role_region(ctx, role_name, spec, v))
 end
 
 local RoleMachine = {}
@@ -3055,24 +3685,39 @@ local SpreadMachine = {}
 SpreadMachine.__index = SpreadMachine
 SpreadMachine.__call = function(self, ctx, out, n, spread) return self.append(ctx, out, n, spread) end
 
+local function role_protocol_for_kind(kind)
+  kind = tostring(kind or "value")
+  if kind == "array" or kind == "record" or kind == "product" or kind == "sum" or kind == "mixed" then
+    return "role_items"
+  end
+  return "role_value"
+end
+
 local function compile_spread_expander(lang, role_name, spec)
   spec = spec or {}
-  local function stream_fn(ctx, spread)
-    return spread_stream(role_context(ctx, role_name, spec), role_name, spread)
+  local function region_fn(ctx, spread)
+    return spread_region(role_context(ctx, role_name, spec), role_name, spread)
   end
   local function append_fn(ctx, out, n, spread)
     out = out or {}
     n = n or #out
-    return append_stream_payloads(out, n, stream_fn(ctx, spread))
+    return append_gps_payloads(out, n, region_fn(ctx, spread))
+  end
+  local descriptor = llb.region(tostring(lang.name) .. ".spread." .. tostring(role_name))["role_items"] { "ctx", "spread" } (region_fn)
+  descriptor.body_kind = "spread-expander"
+  descriptor.origin = spec.origin or descriptor.origin
+  if descriptor.materializers.append == nil then
+    descriptor:materializer("append", { kind = "append-payloads", body = append_fn, origin = spec.origin })
   end
   local machine = setmetatable({
     __llb_tag = "SpreadMachine",
     lang = lang,
     role = role_name,
     role_kind = spec.kind or role_name,
-    stream = llb.codegen.register(stream_fn, {
-      id = tostring(lang.name) .. ".spread." .. tostring(role_name) .. ".stream",
-      kind = "spread-stream",
+    descriptor = descriptor,
+    region = llb.codegen.register(region_fn, {
+      id = tostring(lang.name) .. ".spread." .. tostring(role_name) .. ".region",
+      kind = "spread-region",
       language = lang.name,
       role = role_name,
       role_kind = spec.kind or role_name,
@@ -3082,7 +3727,7 @@ local function compile_spread_expander(lang, role_name, spec)
     }),
     append = llb.codegen.register(append_fn, {
       id = tostring(lang.name) .. ".spread." .. tostring(role_name) .. ".append",
-      kind = "spread-sink",
+      kind = "spread-materializer",
       language = lang.name,
       role = role_name,
       role_kind = spec.kind or role_name,
@@ -3104,29 +3749,29 @@ local function compile_spread_expander(lang, role_name, spec)
   })
 end
 
-local function compile_role_streamer(lang, role_name, spec)
+local function compile_role_region(lang, role_name, spec)
   spec = spec or {}
   return function(ctx, value)
     local subctx = role_context(ctx, role_name, spec)
     subctx.lang = subctx.lang or lang
-    return role_stream_by_spec(subctx, role_name, spec, value)
+    return role_region_by_spec(subctx, role_name, spec, value)
   end
 end
 
-local function compile_role_collector(lang, role_name, spec, stream_fn)
+local function compile_role_collector(lang, role_name, spec, region_fn)
   spec = spec or {}
   local kind = spec.kind or role_name
   return function(ctx, value)
     local subctx = role_context(ctx, role_name, spec)
     subctx.lang = subctx.lang or lang
     local out
-    if kind == "mixed" and not spec.stream then
+    if kind == "mixed" and not spec.region then
       out = {
-        array = collect_role_stream("array", array_role_stream(subctx, role_name, spec, value)),
-        record = collect_role_stream("record", record_role_stream(subctx, role_name, spec, value)),
+        array = collect_role_region("array", array_role_region(subctx, role_name, spec, value)),
+        record = collect_role_region("record", record_role_region(subctx, role_name, spec, value)),
       }
     else
-      out = collect_role_stream(kind, stream_fn(subctx, value))
+      out = collect_role_region(kind, region_fn(subctx, value))
     end
     if spec.check then spec.check(subctx, out, value) end
     return out
@@ -3135,36 +3780,54 @@ end
 
 local function compile_role_normalizer(lang, role_name, spec)
   spec = spec or {}
-  local stream_fn = compile_role_streamer(lang, role_name, spec)
-  local collect_fn = compile_role_collector(lang, role_name, spec, stream_fn)
+  local region_fn = compile_role_region(lang, role_name, spec)
+  local collect_fn = compile_role_collector(lang, role_name, spec, region_fn)
+  local role_kind_name = spec.kind or role_name
+  local descriptor
+  if is_tag(spec.region, "Region") then
+    descriptor = spec.region
+    if descriptor.materializers.collect == nil then
+      descriptor:materializer("collect", { kind = "role-collector", body = collect_fn, origin = spec.origin })
+    end
+  else
+    descriptor = llb.role_region(tostring(lang.name) .. ".role." .. tostring(role_name))[role_protocol_for_kind(role_kind_name)] (function(_, ctx, value)
+      return region_fn(ctx, value)
+    end)
+    descriptor.body_kind = "role-normalizer"
+    descriptor.origin = spec.origin or descriptor.origin
+    if descriptor.materializers.collect == nil then
+      descriptor:materializer("collect", { kind = "role-collector", body = collect_fn, origin = spec.origin })
+    end
+  end
   local machine = setmetatable({
     __llb_tag = "RoleMachine",
     lang = lang,
     role = role_name,
-    role_kind = spec.kind or role_name,
-    stream = llb.codegen.register(stream_fn, {
-      id = tostring(lang.name) .. ".role." .. tostring(role_name) .. ".stream",
-      kind = "role-stream",
+    role_kind = role_kind_name,
+    descriptor = descriptor,
+    region = llb.codegen.register(region_fn, {
+      id = tostring(lang.name) .. ".role." .. tostring(role_name) .. ".region",
+      kind = "role-region",
       language = lang.name,
       role = role_name,
-      role_kind = spec.kind or role_name,
+      role_kind = role_kind_name,
       mode = "fast",
       origin = spec.origin,
-      reflective = role_stream_reflective,
+      reflective = role_region_reflective,
       generated = false,
     }),
     collect = llb.codegen.register(collect_fn, {
       id = tostring(lang.name) .. ".role." .. tostring(role_name) .. ".collect",
-      kind = "role-sink",
+      kind = "role-materializer",
       language = lang.name,
       role = role_name,
-      role_kind = spec.kind or role_name,
+      role_kind = role_kind_name,
       mode = "fast",
       origin = spec.origin,
       reflective = normalize_role_reflective,
       generated = false,
     }),
-    meta = { language = lang.name, role = role_name, role_kind = spec.kind or role_name, origin = spec.origin },
+    meta = { language = lang.name, role = role_name, role_kind = role_kind_name, origin = spec.origin },
   }, RoleMachine)
   return llb.codegen.register(machine, {
     id = tostring(lang.name) .. ".role." .. tostring(role_name),
@@ -3182,13 +3845,13 @@ end
 return {
   compile_spread_expander = compile_spread_expander,
   compile_role_normalizer = compile_role_normalizer,
-  role_stream_reflective = role_stream_reflective,
+  role_region_reflective = role_region_reflective,
   collect_role_reflective = collect_role_reflective,
-  spread_stream = spread_stream,
+  spread_region = spread_region,
 }
 end)()
 
-spread_stream = role_ops.spread_stream
+spread_region = role_ops.spread_region
 
 function llb.codegen.compile_language(lang, opts)
   opts = opts or {}
@@ -3199,7 +3862,7 @@ function llb.codegen.compile_language(lang, opts)
     roles = {},
     spreads = {},
     metadata = {
-      kind = "stream-codegen",
+      kind = "gps-codegen",
       diagnostics = "reflective-replay",
       source = "trusted-grammar",
     },
@@ -3218,15 +3881,15 @@ normalize_role_reflective = function(ctx, role_name, v)
   return role_ops.collect_role_reflective(ctx, role_name, v)
 end
 
-role_stream = function(ctx, role_name, v)
+role_region = function(ctx, role_name, v)
   ctx = ctx or {}
   local lang = ctx.lang
   local compiled = lang and lang.compiled
   local role_machine = compiled and compiled.roles and compiled.roles[role_name]
-  if role_machine and role_machine.stream and ctx.codegen ~= false and ctx.reflective ~= true then
-    return role_machine.stream(ctx, v)
+  if role_machine and role_machine.region and ctx.codegen ~= false and ctx.reflective ~= true then
+    return role_machine.region(ctx, v)
   end
-  return role_ops.role_stream_reflective(ctx, role_name, v)
+  return role_ops.role_region_reflective(ctx, role_name, v)
 end
 
 collect_role = function(ctx, role_name, v)
@@ -3241,9 +3904,9 @@ collect_role = function(ctx, role_name, v)
 end
 
 normalize_role = collect_role
-llb.role_stream = role_stream
+llb.role_gps = role_region
 llb.collect_role = collect_role
-llb.spread_stream = spread_stream
+llb.spread_region = spread_region
 llb.normalize_role, llb.normalize_expr = normalize_role, normalize_expr
 
 local function stage_missing_slots(stage)
@@ -3456,17 +4119,17 @@ local function head_origin(h)
   return rawget(h, "origin") or source.capture("head", { hint = h.spec.name })
 end
 local function start_stage(h) return setmetatable({ __llb_tag = "Stage", lang = h.lang, head = h.spec, raw = {}, origins = {}, events = {}, seen = {}, next_index = 1, origin = head_origin(h) }, RuntimeStage) end
-local function head_event_stream_gen(param, state)
-  state = state or { stage = param.start(), upstream_state = param.upstream_state }
+local function head_event_region_gen(param, state)
+  state = state or { stage = param.start(), source_state = param.source_state }
   if state.done then return nil end
   while true do
-    local next_state, event = param.upstream_gen(param.upstream_param, state.upstream_state)
+    local next_state, event = param.source_gen(param.source_param, state.source_state)
     if next_state == nil then
       local out = param.finish(state.stage)
       state.done = true
       return state, out
     end
-    state.upstream_state = next_state
+    state.source_state = next_state
     local out = param.consume(state.stage, event)
     if is_tag(out, "Stage") then
       state.stage = out
@@ -3476,13 +4139,13 @@ local function head_event_stream_gen(param, state)
     end
   end
 end
-local function head_event_stream(head, events, param, state, start_fn, consume_fn, finish_fn, kind)
-  local gen, p0, s0 = llb.stream.raw(events, param, state)
-  return llb.stream.raw(llb.stream.wrap(head_event_stream_gen, {
+local function head_event_region(head, events, param, state, start_fn, consume_fn, finish_fn, kind)
+  local gen, p0, s0 = llb.gps.raw(events, param, state)
+  return llb.gps.raw(llb.gps.wrap(head_event_region_gen, {
     head = head,
-    upstream_gen = gen,
-    upstream_param = p0,
-    upstream_state = s0,
+    source_gen = gen,
+    source_param = p0,
+    source_state = s0,
     start = function() return start_fn(head) end,
     consume = consume_fn,
     finish = finish_fn,
@@ -3536,22 +4199,22 @@ function RuntimeHead:at(origin)
   return setmetatable({ __llb_tag = "HeadAt", head = self, origin = origin }, HeadAt)
 end
 
-function RuntimeHead:event_stream(events, param, state)
-  return head_event_stream(self, events, param, state, start_stage, consume_event, build_stage, "head:reflective")
+function RuntimeHead:event_region(events, param, state)
+  return head_event_region(self, events, param, state, start_stage, consume_event, build_stage, "head:reflective")
 end
 
 function RuntimeHead:collect_events(events, param, state)
-  local gen, p0, s0 = self:event_stream(events, param, state)
+  local gen, p0, s0 = self:event_region(events, param, state)
   local next_state, value = gen(p0, s0)
   if next_state == nil then return nil end
   return value
 end
 
-function llb.head_event_stream(head, events, param, state)
-  if type(head) == "table" and type(head.event_stream) == "function" then
-    return head:event_stream(events, param, state)
+function llb.head_event_region(head, events, param, state)
+  if type(head) == "table" and type(head.event_region) == "function" then
+    return head:event_region(events, param, state)
   end
-  llb.fail("llb.head_event_stream expects an LLB head", { primary = origin_of(head), code = "E_EXPECTED_HEAD" }, 2)
+  llb.fail("llb.head_event_region expects an LLB head", { primary = origin_of(head), code = "E_EXPECTED_HEAD" }, 2)
 end
 
 function llb.collect_head_events(head, events, param, state)
@@ -3674,12 +4337,12 @@ local function compiled_start_stage(h)
   }, CompiledStage)
 end
 
-function CompiledHead:event_stream(events, param, state)
-  return head_event_stream(self, events, param, state, compiled_start_stage, compiled_consume_event, compiled_build_stage, "head:compiled")
+function CompiledHead:event_region(events, param, state)
+  return head_event_region(self, events, param, state, compiled_start_stage, compiled_consume_event, compiled_build_stage, "head:compiled")
 end
 
 function CompiledHead:collect_events(events, param, state)
-  local gen, p0, s0 = self:event_stream(events, param, state)
+  local gen, p0, s0 = self:event_region(events, param, state)
   local next_state, value = gen(p0, s0)
   if next_state == nil then return nil end
   return value
@@ -3947,6 +4610,8 @@ local function helper_exports()
     N = llb.N,
     spread = llb.spread,
     _ = llb.spread,
+    region = llb.region,
+    role_region = llb.role_region,
     process = llb.process,
     process_opts = llb.process_opts,
     here = llb.here,
@@ -4015,9 +4680,10 @@ local function llb_core_member()
         "diagnostics",
         "family-composition",
         "fragments",
+        "generic-region",
         "namespaces",
         "origins",
-        "stream-vm",
+        "gps-vm",
       },
     },
   }
@@ -4357,7 +5023,7 @@ local function family_define(name, spec)
   family.load = function(src, chunkname, opts) return Family.loadstring(family, src, chunkname, opts)() end
   family.loadfile = function(path, opts) return Family.loadfile(family, path, opts) end
   family.describe = function() return Family.describe(family) end
-  family.format_stream = function(value, opts) return Family.format_stream(family, value, opts) end
+  family.format_region = function(value, opts) return Family.format_region(family, value, opts) end
   family.format = function(value, opts) return Family.format(family, value, opts) end
   family.format_doc = function(value, opts) return Family.format_doc(family, value, opts) end
   family.diagnostics = function(value, opts) return Family.diagnostics(family, value, opts) end
@@ -4512,7 +5178,7 @@ local function is_array_table(t)
   return true
 end
 
-local family_stream_ops = (function()
+local family_region_ops = (function()
 local function push_value(stack, value)
   if value ~= nil then stack[#stack + 1] = value end
 end
@@ -4526,7 +5192,7 @@ local function push_table_children(stack, value)
   for i = #value, 1, -1 do push_value(stack, value[i]) end
 end
 
-local function zone_stream_gen(param, state)
+local function zone_region_gen(param, state)
   state = state or { stack = { param.value } }
   local stack = state.stack
   while #stack > 0 do
@@ -4546,8 +5212,8 @@ local function zone_stream_gen(param, state)
   return nil
 end
 
-local function zone_stream(family, value, member_name)
-  return llb.stream.raw(llb.stream.wrap(zone_stream_gen, {
+local function zone_region(family, value, member_name)
+  return llb.gps.raw(llb.gps.wrap(zone_region_gen, {
     family = family,
     value = value,
     member_name = member_name,
@@ -4567,7 +5233,7 @@ local function push_diagnostic_result(buffer, result)
   end
 end
 
-local function diagnostic_stream_gen(param, state)
+local function diagnostic_region_gen(param, state)
   state = state or { member_index = 1, buffer = {}, buffer_index = 1 }
   while true do
     if state.buffer_index <= #state.buffer then
@@ -4599,8 +5265,8 @@ local function diagnostic_stream_gen(param, state)
   end
 end
 
-local function diagnostic_stream(family, value, opts)
-  return llb.stream.raw(llb.stream.wrap(diagnostic_stream_gen, {
+local function diagnostic_region(family, value, opts)
+  return llb.gps.raw(llb.gps.wrap(diagnostic_region_gen, {
     family = family,
     value = value,
     opts = opts or {},
@@ -4614,7 +5280,7 @@ local function push_index_result(buffer, result)
   for i = 1, #(result.diagnostics or {}) do buffer[#buffer + 1] = { kind = "diagnostic", value = result.diagnostics[i] } end
 end
 
-local function index_stream_gen(param, state)
+local function index_region_gen(param, state)
   state = state or {
     phase = "zones",
     zone_gen = nil,
@@ -4625,7 +5291,7 @@ local function index_stream_gen(param, state)
     buffer_index = 1,
   }
   if state.phase == "zones" and state.zone_gen == nil then
-    state.zone_gen, state.zone_param, state.zone_state = zone_stream(param.family, param.value)
+    state.zone_gen, state.zone_param, state.zone_state = zone_region(param.family, param.value)
   end
   while true do
     if state.buffer_index <= #state.buffer then
@@ -4663,33 +5329,33 @@ local function index_stream_gen(param, state)
   end
 end
 
-local function index_stream(family, value, opts)
-  return llb.stream.raw(llb.stream.wrap(index_stream_gen, {
+local function index_region(family, value, opts)
+  return llb.gps.raw(llb.gps.wrap(index_region_gen, {
     family = family,
     value = value,
     opts = opts or {},
   }, nil, { kind = "family:index", family = family.name }))
 end
 
-return { zone_stream = zone_stream, diagnostic_stream = diagnostic_stream, index_stream = index_stream }
+return { zone_region = zone_region, diagnostic_region = diagnostic_region, index_region = index_region }
 end)()
 
-function Family:zone_stream(value, member_name)
-  return family_stream_ops.zone_stream(self, value, member_name)
+function Family:zone_region(value, member_name)
+  return family_region_ops.zone_region(self, value, member_name)
 end
 
 function Family:owned_zones(value, member_name, out)
   out = out or {}
-  llb.stream.each(function(z) out[#out + 1] = z end, self:zone_stream(value, member_name))
+  llb.gps.each(function(z) out[#out + 1] = z end, self:zone_region(value, member_name))
   return out
 end
 
-function Family:diagnostic_stream(value, opts)
-  return family_stream_ops.diagnostic_stream(self, value, opts)
+function Family:diagnostic_region(value, opts)
+  return family_region_ops.diagnostic_region(self, value, opts)
 end
 
-function Family:index_stream(value, opts)
-  return family_stream_ops.index_stream(self, value, opts)
+function Family:index_region(value, opts)
+  return family_region_ops.index_region(self, value, opts)
 end
 
 local function indent_text(text, indent)
@@ -4746,18 +5412,18 @@ function Family:format_doc(value, opts)
   return llb.doc.text(Family.format(self, value, opts))
 end
 
-local function family_format_stream_gen(param, state)
+local function family_format_region_gen(param, state)
   if state ~= nil then return nil end
   local format_opts = shallow_copy(param.opts or {})
   format_opts.__family_seen = nil
   return true, family_format_value(param.family, param.value, format_opts)
 end
 
-function Family:format_stream(value, opts)
+function Family:format_region(value, opts)
   -- Unified family formatting. The family walks the value and lets member
   -- languages format values they own. This keeps cross-language files coherent
   -- without forcing each language to know about every other language.
-  return llb.stream.raw(llb.stream.wrap(family_format_stream_gen, {
+  return llb.gps.raw(llb.gps.wrap(family_format_region_gen, {
     family = self,
     value = value,
     opts = opts or {},
@@ -4766,14 +5432,14 @@ end
 
 function Family:format(value, opts)
   local chunks = {}
-  llb.stream.each(function(chunk) chunks[#chunks + 1] = chunk end, Family.format_stream(self, value, opts))
+  llb.gps.each(function(chunk) chunks[#chunks + 1] = chunk end, Family.format_region(self, value, opts))
   return table.concat(chunks)
 end
 
 function Family:diagnostics(value, opts)
   opts = opts or {}
   local bag = opts.diagnostics or llb.diagnostics()
-  llb.stream.each(function(d) bag:add(d) end, self:diagnostic_stream(value, opts))
+  llb.gps.each(function(d) bag:add(d) end, self:diagnostic_region(value, opts))
   return bag
 end
 
@@ -4787,12 +5453,12 @@ function Family:index(value, opts)
     hovers = {},
     diagnostics = {},
   }
-  llb.stream.each(function(ev)
+  llb.gps.each(function(ev)
     if ev.kind == "zone" then index.zones[#index.zones + 1] = ev.value
     elseif ev.kind == "symbol" then index.symbols[#index.symbols + 1] = ev.value
     elseif ev.kind == "hover" then index.hovers[#index.hovers + 1] = ev.value
     elseif ev.kind == "diagnostic" then index.diagnostics[#index.diagnostics + 1] = ev.value end
-  end, self:index_stream(value, opts))
+  end, self:index_region(value, opts))
   return index
 end
 
@@ -4948,6 +5614,7 @@ function llb_core_markdown(_, opts)
   out[#out + 1] = ""
   out[#out + 1] = "- `llb`: the singleton workbench API for origins, diagnostics, fragments, families, formatting, and markdown."
   out[#out + 1] = "- `_` / `spread`: splice a role-shaped fragment into a surrounding role."
+  out[#out + 1] = "- `region`: generic LLB control-machine descriptor head; member languages consume/lower it."
   out[#out + 1] = "- `N`: explicit generated-name factory for metaprogrammed symbols."
   out[#out + 1] = "- `here`, `at_origin`, `with_origin`: provenance helpers for Lua factories."
   out[#out + 1] = ""
@@ -5375,7 +6042,8 @@ function llb.describe_role(lang, name)
       item_role = spec.item_role or spec.item,
       payload_role = spec.payload_role or spec.payload,
       unique_names = spec.unique_names,
-      has_stream = type(spec.stream) == "function",
+      region = is_tag(spec.region, "Region") and llb.describe_region(spec.region) or nil,
+      has_region = is_tag(spec.region, "Region"),
       has_check = type(spec.check) == "function",
       has_format = type(spec.format) == "function",
       origin = spec.origin,
@@ -5495,15 +6163,17 @@ function llb.describe(value)
   end
   if is_tag(value, "Event") then return llb.describe_event(value) end
   if is_tag(value, "Process") then return llb.describe_process(value) end
-  if is_tag(value, "Stream") and value.describe then return value:describe() end
-  if is_tag(value, "StreamPlan") and value.describe then return value:describe() end
-  if is_tag(value, "Stream") or is_tag(value, "StreamPlan") or is_tag(value, "StreamSource") or is_tag(value, "StreamOp") then return llb.stream.describe(value) end
+  if is_tag(value, "Gps") and value.describe then return value:describe() end
+  if is_tag(value, "GpsPlan") and value.describe then return value:describe() end
+  if is_tag(value, "Gps") or is_tag(value, "GpsPlan") or is_tag(value, "GpsSource") or is_tag(value, "GpsOp") then return llb.gps.describe(value) end
   if is_tag(value, "ProcessEvent") then return { tag = "ProcessEvent", process = value.process, kind = value.kind, seq = value.seq, origin = value.origin } end
   if is_tag(value, "Fragment") then return llb.describe_fragment(value) end
   if is_tag(value, "Zone") then return llb.describe_zone(value) end
   if is_tag(value, "FamilyBundle") then return llb.describe_family_bundle(value) end
   if is_tag(value, "Namespace") then return llb.describe_namespace(value) end
+  if is_tag(value, "Exit") then return llb.describe_exit(value) end
   if is_tag(value, "Protocol") then return llb.describe_protocol(value) end
+  if is_tag(value, "Region") then return llb.describe_region(value) end
   if is_tag(value, "UseSession") and value.describe then return value:describe() end
   if is_tag(value, "Head") then return llb.describe_head(value.lang, value.spec and value.spec.name) end
   if is_tag(value, "Node") then
@@ -5736,11 +6406,11 @@ local function render_doc(d, state, flat)
   end
 end
 
-local function render_stream_push(stack, frame)
+local function render_region_push(stack, frame)
   stack[#stack + 1] = frame
 end
 
-local function render_stream_gen(param, state)
+local function render_region_gen(param, state)
   state = state or {
     stack = {
       {
@@ -5778,25 +6448,25 @@ local function render_stream_gen(param, state)
     elseif k == "concat" then
       local parts = d.parts or {}
       for i = #parts, 1, -1 do
-        render_stream_push(stack, { doc = parts[i], flat = flat, indent = indent })
+        render_region_push(stack, { doc = parts[i], flat = flat, indent = indent })
       end
     elseif k == "indent" then
-      render_stream_push(stack, {
+      render_region_push(stack, {
         doc = d.doc,
         flat = flat,
         indent = indent + (d.amount or param.indent_width),
       })
     elseif k == "group" then
       local next_flat = flat or (state.col + flat_len(d.doc) <= param.width)
-      render_stream_push(stack, { doc = d.doc, flat = next_flat, indent = indent })
+      render_region_push(stack, { doc = d.doc, flat = next_flat, indent = indent })
     end
   end
   return nil
 end
 
-function llb.render_stream(d, opts)
+function llb.render_region(d, opts)
   opts = opts or {}
-  return llb.stream.raw(llb.stream.wrap(render_stream_gen, {
+  return llb.gps.raw(llb.gps.wrap(render_region_gen, {
     doc = d,
     width = opts.width or 100,
     base_indent = opts.base_indent or 0,
@@ -5807,7 +6477,7 @@ end
 function llb.render(d, opts)
   opts = opts or {}
   local chunks = {}
-  llb.stream.each(function(chunk) chunks[#chunks + 1] = chunk end, llb.render_stream(d, opts))
+  llb.gps.each(function(chunk) chunks[#chunks + 1] = chunk end, llb.render_region(d, opts))
   return table.concat(chunks)
 end
 
@@ -6003,15 +6673,15 @@ function llb.format_doc(value, opts)
   return llb.to_doc(value, format_context(opts or {}))
 end
 
-function llb.format_stream(value, opts)
+function llb.format_region(value, opts)
   opts = opts or {}
-  return llb.render_stream(llb.format_doc(value, opts), opts)
+  return llb.render_region(llb.format_doc(value, opts), opts)
 end
 
 function llb.format(value, opts)
   opts = opts or {}
   local chunks = {}
-  llb.stream.each(function(chunk) chunks[#chunks + 1] = chunk end, llb.format_stream(value, opts))
+  llb.gps.each(function(chunk) chunks[#chunks + 1] = chunk end, llb.format_region(value, opts))
   return table.concat(chunks)
 end
 
@@ -6021,10 +6691,10 @@ function Language:format_doc(value, opts)
   return llb.format_doc(value, opts)
 end
 
-function Language:format_stream(value, opts)
+function Language:format_region(value, opts)
   opts = shallow_copy(opts or {})
   opts.lang = opts.lang or self
-  return llb.format_stream(value, opts)
+  return llb.format_region(value, opts)
 end
 
 function Language:format(value, opts)
@@ -6039,10 +6709,10 @@ function Analysis:format_doc(opts)
   return llb.format_doc(self.ast, opts)
 end
 
-function Analysis:format_stream(opts)
+function Analysis:format_region(opts)
   opts = shallow_copy(opts or {})
   opts.lang = opts.lang or self.lang
-  return llb.format_stream(self.ast, opts)
+  return llb.format_region(self.ast, opts)
 end
 
 function Analysis:format(opts)

@@ -341,7 +341,7 @@ function Debugger:process(commands)
     return M.process:start(self, commands or {})
 end
 
-M.process = llb.process. debugger (function(ctx, debugger, commands)
+local function debugger_process_body(ctx, debugger, commands)
     commands = commands or { "init", "start" }
     local function command_event(param, command)
         local debugger0 = param.debugger
@@ -422,6 +422,8 @@ M.process = llb.process. debugger (function(ctx, debugger, commands)
     end
 
     return gen, { ctx = ctx, debugger = debugger, commands = commands }, { phase = "state", index = 1 }
-end)
+end
+
+M.process = llb.process. debugger { "debugger", "commands" } (debugger_process_body)
 
 return M

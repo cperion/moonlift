@@ -117,7 +117,52 @@ local source = Backend.emit_lua_artifact(lj_module, artifacts, { bank = bank })
 local compiled = Backend.compile_lj_module(lj_module, artifacts, { bank = bank })
 ```
 
-The lower-level API deliberately requires an explicit `BinaryStencilBank` for realization. This keeps the internal seam honest: selected artifacts are not executable until a target-specific bank has been built or supplied.
+The copy-patch provider deliberately requires an explicit `BinaryStencilBank`
+for realization. This keeps the internal seam honest: selected C artifacts are
+not executable until a target-specific bank has been built or supplied.
+
+The same LuaJIT module path can also realize selected stencil artifacts through
+the descriptor-level LuaTrace provider:
+
+```lua
+local compiled = Backend.compile_module(code_module, {
+  stencil_provider = "lua_trace",
+})
+```
+
+That path installs Lua functions in the same
+`__moonlift_luajit_stencil_symbols` table used by copy-patch FFI functions.
+The wrapper ASDL does not change; only the stencil provider changes.
+
+LuaTrace is also a standalone source artifact provider:
+
+```lua
+local artifact = Backend.emit_module_artifact(code_module, {
+  stencil_provider = "lua_trace",
+})
+```
+
+The emitted artifact contains named LuaJIT stencil loops, not native binary
+stencil bytes. LuaTrace has its own provider-local trace plan. It consumes
+`StencilScheduleAutoVector`, `StencilScheduleUnrolled`, and
+`StencilScheduleVector` as LuaJIT trace shaping: facts, `factor`, `lanes`,
+`unroll`, and `interleave` change grouping and branch shape in the emitted Lua
+loop, but this is not SIMD. Real SIMD vector semantics belong to the C/copy-patch
+provider, where the selected stencil is compiled by the host C compiler and
+installed as executable code.
+
+```lua
+local function ml_stencil_reduce_array_i32_add_to_i32_s1(xs, start, stop, init)
+  local acc = init
+  for i = start, stop - 1, 1 do
+    acc = __ml_tobit(((acc) + (xs[i])))
+  end
+  return acc
+end
+
+__moonlift_luajit_stencil_symbols["ml_stencil_reduce_array_i32_add_to_i32_s1"] =
+  ml_stencil_reduce_array_i32_add_to_i32_s1
+```
 
 ## Executable plan seam
 

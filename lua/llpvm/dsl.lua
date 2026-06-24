@@ -1,4 +1,5 @@
 local llb = require("llb")
+local role_region_head = llb.role_region
 local bytecode = require("llpvm.bytecode")
 local ffi = require("ffi")
 
@@ -164,8 +165,8 @@ local function array_items_gen(param, state)
     end
 end
 
-local function array_items_stream(t, kind)
-    return llb.stream.raw(llb.stream.wrap(array_items_gen, { value = t or {} }, nil, { kind = kind or "llpvm:items" }))
+local function array_items_region(t, kind)
+    return llb.gps.raw(llb.gps.wrap(array_items_gen, { value = t or {} }, nil, { kind = kind or "llpvm:items" }))
 end
 
 local function fields_from_table(t)
@@ -204,19 +205,19 @@ local function field_from_item(v)
     else die("field list expects entries like name [Type]", llb.origin_of(v)) end
 end
 
-local function fields_stream_gen(param, state)
-    state = state or param.upstream_state
-    local next_state, item = param.upstream_gen(param.upstream_param, state)
+local function fields_region_gen(param, state)
+    state = state or param.source_state
+    local next_state, item = param.source_gen(param.source_param, state)
     if next_state == nil then return nil end
     return next_state, field_from_item(item)
 end
 
-local function fields_stream(t)
-    local gen, param, state = array_items_stream(t or {}, "llpvm:field-source")
-    return llb.stream.raw(llb.stream.wrap(fields_stream_gen, {
-        upstream_gen = gen,
-        upstream_param = param,
-        upstream_state = state,
+local function fields_region(t)
+    local gen, param, state = array_items_region(t or {}, "llpvm:field-source")
+    return llb.gps.raw(llb.gps.wrap(fields_region_gen, {
+        source_gen = gen,
+        source_param = param,
+        source_state = state,
     }, nil, { kind = "llpvm:fields" }))
 end
 
@@ -264,22 +265,27 @@ local function slot_body(slot, role) return slot[role] { channel = ch.call_table
 local function slot_index_value(slot) return slot[g.value] { channels = { ch.index_value, ch.index_name, ch.index_type } } end
 local function slot_call_value(slot) return slot[g.value] { channels = { ch.call_none, ch.call_value, ch.call_table, ch.call_many } } end
 
+local function role_region(name, protocol, fn)
+    return role_region_head("LLPVMDsl.role." .. tostring(name))[protocol or "role_items"] (fn)
+end
+
 local function role_list(label, allowed)
+    local function body(_, ctx, v)
+        local gen, param, state = array_items_region(v or {}, "llpvm:" .. label)
+        local function checked_gen(p, s)
+            local next_state, item = p.gen(p.param, s)
+            if next_state == nil then return nil end
+            if allowed and not allowed[cls(item)] and not (llb.is(item, "Stage") and allowed.Stage) then
+                die(label .. " received invalid item " .. tostring(cls(item) or llb.tagof(item) or type(item)), llb.origin_of(item) or (ctx and ctx.origin))
+            end
+            return next_state, item
+        end
+        return llb.gps.raw(llb.gps.wrap(checked_gen, { gen = gen, param = param }, state, { kind = "llpvm:role-list", role = label }))
+    end
     return {
         kind = "array",
         algebra = "list",
-        stream = function(_, ctx, v)
-            local gen, param, state = array_items_stream(v or {}, "llpvm:" .. label)
-            local function checked_gen(p, s)
-                local next_state, item = p.gen(p.param, s)
-                if next_state == nil then return nil end
-                if allowed and not allowed[cls(item)] and not (llb.is(item, "Stage") and allowed.Stage) then
-                    die(label .. " received invalid item " .. tostring(cls(item) or llb.tagof(item) or type(item)), llb.origin_of(item) or (ctx and ctx.origin))
-                end
-                return next_state, item
-            end
-            return llb.stream.raw(llb.stream.wrap(checked_gen, { gen = gen, param = param }, state, { kind = "llpvm:role-list", role = label }))
-        end,
+        region = role_region(label, "role_items", body),
     }
 end
 
@@ -323,9 +329,9 @@ local function normalize_tape_body(t, origin)
     return out
 end
 
-local function tape_body_stream_gen(param, state)
-    state = state or param.upstream_state
-    local next_state, item = param.upstream_gen(param.upstream_param, state)
+local function tape_body_region_gen(param, state)
+    state = state or param.source_state
+    local next_state, item = param.source_gen(param.source_param, state)
     if next_state == nil then return nil end
     item = normalize_tape_record_item(item)
     if not is(item, RecordSpec) then
@@ -334,12 +340,12 @@ local function tape_body_stream_gen(param, state)
     return next_state, item
 end
 
-local function tape_body_stream(t, origin)
-    local gen, param, state = array_items_stream(t or {}, "llpvm:tape-source")
-    return llb.stream.raw(llb.stream.wrap(tape_body_stream_gen, {
-        upstream_gen = gen,
-        upstream_param = param,
-        upstream_state = state,
+local function tape_body_region(t, origin)
+    local gen, param, state = array_items_region(t or {}, "llpvm:tape-source")
+    return llb.gps.raw(llb.gps.wrap(tape_body_region_gen, {
+        source_gen = gen,
+        source_param = param,
+        source_state = state,
         origin = origin,
     }, nil, { kind = "llpvm:tape-body" }))
 end
@@ -348,11 +354,11 @@ local LL = llb.define "LLPVMDsl" {
     g.role .decls (role_list("program", { LangSpec = true, WorldSpec = true, TapeSpec = true, MachineSpec = true, PhaseSpec = true, TaskSpec = true, RootSpec = true })),
     g.role .lang_body (role_list("language", { TypeSpec = true })),
     g.role .type_body (role_list("type", { OpSpec = true })),
-    g.role .fields { kind = "array", algebra = "product", stream = function(_, _, v) return fields_stream(v) end },
+    g.role .fields { kind = "array", algebra = "product", region = role_region("fields", "role_items", function(_, _, v) return fields_region(v) end) },
     g.role .tape_body {
         kind = "array",
         algebra = "list",
-        stream = function(_, ctx, v) return tape_body_stream(v, ctx and ctx.origin) end,
+        region = role_region("tape_body", "role_items", function(_, ctx, v) return tape_body_region(v, ctx and ctx.origin) end),
     },
     g.role .phase_body (role_list("phase", { Directive = true, Stage = true })),
     g.role .task_body (role_list("task", { Directive = true, EventSpec = true })),
@@ -1182,7 +1188,7 @@ local function u32(bytes, at)
     return b0 + b1 * 256 + b2 * 65536 + b3 * 16777216
 end
 
-M.records = llb.process. records (function(ctx, bytes)
+local function records_process_body(ctx, bytes)
     assert(type(bytes) == "string", "llpvm.records expects a byte string")
     local function diagnostic_event(param, code, message, extra)
         local ev = param.ctx:diagnostic_event {
@@ -1294,7 +1300,9 @@ M.records = llb.process. records (function(ctx, bytes)
         return nil
     end
     return gen, { ctx = ctx, bytes = bytes }, { phase = "start" }
-end)
+end
+
+M.records = llb.process. records { "bytes" } (records_process_body)
 
 local function clean_event_payload(ev)
     local out = {}
@@ -1304,12 +1312,12 @@ local function clean_event_payload(ev)
     return out
 end
 
-M.validate = llb.process. validate (function(ctx, bytes)
+local function validate_process_body(ctx, bytes)
     local handle = M.records:start(bytes)
-    local upstream, up_param, up_state = llb.stream.raw(handle:stream())
+    local record_gen, record_param, record_state = llb.gps.raw(handle:gps())
     local function gen(param, state)
         if state.done then return nil end
-        local r = { upstream(up_param, state.up_state) }
+        local r = { record_gen(record_param, state.record_state) }
         if r[1] == nil then
             state.done = true
             return state, param.ctx:make_event("result", { result = {
@@ -1319,7 +1327,7 @@ M.validate = llb.process. validate (function(ctx, bytes)
                 bytes = type(param.bytes) == "string" and #param.bytes or 0,
             } })
         end
-        state.up_state = r[1]
+        state.record_state = r[1]
         local ev = r[2]
         local payload = clean_event_payload(ev)
         if ev.kind == "diagnostic" then
@@ -1338,8 +1346,10 @@ M.validate = llb.process. validate (function(ctx, bytes)
         end
         return state, param.ctx:make_event(ev.kind, payload)
     end
-    return gen, { ctx = ctx, bytes = bytes }, { up_state = up_state, valid = true, records = 0, root_ops = 0 }
-end)
+    return gen, { ctx = ctx, bytes = bytes }, { record_state = record_state, valid = true, records = 0, root_ops = 0 }
+end
+
+M.validate = llb.process. validate { "bytes" } (validate_process_body)
 
 function M.inspect(bytes)
     local out = {}

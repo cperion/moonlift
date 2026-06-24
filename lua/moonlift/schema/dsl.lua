@@ -4,6 +4,7 @@
 -- projection of these values, not the source of truth.
 
 local llb = require("llb")
+local role_region_head = llb.role_region
 local Model = require("moonlift.schema_projection_model")
 local SchemaInstall = require("moonlift.context_define_schema")
 local pvm = require("moonlift.pvm")
@@ -323,7 +324,7 @@ local function normalize_body(tbl, allow_variants)
     return { attrs = attrs, fields = fields, variants = variants, decls = decls }
 end
 
-local function decls_stream_gen(param, state)
+local function decls_region_gen(param, state)
     state = (state or 0) + 1
     while state <= #(param.value or {}) do
         local item = param.value[state]
@@ -344,31 +345,35 @@ local function decls_stream_gen(param, state)
     return nil
 end
 
-local function decls_stream(v)
-    return llb.stream.raw(llb.stream.wrap(decls_stream_gen, { value = v or {} }, 0, { kind = "moonschema:decls" }))
+local function decls_region(v)
+    return llb.gps.raw(llb.gps.wrap(decls_region_gen, { value = v or {} }, 0, { kind = "moonschema:decls" }))
 end
 
 local g = llb.grammar
 
+local function role_region(name, protocol, fn)
+    return role_region_head("MoonSchema.role." .. tostring(name))[protocol or "role_value"] (fn)
+end
+
 local Lang = llb.define "MoonSchema" {
     g.role .decls {
         kind = "array",
-        stream = function(_, _, v) return decls_stream(v) end,
+        region = role_region("decls", "role_items", function(_, _, v) return decls_region(v) end),
     },
 
     g.role .product_body {
         kind = "value",
-        stream = function(_, _, v) return llb.stream.raw(llb.stream.once(normalize_body(v, false))) end,
+        region = role_region("product_body", "role_value", function(_, _, v) return llb.gps.raw(llb.gps.once(normalize_body(v, false))) end),
     },
 
     g.role .sum_body {
         kind = "value",
-        stream = function(_, _, v) return llb.stream.raw(llb.stream.once(normalize_body(v, true))) end,
+        region = role_region("sum_body", "role_value", function(_, _, v) return llb.gps.raw(llb.gps.once(normalize_body(v, true))) end),
     },
 
     g.role .schema_type {
         kind = "value",
-        stream = function(_, _, v) return llb.stream.raw(llb.stream.once(type_value(v))) end,
+        region = role_region("schema_type", "role_value", function(_, _, v) return llb.gps.raw(llb.gps.once(type_value(v))) end),
     },
 
     -- Declares a MoonSchema module: the root namespace for ASDL products, sums,

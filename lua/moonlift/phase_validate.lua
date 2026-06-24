@@ -2,7 +2,7 @@
 --
 -- The phase package is the declarative graph that connects named worlds,
 -- machines, phases, and roots. This module validates that graph as a first
--- class process so tooling can consume the same event stream as batch callers.
+-- class process so tooling can consume the same event gps as batch callers.
 
 local llb = require("llb")
 local pvm = require("moonlift.pvm")
@@ -253,7 +253,7 @@ local function collecting_context(ctx, events)
     })
 end
 
-local function materialized_event_stream(ctx, fn)
+local function materialized_event_region(ctx, fn)
     local function gen(param, state)
         if state == nil then
             local events = {}
@@ -269,13 +269,13 @@ local function materialized_event_stream(ctx, fn)
     return gen, { ctx = ctx, fn = fn }, nil
 end
 
-M.process = llb.process.phase_validate {
-    stream = function(ctx, package)
-        return materialized_event_stream(ctx, function(event_ctx)
+local function phase_validate_process_body(ctx, package)
+        return materialized_event_region(ctx, function(event_ctx)
             return validate_package(event_ctx, package)
         end)
-    end,
-}
+end
+
+M.process = llb.process.phase_validate { "package" } (phase_validate_process_body)
 
 function M.validate(package)
     local handle = M.process:start(package)

@@ -12,6 +12,7 @@ local ErrorSpan = require("moonlift.error.span")
 local SourceAnalysis = require("moonlift.source_analysis")
 
 local M = {}
+local role_region_head = llb.role_region
 
 local T = pvm.context()
 schema(T)
@@ -656,6 +657,8 @@ local function type_decl(name, body, union)
     return Tr.TypeDeclStruct(name, field_items(body))
 end
 
+local llb_region_decl
+
 local function collect_decls(out, value)
     if value == nil then return out end
     if llb.is(value, "Spread") then return collect_decls(out, value.value) end
@@ -671,6 +674,10 @@ local function collect_decls(out, value)
     if is_foreign_zone(value) then return out end
     if llb.is(value, "FamilyBundle") then
         for _, z in ipairs(value.zones or {}) do collect_decls(out, z) end
+        return out
+    end
+    if llb.is(value, "Region") then
+        out[#out + 1] = llb_region_decl(value)
         return out
     end
     if is(value, Decl) and value.kind == "unit" then
@@ -1206,6 +1213,14 @@ local function region_decl(name, params_, conts, body)
     return setmetatable({ kind = "region", name = name, params = typed_items_from_llb(params_ or {}), conts = conts or {}, entry = entry, blocks = blocks }, Decl)
 end
 
+llb_region_decl = function(region)
+    local spec = region.spec or {}
+    local params = region.input or spec.input or spec.params or {}
+    local conts = spec.exits or spec.conts or {}
+    local body = region.body or spec.body or {}
+    return region_decl(region.name, params, conts, body)
+end
+
 local g = llb.grammar
 local ch = llb.channel
 
@@ -1255,29 +1270,30 @@ local function role_array_gen(param, state)
 end
 
 local function role_array(fragment_role, label)
-    return {
-        kind = "array",
-        stream = function(_, ctx, v)
-            if llb.is(v, "Fragment") then
-                if v.role ~= fragment_role then
-                    llb.fail("expected " .. label .. " fragment, got " .. tostring(v.role), {
-                        code = "E_MOONLIFT_FRAGMENT_ROLE",
-                        primary = v.origin or (ctx and ctx.origin),
-                    })
-                end
-                return llb.stream.raw(llb.stream.from.array(v.items or {}))
-            end
-            if type(v) ~= "table" then
-                llb.fail("expected " .. label .. " table", {
-                    code = "E_MOONLIFT_EXPECTED_TABLE",
-                    primary = llb.origin_of(v) or (ctx and ctx.origin),
+    local function role_body(_, ctx, v)
+        if llb.is(v, "Fragment") then
+            if v.role ~= fragment_role then
+                llb.fail("expected " .. label .. " fragment, got " .. tostring(v.role), {
+                    code = "E_MOONLIFT_FRAGMENT_ROLE",
+                    primary = v.origin or (ctx and ctx.origin),
                 })
             end
-            return llb.stream.raw(llb.stream.wrap(role_array_gen, {
-                value = v,
-                fragment_role = fragment_role,
-            }, nil, { kind = "moonlift:role-array", role = fragment_role }))
-        end,
+            return llb.gps.raw(llb.gps.from.array(v.items or {}))
+        end
+        if type(v) ~= "table" then
+            llb.fail("expected " .. label .. " table", {
+                code = "E_MOONLIFT_EXPECTED_TABLE",
+                primary = llb.origin_of(v) or (ctx and ctx.origin),
+            })
+        end
+        return llb.gps.raw(llb.gps.wrap(role_array_gen, {
+            value = v,
+            fragment_role = fragment_role,
+        }, nil, { kind = "moonlift:role-array", role = fragment_role }))
+    end
+    return {
+        kind = "array",
+        region = role_region_head("MoonliftDSL.role." .. tostring(fragment_role))["role_items"] (role_body),
     }
 end
 
@@ -1567,7 +1583,7 @@ local function make_env(opts)
     env.unit, env.fn, env.export_fn = MoonLLB.exports.unit, MoonLLB.exports.fn, MoonLLB.exports.export_fn
     env.extern, env.handle, env.const, env.static = MoonLLB.exports.extern, MoonLLB.exports.handle, MoonLLB.exports.const, MoonLLB.exports.static
     env.import, env.expr_frag = MoonLLB.exports.import, MoonLLB.exports.expr_frag
-    env.struct, env.union, env.region = MoonLLB.exports.struct, MoonLLB.exports.union, MoonLLB.exports.region
+    env.struct, env.union, env.region = MoonLLB.exports.struct, MoonLLB.exports.union, llb.region
     env.entry, env.block, env.jump, env.emit = MoonLLB.exports.entry, MoonLLB.exports.block, MoonLLB.exports.jump, MoonLLB.exports.emit
     env.ret, env.yield, env.when, env.If = M.ret, M.yield, M.when, M.If
     env.let, env.var = MoonLLB.exports.let, MoonLLB.exports.var
@@ -1811,14 +1827,14 @@ local function compile_source_chunk(src, chunk_name, opts, ctx, events)
     }
 end
 
-M.source = llb.process. source (function(ctx, src, chunk_name, opts)
+local function source_process_body(ctx, src, chunk_name, opts)
     opts = opts or {}
     local events = {}
     local chunk, meta = compile_source_chunk(src, chunk_name, opts, ctx, events)
     if opts.eval then
         local args = opts.args or {}
         chunk(unpack(args, 1, args.n or #args))
-        return llb.stream.raw(llb.stream.from.array(events))
+        return llb.gps.raw(llb.gps.from.array(events))
     end
     events[#events + 1] = ctx:make_event("result", { result = {
         chunk = chunk,
@@ -1826,8 +1842,10 @@ M.source = llb.process. source (function(ctx, src, chunk_name, opts)
         source = meta.source,
         name = meta.chunk,
     } })
-    return llb.stream.raw(llb.stream.from.array(events))
-end)
+    return llb.gps.raw(llb.gps.from.array(events))
+end
+
+M.source = llb.process. source { "src", "chunk_name", "opts" } (source_process_body)
 
 function M.loadstring(src, chunk_name, opts)
     local chunk = compile_source_chunk(src, chunk_name, opts, nil)

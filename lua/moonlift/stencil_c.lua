@@ -302,7 +302,7 @@ local function bind_context(T)
         if cls == Stencil.StencilTopologyViewDescriptor then
             local stride = top.stride_const or stride_param_name(access)
             if tonumber(stride) == 1 then return index end
-            return "(" .. index .. " * " .. tostring(stride) .. ")"
+            return "((" .. index .. ") * " .. tostring(stride) .. ")"
         end
         if cls == Stencil.StencilTopologySliceDescriptor then return index end
         if cls == Stencil.StencilTopologyByteSpanDescriptor then return index end
@@ -482,27 +482,24 @@ local function bind_context(T)
         local dst_access, src_access = access_named(desc, "dst"), access_named(desc, "src")
         local et = c_type(shape.elem_ty)
         local stride = tonumber(shape.stride) or 1
-        local has_dynamic_stride = #dynamic_stride_accesses(desc) ~= 0
         local lines = {}
-        lines[#lines + 1] = "void " .. artifact.symbol.text .. "(" .. table.concat(source_params(artifact, { et .. " *dst", "const " .. et .. " *src", "int32_t start", "int32_t stop" }), ", ") .. ") {"
+        local dst_param = et .. " *dst"
+        local src_param = "const " .. et .. " *src"
+        if shape.semantics ~= Stencil.StencilCopyMemMove and shape.semantics ~= Stencil.StencilCopyMayOverlapBackward then
+            dst_param = et .. " *__restrict dst"
+            src_param = "const " .. et .. " *__restrict src"
+        end
+        lines[#lines + 1] = "void " .. artifact.symbol.text .. "(" .. table.concat(source_params(artifact, { dst_param, src_param, "int32_t start", "int32_t stop" }), ", ") .. ") {"
         if shape.semantics == Stencil.StencilCopyMayOverlapBackward then
             lines[#lines + 1] = "    for (int32_t i = stop - 1; i >= start; i -= " .. tostring(stride) .. ") " .. access_ref(dst_access, "dst", "i") .. " = " .. access_ref(src_access, "src", "i") .. ";"
         elseif shape.semantics == Stencil.StencilCopyMemMove then
-            if stride == 1 and has_dynamic_stride == false and is_plain_linear_access(dst_access) and is_plain_linear_access(src_access) then
-                lines[#lines + 1] = "    if (stop > start) memmove(dst + start, src + start, (size_t)(stop - start) * sizeof(*dst));"
-            else
-                lines[#lines + 1] = "    if ((uintptr_t)dst <= (uintptr_t)src) {"
-                lines[#lines + 1] = "        for (int32_t i = start; i < stop; i += " .. tostring(stride) .. ") " .. access_ref(dst_access, "dst", "i") .. " = " .. access_ref(src_access, "src", "i") .. ";"
-                lines[#lines + 1] = "    } else {"
-                lines[#lines + 1] = "        for (int32_t i = stop - 1; i >= start; i -= " .. tostring(stride) .. ") " .. access_ref(dst_access, "dst", "i") .. " = " .. access_ref(src_access, "src", "i") .. ";"
-                lines[#lines + 1] = "    }"
-            end
+            lines[#lines + 1] = "    if ((uintptr_t)dst <= (uintptr_t)src) {"
+            lines[#lines + 1] = "        for (int32_t i = start; i < stop; i += " .. tostring(stride) .. ") " .. access_ref(dst_access, "dst", "i") .. " = " .. access_ref(src_access, "src", "i") .. ";"
+            lines[#lines + 1] = "    } else {"
+            lines[#lines + 1] = "        for (int32_t i = stop - 1; i >= start; i -= " .. tostring(stride) .. ") " .. access_ref(dst_access, "dst", "i") .. " = " .. access_ref(src_access, "src", "i") .. ";"
+            lines[#lines + 1] = "    }"
         else
-            if stride == 1 and has_dynamic_stride == false and is_plain_linear_access(dst_access) and is_plain_linear_access(src_access) then
-                lines[#lines + 1] = "    if (stop > start) memcpy(dst + start, src + start, (size_t)(stop - start) * sizeof(*dst));"
-            else
-                lines[#lines + 1] = "    for (int32_t i = start; i < stop; i += " .. tostring(stride) .. ") " .. access_ref(dst_access, "dst", "i") .. " = " .. access_ref(src_access, "src", "i") .. ";"
-            end
+            lines[#lines + 1] = "    for (int32_t i = start; i < stop; i += " .. tostring(stride) .. ") " .. access_ref(dst_access, "dst", "i") .. " = " .. access_ref(src_access, "src", "i") .. ";"
         end
         lines[#lines + 1] = "}"
         return table.concat(lines, "\n")

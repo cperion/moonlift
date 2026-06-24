@@ -397,6 +397,7 @@ return schema. MoonStencil {
       vector_compiler [MoonStencil.StencilVectorCompilerPolicy],
       lanes [number],
       unroll [number],
+      interleave [number],
       compiler [MoonStencil.StencilCompilerPolicy],
       facts [MoonStencil.StencilVectorizationFacts],
     },

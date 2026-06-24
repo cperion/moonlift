@@ -1036,7 +1036,7 @@ local function bind_context(T)
         type = function(ty, set) return one(rewrite_type, ty, set or empty_set()) end,
         expr = function(expr, set) return one(rewrite_expr, expr, set or empty_set()) end,
         stmts = function(stmts, set) return rewrite_stmts(stmts, set or empty_set()) end,
-        item_stream = function(item, set) return rewrite_item(item, set or empty_set()) end,
+        item_region = function(item, set) return rewrite_item(item, set or empty_set()) end,
         module = function(module, set) return one(rewrite_module, module, set or empty_set()) end,
     }
 end

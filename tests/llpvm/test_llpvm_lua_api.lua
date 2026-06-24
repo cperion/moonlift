@@ -86,7 +86,7 @@ assert(desc and desc.tag == "LLPVMProgram" and desc.name == "Demo", "program des
 local head = ll.describe_head("tape")
 assert(head and head.slots[2].channels[1] == "index:value", "internal tape world slot is explicit index:value")
 local role = ll.describe_role("fields")
-assert(role and role.has_stream, "field role owns stream normalization")
+assert(role and role.has_region, "field role owns region normalization")
 
 local ok_missing = pcall(function()
     return ll.load([[return pvm. Bad {

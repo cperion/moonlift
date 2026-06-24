@@ -73,6 +73,7 @@ local artifacts = {
 
 local view_artifacts = {
     StencilArtifactPlan.reduce_array_artifact(reduction(Value.ReductionAdd, 0), nil, { elem_ty = i32, result_ty = i32, step_num = 1, array_topology = view_topology("reduce_xs") }),
+    StencilArtifactPlan.reduce_array_artifact(reduction(Value.ReductionAdd, 0), nil, { elem_ty = i32, result_ty = i32, step_num = 1, unroll = 2, array_topology = view_topology("reduce_unrolled_xs") }),
     StencilArtifactPlan.map_array_artifact(Stencil.StencilUnaryNeg, { elem_ty = i32, result_ty = i32, step_num = 1, dst_topology = view_topology("map_dst"), src_topology = view_topology("map_xs") }),
     StencilArtifactPlan.zip_map_array_artifact(Stencil.StencilBinaryAdd, { lhs_ty = i32, rhs_ty = i32, result_ty = i32, step_num = 1, dst_topology = view_topology("zip_map_dst"), lhs_topology = view_topology("zip_map_lhs"), rhs_topology = view_topology("zip_map_rhs") }),
     StencilArtifactPlan.scan_array_artifact(reduction(Value.ReductionAdd, 0), nil, { elem_ty = i32, result_ty = i32, step_num = 1, dst_topology = view_topology("scan_dst"), array_topology = view_topology("scan_xs") }),
@@ -123,6 +124,7 @@ end
 
 local build, err, src = StencilBinary.compile(T, artifacts, { stem = "test_stencil_bank_all_shapes" })
 assert(build ~= nil, tostring(err) .. "\n" .. tostring(src))
+assert(src:match("xs%[%(%(i %+ 1%) %* xs_stride%)%]"), "unrolled dynamic view access must parenthesize the lane index")
 
 local xs = ffi.new("int32_t[5]", { 1, -2, 5, 0, 3 })
 local ys = ffi.new("int32_t[5]", { 10, 20, 30, 40, 50 })

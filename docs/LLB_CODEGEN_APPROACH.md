@@ -5,8 +5,9 @@ LLB codegen compiles the language workbench itself.
 It does not generate user program code. User programs are still authored through
 ordinary Lua values, staged heads, roles, fragments, and family zones. The
 codegen target is the machinery that LLB already describes declaratively:
-stream machines, role normalizers, staged heads, fragment expanders, family
-projectors, diagnostics, indexers, formatters, and environment installers.
+region machines, protocol exits, role normalizers, staged heads, fragment
+expanders, family projectors, diagnostics, indexers, formatters, and environment
+installers.
 
 The invariant is:
 
@@ -15,17 +16,24 @@ reflective LLB runtime defines the semantics
 compiled LLB runtime specializes those semantics
 ```
 
-The architectural substrate is the stream workbench model in
-[`LLB_STREAM_WORKBENCH_DESIGN.md`](LLB_STREAM_WORKBENCH_DESIGN.md):
+The architectural substrate is the region workbench model in
+[`LLB_REGION_WORKBENCH_DESIGN.md`](LLB_REGION_WORKBENCH_DESIGN.md):
 
 ```text
-streams are demand boundaries
-materialized IR/report/index/diagnostic arrays are explicit sinks
+region is the semantic control machine
+protocol names the exits
+GPS is one lowering ABI
+materialized IR/report/index/diagnostic arrays are explicit materializers
 ```
 
-Codegen therefore compiles stream graphs. It should not bake in eager
-intermediate representations unless the generated sink is explicitly the
-consumer's requested artifact.
+Codegen therefore compiles region machines and their protocol consumers. It
+should not bake in eager intermediate representations unless the generated
+materializer is explicitly the consumer's requested artifact.
+
+Semantic compatibility is governed by
+[`LLB_GENERIC_REGION_ALGEBRA.md`](LLB_GENERIC_REGION_ALGEBRA.md). A codegen
+backend must preserve protocol exit identity, exit class, origin metadata, and
+diagnostic replay behavior declared by the generic region.
 
 Fast paths are allowed to be small, direct, and allocation-light. Error paths
 must replay through the reflective runtime so diagnostics keep the same semantic
@@ -36,7 +44,7 @@ context: language, head, slot, role, event, origin, comments, and related notes.
 The complete codegen stack is deliberately layered:
 
 ```text
-1. stream/process event machines
+1. region/protocol machines
 2. role normalizers
 3. fragment/spread expanders
 4. staged head slot machines
@@ -49,57 +57,63 @@ Each layer specializes already-declared LLB metadata. There is no stringly
 semantic side channel and no callback registry that hides meaning from ASDL,
 families, LSP, or diagnostics.
 
-## Stream ABI
+## Region And GPS ABI
 
-The stream VM is the low-level runtime ABI:
+Region is the semantic machine:
+
+```text
+region R(input_product, state_product; protocol)
+```
+
+Protocol exits describe the possible results:
+
+```text
+item(next_state, value)
+done
+failed(diagnostic)
+```
+
+GPS is the low-level LuaJIT lowering ABI for pull-shaped region protocols:
 
 ```lua
 gen(param, state) -> nil
 gen(param, state) -> next_state, payload...
 ```
 
-A stream stores the generator, parameter object, and current state. This makes
-processes and tooling pipelines compatible with direct LuaJIT-friendly
+A GPS machine stores the generator, parameter object, and current state. This
+makes processes and tooling pipelines compatible with direct LuaJIT-friendly
 generators instead of requiring coroutine resume/yield for every event.
 
-The consumer controls progress. A generated stream computes only the next
-payload required by the downstream sink, which lets tooling short-circuit,
-fusion remove intermediate arrays, and diagnostics stop after the first hard
-failure when that is the requested sink.
+The consumer controls progress. A generated GPS lowering computes only the next
+protocol exit required by the downstream materializer, which lets tooling
+short-circuit, fusion remove intermediate arrays, and diagnostics stop after the
+first hard failure when that is the requested materializer.
 
-The public surface is split between live streams and declarative stream specs:
+The target public surface is split between semantic region specs and lowering
+objects:
 
 ```lua
-llb.stream.from.array { a, b, c }
-llb.stream.spec.array { a, b, c }
-
-llb.stream.plan {
-  source = llb.stream.spec.array(xs),
-  ops = {
-    llb.stream.op.filter(pred),
-    llb.stream.op.map(mapper),
-  },
-  sink = llb.stream.sink.array(),
-}
+role.region { ... }
+llb.protocol. pull { ... }
+llb.gps.compile(region_plan)
+llb.gps.materializer.array()
 ```
 
-Live streams are for immediate iteration. Specs and plans are for compilation.
-`llb.stream.compile` may produce a fused generator, while
-`llb.stream.interpret` remains the reflective execution path.
+Region specs describe semantics. GPS objects describe one lowering. Materializers
+consume protocol exits into arrays, maps, text, diagnostic bags, or backend
+buffers.
 
 Current implementation:
 
-- `llb.stream.from.*` constructs live streams.
-- `llb.stream.spec.*` constructs declarative sources.
-- `llb.stream.op.*` constructs declarative operations.
-- `llb.stream.sink.*` constructs declarative sinks.
-- Array-source plans can be compiled into a direct generator.
+- Public pull execution is exposed through `llb.gps`.
+- Semantic implementation hooks are named `region`.
+- Array-source GPS plans can be compiled into a direct generator.
 - Unsupported plans explicitly fall back to fused interpretation unless strict
   codegen is requested.
 
 ## Role Normalizer Codegen
 
-Roles are the first authoring-hot-path codegen target after the stream ABI
+Roles are the first authoring-hot-path codegen target after the region/GPS ABI
 because every completed head normalizes its slots through roles. This does not
 make role codegen the whole project. It is the dependency that makes generated
 heads, fragments, formatters, and family walkers worth doing.
@@ -290,7 +304,7 @@ rendering.
 
 ## Formatter And Indexer Codegen
 
-Formatting and indexing are stream-shaped tooling passes.
+Formatting and indexing are region-shaped tooling passes.
 
 They should compile from semantic tags and language/family metadata:
 
@@ -300,13 +314,16 @@ classify tag
 emit tokens, symbols, hovers, references, diagnostics
 ```
 
-Compiled formatters and indexers should use stream generators so LSP can receive
-incremental events without coroutine overhead in hot paths.
+Compiled formatters and indexers should use GPS lowerings of their region
+protocols so LSP can receive incremental events without coroutine overhead in
+hot paths.
 
 Current implementation:
 
-- Family diagnostics and index are stream routers with materializing sinks.
-- LLB render/format expose stream forms; string formatting is the sink.
+- Family diagnostics and index already behave as pull-shaped routers with
+  materializing sinks.
+- LLB render/format expose pull-shaped forms; string formatting is the
+  materializer.
 - Deeper formatter/indexer codegen remains future work.
 
 ## Environment Installer Codegen
@@ -321,9 +338,9 @@ install_moon_family(env, opts)
 ```
 
 The installer should use direct assignments for known exports and explicit
-namespace tables for member languages. `stream` is reserved for the LLB module
-shape (`llb.stream`) and is not a family language head. LLPVM uses `tape` for
-its typed bytecode sequence vocabulary.
+namespace tables for member languages. `region`, `protocol`, `exit`,
+`materializer`, and `gps` are LLB workbench vocabulary. `stream` is not a family
+language head. LLPVM uses `tape` for its typed bytecode sequence vocabulary.
 
 ## Trust Boundary
 
@@ -337,22 +354,23 @@ Rules:
 - Expose generated source for inspection when available.
 - Allow codegen to be disabled with `ctx.codegen = false` or process options.
 
-The current role codegen uses closures, not generated source text. The stream
+The current role codegen uses closures, not generated source text. The old
 array-plan backend uses trusted plan-derived source and stores user functions in
-the parameter object.
+the parameter object; under the region model this is a GPS plan backend.
 
 ## Completion Checklist
 
-- [x] Stream VM ABI.
-- [x] Canonical stream public API: `from`, `spec`, `op`, `sink`, `collect`.
-- [x] Array stream plan source codegen.
+- [x] GPS ABI.
+- [x] Pull-shaped implementation API exists in committed code.
+- [x] Array GPS plan source codegen.
 - [x] Whole-language compiled runtime container: `lang.compiled`.
 - [x] Compiled role normalizers.
 - [x] Per-role compiled spread expanders for array/product/sum roles.
 - [x] Compiled staged head machines installed as language exports.
-- [x] Family projectors expose stream routers.
+- [x] Family projectors expose pull-shaped routers.
 - [ ] Lazy diagnostic replay thunks with ids.
-- [x] Diagnostics/index/format expose stream surfaces and sinks.
-- [ ] Formatter/indexer source-generated stream codegen.
+- [x] Diagnostics/index/format expose pull-shaped surfaces and materializers.
+- [ ] Formatter/indexer source-generated region/GPS codegen.
+- [x] Public API rename from old stream names to region/protocol/GPS names.
 - [ ] Generated environment installers.
 - [ ] Whole-language compiled runtime mode selection.

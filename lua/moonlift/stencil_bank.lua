@@ -651,7 +651,11 @@ local function bind_context(T)
             elseif kind == "rel32" then
                 local p = ffi.cast("int32_t *", base + offset)
                 local at = base_addr + offset
-                p[0] = value + addend - at
+                local rel = value + addend - at
+                if rel < -2147483648 or rel > 2147483647 then
+                    error("stencil_bank: rel32 patch target out of range for " .. tostring(record.symbol or record.target or "patch"), 3)
+                end
+                p[0] = rel
             elseif kind == "local_abs32" then
                 local target = base_addr + addend
                 if record.reloc_type == "R_X86_64_32S" and target > 2147483647 then

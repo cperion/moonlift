@@ -354,6 +354,7 @@ local function bind_context(T)
                     Stencil.StencilVectorCompilerCopyPatchStencil,
                     lanes,
                     tonumber(sched.unroll) or 1,
+                    tonumber(sched.interleave) or 1,
                     policy,
                     vectorization_facts(desc)
                 )
@@ -371,8 +372,9 @@ local function bind_context(T)
         local cls = pvm.classof(schedule)
         if cls == Stencil.StencilScheduleVector then
             local unroll = tonumber(schedule.unroll) or 1
-            return ":v" .. tostring(schedule.lanes) .. (unroll > 1 and (":u" .. tostring(unroll)) or ""),
-                "_v" .. tostring(schedule.lanes) .. (unroll > 1 and ("_u" .. tostring(unroll)) or "")
+            local interleave = tonumber(schedule.interleave) or 1
+            return ":v" .. tostring(schedule.lanes) .. (unroll > 1 and (":u" .. tostring(unroll)) or "") .. (interleave > 1 and (":i" .. tostring(interleave)) or ""),
+                "_v" .. tostring(schedule.lanes) .. (unroll > 1 and ("_u" .. tostring(unroll)) or "") .. (interleave > 1 and ("_i" .. tostring(interleave)) or "")
         end
         if cls == Stencil.StencilScheduleUnrolled then
             return ":u" .. tostring(schedule.factor), "_u" .. tostring(schedule.factor)
@@ -506,6 +508,14 @@ local function bind_context(T)
         return table.concat(out)
     end
 
+    local function scheduled_instance(id, symbol, desc, abi, proofs, info)
+        local selected_schedule = schedule_for_descriptor_with_info(desc, info or {})
+        local suffix, symbol_suffix = schedule_suffix(selected_schedule)
+        if suffix ~= "" then id = Stencil.StencilInstanceId(id.text .. suffix) end
+        if symbol_suffix ~= "" then symbol = Stencil.StencilSymbolId(symbol.text .. symbol_suffix) end
+        return instance(id, desc, abi, proofs, info), symbol
+    end
+
     local source_params
 
     function artifact(instance, symbol, signature)
@@ -603,7 +613,8 @@ local function bind_context(T)
             nil,
             params
         )
-        local inst = instance(id, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(result_ty), Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty() }, nil), {})
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(result_ty), Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty() }, nil), {}, info)
         return artifact(inst, symbol, void_desc_decl(symbol, desc, { c_type(result_ty) .. " *dst", "const " .. c_type(elem_ty) .. " *xs", "int32_t start", "int32_t stop" }))
     end
 
@@ -635,7 +646,8 @@ local function bind_context(T)
             nil,
             params
         )
-        local inst = instance(id, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(result_ty), Code.CodeTyDataPtr(lhs_ty), Code.CodeTyDataPtr(rhs_ty), i32_ty(), i32_ty() }, nil), {})
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(result_ty), Code.CodeTyDataPtr(lhs_ty), Code.CodeTyDataPtr(rhs_ty), i32_ty(), i32_ty() }, nil), {}, info)
         return artifact(inst, symbol, void_desc_decl(symbol, desc, { c_type(result_ty) .. " *dst", "const " .. c_type(lhs_ty) .. " *lhs", "const " .. c_type(rhs_ty) .. " *rhs", "int32_t start", "int32_t stop" }))
     end
 
@@ -669,7 +681,8 @@ local function bind_context(T)
             result_ty,
             params
         )
-        local inst = instance(id, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(result_ty), Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty(), result_ty }, result_ty), proof_list(plan))
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(result_ty), Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty(), result_ty }, result_ty), proof_list(plan), info)
         return artifact(inst, symbol, result_desc_decl(symbol, result_ty, desc, { c_type(result_ty) .. " *dst", "const " .. c_type(elem_ty) .. " *xs", "int32_t start", "int32_t stop", c_type(result_ty) .. " init" }))
     end
 
@@ -697,7 +710,8 @@ local function bind_context(T)
             nil,
             params
         )
-        local inst = instance(id, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty() }, nil), {})
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty() }, nil), {}, info)
         return artifact(inst, symbol, void_desc_decl(symbol, desc, { c_type(elem_ty) .. " *dst", "const " .. c_type(elem_ty) .. " *src", "int32_t start", "int32_t stop" }))
     end
 
@@ -721,7 +735,8 @@ local function bind_context(T)
             nil,
             params
         )
-        local inst = instance(id, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty(), elem_ty }, nil), {})
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty(), elem_ty }, nil), {}, info)
         return artifact(inst, symbol, void_desc_decl(symbol, desc, { c_type(elem_ty) .. " *dst", "int32_t start", "int32_t stop", scalar_param_ty(elem_ty) .. " value" }))
     end
 
@@ -749,7 +764,8 @@ local function bind_context(T)
             i32_ty(),
             params
         )
-        local inst = instance(id, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty() }, i32_ty()), {})
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty() }, i32_ty()), {}, info)
         return artifact(inst, symbol, int32_desc_decl(symbol, desc, { "const " .. c_type(elem_ty) .. " *xs", "int32_t start", "int32_t stop" }))
     end
 
@@ -779,7 +795,8 @@ local function bind_context(T)
             i32_ty(),
             params
         )
-        local inst = instance(id, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty() }, i32_ty()), {})
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty() }, i32_ty()), {}, info)
         return artifact(inst, symbol, int32_desc_decl(symbol, desc, { c_type(elem_ty) .. " *dst", "const " .. c_type(elem_ty) .. " *xs", "int32_t start", "int32_t stop" }))
     end
 
@@ -807,7 +824,8 @@ local function bind_context(T)
             nil,
             params
         )
-        local inst = instance(id, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(dst_ty), Code.CodeTyDataPtr(src_ty), i32_ty(), i32_ty() }, nil), {})
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(dst_ty), Code.CodeTyDataPtr(src_ty), i32_ty(), i32_ty() }, nil), {}, info)
         return artifact(inst, symbol, void_desc_decl(symbol, desc, { c_type(dst_ty) .. " *dst", "const " .. c_type(src_ty) .. " *xs", "int32_t start", "int32_t stop" }))
     end
 
@@ -835,7 +853,8 @@ local function bind_context(T)
             nil,
             params
         )
-        local inst = instance(id, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(result_ty), Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty() }, nil), {})
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(result_ty), Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty() }, nil), {}, info)
         return artifact(inst, symbol, void_desc_decl(symbol, desc, { c_type(result_ty) .. " *dst", "const " .. c_type(elem_ty) .. " *xs", "int32_t start", "int32_t stop" }))
     end
 
@@ -866,7 +885,8 @@ local function bind_context(T)
             nil,
             params
         )
-        local inst = instance(id, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(result_ty), Code.CodeTyDataPtr(lhs_ty), Code.CodeTyDataPtr(rhs_ty), i32_ty(), i32_ty() }, nil), {})
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(result_ty), Code.CodeTyDataPtr(lhs_ty), Code.CodeTyDataPtr(rhs_ty), i32_ty(), i32_ty() }, nil), {}, info)
         return artifact(inst, symbol, void_desc_decl(symbol, desc, { c_type(result_ty) .. " *dst", "const " .. c_type(lhs_ty) .. " *lhs", "const " .. c_type(rhs_ty) .. " *rhs", "int32_t start", "int32_t stop" }))
     end
 
@@ -894,7 +914,8 @@ local function bind_context(T)
             nil,
             params
         )
-        local inst = instance(id, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), Code.CodeTyDataPtr(elem_ty), Code.CodeTyDataPtr(index_ty), i32_ty(), i32_ty() }, nil), {})
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), Code.CodeTyDataPtr(elem_ty), Code.CodeTyDataPtr(index_ty), i32_ty(), i32_ty() }, nil), {}, info)
         return artifact(inst, symbol, void_desc_decl(symbol, desc, { c_type(elem_ty) .. " *dst", "const " .. c_type(elem_ty) .. " *src", "const " .. c_type(index_ty) .. " *idx", "int32_t start", "int32_t stop" }))
     end
 
@@ -924,7 +945,8 @@ local function bind_context(T)
             nil,
             params
         )
-        local inst = instance(id, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), Code.CodeTyDataPtr(elem_ty), Code.CodeTyDataPtr(index_ty), i32_ty(), i32_ty() }, nil), {})
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), Code.CodeTyDataPtr(elem_ty), Code.CodeTyDataPtr(index_ty), i32_ty(), i32_ty() }, nil), {}, info)
         return artifact(inst, symbol, void_desc_decl(symbol, desc, { c_type(elem_ty) .. " *dst", "const " .. c_type(elem_ty) .. " *src", "const " .. c_type(index_ty) .. " *idx", "int32_t start", "int32_t stop" }))
     end
 
@@ -949,7 +971,8 @@ local function bind_context(T)
             nil,
             params
         )
-        local inst = instance(id, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty() }, nil), {})
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty() }, nil), {}, info)
         return artifact(inst, symbol, void_desc_decl(symbol, desc, { c_type(elem_ty) .. " *xs", "int32_t start", "int32_t stop" }))
     end
 
@@ -976,7 +999,8 @@ local function bind_context(T)
             i32_ty(),
             params
         )
-        local inst = instance(id, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty() }, i32_ty()), {})
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty() }, i32_ty()), {}, info)
         return artifact(inst, symbol, int32_desc_decl(symbol, desc, { "const " .. c_type(elem_ty) .. " *xs", "int32_t start", "int32_t stop" }))
     end
 
@@ -1010,7 +1034,8 @@ local function bind_context(T)
             result_ty,
             params
         )
-        local inst = instance(id, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty(), result_ty }, result_ty), proof_list(plan))
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty(), result_ty }, result_ty), proof_list(plan), info)
         return artifact(inst, symbol, result_desc_decl(symbol, result_ty, desc, { "const " .. c_type(elem_ty) .. " *xs", "int32_t start", "int32_t stop", c_type(result_ty) .. " init" }))
     end
 
@@ -1047,7 +1072,8 @@ local function bind_context(T)
             result_ty,
             params
         )
-        local inst = instance(id, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(lhs_ty), Code.CodeTyDataPtr(rhs_ty), i32_ty(), i32_ty(), result_ty }, result_ty), proof_list(plan))
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(lhs_ty), Code.CodeTyDataPtr(rhs_ty), i32_ty(), i32_ty(), result_ty }, result_ty), proof_list(plan), info)
         return artifact(inst, symbol, result_desc_decl(symbol, result_ty, desc, { "const " .. c_type(lhs_ty) .. " *lhs", "const " .. c_type(rhs_ty) .. " *rhs", "int32_t start", "int32_t stop", c_type(result_ty) .. " init" }))
     end
 

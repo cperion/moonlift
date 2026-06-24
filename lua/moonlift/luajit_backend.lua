@@ -19,6 +19,7 @@ local function bind_context(T)
     local Emit = require("moonlift.luajit_emit")(T)
     local StencilArtifactPlan = require("moonlift.stencil_artifact_plan")(T)
     local StencilBank = require("moonlift.stencil_bank")(T)
+    local StencilLuaJIT = require("moonlift.stencil_luajit")(T)
     local ExecPlan = require("moonlift.exec_plan")(T)
     local CodeSchedulePlan = require("moonlift.code_schedule_plan")(T)
     local BackTargetModel = require("moonlift.back_target_model")(T)
@@ -75,9 +76,22 @@ local function bind_context(T)
         error("luajit_backend: unsupported selected stencil vocab " .. tostring(vocab), 3)
     end
 
-    local function collect_artifact(artifacts, selections, vocab, op, reduction, plan, info)
+    local function provider_name(opts)
+        return tostring((opts or {}).stencil_provider or (opts or {}).provider or "c")
+    end
+
+    local function artifact_with_provider(artifact, opts)
+        local provider = provider_name(opts)
+        if provider == "c" or provider == "copy_patch" or provider == "binary" then return artifact end
+        if provider == "lua_trace" or provider == "luatrace" or provider == "gps" then
+            return StencilLuaJIT.lua_trace_artifact(artifact)
+        end
+        error("luajit_backend: unknown stencil provider " .. tostring(provider), 3)
+    end
+
+    local function collect_artifact(artifacts, selections, vocab, op, reduction, plan, info, opts)
         info = info or {}
-        local artifact = artifact_for(vocab, op, reduction, plan, info)
+        local artifact = artifact_with_provider(artifact_for(vocab, op, reduction, plan, info), opts)
         artifacts[#artifacts + 1] = artifact
         selections[#selections + 1] = Stencil.StencilPlanEntry(plan.id, Stencil.StencilSelected(artifact.instance))
         return artifact
@@ -100,13 +114,13 @@ local function bind_context(T)
             effect = effect,
             kernel = kernel,
             stencil_store_artifact_for = function(_func, vocab, op, plan, info)
-                return collect_artifact(artifacts, selections, vocab, op, nil, plan, attach_schedule(info, plan, schedules))
+                return collect_artifact(artifacts, selections, vocab, op, nil, plan, attach_schedule(info, plan, schedules), opts)
             end,
             stencil_reduce_artifact_for = function(_func, vocab, op, reduction, plan, info)
-                return collect_artifact(artifacts, selections, vocab, op, reduction, plan, attach_schedule(info, plan, schedules))
+                return collect_artifact(artifacts, selections, vocab, op, reduction, plan, attach_schedule(info, plan, schedules), opts)
             end,
             stencil_skeleton_artifact_for = function(_func, vocab, op, reduction, plan, info)
-                return collect_artifact(artifacts, selections, vocab, op, reduction, plan, attach_schedule(info, plan, schedules))
+                return collect_artifact(artifacts, selections, vocab, op, reduction, plan, attach_schedule(info, plan, schedules), opts)
             end,
         })
         for _, reject in ipairs(stencil_machines.rejects or {}) do rejects[#rejects + 1] = reject end
@@ -145,6 +159,10 @@ local function bind_context(T)
         if #artifacts == 0 then
             return { kind = "BinaryStencilBankRealization", symbols = {}, installed = {}, bank = nil }, nil
         end
+        local provider = provider_name(opts)
+        if provider == "lua_trace" or provider == "luatrace" or provider == "gps" then
+            return StencilLuaJIT.realize_artifacts(artifacts), nil
+        end
         local bank = opts.bank
         if bank == nil then
             return nil, "luajit_backend: binary realization requires a prebuilt BinaryStencilBank"
@@ -179,18 +197,29 @@ local function bind_context(T)
 
     function api.emit_lua_artifact(lj_module, artifacts, opts)
         opts = opts or {}
-        local bank = opts.bank
-        if bank == nil and #(artifacts or {}) > 0 then
-            return nil, "luajit_backend.emit_lua_artifact requires a prebuilt BinaryStencilBank"
+        local provider = provider_name(opts)
+        local stencil_source
+        if provider == "lua_trace" or provider == "luatrace" or provider == "gps" then
+            stencil_source = StencilLuaJIT.emit_lua_source(artifacts or {})
+        else
+            local bank = opts.bank
+            if bank == nil and #(artifacts or {}) > 0 then
+                return nil, "luajit_backend.emit_lua_artifact requires a prebuilt BinaryStencilBank"
+            end
+            stencil_source = bank and StencilBank.emit_lua_bank_source(bank, opts) or "local __moonlift_luajit_stencil_symbols = {}\n"
         end
-        local bank_source = bank and StencilBank.emit_lua_bank_source(bank, opts) or "local __moonlift_luajit_stencil_symbols = {}\n"
         local module_source = Emit.emit_module(lj_module, {
             chunk_name = opts.chunk_name or "moonlift_luajit_artifact",
         })
+        local is_luatrace = provider == "lua_trace" or provider == "luatrace" or provider == "gps"
         local source = table.concat({
-            "-- Generated Moonlift LuaJIT copy-and-patch artifact.\n",
-            "-- Native stencil bytes are embedded below as data and installed before the runtime module loads.\n",
-            bank_source,
+            is_luatrace
+                and "-- Generated Moonlift LuaJIT LuaTrace artifact.\n"
+                or "-- Generated Moonlift LuaJIT copy-and-patch artifact.\n",
+            is_luatrace
+                and "-- Stencil descriptors are emitted below as traceable LuaJIT loops.\n"
+                or "-- Native stencil bytes are embedded below as data and installed before the runtime module loads.\n",
+            stencil_source,
             module_source,
         })
         if opts.path ~= nil then

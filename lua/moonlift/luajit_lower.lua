@@ -352,11 +352,11 @@ local function bind_context(T)
         return pvm.classof(ret) == Code.CodeTermReturn and #(ret.values or {}) == 0 or reaches_void_return(blocks, exit)
     end
 
-    local function stream_base_value(lane)
+    local function lane_base_value(lane)
         local base = lane and lane.base or nil
         if pvm.classof(base) == Mem.MemBaseValue then return base.value end
         if pvm.classof(base) == Mem.MemBaseProjection then
-            local inner = stream_base_value({ base = base.base })
+            local inner = lane_base_value({ base = base.base })
             if inner ~= nil then return inner end
         end
         return nil
@@ -381,7 +381,7 @@ local function bind_context(T)
         return nil
     end
 
-    local function field_name_from_stream(ctx, lane)
+    local function field_name_from_lane(ctx, lane)
         for _, access_id in ipairs(lane and lane.accesses or {}) do
             local access = ctx.mem_accesses and ctx.mem_accesses[access_id.text] or nil
             local place = access and access.place or nil
@@ -400,9 +400,9 @@ local function bind_context(T)
         return nil
     end
 
-    local function stream_topology(ctx, lane)
+    local function lane_topology(ctx, lane)
         local object = ctx.mem_objects and lane and ctx.mem_objects[lane.object.text] or nil
-        local base_value = stream_base_value(lane)
+        local base_value = lane_base_value(lane)
         local soa_contract = base_value and ctx.soa_contracts and ctx.func_id and ctx.soa_contracts[ctx.func_id.text .. "\0" .. base_value.text] or nil
         local function wrap_soa(topology)
             if soa_contract == nil or topology == nil then return topology end
@@ -413,14 +413,14 @@ local function bind_context(T)
             local pcls = pvm.classof(provenance)
             if object.kind == Mem.MemObjectDerived and pcls == Mem.MemProvProjection and provenance.projection == Mem.MemProjectField then
                 local parent = ctx.mem_objects and ctx.mem_objects[provenance.parent.text] or nil
-                local parent_topology = stream_topology(ctx, {
+                local parent_topology = lane_topology(ctx, {
                     object = provenance.parent,
                     base = lane and lane.base,
                     pattern = lane and lane.pattern,
                     accesses = lane and lane.accesses,
                 })
                 local record_ty = parent and parent.elem_ty or nil
-                local field_name = field_name_from_stream(ctx, lane)
+                local field_name = field_name_from_lane(ctx, lane)
                 if parent_topology ~= nil and record_ty ~= nil and field_name ~= nil then
                     return wrap_soa(Stencil.StencilTopologyFieldProjection(parent_topology, record_ty, field_name, provenance.byte_offset or 0))
                 end
@@ -613,9 +613,9 @@ local function bind_context(T)
     end
 
     local function lane_selection_fact(ctx, lane)
-        local topology = stream_topology(ctx, lane)
+        local topology = lane_topology(ctx, lane)
         if topology == nil then return nil end
-        local base = stream_base_value(lane)
+        local base = lane_base_value(lane)
         local tcls = pvm.classof(topology)
         base = topology_data_value(topology) or base
         if base == nil then return nil end
@@ -627,7 +627,7 @@ local function bind_context(T)
         }
     end
 
-    local function enrich_stream_class(ctx, class, graph_loop, loop_fact, bindings, prefix)
+    local function enrich_lane_class(ctx, class, graph_loop, loop_fact, bindings, prefix)
         local lane = class[prefix]
         local index = class[prefix .. "_index"] or class.index
         local fact = lane_selection_fact(ctx, lane)
@@ -665,15 +665,15 @@ local function bind_context(T)
 
     local function enrich_stencil_class(ctx, class, graph_loop, loop_fact, bindings, dst_base, dst_ty)
         if class.kind == "load" or class.kind == "map" or class.kind == "cast" or class.kind == "compare" then
-            local ok, err = enrich_stream_class(ctx, class, graph_loop, loop_fact, bindings, "lane")
+            local ok, err = enrich_lane_class(ctx, class, graph_loop, loop_fact, bindings, "lane")
             if not ok then return nil, err end
             if class.kind == "map" then
                 class.same_src_dst_ty = class.src == dst_base and same_code_type(class.elem_ty, dst_ty)
             end
         elseif class.kind == "zip_map" or class.kind == "zip_compare" then
-            local ok, err = enrich_stream_class(ctx, class, graph_loop, loop_fact, bindings, "lhs")
+            local ok, err = enrich_lane_class(ctx, class, graph_loop, loop_fact, bindings, "lhs")
             if not ok then return nil, err end
-            ok, err = enrich_stream_class(ctx, class, graph_loop, loop_fact, bindings, "rhs")
+            ok, err = enrich_lane_class(ctx, class, graph_loop, loop_fact, bindings, "rhs")
             if not ok then return nil, err end
         elseif class.kind == "fill" then
             class.value_expr = value_expr(ctx, class.value)
@@ -708,7 +708,7 @@ local function bind_context(T)
         if step_num == nil or step_num <= 0 then return nil, "store stencil requires a positive constant step" end
         local store, store_reason = single_store_effect(plan.body)
         if store == nil then return nil, store_reason end
-        local dst_base = stream_base_value(store.dst)
+        local dst_base = lane_base_value(store.dst)
         if dst_base == nil then return nil, "store destination lane has no value base" end
         local dst_fact = lane_selection_fact(ctx, store.dst)
         local bindings = binding_index(plan.body)
@@ -879,7 +879,7 @@ local function bind_context(T)
         local reduction = effect.reduction
         if result.reduction ~= reduction then return nil, "scan result reduction does not match scan effect" end
         if not function_returns_reduction(func, graph_loop, reduction) then return nil, "function return is not the scan final value" end
-        local dst_base = stream_base_value(effect.dst)
+        local dst_base = lane_base_value(effect.dst)
         if dst_base == nil then return nil, "scan destination lane has no value base" end
         local dst_fact = lane_selection_fact(ctx, effect.dst)
         local bindings = binding_index(plan.body)
@@ -935,7 +935,7 @@ local function bind_context(T)
     local function skeleton_partition_plan(ctx, func, plan, graph_loop, loop_fact)
         local effect, effect_reason = single_effect(plan.body, Kernel.KernelEffectPartition)
         if effect == nil then return nil, effect_reason end
-        local dst_base = stream_base_value(effect.dst)
+        local dst_base = lane_base_value(effect.dst)
         if dst_base == nil then return nil, "partition destination lane has no value base" end
         local dst_fact = lane_selection_fact(ctx, effect.dst)
         local bindings = binding_index(plan.body)
@@ -964,7 +964,7 @@ local function bind_context(T)
     local function skeleton_copy_plan(ctx, func, plan, graph_loop, loop_fact)
         local effect, effect_reason = single_effect(plan.body, Kernel.KernelEffectCopy)
         if effect == nil then return nil, effect_reason end
-        local dst_base = stream_base_value(effect.dst)
+        local dst_base = lane_base_value(effect.dst)
         if dst_base == nil then return nil, "copy destination lane has no value base" end
         local dst_fact = lane_selection_fact(ctx, effect.dst)
         local bindings = binding_index(plan.body)
@@ -1078,7 +1078,7 @@ local function bind_context(T)
             local store
             store, store_reason = single_store_effect(plan.body)
             single_store = store ~= nil
-            store_dst_base = store ~= nil and stream_base_value(store.dst) ~= nil
+            store_dst_base = store ~= nil and lane_base_value(store.dst) ~= nil
         end
         local any_ready_lowering = (opts.stencil_skeleton_artifact_for ~= nil and stencil_skeleton_ready)
             or (opts.stencil_reduce_artifact_for ~= nil and result_reduction and stencil_reduce_ready and not stencil_skeleton_ready)

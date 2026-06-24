@@ -1,4 +1,5 @@
 local llb = require("llb")
+local role_region_head = llb.role_region
 
 local M = {}
 
@@ -108,8 +109,8 @@ local function array_items_gen(param, state)
     end
 end
 
-local function array_items_stream(t, kind)
-    return llb.stream.raw(llb.stream.wrap(array_items_gen, { value = t or {} }, nil, { kind = kind or "llisle:items" }))
+local function array_items_region(t, kind)
+    return llb.gps.raw(llb.gps.wrap(array_items_gen, { value = t or {} }, nil, { kind = kind or "llisle:items" }))
 end
 
 local function has_record_fields(t)
@@ -141,10 +142,10 @@ local function fields_from_table(t)
     return out
 end
 
-local function fields_stream_gen(param, state)
-    state = state or param.upstream_state
+local function fields_region_gen(param, state)
+    state = state or param.source_state
     while true do
-        local next_state, v = param.upstream_gen(param.upstream_param, state)
+        local next_state, v = param.source_gen(param.source_param, state)
         if next_state == nil then return nil end
         state = next_state
         if is(v, Field) then
@@ -161,12 +162,12 @@ local function fields_stream_gen(param, state)
     end
 end
 
-local function fields_stream(t)
-    local gen, param, state = array_items_stream(t or {}, "llisle:field-source")
-    return llb.stream.raw(llb.stream.wrap(fields_stream_gen, {
-        upstream_gen = gen,
-        upstream_param = param,
-        upstream_state = state,
+local function fields_region(t)
+    local gen, param, state = array_items_region(t or {}, "llisle:field-source")
+    return llb.gps.raw(llb.gps.wrap(fields_region_gen, {
+        source_gen = gen,
+        source_param = param,
+        source_state = state,
     }, nil, { kind = "llisle:fields" }))
 end
 
@@ -222,23 +223,28 @@ local function slot_body(slot, role) return slot[role] { channel = ch.call_table
 local function slot_index_impl(slot) return slot[g.value] { channel = ch.index_value } end
 local function slot_call_value(slot) return slot[g.value] { channels = { ch.call_none, ch.call_value, ch.call_table, ch.call_many } } end
 
+local function role_region(name, protocol, fn)
+    return role_region_head("LlisleDsl.role." .. tostring(name))[protocol or "role_items"] (fn)
+end
+
 local function role_list(label, allowed)
+    local function body(_, ctx, v)
+        local gen, param, state = array_items_region(v or {}, "llisle:" .. label)
+        local function checked_gen(p, s)
+            local next_state, item = p.gen(p.param, s)
+            if next_state == nil then return nil end
+            local c = cls(item)
+            if allowed and not allowed[c] and not (llb.is(item, "Fragment") and allowed.Fragment) then
+                die(label .. " received invalid item " .. tostring(c or llb.tagof(item) or type(item)), llb.origin_of(item) or (ctx and ctx.origin))
+            end
+            return next_state, item
+        end
+        return llb.gps.raw(llb.gps.wrap(checked_gen, { gen = gen, param = param }, state, { kind = "llisle:role-list", role = label }))
+    end
     return {
         kind = "array",
         algebra = "list",
-        stream = function(_, ctx, v)
-            local gen, param, state = array_items_stream(v or {}, "llisle:" .. label)
-            local function checked_gen(p, s)
-                local next_state, item = p.gen(p.param, s)
-                if next_state == nil then return nil end
-                local c = cls(item)
-                if allowed and not allowed[c] and not (llb.is(item, "Fragment") and allowed.Fragment) then
-                    die(label .. " received invalid item " .. tostring(c or llb.tagof(item) or type(item)), llb.origin_of(item) or (ctx and ctx.origin))
-                end
-                return next_state, item
-            end
-            return llb.stream.raw(llb.stream.wrap(checked_gen, { gen = gen, param = param }, state, { kind = "llisle:role-list", role = label }))
-        end,
+        region = role_region(label, "role_items", body),
     }
 end
 
@@ -297,11 +303,11 @@ local L = llb.define "LlisleDsl" {
     g.role .relation_body (role_list("relation", { ProductSpec = true, StrategySpec = true, Directive = true })),
     g.role .predicate_body (role_list("predicate", { ProductSpec = true, Directive = true })),
     g.role .constructor_body (role_list("constructor", { ProductSpec = true, Directive = true })),
-    g.role .fields { kind = "array", algebra = "product", stream = function(_, _, v) return fields_stream(v) end },
+    g.role .fields { kind = "array", algebra = "product", region = role_region("fields", "role_items", function(_, _, v) return fields_region(v) end) },
     g.role .strategy_body (role_list("strategy", { Directive = true })),
     g.role .rule_body (role_list("rule", { RelationCall = true, GuardSpec = true, BindSpec = true, RunSpec = true, ChooseSpec = true, Directive = true })),
-    g.role .guard_body { kind = "array", algebra = "product", stream = function(_, _, v) return array_items_stream(v or {}, "llisle:guard") end },
-    g.role .payload_body { kind = "value", algebra = "product", stream = function(_, _, v) return llb.stream.raw(llb.stream.once(process_payload(v or {}))) end },
+    g.role .guard_body { kind = "array", algebra = "product", region = role_region("guard_body", "role_items", function(_, _, v) return array_items_region(v or {}, "llisle:guard") end) },
+    g.role .payload_body { kind = "value", algebra = "product", region = role_region("payload_body", "role_value", function(_, _, v) return llb.gps.raw(llb.gps.once(process_payload(v or {}))) end) },
     g.role .run_body (role_list("run", { BindSpec = true, EmitSpec = true, RetSpec = true, FailSpec = true, ChooseSpec = true, RelationCall = true })),
     g.role .choose_body (role_list("choose", { AltSpec = true })),
     g.role .alt_body (role_list("alt", { GuardSpec = true, BindSpec = true, RunSpec = true, Directive = true })),
