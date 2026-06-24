@@ -16,6 +16,8 @@ local StrategySpec = class("StrategySpec")
 local Directive = class("Directive")
 local RelationCall = class("RelationCall")
 local RuleSpec = class("RuleSpec")
+local PredicateDecl = class("PredicateDecl")
+local ConstructorDecl = class("ConstructorDecl")
 local GuardSpec = class("GuardSpec")
 local RunSpec = class("RunSpec")
 local ChooseSpec = class("ChooseSpec")
@@ -73,6 +75,17 @@ local function array_items(t)
     return out
 end
 
+local function has_record_fields(t)
+    if type(t) ~= "table" then return false end
+    for k in pairs(t) do if type(k) ~= "number" then return true end end
+    return false
+end
+
+local function process_payload(t)
+    if has_record_fields(t) then return t or {} end
+    return array_items(t or {})
+end
+
 local function fields_from_table(t)
     local out = {}
     for _, v in ipairs(array_items(t or {})) do
@@ -93,6 +106,10 @@ end
 
 local binder_predicates = {
     has_type = true, is_const = true, fits_imm32 = true, fits_imm64 = true,
+    has_const_pred = true,
+    is_int_type = true, is_float_type = true, is_index_type = true, is_bool8_type = true,
+    is_index_data_type = true, same_type = true,
+    unary_supported = true, binary_supported = true, reduction_supported = true, cast_supported = true,
     is = true, eq = true, ne = true, lt = true, le = true, gt = true, ge = true,
     matches = true, present = true, absent = true,
 }
@@ -118,6 +135,8 @@ Binder.__call = function(self, ...)
     return setmetatable({ predicate = "call", subject = self, args = { ... }, origin = llb.here("llisle-predicate", { skip = 1 }) }, PredicateSpec)
 end
 Binder.__tostring = function(self) return self.space .. ". " .. table.concat(self.path, ".") end
+llb.enable_algebra(Binder)
+llb.enable_algebra(PredicateSpec)
 
 local function binder_space(name)
     return setmetatable({ __lisle_binder_space = name }, {
@@ -134,6 +153,7 @@ local g = llb.grammar
 local ch = llb.channel
 local function slot_name(slot) return slot[g.name] { channel = ch.index_name } end
 local function slot_body(slot, role) return slot[role] { channel = ch.call_table } end
+local function slot_index_impl(slot) return slot[g.value] { channel = ch.index_value } end
 local function slot_call_value(slot) return slot[g.value] { channels = { ch.call_none, ch.call_value, ch.call_table, ch.call_many } } end
 
 local function role_list(label, allowed)
@@ -162,6 +182,27 @@ local function directive(kind, value, origin)
     return setmetatable({ kind = kind, value = value, origin = origin }, Directive)
 end
 
+local function constructor_body_items(v)
+    local out = {}
+    for _, item in ipairs(array_items(v or {})) do
+        local c = cls(item)
+        if c ~= "ProductSpec" and c ~= "Directive" then
+            die("constructor received invalid item " .. tostring(c or llb.tagof(item) or type(item)), llb.origin_of(item))
+        end
+        out[#out + 1] = item
+    end
+    return out
+end
+
+function ConstructorDecl:__call(body)
+    return setmetatable({
+        name = self.name,
+        impl = self.impl,
+        body = constructor_body_items(body or {}),
+        origin = llb.origin_of(body) or self.origin,
+    }, ConstructorDecl)
+end
+
 local function relation_call(name, fields, origin)
     return setmetatable({ name = tostring(name), fields = fields or {}, origin = origin or llb.here("llisle-relation-call", { hint = name, skip = 2 }) }, RelationCall)
 end
@@ -184,21 +225,30 @@ end
 M.relation_call = setmetatable({}, RelationCallFactory)
 
 local L = llb.define "LlisleDsl" {
-    g.role .decls (role_list("llisle", { RelationSpec = true, RuleSpec = true, Fragment = true })),
-    g.role .relation_body (role_list("relation", { ProductSpec = true, StrategySpec = true })),
+    g.role .decls (role_list("llisle", { RelationSpec = true, RuleSpec = true, PredicateDecl = true, ConstructorDecl = true, Fragment = true })),
+    g.role .relation_body (role_list("relation", { ProductSpec = true, StrategySpec = true, Directive = true })),
+    g.role .predicate_body (role_list("predicate", { ProductSpec = true, Directive = true })),
+    g.role .constructor_body (role_list("constructor", { ProductSpec = true, Directive = true })),
     g.role .fields { kind = "array", algebra = "product", normalize = function(_, _, v) return fields_from_table(v) end },
     g.role .strategy_body (role_list("strategy", { Directive = true })),
-    g.role .rule_body (role_list("rule", { RelationCall = true, GuardSpec = true, RunSpec = true, ChooseSpec = true })),
+    g.role .rule_body (role_list("rule", { RelationCall = true, GuardSpec = true, BindSpec = true, RunSpec = true, ChooseSpec = true, Directive = true })),
     g.role .guard_body { kind = "array", algebra = "product", normalize = function(_, _, v) return array_items(v or {}) end },
+    g.role .payload_body { kind = "array", algebra = "product", normalize = function(_, _, v) return process_payload(v or {}) end },
     g.role .run_body (role_list("run", { BindSpec = true, EmitSpec = true, RetSpec = true, FailSpec = true, ChooseSpec = true, RelationCall = true })),
     g.role .choose_body (role_list("choose", { AltSpec = true })),
-    g.role .alt_body (role_list("alt", { GuardSpec = true, RunSpec = true, Directive = true })),
+    g.role .alt_body (role_list("alt", { GuardSpec = true, BindSpec = true, RunSpec = true, Directive = true })),
     g.role .rules_body (role_list("rules", { RuleSpec = true })),
 
     g.trait .named { apply = function(_, head) head.lsp = head.lsp or { symbol = function(n) return { name = tostring(n.name), kind = head.name, origin = n.origin, node = n } end } end },
 
     -- Declares a typed product-to-product relation. Rules satisfy relations.
-    g.head .relation { g.trait .named, slot_name(g.slot .name), slot_body(g.slot .body, g.relation_body), emit = function(n) return setmetatable({ name = ident_text(n.name, "relation name"), body = n.body or {}, origin = n.origin }, RelationSpec) end },
+    g.head .relation { g.trait .named, slot_name(g.slot .name), slot_body(g.slot .body, g.relation_body), emit = function(n) return setmetatable({ kind = "relation", name = ident_text(n.name, "relation name"), body = n.body or {}, origin = n.origin }, RelationSpec) end },
+    -- Declares a projection relation. Projection turns family values into MoonSchema-backed facts.
+    g.head .project { g.trait .named, slot_name(g.slot .name), slot_body(g.slot .body, g.relation_body), emit = function(n) return setmetatable({ kind = "project", name = ident_text(n.name, "project name"), body = n.body or {}, origin = n.origin }, RelationSpec) end },
+    -- Declares a semantic predicate used by guards. The optional [] slot carries the Lua implementation value.
+    g.head .predicate { g.trait .named, slot_name(g.slot .name), slot_index_impl(g.slot .impl), slot_body(g.slot .body, g.predicate_body), emit = function(n) return setmetatable({ name = ident_text(n.name, "predicate name"), impl = n.impl, body = n.body or {}, origin = n.origin }, PredicateDecl) end },
+    -- Declares a semantic constructor used by ret/emit payload construction. The optional [] slot carries the Lua implementation value.
+    g.head .constructor { g.trait .named, slot_name(g.slot .name), slot_index_impl(g.slot .impl), slot_body(g.slot .body, g.constructor_body) { optional = true, default = {} }, emit = function(n) return setmetatable({ name = ident_text(n.name, "constructor name"), impl = n.impl, body = n.body or {}, origin = n.origin }, ConstructorDecl) end },
     -- Declares the input product of a relation.
     g.head .input { slot_body(g.slot .fields, g.fields), emit = function(n) return product("input", n.fields or {}, n.origin) end },
     -- Declares the output product of a relation.
@@ -213,6 +263,8 @@ local L = llb.define "LlisleDsl" {
     g.head .ambiguity { slot_name(g.slot .value), emit = function(n) return directive("ambiguity", ident_text(n.value, "ambiguity policy"), n.origin) end },
     -- Selects coverage behavior.
     g.head .coverage { slot_name(g.slot .value), emit = function(n) return directive("coverage", ident_text(n.value, "coverage policy"), n.origin) end },
+    -- Marks a predicate as pure.
+    g.head .pure { emit = function(n) return directive("pure", true, n.origin) end },
     -- Groups rule alternatives as a reusable fragment.
     g.head .rules { slot_body(g.slot .body, g.rules_body), emit = function(n) return llb.fragment("llisle_rule", n.body or {}, n.origin, { algebra = "list" }) end },
     -- Declares one rule: a relation pattern, guards, and a process body.
@@ -228,13 +280,13 @@ local L = llb.define "LlisleDsl" {
     -- Assigns cost metadata used by best-cost selection.
     g.head .cost { slot_call_value(g.slot .value), emit = function(n) return directive("cost", n.value, n.origin) end },
     -- Binds a produced local value from a relation call or expression.
-    g.head .bind { g.trait .named, slot_name(g.slot .name), slot_body(g.slot .body, g.guard_body), emit = function(n) return setmetatable({ name = ident_text(n.name, "binding name"), body = n.body or {}, origin = n.origin }, BindSpec) end },
+    g.head .bind { g.trait .named, slot_name(g.slot .name), slot_body(g.slot .body, g.payload_body), emit = function(n) return setmetatable({ name = ident_text(n.name, "binding name"), body = n.body or {}, origin = n.origin }, BindSpec) end },
     -- Emits one process event/effect.
-    g.head .emit { slot_name(g.slot .channel), slot_body(g.slot .body, g.guard_body), emit = function(n) return setmetatable({ channel = ident_text(n.channel, "emit channel"), body = n.body or {}, origin = n.origin }, EmitSpec) end },
+    g.head .emit { slot_name(g.slot .channel), slot_body(g.slot .body, g.payload_body), emit = function(n) return setmetatable({ channel = ident_text(n.channel, "emit channel"), body = n.body or {}, origin = n.origin }, EmitSpec) end },
     -- Returns the output product of a relation.
-    g.head .ret { slot_body(g.slot .body, g.guard_body), emit = function(n) return setmetatable({ body = n.body or {}, origin = n.origin }, RetSpec) end },
+    g.head .ret { slot_body(g.slot .body, g.payload_body), emit = function(n) return setmetatable({ body = n.body or {}, origin = n.origin }, RetSpec) end },
     -- Fails the current rule or alternative with a diagnostic reason.
-    g.head .fail { slot_name(g.slot .reason), slot_body(g.slot .body, g.guard_body), emit = function(n) return setmetatable({ reason = ident_text(n.reason, "failure reason"), body = n.body or {}, origin = n.origin }, FailSpec) end },
+    g.head .fail { slot_name(g.slot .reason), slot_body(g.slot .body, g.payload_body), emit = function(n) return setmetatable({ reason = ident_text(n.reason, "failure reason"), body = n.body or {}, origin = n.origin }, FailSpec) end },
 }
 
 M.language = L
@@ -291,6 +343,13 @@ local function block(items, f, fmt)
 end
 
 local fmt_spec, fmt_any
+local function algebra_symbol(op)
+    if op == "sum" then return "+" end
+    if op == "product" then return "*" end
+    if op == "sequence" then return ".." end
+    return tostring(op)
+end
+
 local function fmt_llb_value(v, f)
     if llb.is(v, "Name") or llb.is(v, "Symbol") then return doc.text(v.text) end
     if llb.is(v, "Type") then return doc.text(v.name) end
@@ -307,6 +366,12 @@ local function fmt_llb_value(v, f)
             for i = 1, n do args[i] = fmt_any(raw_args[i], f) end
             return doc.group { fmt_any(v.callee, f), " ", block(args, f, function(x) return x end) }
         end
+    end
+    if llb.is_algebra(v) then
+        local parts = {}
+        local sep = doc.concat { doc.line(), algebra_symbol(v.op), " " }
+        for i, item in ipairs(v.items or {}) do parts[i] = fmt_any(item, f) end
+        return doc.group { "(", f:join(sep, parts), ")" }
     end
     return nil
 end
@@ -339,6 +404,17 @@ local function fmt_fields(fields, f)
 end
 
 local function fmt_body(body, f) return block(body or {}, f, fmt_spec) end
+local function fmt_payload(body, f)
+    body = body or {}
+    if has_record_fields(body) then
+        local items = {}
+        for _, field in ipairs(record_fields(body)) do
+            items[#items + 1] = doc.group { field.name, " = ", fmt_any(field.value, f) }
+        end
+        return block(items, f, function(x) return x end)
+    end
+    return block(body, f, fmt_any)
+end
 
 fmt_spec = function(v, f)
     if is(v, Field) then return doc.group { v.name, " [", fmt_any(v.type, f), "]" } end
@@ -348,7 +424,12 @@ fmt_spec = function(v, f)
         return doc.group { v.kind, ". ", tostring(v.value) }
     end
     if is(v, StrategySpec) then return doc.concat { "strategy ", fmt_body(v.body, f) } end
-    if is(v, RelationSpec) then return doc.concat { "relation. ", v.name, " ", fmt_body(v.body, f) } end
+    if is(v, RelationSpec) then return doc.concat { (v.kind == "project" and "project. " or "relation. "), v.name, " ", fmt_body(v.body, f) } end
+    if is(v, PredicateDecl) then return doc.concat { "predicate. ", v.name, v.impl ~= nil and " [<lua>]" or "", " ", fmt_body(v.body, f) } end
+    if is(v, ConstructorDecl) then
+        if #(v.body or {}) == 0 then return doc.concat { "constructor. ", v.name, v.impl ~= nil and " [<lua>]" or "" } end
+        return doc.concat { "constructor. ", v.name, v.impl ~= nil and " [<lua>]" or "", " ", fmt_body(v.body, f) }
+    end
     if is(v, RelationCall) then
         local items = {}
         for _, field in ipairs(record_fields(v.fields or {})) do items[#items + 1] = doc.group { field.name, " = ", fmt_any(field.value, f) } end
@@ -359,10 +440,10 @@ fmt_spec = function(v, f)
     if is(v, RunSpec) then return doc.concat { "run ", fmt_body(v.body, f) } end
     if is(v, ChooseSpec) then return doc.concat { "choose ", fmt_body(v.body, f) } end
     if is(v, AltSpec) then return doc.concat { "alt. ", v.name, " ", fmt_body(v.body, f) } end
-    if is(v, BindSpec) then return doc.concat { "bind. ", v.name, " ", block(v.body or {}, f, fmt_any) } end
-    if is(v, EmitSpec) then return doc.concat { "emit. ", v.channel, " ", block(v.body or {}, f, fmt_any) } end
-    if is(v, RetSpec) then return doc.concat { "ret ", block(v.body or {}, f, fmt_any) } end
-    if is(v, FailSpec) then return doc.concat { "fail. ", v.reason, " ", block(v.body or {}, f, fmt_any) } end
+    if is(v, BindSpec) then return doc.concat { "bind. ", v.name, " ", fmt_payload(v.body, f) } end
+    if is(v, EmitSpec) then return doc.concat { "emit. ", v.channel, " ", fmt_payload(v.body, f) } end
+    if is(v, RetSpec) then return doc.concat { "ret ", fmt_payload(v.body, f) } end
+    if is(v, FailSpec) then return doc.concat { "fail. ", v.reason, " ", fmt_payload(v.body, f) } end
     if llb.is(v, "Fragment") and tostring(v.role) == "llisle_rule" then return doc.concat { "rules ", fmt_body(v.items or {}, f) } end
     return f:format(v)
 end
@@ -374,14 +455,14 @@ end
 function M.format(value, opts) return llb.render(M.doc(value, opts or {}), opts or {}) end
 
 local function product_kind(spec, kind)
-    for _, item in ipairs(spec.body or {}) do if is(item, ProductSpec) and item.kind == kind then return item end end
+    for _, item in ipairs(spec.body or {}) do if cls(item) == "ProductSpec" and item.kind == kind then return item end end
     return nil
 end
 
 local function relation_call_of(rule)
     local found
     for _, item in ipairs(rule.body or {}) do
-        if is(item, RelationCall) then
+        if cls(item) == "RelationCall" then
             if found then return nil, "multiple relation patterns" end
             found = item
         end
@@ -390,20 +471,27 @@ local function relation_call_of(rule)
 end
 
 local function has_run(items)
-    for _, item in ipairs(items or {}) do if is(item, RunSpec) then return true end end
+    for _, item in ipairs(items or {}) do if cls(item) == "RunSpec" then return true end end
     return false
 end
 
 function M.diagnostics(value, bag)
     bag = bag or llb.diagnostics()
-    local rels, rules = {}, {}
+    local rels, rules, predicates, constructors = {}, {}, {}, {}
     for _, item in ipairs(M.collect({}, value)) do
-        if is(item, RelationSpec) then
+        if cls(item) == "RelationSpec" then
             if rels[item.name] then bag:error { code = "E_LLISLE_DUP_RELATION", message = "duplicate Llisle relation " .. item.name, primary = item.origin } end
             rels[item.name] = item
             if not product_kind(item, "input") then bag:error { code = "E_LLISLE_RELATION_INPUT", message = "relation " .. item.name .. " has no input product", primary = item.origin } end
             if not product_kind(item, "output") then bag:error { code = "E_LLISLE_RELATION_OUTPUT", message = "relation " .. item.name .. " has no output product", primary = item.origin } end
-        elseif is(item, RuleSpec) then
+        elseif cls(item) == "PredicateDecl" then
+            if predicates[item.name] then bag:error { code = "E_LLISLE_DUP_PREDICATE", message = "duplicate Llisle predicate " .. item.name, primary = item.origin } end
+            predicates[item.name] = item
+            if not product_kind(item, "input") then bag:error { code = "E_LLISLE_PREDICATE_INPUT", message = "predicate " .. item.name .. " has no input product", primary = item.origin } end
+        elseif cls(item) == "ConstructorDecl" then
+            if constructors[item.name] then bag:error { code = "E_LLISLE_DUP_CONSTRUCTOR", message = "duplicate Llisle constructor " .. item.name, primary = item.origin } end
+            constructors[item.name] = item
+        elseif cls(item) == "RuleSpec" then
             if rules[item.name] then bag:error { code = "E_LLISLE_DUP_RULE", message = "duplicate Llisle rule " .. item.name, primary = item.origin } end
             rules[item.name] = item
         end
@@ -414,7 +502,7 @@ function M.diagnostics(value, bag)
         elseif not rels[call.name] then bag:error { code = "E_LLISLE_UNKNOWN_RELATION", message = "rule " .. rule.name .. " targets unknown relation " .. call.name, primary = call.origin } end
         if not has_run(rule.body) then
             local has_choice = false
-            for _, item in ipairs(rule.body or {}) do if is(item, ChooseSpec) then has_choice = true end end
+            for _, item in ipairs(rule.body or {}) do if cls(item) == "ChooseSpec" then has_choice = true end end
             if not has_choice then bag:error { code = "E_LLISLE_RULE_RUN", message = "rule " .. rule.name .. " has no run body or choose body", primary = rule.origin } end
         end
     end
@@ -424,11 +512,15 @@ end
 function M.index(value)
     local out = { symbols = {}, hovers = {}, diagnostics = {} }
     for _, item in ipairs(M.collect({}, value)) do
-        if is(item, RelationSpec) then
-            out.symbols[#out.symbols + 1] = { name = item.name, kind = "llisle.relation", member = "llisle.dsl", origin = item.origin }
-        elseif is(item, RuleSpec) then
+        if cls(item) == "RelationSpec" then
+            out.symbols[#out.symbols + 1] = { name = item.name, kind = item.kind == "project" and "llisle.project" or "llisle.relation", member = "llisle.dsl", origin = item.origin }
+        elseif cls(item) == "PredicateDecl" then
+            out.symbols[#out.symbols + 1] = { name = item.name, kind = "llisle.predicate", member = "llisle.dsl", origin = item.origin }
+        elseif cls(item) == "ConstructorDecl" then
+            out.symbols[#out.symbols + 1] = { name = item.name, kind = "llisle.constructor", member = "llisle.dsl", origin = item.origin }
+        elseif cls(item) == "RuleSpec" then
             out.symbols[#out.symbols + 1] = { name = item.name, kind = "llisle.rule", member = "llisle.dsl", origin = item.origin }
-        elseif is(item, AltSpec) then
+        elseif cls(item) == "AltSpec" then
             out.symbols[#out.symbols + 1] = { name = item.name, kind = "llisle.alt", member = "llisle.dsl", origin = item.origin }
         end
     end
@@ -437,6 +529,7 @@ end
 
 local NAMESPACE_KEYS = {
     "P", "V", "T", "relation", "input", "output", "effects", "strategy", "select", "ambiguity", "coverage",
+    "project", "predicate", "constructor", "pure",
     "rules", "rule", "when", "run", "choose", "alt", "cost", "bind", "emit", "ret", "fail", "_", "spread",
 }
 
@@ -453,6 +546,9 @@ end
 function M.namespace(opts)
     local exports = { P = M.P, V = M.V, T = M.T, _ = llb.spread, spread = llb.spread }
     for name, value in pairs(L.exports or {}) do exports[name] = value end
+    exports.pure = directive("pure", true, llb.here("llisle-pure"))
+    if M.compile ~= nil then exports.compile = M.compile end
+    if M.engine ~= nil then exports.engine = M.engine end
     return llb.namespace {
         family = "moonlift",
         member = "llisle.dsl",
@@ -488,7 +584,17 @@ end
 function M.loadstring(src, name, opts)
     opts = opts or {}
     local target = opts.env or {}
-    local session = M.use { scope = "env", target = target, global = false, strict = opts.strict, auto_names = opts.auto_names, base = opts.base, mode = opts.mode }
+    local session = M.use {
+        scope = "env",
+        target = target,
+        global = false,
+        strict = opts.strict,
+        auto_names = opts.auto_names,
+        base = opts.base,
+        mode = opts.mode,
+        requires = opts.requires,
+        provides = opts.provides,
+    }
     local fn, err = (loadstring or load)(src, name or "=(llisle.dsl)")
     if not fn then error(err, 2) end
     if setfenv then setfenv(fn, session.env) end
@@ -501,6 +607,7 @@ function M.loadfile(path, opts) local f = assert(io.open(path, "rb")); local src
 M.Binder, M.Field, M.RelationSpec, M.RuleSpec, M.RelationCall = Binder, Field, RelationSpec, RuleSpec, RelationCall
 M.ProductSpec, M.StrategySpec, M.ChooseSpec, M.AltSpec = ProductSpec, StrategySpec, ChooseSpec, AltSpec
 M.BindSpec, M.EmitSpec, M.RetSpec, M.FailSpec = BindSpec, EmitSpec, RetSpec, FailSpec
+M.PredicateDecl, M.ConstructorDecl = PredicateDecl, ConstructorDecl
 M.cls = cls
 
 return M

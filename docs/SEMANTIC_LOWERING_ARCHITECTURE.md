@@ -114,7 +114,9 @@ lua/moonlift/code_value_facts.lua
 lua/moonlift/code_mem_facts.lua
 lua/moonlift/code_effect_facts.lua
 lua/moonlift/code_kernel_plan.lua
+lua/moonlift/code_kernel_plan_rules.lua
 lua/moonlift/code_schedule_plan.lua
+lua/moonlift/code_schedule_plan_rules.lua
 lua/moonlift/code_lower_plan.lua
 lua/moonlift/lower_to_back.lua
 ```
@@ -468,11 +470,15 @@ module MoonKernel {
     KernelBinding = (MoonKernel.KernelValueId id, MoonCode.CodeType ty, MoonKernel.KernelExpr expr) unique
 
     KernelEffect = KernelEffectStore(MoonKernel.KernelStream dst, MoonValue.ValueExpr index, MoonKernel.KernelExpr value) unique
+        | KernelEffectScan(MoonKernel.KernelStream dst, MoonValue.ValueExpr index, MoonValue.ReductionFact reduction, MoonStencil.StencilScanMode mode) unique
+        | KernelEffectPartition(MoonKernel.KernelStream dst, MoonKernel.KernelExpr src, MoonStencil.StencilPredicate pred, MoonStencil.StencilPartitionSemantics semantics) unique
+        | KernelEffectCopy(MoonKernel.KernelStream dst, MoonKernel.KernelExpr src, MoonStencil.StencilCopySemantics semantics) unique
         | KernelEffectFold(MoonValue.ReductionFact reduction) unique
         | KernelEffectCall(MoonEffect.CallSummary call) unique
 
     KernelResult = KernelResultVoid
         | KernelResultValue(MoonKernel.KernelExpr expr) unique
+        | KernelResultFind(MoonKernel.KernelExpr src, MoonStencil.StencilPredicate pred, MoonValue.ValueExpr not_found) unique
         | KernelResultReduction(MoonValue.ReductionFact reduction) unique
         | KernelResultClosedForm(MoonValue.ClosedFormFact closed_form) unique
         | KernelResultOriginalControl(string reason) unique
@@ -501,9 +507,34 @@ module MoonKernel {
 
 Decisions:
 
+- `KernelEffectScan`, `KernelEffectPartition`, `KernelEffectCopy`, and
+  `KernelResultFind` are first-class array skeleton semantics. They are not
+  encoded as callback names or stencil strings; LuaJIT stencil lowering is one
+  backend consumer of those meanings.
+- The counted-loop kernel planner rewrites ordinary prefix-scan and primary
+  index copy loops into `KernelEffectScan` and `KernelEffectCopy`. That keeps
+  copy and scan ownership in the kernel semantic layer, not in a backend store
+  recognizer. Copy uses `StencilCopyNoOverlap` when dependence facts prove
+  independence and `StencilCopyMemMove` when source/destination overlap remains
+  unresolved.
+- Early-exit primary-index searches are `KernelResultFind`.
+- Stable partition is represented as a function-level two-pass semantic
+  fragment with `KernelEffectPartition`, because it is not a single-loop store.
 - `KernelResultClosedForm` cites `MoonValue.ClosedFormFact`.
 - Kernel has equivalence proof/rejects, not only safety.
 - Kernel plans are many-per-module and many-per-function.
+- Kernel plan selection is a Llisle relation. `code_kernel_plan` builds the
+  candidate facts and final MoonKernel values; `code_kernel_plan_rules` owns
+  no-plan rejection priority, result priority, and the proof bit for
+  closed-form plans whose Flow trip count is unknown.
+- LuaJIT stencil lowering is split into Llisle plan and selector relations.
+  `plan_store_stencil` / `plan_reduce_stencil` own readiness gates over planned
+  kernels, counted loops, return shape, single-store or reduction shape, and
+  enriched class availability. `select_store_stencil` / `select_reduce_stencil`
+  own concrete stencil vocabulary, op, provider info, and argument ordering.
+  Stencil constructors declare their `info`/`args`/`op`/`selection` product
+  contracts in Llisle, so the stencil vocabulary is inspectable metadata rather
+  than an undocumented Lua table convention.
 
 ---
 
@@ -558,6 +589,10 @@ Decisions:
 - target model is part of schedule input and schedule output.
 - unroll/interleave/tail are explicit choices with proofs/rejects.
 - profitability is a proof/reject fact, even when primitive.
+- Schedule selection is a Llisle relation. `code_schedule_plan` builds schedule
+  candidates and final MoonSchedule values; `code_schedule_plan_rules` owns
+  vector-first priority, scalar/closed-form fallback, rejected vector
+  alternatives, and no-plan rejection.
 
 ---
 

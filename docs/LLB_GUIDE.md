@@ -552,10 +552,49 @@ The Moonlift family installs Moonlift, MoonSchema, LLPVM, and Llisle namespace
 values together. Each member language consumes generic LLB symbols through its
 roles. That avoids order-dependent metatable stacking.
 
+Family environments expose member namespaces. Dedicated member islands may layer
+that language with `Lang.use { scope = "env", target = env, base = env }` when
+the code wants bare local heads without changing the mixed-family namespace
+contract.
+
 Llisle is the rule/rewrite/selection member. It reuses existing family algebra:
-relations are typed product-to-product questions, rules and choices are sum
-arms, patterns are product-shaped values, and rule bodies are process-shaped
-construction bodies.
+relations are typed product-to-product questions, projections classify family
+values into MoonSchema-backed facts, rules and choices are sum arms, patterns
+are product-shaped values, and rule bodies are process-shaped construction
+bodies.
+
+Llisle does not use a hidden callback registry as its semantic model. The
+semantic declarations live in LLB values:
+
+```lua
+llisle {
+  project. classify_expr {
+    input { expr [MoonExpr] },
+    output { class [ExprClassFact] },
+    strategy { select. best_cost, ambiguity. error, coverage. complete },
+  },
+
+  predicate. has_type [has_type_impl] {
+    input { value [Any], ty [Any] },
+    pure,
+  },
+
+  constructor. add_i32 [build_add_i32],
+}
+```
+
+`predicate` and `constructor` declarations are the public semantics. The `[]` slot carries the Lua implementation value directly, so there is no host side-table registry and no string reconnection seam. That keeps lowerings inspectable, documentable, diagnosable, and available to family tooling.
+
+The same algebra is available inside roles:
+
+```text
+.. = sequence/list composition
++  = sum/choice composition
+*  = product/conjunction composition
+```
+
+In a Llisle guard role, `+` means guard sum/or and `*` means guard product/and.
+That is a role interpretation of LLB algebra, not a private boolean operator.
 
 Family algebra composes authoring universes:
 

@@ -1130,6 +1130,81 @@ function llb.fragment(role, items, origin, spec) return fragment(role, items, or
 function llb.spread(value) return { __llb_tag = "Spread", value = value, origin = source.capture("spread", { hint = "spread" }) } end
 llb._ = llb.spread
 
+-- Algebra nodes are the generic operator protocol for parserless DSL values.
+--
+--   a .. b  -> sequence composition
+--   a + b   -> sum/choice composition
+--   a * b   -> product/conjunction composition
+--
+-- LLB owns the shape; roles own the meaning. In a guard role, sum is "or" and
+-- product is "and". In a protocol role, sum is alternatives. In a product role,
+-- product/sequence can mean field composition. This keeps operators algebraic
+-- instead of hard-wiring boolean or backend-specific semantics into Lua syntax.
+llb.Algebra = {}
+llb.Algebra.__index = llb.Algebra
+
+llb._algebra_op_name = {
+  [".."] = "sequence",
+  ["+"] = "sum",
+  ["*"] = "product",
+  sequence = "sequence",
+  sum = "sum",
+  product = "product",
+}
+
+function llb._is_algebra(v)
+  return is_tag(v, "Algebra")
+end
+
+function llb._algebra_items_for(op, v)
+  if llb._is_algebra(v) and v.op == op then return v.items or {} end
+  return { v }
+end
+
+function llb.algebra(op, a, b, origin)
+  op = llb._algebra_op_name[op] or tostring(op)
+  if op ~= "sequence" and op ~= "sum" and op ~= "product" then
+    llb.fail("unknown LLB algebra operator " .. tostring(op), {
+      code = "E_BAD_ALGEBRA_OPERATOR",
+      primary = origin_of(a) or origin_of(b) or origin,
+    }, 2)
+  end
+  local items = {}
+  append(items, llb._algebra_items_for(op, a))
+  append(items, llb._algebra_items_for(op, b))
+  return setmetatable({
+    __llb_tag = "Algebra",
+    op = op,
+    items = items,
+    origin = origin or origin_of(a) or origin_of(b) or source.capture("algebra", { hint = op }),
+  }, llb.Algebra)
+end
+
+function llb.is_algebra(v, op)
+  return llb._is_algebra(v) and (op == nil or v.op == op)
+end
+
+function llb.algebra_items(v)
+  if not llb._is_algebra(v) then return nil end
+  return array_copy(v.items or {})
+end
+
+function llb.enable_algebra(mt, opts)
+  opts = opts or {}
+  if type(mt) ~= "table" then llb.fail("llb.enable_algebra expects a metatable", { code = "E_BAD_ALGEBRA_TARGET" }) end
+  if opts.concat ~= false and mt.__concat == nil then mt.__concat = function(a, b) return llb.algebra("sequence", a, b) end end
+  if opts.sum ~= false and mt.__add == nil then mt.__add = function(a, b) return llb.algebra("sum", a, b) end end
+  if opts.product ~= false and mt.__mul == nil then mt.__mul = function(a, b) return llb.algebra("product", a, b) end end
+  return mt
+end
+
+llb.Algebra.__concat = function(a, b) return llb.algebra("sequence", a, b) end
+llb.Algebra.__add = function(a, b) return llb.algebra("sum", a, b) end
+llb.Algebra.__mul = function(a, b) return llb.algebra("product", a, b) end
+llb.Algebra.__len = function(self) return #(self.items or {}) end
+llb.Algebra.__tostring = function(self) return "llb.algebra(" .. tostring(self.op) .. ", " .. tostring(#(self.items or {})) .. ")" end
+
+
 local function fragment_items(f)
   if is_tag(f, "Fragment") then return f.items or {} end
   return nil

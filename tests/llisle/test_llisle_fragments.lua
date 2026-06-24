@@ -4,26 +4,27 @@ local moon = require("moonlift")
 local llisle = require("llisle")
 
 local env = moon.family.env { scope = "env", base = {} }
+llisle.use { scope = "env", target = env, base = env, global = false }
 local chunk = assert(loadstring([[
 local scalar_rules = llisle.rules {
-  llisle.rule. lower_const_i32 {
-    llisle.lower_expr { expr = llisle.P. expr, ctx = llisle.P. ctx },
-    llisle.when { llisle.P. expr :is_const () },
-    llisle.run { llisle.ret { value = llisle.V. out } },
+  rule. lower_const_i32 {
+    llisle.lower_expr { expr = P. expr, ctx = P. ctx },
+    when { (P. expr :is_const ()) * (P. expr :has_type (ml.i32)) },
+    run { ret { value = V. out } },
   },
 }
 
 local arith_rules = llisle.rules {
-  llisle.rule. lower_add_i32 {
-    llisle.lower_expr { expr = add { lhs = llisle.P. lhs, rhs = llisle.P. rhs } [ml.i32], ctx = llisle.P. ctx },
-    llisle.run { llisle.ret { value = llisle.V. out } },
+  rule. lower_add_i32 {
+    llisle.lower_expr { expr = add { lhs = P. lhs, rhs = P. rhs } [ml.i32], ctx = P. ctx },
+    run { ret { value = V. out } },
   },
 }
 
 return llisle {
-  llisle.relation. lower_expr {
-    llisle.input { expr [ml.i32], ctx [LowerCtx] },
-    llisle.output { value [BackValue] },
+  relation. lower_expr {
+    input { expr [ml.i32], ctx [LowerCtx] },
+    output { value [BackValue] },
   },
   _(scalar_rules .. arith_rules),
 }

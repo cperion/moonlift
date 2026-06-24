@@ -140,6 +140,11 @@ local function compile_case(case)
             artifacts[#artifacts + 1] = artifact
             return artifact
         end,
+        stencil_skeleton_artifact_for = function(func, vocab, op, reduction, plan, info)
+            local artifact = select_artifact(func, vocab, op, plan, info)
+            artifacts[#artifacts + 1] = artifact
+            return artifact
+        end,
     })
     assert(#rejects == 0, case.name .. " rejected: " .. tostring(rejects[1] and rejects[1].reason))
     assert(#artifacts == 1, case.name .. " should select one store stencil artifact")

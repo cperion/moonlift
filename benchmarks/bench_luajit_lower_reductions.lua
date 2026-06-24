@@ -177,7 +177,7 @@ local function compile_case(case)
     local lj_module, facts = Lower.lower_module(module, {
         contracts = contracts,
         collect_rejects = rejects,
-        stencil_artifact_for = function(func, reduction, plan, info)
+        stencil_reduce_artifact_for = function(func, vocab, op, reduction, plan, info)
             local artifact = StencilC.reduce_array_artifact(reduction, plan, info)
             artifacts[#artifacts + 1] = artifact
             return artifact

@@ -19,11 +19,13 @@ local function bind_context(T)
     local Mem = T.MoonMem
     local Effect = T.MoonEffect
     local Kernel = T.MoonKernel
+    local Stencil = T.MoonStencil
     local CodeGraph = require("moonlift.code_graph")(T)
     local CodeFlowFacts = require("moonlift.code_flow_facts")(T)
     local CodeValueFacts = require("moonlift.code_value_facts")(T)
     local CodeMemFacts = require("moonlift.code_mem_facts")(T)
     local CodeEffectFacts = require("moonlift.code_effect_facts")(T)
+    local CodeKernelPlanRules = require("moonlift.code_kernel_plan_rules")(T)
 
     local api = {}
 
@@ -40,6 +42,18 @@ local function bind_context(T)
         for _, fg in ipairs(graph and graph.funcs or {}) do
             for _, loop in ipairs(fg.loops or {}) do out[loop.id.text] = loop end
         end
+        return out
+    end
+
+    local function graph_func_index(graph)
+        local out = {}
+        for _, fg in ipairs(graph and graph.funcs or {}) do out[fg.func.text] = fg end
+        return out
+    end
+
+    local function flow_loop_index(flow)
+        local out = {}
+        for _, loop in ipairs(flow and flow.loops or {}) do out[loop.loop.text] = loop end
         return out
     end
 
@@ -74,6 +88,17 @@ local function bind_context(T)
         local set = {}
         for _, b in ipairs(blocks or {}) do set[b.block.text] = true end
         return set
+    end
+
+    local function add_blocks_to_set(set, blocks)
+        for _, b in ipairs(blocks or {}) do set[b.block.text] = true end
+        return set
+    end
+
+    local function block_index(func)
+        local out = {}
+        for _, block in ipairs(func and func.blocks or {}) do out[block.id.text] = block end
+        return out
     end
 
     local function streams_for_accesses(func_id, loop_id, loop_blocks, mem, rejects, proofs)
@@ -122,13 +147,18 @@ local function bind_context(T)
                 dep_unknown[dep.after.text .. "\0" .. dep.before.text] = true
             end
         end
+        local dependence_rejects = {}
         for i = 1, #loop_accesses do
             for j = i + 1, #loop_accesses do
                 local a, b = loop_accesses[i], loop_accesses[j]
                 if is_write_access(a.kind) or is_write_access(b.kind) then
                     local key = a.id.text .. "\0" .. b.id.text
                     if dep_unknown[key] or not dep_proved[key] then
-                        rejects[#rejects + 1] = Kernel.KernelRejectNoFacts(Kernel.KernelSubjectLoop(loop_id), "loop write pair lacks pairwise no-dependence proof: " .. a.id.text .. " / " .. b.id.text)
+                        dependence_rejects[#dependence_rejects + 1] = {
+                            before = a.id,
+                            after = b.id,
+                            reason = "loop write pair lacks pairwise no-dependence proof: " .. a.id.text .. " / " .. b.id.text,
+                        }
                     end
                 end
             end
@@ -143,7 +173,7 @@ local function bind_context(T)
             streams[#streams + 1] = stream
             for _, aid in ipairs(g.accesses or {}) do stream_by_access[aid.text] = stream end
         end
-        return streams, stream_by_access
+        return streams, stream_by_access, dependence_rejects
     end
 
     local function reductions_for_domain(value, domain)
@@ -282,22 +312,419 @@ local function bind_context(T)
         return bindings, effects
     end
 
+    local function first_effect(effects, cls)
+        local found = nil
+        for _, effect in ipairs(effects or {}) do
+            if pvm.classof(effect) == cls then
+                if found ~= nil then return nil, "multiple effects of same skeleton class" end
+                found = effect
+            end
+        end
+        return found, nil
+    end
+
+    local function binding_index(bindings)
+        local out = {}
+        for _, binding in ipairs(bindings or {}) do out[binding.id.text] = binding end
+        return out
+    end
+
+    local function resolve_kernel_expr(expr, bindings, seen)
+        if expr == nil then return nil end
+        if pvm.classof(expr) ~= Kernel.KernelExprKernelValue then return expr end
+        seen = seen or {}
+        if seen[expr.value.text] then return expr end
+        seen[expr.value.text] = true
+        local binding = bindings[expr.value.text]
+        if binding == nil then return expr end
+        return resolve_kernel_expr(binding.expr, bindings, seen)
+    end
+
+    local function value_expr_is_value(expr, id)
+        return id ~= nil and pvm.classof(expr) == Value.ValueExprValue and expr.value == id
+    end
+
+    local function same_value_expr(a, b)
+        if a == b then return true end
+        local ac, bc = pvm.classof(a), pvm.classof(b)
+        if ac ~= bc then return false end
+        if ac == Value.ValueExprValue then return a.value == b.value end
+        if ac == Value.ValueExprConst then return a.const == b.const end
+        return false
+    end
+
+    local function const_int_expr(expr)
+        if pvm.classof(expr) ~= Value.ValueExprConst then return nil end
+        local c = expr.const
+        if pvm.classof(c) ~= Code.CodeConstLiteral or pvm.classof(c.literal) ~= Core.LitInt then return nil end
+        return tonumber(c.literal.raw)
+    end
+
+    local function is_minus_one_expr(expr)
+        return const_int_expr(expr) == -1
+    end
+
+    local function reduction_update_matches(expr, reduction)
+        if pvm.classof(expr) ~= Kernel.KernelExprAlgebra then return false end
+        local v = expr.expr
+        local cls = pvm.classof(v)
+        local acc = reduction.accumulator
+        local contrib = reduction.contribution
+        if reduction.kind == Value.ReductionAdd and cls == Value.ValueExprAdd then
+            return (value_expr_is_value(v.a, acc) and same_value_expr(v.b, contrib))
+                or (value_expr_is_value(v.b, acc) and same_value_expr(v.a, contrib))
+        end
+        if reduction.kind == Value.ReductionMul and cls == Value.ValueExprMul then
+            return (value_expr_is_value(v.a, acc) and same_value_expr(v.b, contrib))
+                or (value_expr_is_value(v.b, acc) and same_value_expr(v.a, contrib))
+        end
+        return false
+    end
+
+    local function loop_primary_induction(loop)
+        for _, induction in ipairs(loop and loop.inductions or {}) do
+            if induction.kind == Flow.FlowPrimaryInduction then return induction.value end
+        end
+        return nil
+    end
+
+    local function index_is_primary(index, loop)
+        return value_expr_is_value(index, loop_primary_induction(loop))
+    end
+
+    local function stream_has_access(stream, id)
+        if stream == nil or id == nil then return false end
+        for _, access in ipairs(stream.accesses or {}) do
+            if access.text == id.text then return true end
+        end
+        return false
+    end
+
+    local function copy_dependence_semantics(dst, src, dependence_rejects)
+        local needs_memmove = false
+        for _, dep in ipairs(dependence_rejects or {}) do
+            local before_dst, before_src = stream_has_access(dst, dep.before), stream_has_access(src, dep.before)
+            local after_dst, after_src = stream_has_access(dst, dep.after), stream_has_access(src, dep.after)
+            if (before_dst and after_src) or (before_src and after_dst) then
+                needs_memmove = true
+            else
+                return nil, dep.reason
+            end
+        end
+        if needs_memmove then return Stencil.StencilCopyMemMove end
+        return Stencil.StencilCopyNoOverlap
+    end
+
+    local function term_args_to_dest(term, dest)
+        local k = term and term.kind
+        local cls = pvm.classof(k)
+        if cls == Code.CodeTermJump and k.dest == dest then return k.args or {} end
+        if cls == Code.CodeTermBranch then
+            if k.then_dest == dest then return k.then_args or {} end
+            if k.else_dest == dest then return k.else_args or {} end
+        elseif cls == Code.CodeTermSwitch then
+            for _, case in ipairs(k.cases or {}) do if case.dest == dest then return case.args or {} end end
+            if k.default_dest == dest then return k.default_args or {} end
+        elseif cls == Code.CodeTermVariantSwitch then
+            for _, case in ipairs(k.cases or {}) do if case.dest == dest then return case.args or {} end end
+            if k.default_dest == dest then return k.default_args or {} end
+        end
+        return nil
+    end
+
+    local function edge_return_expr(blocks, edge, value_index)
+        local from, to = blocks[edge.from.block.text], blocks[edge.to.block.text]
+        local ret = to and to.term and to.term.kind or nil
+        if from == nil or pvm.classof(ret) ~= Code.CodeTermReturn or #(ret.values or {}) ~= 1 then return nil end
+        local value = ret.values[1]
+        for i, param in ipairs(to.params or {}) do
+            if value == param.value then
+                local args = term_args_to_dest(from.term, to.id)
+                value = args and args[i] or nil
+                break
+            end
+        end
+        if value == nil then return nil end
+        return value_index.expr_by_value[value.text] or Value.ValueExprValue(value), value
+    end
+
+    local function edge_branch_polarity(blocks, edge)
+        local from = blocks[edge.from.block.text]
+        local term = from and from.term and from.term.kind or nil
+        if pvm.classof(term) ~= Code.CodeTermBranch then return nil, nil end
+        if term.then_dest == edge.to.block then return term.cond, true end
+        if term.else_dest == edge.to.block then return term.cond, false end
+        return nil, nil
+    end
+
+    local function flip_cmp(op)
+        if op == Core.CmpLt then return Core.CmpGt end
+        if op == Core.CmpLe then return Core.CmpGe end
+        if op == Core.CmpGt then return Core.CmpLt end
+        if op == Core.CmpGe then return Core.CmpLe end
+        return op
+    end
+
+    local function invert_cmp(op)
+        if op == Core.CmpEq then return Core.CmpNe end
+        if op == Core.CmpNe then return Core.CmpEq end
+        if op == Core.CmpLt then return Core.CmpGe end
+        if op == Core.CmpLe then return Core.CmpGt end
+        if op == Core.CmpGt then return Core.CmpLe end
+        if op == Core.CmpGe then return Core.CmpLt end
+        return nil
+    end
+
+    local function pred_from_cmp(op, cexpr)
+        if op == Core.CmpEq then return Stencil.StencilPredEqConst(cexpr) end
+        if op == Core.CmpNe then return Stencil.StencilPredNeConst(cexpr) end
+        if op == Core.CmpLt then return Stencil.StencilPredLtConst(cexpr) end
+        if op == Core.CmpLe then return Stencil.StencilPredLeConst(cexpr) end
+        if op == Core.CmpGt then return Stencil.StencilPredGtConst(cexpr) end
+        if op == Core.CmpGe then return Stencil.StencilPredGeConst(cexpr) end
+        return nil
+    end
+
+    local function same_load_expr(a, b)
+        if pvm.classof(a) ~= Kernel.KernelExprLoad or pvm.classof(b) ~= Kernel.KernelExprLoad then return false end
+        return a.stream == b.stream and same_value_expr(a.index, b.index)
+    end
+
+    local function expr_as_kernel_value(expr, bindings)
+        if pvm.classof(expr) ~= Value.ValueExprValue then return nil end
+        return resolve_kernel_expr(Kernel.KernelExprKernelValue(Kernel.KernelValueId("kval:" .. expr.value.text)), bindings)
+    end
+
+    local function find_predicate_from_cond(cond, polarity, bindings, value_index)
+        local expr = cond and value_index.expr_by_value[cond.text] or nil
+        if pvm.classof(expr) ~= Value.ValueExprCmp then return nil end
+        local op = polarity and expr.op or invert_cmp(expr.op)
+        if op == nil then return nil end
+        local a_kernel, b_kernel = expr_as_kernel_value(expr.a, bindings), expr_as_kernel_value(expr.b, bindings)
+        local a_const = pvm.classof(expr.a) == Value.ValueExprConst and expr.a or nil
+        local b_const = pvm.classof(expr.b) == Value.ValueExprConst and expr.b or nil
+        if a_kernel ~= nil and b_const ~= nil and pvm.classof(a_kernel) == Kernel.KernelExprLoad then
+            return a_kernel, pred_from_cmp(op, b_const)
+        end
+        if b_kernel ~= nil and a_const ~= nil and pvm.classof(b_kernel) == Kernel.KernelExprLoad then
+            return b_kernel, pred_from_cmp(flip_cmp(op), a_const)
+        end
+        return nil
+    end
+
+    local function infer_scan_skeleton(loop, effects, reductions, bindings, proofs)
+        if #reductions ~= 1 then return nil end
+        local store = first_effect(effects, Kernel.KernelEffectStore)
+        if store == nil or not index_is_primary(store.index, loop) then return nil end
+        local reduction = reductions[1]
+        if not reduction_update_matches(resolve_kernel_expr(store.value, bindings), reduction) then return nil end
+        proofs[#proofs + 1] = Kernel.KernelProofFunctionEquivalence("store of loop-carried reduction update is a prefix scan")
+        return {
+            effects = {
+                Kernel.KernelEffectScan(store.dst, store.index, reduction, Stencil.StencilScanInclusive),
+                Kernel.KernelEffectFold(reduction),
+            },
+            result = Kernel.KernelResultReduction(reduction),
+        }
+    end
+
+    local function infer_copy_skeleton(loop, effects, bindings, dependence_rejects, proofs)
+        local store = first_effect(effects, Kernel.KernelEffectStore)
+        if store == nil or not index_is_primary(store.index, loop) then return nil end
+        local src = resolve_kernel_expr(store.value, bindings)
+        if pvm.classof(src) ~= Kernel.KernelExprLoad then return nil end
+        if not index_is_primary(src.index, loop) then return nil end
+        if store.dst.elem_ty ~= src.stream.elem_ty then return nil end
+        local semantics, dep_reason = copy_dependence_semantics(store.dst, src.stream, dependence_rejects)
+        if semantics == nil then return nil, dep_reason end
+        proofs[#proofs + 1] = Kernel.KernelProofFunctionEquivalence("primary-index load/store is an array copy skeleton")
+        if semantics == Stencil.StencilCopyMemMove then
+            proofs[#proofs + 1] = Kernel.KernelProofFunctionEquivalence("copy skeleton uses memmove semantics for unresolved source/destination overlap")
+        end
+        return {
+            effects = {
+                Kernel.KernelEffectCopy(store.dst, src, semantics),
+            },
+            result = Kernel.KernelResultVoid,
+            handles_dependences = true,
+        }
+    end
+
+    local function infer_find_skeleton(func, graph_loop, loop, body_bindings, value_index, proofs)
+        if graph_loop == nil or #(graph_loop.exits or {}) ~= 2 then return nil end
+        local primary = loop_primary_induction(loop)
+        if primary == nil then return nil end
+        local bindings = binding_index(body_bindings)
+        local blocks = block_index(func)
+        local hit_src, hit_pred, not_found = nil, nil, nil
+        for _, edge in ipairs(graph_loop.exits or {}) do
+            local ret_expr, ret_value = edge_return_expr(blocks, edge, value_index)
+            if ret_expr ~= nil and (ret_value == primary or value_expr_is_value(ret_expr, primary)) then
+                local cond, polarity = edge_branch_polarity(blocks, edge)
+                local src, pred = find_predicate_from_cond(cond, polarity, bindings, value_index)
+                if src == nil or pred == nil then return nil end
+                hit_src, hit_pred = src, pred
+            elseif ret_expr ~= nil and is_minus_one_expr(ret_expr) then
+                not_found = ret_expr
+            elseif ret_value ~= nil then
+                return nil
+            end
+        end
+        if hit_src == nil or hit_pred == nil or not_found == nil then return nil end
+        if pvm.classof(hit_src) ~= Kernel.KernelExprLoad or not index_is_primary(hit_src.index, loop) then return nil end
+        proofs[#proofs + 1] = Kernel.KernelProofFunctionEquivalence("early-exit primary-index search is an array find skeleton")
+        return {
+            effects = {},
+            result = Kernel.KernelResultFind(hit_src, hit_pred, not_found),
+        }
+    end
+
+    local function infer_loop_skeleton(func, graph_loop, loop, effects, reductions, body_bindings, dependence_rejects, value_index, proofs)
+        local bindings = binding_index(body_bindings)
+        local scan = infer_scan_skeleton(loop, effects, reductions, bindings, proofs)
+        if scan ~= nil then return scan end
+        if #reductions == 0 then
+            local find = infer_find_skeleton(func, graph_loop, loop, body_bindings, value_index, proofs)
+            if find ~= nil then return find end
+            local copy = infer_copy_skeleton(loop, effects, bindings, dependence_rejects, proofs)
+            if copy ~= nil then return copy end
+        end
+        return nil
+    end
+
+    local function same_counted_domain(a, b)
+        return a ~= nil and b ~= nil and a.start == b.start and a.stop == b.stop and a.step == b.step and a.stop_exclusive == b.stop_exclusive
+    end
+
+    local function first_store_effect(effects)
+        for _, effect in ipairs(effects or {}) do
+            if pvm.classof(effect) == Kernel.KernelEffectStore then return effect end
+        end
+        return nil
+    end
+
+    local function infer_partition_skeleton(func, graph_func, flow_loops, value, mem, trip_counts)
+        if graph_func == nil then return nil end
+        local grouped, order = {}, {}
+        for _, graph_loop in ipairs(graph_func.loops or {}) do
+            local key = graph_loop.header.block.text
+            if grouped[key] == nil then
+                grouped[key] = {}
+                order[#order + 1] = key
+            end
+            grouped[key][#grouped[key] + 1] = graph_loop
+        end
+        if #order ~= 2 then return nil end
+        table.sort(order)
+        local group_a, group_b = grouped[order[1]], grouped[order[2]]
+        local loop_a = flow_loops[group_a[1].id.text]
+        local loop_b = flow_loops[group_b[1].id.text]
+        if loop_a == nil or loop_b == nil or not same_counted_domain(loop_a.counted, loop_b.counted) then return nil end
+        if loop_primary_induction(loop_a) == nil or loop_primary_induction(loop_b) == nil then return nil end
+
+        local subject = Kernel.KernelSubjectFunction(func.id)
+        local domain = Flow.FlowDomainLoop(loop_a.loop)
+        local proofs = { Kernel.KernelProofFlow(domain, "two counted loops recognized as stable partition domain") }
+        local rejects = {}
+        local loop_blocks = {}
+        for _, graph_loop in ipairs(group_a) do
+            local facts = flow_loops[graph_loop.id.text]
+            if facts ~= nil then add_blocks_to_set(loop_blocks, facts.body_blocks or facts.body) end
+        end
+        for _, graph_loop in ipairs(group_b) do
+            local facts = flow_loops[graph_loop.id.text]
+            if facts ~= nil then add_blocks_to_set(loop_blocks, facts.body_blocks or facts.body) end
+        end
+        local streams, stream_by_access, dependence_rejects = streams_for_accesses(func.id, loop_a.loop, loop_blocks, mem, rejects, proofs)
+        if #rejects > 0 then return nil end
+
+        local body_bindings, body_effects = build_kernel_body(func, loop_blocks, value, mem, stream_by_access, {}, rejects)
+        if #rejects > 0 then return nil end
+        local store = first_store_effect(body_effects)
+        if store == nil then return nil end
+        local value_index = CodeValueFacts.expr_index(value)
+        local bindings = binding_index(body_bindings)
+        local src, pred = nil, nil
+        for _, block in ipairs(func.blocks or {}) do
+            if loop_blocks[block.id.text] then
+                local term = block.term and block.term.kind or nil
+                if pvm.classof(term) == Code.CodeTermBranch then
+                    local candidate_src, candidate_pred = find_predicate_from_cond(term.cond, true, bindings, value_index)
+                    if candidate_src ~= nil and candidate_pred ~= nil and pvm.classof(candidate_src) == Kernel.KernelExprLoad then
+                        src, pred = candidate_src, candidate_pred
+                        break
+                    end
+                end
+            end
+        end
+        if src == nil or pred == nil or not index_is_primary(src.index, loop_a) then return nil end
+        if store.dst.elem_ty ~= src.stream.elem_ty then return nil end
+        for _, dep in ipairs(dependence_rejects or {}) do
+            local before_dst, before_src = stream_has_access(store.dst, dep.before), stream_has_access(src.stream, dep.before)
+            local after_dst, after_src = stream_has_access(store.dst, dep.after), stream_has_access(src.stream, dep.after)
+            if not ((before_dst and after_src) or (before_src and after_dst) or (before_dst and after_dst)) then return nil end
+        end
+        proofs[#proofs + 1] = Kernel.KernelProofFunctionEquivalence("two-pass predicate-preserving copy is a stable partition skeleton")
+        local body = Kernel.KernelBody(
+            Kernel.KernelDomainFlow(domain, trip_counts[loop_a.loop.text] or Flow.FlowTripCountUnknown("no semantic trip-count fact"), loop_primary_induction(loop_a)),
+            streams,
+            body_bindings,
+            { Kernel.KernelEffectPartition(store.dst, src, pred, Stencil.StencilPartitionStable) },
+            Kernel.KernelResultValue(Kernel.KernelExprAlgebra(Value.ValueExprValue(loop_primary_induction(loop_a)))),
+            Kernel.KernelEquivalenceProof(proofs)
+        )
+        return Kernel.KernelPlanned(Kernel.KernelId("kernel:" .. sanitize(func.id.text) .. ":partition"), subject, body)
+    end
+
     local function function_plans(module, graph, flow, value, mem, effect)
         local plans = {}
         local funcs = {}
         for _, func in ipairs(module.funcs or {}) do funcs[func.id.text] = func end
         local loop_func = graph_loop_func(graph)
         local graph_loops = graph_loop_index(graph)
+        local graph_funcs = graph_func_index(graph)
+        local flow_loops = flow_loop_index(flow)
         local edge_facts = flow_edge_index(flow)
         local trip_counts = semantic_trip_counts(module, graph, flow)
 
         for _, loop in ipairs(flow and flow.loops or {}) do
             local subject = Kernel.KernelSubjectLoop(loop.loop)
             local func_id = loop_func[loop.loop.text]
+            local function select(candidate)
+                local selection, err = CodeKernelPlanRules.select(candidate)
+                assert(selection ~= nil, tostring(err))
+                return selection
+            end
             if loop.counted == nil then
-                plans[#plans + 1] = Kernel.KernelNoPlan(subject, { Kernel.KernelRejectNoFacts(subject, "loop is not a counted Flow domain") })
+                local selection = select({
+                    counted = false,
+                    has_func_id = func_id ~= nil,
+                    has_func = false,
+                    has_rejects = false,
+                    has_closed_form = false,
+                    has_reduction = false,
+                    has_skeleton_result = false,
+                    closed_form_trip_unknown = false,
+                    not_counted_rejects = { Kernel.KernelRejectNoFacts(subject, "loop is not a counted Flow domain") },
+                    no_owner_rejects = { Kernel.KernelRejectNoFacts(subject, "graph loop has no function owner") },
+                    rejects = {},
+                })
+                plans[#plans + 1] = Kernel.KernelNoPlan(subject, selection.rejects)
             elseif func_id == nil then
-                plans[#plans + 1] = Kernel.KernelNoPlan(subject, { Kernel.KernelRejectNoFacts(subject, "graph loop has no function owner") })
+                local selection = select({
+                    counted = true,
+                    has_func_id = false,
+                    has_func = false,
+                    has_rejects = false,
+                    has_closed_form = false,
+                    has_reduction = false,
+                    has_skeleton_result = false,
+                    closed_form_trip_unknown = false,
+                    not_counted_rejects = { Kernel.KernelRejectNoFacts(subject, "loop is not a counted Flow domain") },
+                    no_owner_rejects = { Kernel.KernelRejectNoFacts(subject, "graph loop has no function owner") },
+                    rejects = {},
+                })
+                plans[#plans + 1] = Kernel.KernelNoPlan(subject, selection.rejects)
             else
                 local func = funcs[func_id.text]
                 local domain = Flow.FlowDomainLoop(loop.loop)
@@ -305,7 +732,7 @@ local function bind_context(T)
                 local proofs = { Kernel.KernelProofFlow(domain, "Flow counted-domain recognition") }
                 local loop_blocks = block_set(loop.body_blocks or loop.body)
                 if func == nil then rejects[#rejects + 1] = Kernel.KernelRejectNoFacts(subject, "graph loop owner function is missing from CodeModule") end
-                local streams, stream_by_access = streams_for_accesses(func_id, loop.loop, loop_blocks, mem, rejects, proofs)
+                local streams, stream_by_access, dependence_rejects = streams_for_accesses(func_id, loop.loop, loop_blocks, mem, rejects, proofs)
                 local effects = func and loop_effects(func, loop_blocks, effect, rejects, proofs) or {}
                 local reductions, closed_forms = reductions_for_domain(value, domain)
                 local reduction_backedges = {}
@@ -321,31 +748,67 @@ local function bind_context(T)
                     end
                 end
                 local body_bindings, body_effects = {}, {}
+                local value_index = CodeValueFacts.expr_index(value)
                 if func ~= nil then
                     body_bindings, body_effects = build_kernel_body(func, loop_blocks, value, mem, stream_by_access, reduction_backedges, rejects)
                 end
-                for _, e in ipairs(body_effects or {}) do effects[#effects + 1] = e end
+                local skeleton = nil
+                if #rejects == 0 then skeleton = infer_loop_skeleton(func, graph_loop, loop, body_effects, reductions, body_bindings, dependence_rejects, value_index, proofs) end
+                if skeleton ~= nil then
+                    for _, e in ipairs(skeleton.effects or {}) do effects[#effects + 1] = e end
+                    if not skeleton.handles_dependences then
+                        for _, dep in ipairs(dependence_rejects or {}) do
+                            rejects[#rejects + 1] = Kernel.KernelRejectNoFacts(subject, dep.reason)
+                        end
+                    end
+                else
+                    for _, e in ipairs(body_effects or {}) do effects[#effects + 1] = e end
+                    for _, reduction in ipairs(reductions) do effects[#effects + 1] = Kernel.KernelEffectFold(reduction) end
+                    for _, dep in ipairs(dependence_rejects or {}) do
+                        rejects[#rejects + 1] = Kernel.KernelRejectNoFacts(subject, dep.reason)
+                    end
+                end
                 for _, reduction in ipairs(reductions) do
-                    effects[#effects + 1] = Kernel.KernelEffectFold(reduction)
                     proofs[#proofs + 1] = Kernel.KernelProofValue(reduction.proof, "reduction fact justifies kernel fold")
                 end
-                local result = Kernel.KernelResultOriginalControl("semantic loop kernel preserves original control by default")
-                if #closed_forms > 0 then
-                    result = Kernel.KernelResultClosedForm(closed_forms[1])
-                    proofs[#proofs + 1] = Kernel.KernelProofValue(closed_forms[1].proof, "closed form fact justifies kernel result")
-                elseif #reductions > 0 then
-                    result = Kernel.KernelResultReduction(reductions[1])
-                end
                 local trip = trip_counts[loop.loop.text] or Flow.FlowTripCountUnknown("no semantic trip-count fact")
-                if pvm.classof(result) == Kernel.KernelResultClosedForm and pvm.classof(trip) == Flow.FlowTripCountUnknown then
-                    -- The current closed-form expression encodes start/stop/step directly, so
-                    -- keep the plan but make the proof dependence explicit rather than claiming
-                    -- an exact FlowTripCountExact fact that Flow does not provide yet.
-                    proofs[#proofs + 1] = Kernel.KernelProofFlow(domain, "closed-form expression uses counted start/stop/step directly; FlowTripCountExact is unavailable")
-                end
-                if #rejects > 0 then
-                    plans[#plans + 1] = Kernel.KernelNoPlan(subject, rejects)
+                local selection = select({
+                    counted = true,
+                    has_func_id = true,
+                    has_func = func ~= nil,
+                    has_rejects = #rejects > 0,
+                    has_closed_form = #closed_forms > 0,
+                    has_reduction = #reductions > 0,
+                    has_skeleton_result = skeleton ~= nil and skeleton.result ~= nil,
+                    closed_form = closed_forms[1],
+                    reduction = reductions[1],
+                    skeleton_result = skeleton and skeleton.result or nil,
+                    closed_form_trip_unknown = #closed_forms > 0 and pvm.classof(trip) == Flow.FlowTripCountUnknown,
+                    not_counted_rejects = { Kernel.KernelRejectNoFacts(subject, "loop is not a counted Flow domain") },
+                    no_owner_rejects = { Kernel.KernelRejectNoFacts(subject, "graph loop has no function owner") },
+                    rejects = rejects,
+                })
+                if selection.kind == "no_plan" then
+                    plans[#plans + 1] = Kernel.KernelNoPlan(subject, selection.rejects)
                 else
+                    local result
+                    if selection.result_kind == "closed_form" then
+                        local closed_form = assert(selection.closed_form, "closed-form kernel selection has no closed-form fact")
+                        result = Kernel.KernelResultClosedForm(closed_form)
+                        proofs[#proofs + 1] = Kernel.KernelProofValue(closed_form.proof, "closed form fact justifies kernel result")
+                        if selection.add_trip_unknown_proof then
+                            -- The current closed-form expression encodes start/stop/step directly, so
+                            -- keep the plan but make the proof dependence explicit rather than claiming
+                            -- an exact FlowTripCountExact fact that Flow does not provide yet.
+                            proofs[#proofs + 1] = Kernel.KernelProofFlow(domain, "closed-form expression uses counted start/stop/step directly; FlowTripCountExact is unavailable")
+                        end
+                    elseif selection.result_kind == "reduction" then
+                        result = Kernel.KernelResultReduction(assert(selection.reduction, "reduction kernel selection has no reduction fact"))
+                    elseif selection.result_kind == "skeleton" then
+                        result = assert(selection.skeleton_result, "skeleton kernel selection has no result")
+                    else
+                        result = Kernel.KernelResultOriginalControl("semantic loop kernel preserves original control by default")
+                    end
                     local counter = loop.inductions and loop.inductions[1] and loop.inductions[1].value or nil
                     local body = Kernel.KernelBody(
                         Kernel.KernelDomainFlow(domain, trip, counter),
@@ -361,7 +824,12 @@ local function bind_context(T)
         end
 
         for _, func in ipairs(module.funcs or {}) do
-            plans[#plans + 1] = Kernel.KernelNoPlan(Kernel.KernelSubjectFunction(func.id), { Kernel.KernelRejectUnsupportedSubject(Kernel.KernelSubjectFunction(func.id), "function-level replacement is not a semantic kernel plan") })
+            local partition = infer_partition_skeleton(func, graph_funcs[func.id.text], flow_loops, value, mem, trip_counts)
+            if partition ~= nil then
+                plans[#plans + 1] = partition
+            else
+                plans[#plans + 1] = Kernel.KernelNoPlan(Kernel.KernelSubjectFunction(func.id), { Kernel.KernelRejectUnsupportedSubject(Kernel.KernelSubjectFunction(func.id), "function-level replacement is not a semantic kernel plan") })
+            end
         end
         return plans
     end

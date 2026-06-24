@@ -22,6 +22,7 @@ local function bind_context(T)
     local CodeEffectFacts = require("moonlift.code_effect_facts")(T)
     local CodeKernelPlan = require("moonlift.code_kernel_plan")(T)
     local KernelEmitSupport = require("moonlift.kernel_emit_support")(T)
+    local CodeSchedulePlanRules = require("moonlift.code_schedule_plan_rules")(T)
 
     local api = {}
 
@@ -100,30 +101,33 @@ local function bind_context(T)
 
     local function schedule_for_plan(plan, target, flow)
         local kid = plan.id
-        local rejected_alternatives = {}
         local vector_kind = vector_candidate_kind(plan, target)
+        local vector_cap = nil
         if vector_kind ~= nil then
-            local vcap = KernelEmitSupport.classify(plan, vector_kind, target, flow)
-            if vcap.executable then
-                return Schedule.SchedulePlanned(
-                    Schedule.ScheduleId("schedule:" .. sanitize(kid.text) .. ":" .. sanitize(vcap.kind)),
-                    kid,
-                    vector_kind,
-                    proofs_for(plan, vcap),
-                    {}
-                )
-            end
-            for _, r in ipairs(vcap.rejects or {}) do rejected_alternatives[#rejected_alternatives + 1] = r end
+            vector_cap = KernelEmitSupport.classify(plan, vector_kind, target, flow)
         end
-        local kind = scalar_or_closed_kind_for(plan)
-        local capability = KernelEmitSupport.classify(plan, kind, target, flow)
-        if not capability.executable then return Schedule.ScheduleNoPlan(kid, capability.rejects) end
+        local scalar_kind = scalar_or_closed_kind_for(plan)
+        local scalar_cap = vector_cap and vector_cap.executable and nil or KernelEmitSupport.classify(plan, scalar_kind, target, flow)
+        local selection, err = CodeSchedulePlanRules.select({
+            has_vector_candidate = vector_kind ~= nil,
+            vector_executable = vector_cap ~= nil and vector_cap.executable or false,
+            vector_kind = vector_kind,
+            vector_capability = vector_cap,
+            vector_rejects = vector_cap and vector_cap.rejects or {},
+            scalar_executable = scalar_cap ~= nil and scalar_cap.executable or false,
+            scalar_kind = scalar_kind,
+            scalar_capability = scalar_cap,
+            scalar_rejects = scalar_cap and scalar_cap.rejects or {},
+        })
+        assert(selection ~= nil, tostring(err))
+        if selection.kind == "no_plan" then return Schedule.ScheduleNoPlan(kid, selection.rejects) end
+        local capability = assert(selection.capability, "planned schedule selection has no emitter capability")
         return Schedule.SchedulePlanned(
             Schedule.ScheduleId("schedule:" .. sanitize(kid.text) .. ":" .. sanitize(capability.kind)),
             kid,
-            kind,
+            selection.schedule_kind,
             proofs_for(plan, capability),
-            rejected_alternatives
+            selection.rejected_alternatives or {}
         )
     end
 

@@ -617,6 +617,8 @@ language and feed it to an incremental bytecode VM.
 
 ```sh
 luajit benchmarks/bench_llpvm_image_load.lua          # LLPVM image loading benchmark
+luajit benchmarks/bench_luajit_stencil_matrix.lua full # LuaJIT C stencil vocabulary vs GCC
+luajit benchmarks/bench_luajit_lower_stencil_matrix.lua full # MoonCode lowering vs raw stencils
 ```
 
 ---

@@ -1122,40 +1122,85 @@ Traits: `named`
 
 ## llisle.dsl
 
-Llisle is the lowering/rewrite/selection rule member of the Moonlift family. It expresses compiler choices as typed relations, product-shaped patterns, sum alternatives, and process-shaped rule bodies.
+Llisle is the lowering/rewrite/selection rule member of the Moonlift family. It expresses compiler choices as typed relations, projection/classification relations, declared predicates, declared constructors, product-shaped patterns, sum alternatives, and process-shaped rule bodies.
 
-Family source uses the `llisle` namespace value. Call `llisle { ... }` when a family value carries rule systems next to Moonlift declarations, MoonSchema types, or LLPVM machines.
+Lua implementations are explicit values spliced through `[]` on `predicate.` and `constructor.` declarations. Llisle owns the semantic names; Lua supplies implementation values without a side-table registry.
+
+Canonical Llisle source is normally authored as a Llisle island: install the Llisle member into the authoring environment, use `llisle { ... }` as the zone/container, and write the body with bare Llisle heads. Use `llisle.*` prefixes only when crossing a mixed-family boundary without installing the member island.
 
 ```lua
 llisle {
-  llisle.relation. lower_expr {
-    llisle.input { expr [MoonExpr], ctx [LowerCtx] },
-    llisle.output { value [BackValue] },
-    llisle.strategy {
-      llisle.select. best_cost,
-      llisle.ambiguity. error,
-      llisle.coverage. complete,
+  project. classify_expr {
+    input { expr [MoonExpr] },
+    output { class [ExprClassFact] },
+    strategy {
+      select. best_cost,
+      ambiguity. error,
+      coverage. complete,
     },
   },
 
-  llisle.rule. add_i32 {
+  relation. lower_expr {
+    input { expr [MoonExpr], ctx [LowerCtx] },
+    output { value [BackValue] },
+    strategy {
+      select. best_cost,
+      ambiguity. error,
+      coverage. complete,
+    },
+  },
+
+  predicate. has_type [has_type_impl] {
+    input { value [Any], ty [Any] },
+    pure,
+  },
+
+  constructor. add_i32 [build_add_i32],
+
+  rule. add_i32 {
     llisle.lower_expr {
-      expr = add { lhs = llisle.P. lhs, rhs = llisle.P. rhs } [ml.i32],
-      ctx = llisle.P. ctx,
+      expr = add { lhs = P. lhs, rhs = P. rhs } [ml.i32],
+      ctx = P. ctx,
     },
 
-    llisle.when {
-      llisle.P. lhs :has_type (ml.i32),
-      llisle.P. rhs :has_type (ml.i32),
+    when {
+      (P. lhs :has_type (ml.i32)) * (P. rhs :has_type (ml.i32)),
     },
 
-    llisle.run {
-      llisle.emit. cmd { add_i32 { dst = llisle.V. out, lhs = llisle.P. lhs, rhs = llisle.P. rhs } },
-      llisle.ret { value = llisle.V. out },
+    run {
+      emit. cmd { add_i32 { dst = V. out, lhs = P. lhs, rhs = P. rhs } },
+      ret { value = V. out },
     },
   },
 }
 ```
+
+LuaJIT stencil lowering is split into Llisle plan and selector relations.
+`plan_store_stencil` and `plan_reduce_stencil` own readiness gates over planned
+kernels, counted positive loops, return shape, single-store or reduction shape,
+and enriched class availability. `select_store_stencil` and
+`select_reduce_stencil` own concrete stencil vocabulary, op, provider `info`,
+and ordered machine argument lists.
+Each concrete stencil constructor declares its Llisle product contract for
+`info`, `args`, optional `op`, and `selection`, so family docs, tests, and LSP
+indexing can inspect the vocabulary without executing the builder.
+Use `luajit benchmarks/bench_luajit_stencil_matrix.lua full` as the bottom-up
+performance gate for the complete C stencil vocabulary against GCC loops.
+Use `luajit benchmarks/bench_luajit_lower_stencil_matrix.lua full` for the next
+layer: MoonCode loop lowering must select the expected stencil vocabulary and
+run at raw-stencil speed for the vocabulary represented by the current kernel
+plan.
+Non-store/non-reduction array skeletons are explicit MoonKernel semantics:
+`KernelEffectScan`, `KernelEffectPartition`, `KernelEffectCopy`, and
+`KernelResultFind`. Llisle owns their LuaJIT stencil selection through
+`scan_array`, `partition_array`, overlap-aware `copy_array`, and `find_array`
+constructors.
+The counted-loop kernel planner currently infers prefix scan and copy skeletons
+from ordinary MoonCode loops. Proven-independent copies lower as no-overlap
+copies; unproven source/destination overlap lowers as `StencilCopyMemMove`.
+Early-exit primary-index searches lower as `find_array`. Stable partition is a
+function-level two-pass fragment and lowers through `KernelEffectPartition`.
+The lower stencil matrix covers 18/18 vocabulary cells.
 
 ### Llisle LLB Surface
 
@@ -1176,6 +1221,8 @@ llisle {
 - `boolean`
 - `choose`
 - `choose_body`
+- `constructor`
+- `constructor_body`
 - `cost`
 - `coverage`
 - `decls`
@@ -1193,6 +1240,11 @@ llisle {
 - `null`
 - `number`
 - `output`
+- `payload_body`
+- `predicate`
+- `predicate_body`
+- `project`
+- `pure`
 - `relation`
 - `relation_body`
 - `ret`
@@ -1218,6 +1270,7 @@ llisle {
 role. alt_body { kind = "array", algebra = "list" }
 role. boolean { kind = "boolean" }
 role. choose_body { kind = "array", algebra = "list" }
+role. constructor_body { kind = "array", algebra = "list" }
 role. decls { kind = "array", algebra = "list" }
 role. expr { kind = "expr" }
 role. fields { kind = "array", algebra = "product" }
@@ -1225,6 +1278,8 @@ role. guard_body { kind = "array", algebra = "product" }
 role. identity { kind = "identity" }
 role. name { kind = "name" }
 role. number { kind = "number" }
+role. payload_body { kind = "array", algebra = "product" }
+role. predicate_body { kind = "array", algebra = "list" }
 role. relation_body { kind = "array", algebra = "list" }
 role. rule_body { kind = "array", algebra = "list" }
 role. rules_body { kind = "array", algebra = "list" }
@@ -1238,6 +1293,7 @@ role. value { kind = "value" }
 - `alt_body` — kind=array, algebra=list
 - `boolean` — kind=boolean
 - `choose_body` — kind=array, algebra=list
+- `constructor_body` — kind=array, algebra=list
 - `decls` — kind=array, algebra=list
 - `expr` — kind=expr
 - `fields` — kind=array, algebra=product
@@ -1245,6 +1301,8 @@ role. value { kind = "value" }
 - `identity` — kind=identity
 - `name` — kind=name
 - `number` — kind=number
+- `payload_body` — kind=array, algebra=product
+- `predicate_body` — kind=array, algebra=list
 - `relation_body` — kind=array, algebra=list
 - `rule_body` — kind=array, algebra=list
 - `rules_body` — kind=array, algebra=list
@@ -1294,7 +1352,7 @@ bind. name { ... }
 Slots:
 
 - `. name` -> `name` role=`name` channel=`index:name`
-- ` { ... }` -> `body` role=`guard_body` channel=`call:table`
+- ` { ... }` -> `body` role=`payload_body` channel=`call:table`
 
 Traits: `named`
 
@@ -1309,6 +1367,22 @@ choose { ... }
 Slots:
 
 - ` { ... }` -> `body` role=`choose_body` channel=`call:table`
+
+#### `constructor`
+
+Declares a semantic constructor used by ret/emit payload construction. The optional [] slot carries the Lua implementation value.
+
+```lua
+constructor. name [value] { ... }
+```
+
+Slots:
+
+- `. name` -> `name` role=`name` channel=`index:name`
+- ` [value]` -> `impl` role=`value` channel=`index:value`
+- ` { ... }` -> `body` role=`constructor_body` channel=`call:table` optional
+
+Traits: `named`
 
 #### `cost`
 
@@ -1357,7 +1431,7 @@ emit. name { ... }
 Slots:
 
 - `. name` -> `channel` role=`name` channel=`index:name`
-- ` { ... }` -> `body` role=`guard_body` channel=`call:table`
+- ` { ... }` -> `body` role=`payload_body` channel=`call:table`
 
 #### `fail`
 
@@ -1370,7 +1444,7 @@ fail. name { ... }
 Slots:
 
 - `. name` -> `reason` role=`name` channel=`index:name`
-- ` { ... }` -> `body` role=`guard_body` channel=`call:table`
+- ` { ... }` -> `body` role=`payload_body` channel=`call:table`
 
 #### `input`
 
@@ -1395,6 +1469,47 @@ output { name [Type], ... }
 Slots:
 
 - ` { name [Type], ... }` -> `fields` role=`fields` channel=`call:table`
+
+#### `predicate`
+
+Declares a semantic predicate used by guards. The optional [] slot carries the Lua implementation value.
+
+```lua
+predicate. name [value] { ... }
+```
+
+Slots:
+
+- `. name` -> `name` role=`name` channel=`index:name`
+- ` [value]` -> `impl` role=`value` channel=`index:value`
+- ` { ... }` -> `body` role=`predicate_body` channel=`call:table`
+
+Traits: `named`
+
+#### `project`
+
+Declares a projection relation. Projection turns family values into MoonSchema-backed facts.
+
+```lua
+project. name { ... }
+```
+
+Slots:
+
+- `. name` -> `name` role=`name` channel=`index:name`
+- ` { ... }` -> `body` role=`relation_body` channel=`call:table`
+
+Traits: `named`
+
+#### `pure`
+
+Marks a predicate as pure.
+
+```lua
+pure
+```
+
+Slots: none
 
 #### `relation`
 
@@ -1421,7 +1536,7 @@ ret { ... }
 
 Slots:
 
-- ` { ... }` -> `body` role=`guard_body` channel=`call:table`
+- ` { ... }` -> `body` role=`payload_body` channel=`call:table`
 
 #### `rule`
 

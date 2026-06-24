@@ -29,13 +29,12 @@ return llisle {
     },
 
     llisle.when {
-      llisle.P. lhs :has_type (ml.i32),
-      llisle.P. rhs :has_type (ml.i32),
+      (llisle.P. lhs :has_type (ml.i32)) * (llisle.P. rhs :has_type (ml.i32)),
     },
 
     llisle.choose {
       llisle.alt. imm {
-        llisle.when { llisle.P. rhs :fits_imm32 () },
+        llisle.when { (llisle.P. rhs :fits_imm32 ()) + (llisle.P. rhs :is_const ()) },
         llisle.cost (1),
         llisle.run {
           llisle.emit. cmd { add_i32_imm { dst = llisle.V. out, lhs = llisle.P. lhs, imm = llisle.P. rhs } },
@@ -79,11 +78,13 @@ assert(formatted:match("llisle%s*{"), "family formatter preserves llisle zone")
 assert(formatted:match("relation%. lower_expr"), "llisle formatter renders relation heads")
 assert(formatted:match("rule%. add_i32"), "llisle formatter renders rule heads")
 assert(formatted:match("choose"), "llisle formatter renders local sum elimination")
+assert(formatted:match("%*"), "llisle formatter renders product/and guard algebra")
+assert(formatted:match("%+"), "llisle formatter renders sum/or guard algebra")
 
 local bad = moon.family.load([[
 return llisle {
   llisle.rule. orphan {
-    llisle.missing_relation { expr = P. expr },
+    llisle.missing_relation { expr = llisle.P. expr },
     llisle.run { llisle.ret { value = llisle.V. out } },
   },
 }

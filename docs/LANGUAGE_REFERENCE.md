@@ -102,9 +102,11 @@ llpvm.task. compile {
   llpvm.output [ml.i32],
 }
 
-llisle.relation. lower_expr {
-  llisle.input { expr [MoonExpr], ctx [LowerCtx] },
-  llisle.output { value [BackValue] },
+llisle {
+  relation. lower_expr {
+    input { expr [MoonExpr], ctx [LowerCtx] },
+    output { value [BackValue] },
+  },
 }
 
 schema. MoonEditor {
@@ -141,9 +143,9 @@ return {
   },
 
   llisle {
-    llisle.rule. lower_add_i32 {
-      llisle.lower_expr { expr = add { lhs = llisle.P. lhs, rhs = llisle.P. rhs } [ml.i32] },
-      llisle.run { llisle.ret { value = llisle.V. out } },
+    rule. lower_add_i32 {
+      llisle.lower_expr { expr = add { lhs = P. lhs, rhs = P. rhs } [ml.i32] },
+      run { ret { value = V. out } },
     },
   },
 }
@@ -1118,85 +1120,262 @@ backend selection. It does not introduce a parser or a callback registry.
 It maps directly onto existing family algebra:
 
 ```text
-relation      typed product-to-product question
-rule          sum arm that may satisfy a relation
-relation call product-shaped pattern
-when          product of guards
-choose        local sum elimination
-alt           local sum arm
-run           process-shaped construction body
-emit          process effect
-ret           output product
+relation       typed product-to-product question
+project        classification/projection relation into family facts
+predicate      declared guard semantic primitive
+constructor    declared output/effect semantic primitive
+rule           sum arm that may satisfy a relation
+relation call  product-shaped pattern
+when           product/sum of guards
+choose         local sum elimination
+alt            local sum arm
+run            process-shaped construction body
+emit           process effect
+ret            output product
 ```
 
-Canonical family shape:
+Canonical Llisle island shape:
 
 ```lua
 llisle {
-  llisle.relation. lower_expr {
-    llisle.input { expr [MoonExpr], ctx [LowerCtx] },
-    llisle.output { value [BackValue] },
-    llisle.effects { cmd [BackCmd], diagnostic [Diagnostic] },
-    llisle.strategy {
-      llisle.select. best_cost,
-      llisle.ambiguity. error,
-      llisle.coverage. complete,
+  project. classify_expr {
+    input { expr [MoonExpr] },
+    output { class [ExprClassFact] },
+    strategy {
+      select. best_cost,
+      ambiguity. error,
+      coverage. complete,
     },
   },
 
-  llisle.rule. add_i32 {
+  relation. lower_expr {
+    input { expr [MoonExpr], ctx [LowerCtx] },
+    output { value [BackValue] },
+    effects { cmd [BackCmd], diagnostic [Diagnostic] },
+    strategy {
+      select. best_cost,
+      ambiguity. error,
+      coverage. complete,
+    },
+  },
+
+  predicate. has_type [has_type_impl] {
+    input { value [Any], ty [Any] },
+    pure,
+  },
+
+  predicate. fits_imm32 [fits_imm32_impl] {
+    input { value [Any] },
+    pure,
+  },
+
+  constructor. add_i32_imm [build_add_i32_imm],
+
+  constructor. add_i32 [build_add_i32],
+
+  rule. add_i32 {
     llisle.lower_expr {
-      expr = add { lhs = llisle.P. lhs, rhs = llisle.P. rhs } [ml.i32],
-      ctx = llisle.P. ctx,
+      expr = add { lhs = P. lhs, rhs = P. rhs } [ml.i32],
+      ctx = P. ctx,
     },
 
-    llisle.when {
-      llisle.P. lhs :has_type (ml.i32),
-      llisle.P. rhs :has_type (ml.i32),
+    when {
+      (P. lhs :has_type (ml.i32)) * (P. rhs :has_type (ml.i32)),
     },
 
-    llisle.choose {
-      llisle.alt. imm {
-        llisle.when { llisle.P. rhs :fits_imm32 () },
-        llisle.cost (1),
-        llisle.run {
-          llisle.emit. cmd {
-            add_i32_imm { dst = llisle.V. out, lhs = llisle.P. lhs, imm = llisle.P. rhs },
+    choose {
+      alt. imm {
+        when { (P. rhs :fits_imm32 ()) + (P. rhs :is_const ()) },
+        cost (1),
+        run {
+          emit. cmd {
+            add_i32_imm { dst = V. out, lhs = P. lhs, imm = P. rhs },
           },
-          llisle.ret { value = llisle.V. out },
+          ret { value = V. out },
         },
       },
 
-      llisle.alt. reg {
-        llisle.cost (2),
-        llisle.run {
-          llisle.emit. cmd {
-            add_i32 { dst = llisle.V. out, lhs = llisle.P. lhs, rhs = llisle.P. rhs },
+      alt. reg {
+        cost (2),
+        run {
+          emit. cmd {
+            add_i32 { dst = V. out, lhs = P. lhs, rhs = P. rhs },
           },
-          llisle.ret { value = llisle.V. out },
+          ret { value = V. out },
         },
       },
     },
   },
 }
 ```
+
+Inside a dedicated Llisle island, use the language through LLB and write the
+heads bare. This is the same managed-environment pattern used by the other
+family DSLs:
+
+```lua
+local Llisle = require("llisle")
+local env = require("moonlift").family.env { scope = "env", base = _G }
+Llisle.use { scope = "env", target = env, base = env, global = false }
+
+local function has_type(value, ty)
+  return value.ty == ty
+end
+
+local function build_add_i32(fields)
+  return { op = "add_i32", dst = fields.dst, lhs = fields.lhs, rhs = fields.rhs }
+end
+
+local function rules()
+  return llisle {
+    relation. lower_expr {
+      input { expr [MoonExpr], ctx [LowerCtx] },
+      output { value [BackValue] },
+    },
+
+    predicate. has_type [has_type] {
+      input { value [Any], ty [Any] },
+      pure,
+    },
+
+    constructor. add_i32 [build_add_i32],
+
+    rule. add_i32 {
+      llisle.lower_expr {
+        expr = add { lhs = P. lhs, rhs = P. rhs } [ml.i32],
+        ctx = P. ctx,
+      },
+      when { (P. lhs :has_type (ml.i32)) * (P. rhs :has_type (ml.i32)) },
+      run { ret { value = V. out } },
+    },
+  }
+end
+```
+
+The outer `llisle { ... }` is the zone/container. Relation calls such as
+`llisle.lower_expr { ... }` remain namespace calls because relations are dynamic
+entries under the Llisle namespace. Declarations, binders, guards, alternatives,
+process heads, and fragments are bare inside a Llisle island.
 
 Rules compose as normal LLB fragments:
 
 ```lua
-local scalar_rules = llisle.rules {
-  llisle.rule. lower_const_i32 { ... },
+local scalar_rules = rules {
+  rule. lower_const_i32 { ... },
 }
 
-local arith_rules = llisle.rules {
-  llisle.rule. lower_add_i32 { ... },
+local arith_rules = rules {
+  rule. lower_add_i32 { ... },
 }
 
 return llisle {
-  llisle.relation. lower_expr { ... },
+  relation. lower_expr { ... },
   _(scalar_rules .. arith_rules),
 }
 ```
+
+Executable use:
+
+```lua
+local engine = llisle.compile(rules, {
+  fresh = function(name, id)
+    return { kind = "tmp", name = name, id = id }
+  end,
+})
+
+local result = assert(engine:run("lower_expr", {
+  expr = { kind = "add", ty = ml.i32, lhs = lhs, rhs = rhs },
+  ctx = ctx,
+}))
+```
+
+The engine is deliberately Lua-integrated, but not registry-defined. Llisle owns relation structure, projection structure, predicate declarations, constructor declarations, pattern binding, guard order, local `choose` alternatives, costs, effects, and returns. Lua implementations are explicit values spliced through `[]` on `predicate.` and `constructor.` declarations. There is no `host.` directive, no `predicates` compile registry, and no `builders` compile registry.
+
+`P.*` binders capture matched inputs, `V.*` binders allocate stable fresh values
+inside one rule execution, and `T.*` is reserved for type-level binders. A
+successful run returns `{ output, effects, rule, alt, cost, bindings }`; failure
+returns `nil, diagnostic_like_table`.
+
+Binder paths are symbolic family paths, not private string slots. A rule may bind
+the whole subject as `P.expr` and then use `P.expr.lhs.ty` in guards or emitted
+payloads. Field lookup accepts ordinary Lua string keys, `llb.Symbol`/`llb.Name`
+keys, and shared symbols supplied to `llisle.compile { symbols = ... }`. This is
+what lets Llisle rules operate over Moonlift, MoonSchema, kernel, and backend
+facts without translating those facts into a separate record universe.
+
+`bind` may appear before `when` inside a rule or alternative. This expresses
+recursive lowering directly:
+
+```lua
+bind. inner {
+  llisle.classify_expr { expr = P. expr.value },
+}
+when { V. inner.class.kind :eq (load) }
+```
+
+The LuaJIT C stencil backend uses this shape end-to-end for stencil lowering.
+ASDL kernel/value nodes are adapted into shared facts, Llisle recursively
+classifies expressions and stencil scalar type families, then Llisle owns two
+levels of decision. `plan_store_stencil` and `plan_reduce_stencil` gate
+readiness: planned kernel, counted positive loop, return shape, single-store or
+reduction result, enriched class, and concrete selector availability.
+`select_store_stencil` and `select_reduce_stencil` then choose the concrete
+stencil vocabulary, op, provider `info`, and ordered machine argument list.
+Every concrete stencil selection constructor declares its payload contract in
+Llisle: `input { info [...], args [StencilArgList] }` or
+`input { op [Any], info [...], args [StencilArgList] }`, and
+`output { selection [...] }`. Plan constructors similarly expose
+`output { plan [...] }`. The vocabulary is therefore inspectable by LLB tooling
+instead of being only a Lua builder convention.
+Stencil type admissibility is part of the rule layer: scalar element/result
+types are classified as integer, float, index, or bool8; same-type constraints,
+index-array constraints, unary and binary op/type support, cast legality, and
+reduction support are checked before artifact construction. The LuaJIT lowering
+layer consumes the selected plan to build the final machine and artifact call;
+it does not own the stencil decision matrix.
+
+The next LuaJIT lowering layer is also Llisle-owned. `luajit_lower` adapts
+kernel plans, flow facts, provider availability, return-shape checks, counted
+loop facts, and pure stencil/vector readiness into a
+`LuaJITKernelLoweringCandidate`. Llisle then selects the concrete lowering
+strategy by cost: ready stencil reductions, ready vector reductions, then ready
+stencil stores. Lua builds only the selected machine; it no longer owns a
+procedural trial ladder.
+
+The stencil layer is performance-gated as a vocabulary, not as isolated
+examples. Run `luajit benchmarks/bench_luajit_stencil_matrix.lua full` to
+measure every C stencil shape against a direct GCC loop baseline.
+The next layer is gated by
+`luajit benchmarks/bench_luajit_lower_stencil_matrix.lua full`, which asserts
+that MoonCode loops select the expected stencil vocabulary and compares the
+lowered LuaJIT wrapper with the raw artifact call.
+Array skeletons that are not plain stores or reductions are represented in the
+kernel schema before lowering: `KernelEffectScan`, `KernelEffectPartition`,
+`KernelEffectCopy`, and `KernelResultFind`. LuaJIT consumes those semantic
+facts through Llisle selectors for `scan_array`, `partition_array`,
+overlap-aware `copy_array`, and `find_array`.
+The ordinary counted-loop planner now infers prefix scans and no-overlap array
+copies directly as `KernelEffectScan` and `KernelEffectCopy`. When copy overlap
+is unproven, it selects `StencilCopyMemMove` instead of rejecting the loop. The
+planner also recognizes early-exit primary-index searches as `KernelResultFind`.
+Stable partition is function-level because it is a two-pass fragment, not a
+single-loop store; `code_kernel_plan` emits `KernelEffectPartition` for that
+shape. The lower stencil matrix covers all 18 vocabulary cells.
+
+Kernel planning uses the same split. `code_kernel_plan` assembles graph, flow,
+value, memory, and effect facts into a `KernelLoopPlanCandidate`; Llisle selects
+the semantic outcome. The rule layer owns no-plan rejection priority and kernel
+result priority: closed forms win over reductions, reductions win over skeleton
+results, skeleton results win over original control, and closed-form plans carry
+the explicit unknown-trip proof bit when Flow cannot provide an exact trip
+count. Lua then constructs the selected MoonKernel ASDL value.
+
+Schedule planning is Llisle-owned at the strategy boundary. `code_schedule_plan`
+builds `KernelScheduleCandidate` values from planned kernels, target vector
+facts, and emitter capability checks. Llisle selects executable vectors first,
+falls back to scalar or closed-form schedules when vector support rejects, keeps
+those vector rejects as rejected alternatives, and emits `ScheduleNoPlan` only
+when the executable fallback also rejects.
 
 LLPVM heads:
 
