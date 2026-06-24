@@ -25,7 +25,7 @@ local plan = L.LinkPlan(
     { L.LinkInputObject(L.LinkPath(obj)), L.LinkInputSystemLibrary("m") },
     L.LinkExportAll,
     L.LinkExternRequireResolved,
-    { L.LinkOptSoname("libmoonlift_link_test.so") }
+    { L.LinkOptSoname("libml_link_test.so") }
 )
 local report = LV.validate(plan)
 assert(#report.issues == 0, "expected valid link plan")

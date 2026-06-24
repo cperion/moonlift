@@ -77,23 +77,16 @@ local result, err, src = Backend.compile_module(module, {
 assert(result ~= nil, tostring(err) .. "\n" .. tostring(src))
 assert(#result.artifacts == 1, "expected one selected stencil artifact")
 assert(result.artifacts[1].provider == Stencil.StencilProviderLuaTrace, "expected LuaTrace stencil provider")
-assert(result.realization.kind == "LuaTraceStencilRealization", "expected LuaTrace realization")
-local bc_result, bc_err, bc_src = Backend.compile_module(module, {
-    contracts = contracts,
-    stencil_provider = "lua_trace",
-    luatrace_materializer = "bytecode",
-    chunk_name = "test_luajit_backend_luatrace_bc",
-})
-assert(bc_result ~= nil, tostring(bc_err) .. "\n" .. tostring(bc_src))
-assert(bc_result.realization.kind == "LuaTraceBytecodeStencilRealization", "expected LuaTrace bytecode realization")
-assert(bc_result.realization.bank ~= nil, "expected LuaTrace bytecode bank")
+assert(result.realization.kind == "LuaTraceBytecodeStencilRealization", "expected LuaTrace bytecode realization")
+assert(result.realization.bank ~= nil, "expected LuaTrace bytecode bank")
 local artifact_source, artifact_err = Backend.emit_lua_artifact(result.lj_module, result.artifacts, {
     stencil_provider = "lua_trace",
     chunk_name = "test_luajit_backend_luatrace_artifact",
 })
 assert(artifact_source ~= nil, tostring(artifact_err))
-assert(artifact_source:match("Generated Moonlift LuaJIT LuaTrace artifact"), "expected LuaTrace artifact header")
-assert(artifact_source:match("local function ml_stencil_reduce_array_i32_add_to_i32_s1"), "expected emitted LuaTrace stencil loop")
+assert(artifact_source:match("LuaTrace bytecode copy%-patch artifact"), "expected LuaTrace bytecode artifact header")
+assert(artifact_source:match("__ml_load_bc"), "expected embedded bytecode loader")
+assert(not artifact_source:match("local function ml_stencil_reduce_array_i32_add_to_i32_s1"), "bytecode artifact should not embed LuaTrace source function")
 assert(not artifact_source:match("__ml_install"), "LuaTrace artifact must not install copy-patch binary stencils")
 
 local count = 1024
@@ -104,27 +97,12 @@ for j = 0, count - 1 do
     expected = bit.tobit(expected + arr[j])
 end
 assert(result.module.sum_i32(arr, count) == expected)
-assert(bc_result.module.sum_i32(arr, count) == expected)
 
 local loader = loadstring or load
 local artifact_chunk, load_err = loader(artifact_source, "@test_luajit_backend_luatrace_artifact")
 assert(artifact_chunk ~= nil, tostring(load_err) .. "\n" .. artifact_source)
 local artifact_module = artifact_chunk()
 assert(artifact_module.sum_i32(arr, count) == expected)
-
-local bc_artifact_source, bc_artifact_err = Backend.emit_lua_artifact(result.lj_module, result.artifacts, {
-    stencil_provider = "lua_trace",
-    luatrace_materializer = "bytecode",
-    chunk_name = "test_luajit_backend_luatrace_bc_artifact",
-})
-assert(bc_artifact_source ~= nil, tostring(bc_artifact_err))
-assert(bc_artifact_source:match("LuaTrace bytecode copy%-patch artifact"), "expected LuaTrace bytecode artifact header")
-assert(bc_artifact_source:match("__ml_load_bc"), "expected embedded bytecode loader")
-assert(not bc_artifact_source:match("local function ml_stencil_reduce_array_i32_add_to_i32_s1"), "bytecode artifact should not embed LuaTrace source function")
-local bc_artifact_chunk, bc_artifact_load_err = loader(bc_artifact_source, "@test_luajit_backend_luatrace_bc_artifact")
-assert(bc_artifact_chunk ~= nil, tostring(bc_artifact_load_err) .. "\n" .. bc_artifact_source)
-local bc_artifact_module = bc_artifact_chunk()
-assert(bc_artifact_module.sum_i32(arr, count) == expected)
 
 local dsl_sum = moon.loadstring([=[
 return fn. sum_i32 { xs [ptr [i32]], n [i32] } [i32] {
@@ -154,24 +132,13 @@ local dsl_artifact = moon.emit_luajit_artifact(dsl_sum, {
     name = "test_luajit_backend_luatrace_dsl_artifact",
     stencil_provider = "lua_trace",
 })
-assert(dsl_artifact.source:match("Generated Moonlift LuaJIT LuaTrace artifact"), "facade should emit LuaTrace artifact")
-assert(dsl_artifact.source:match("local function ml_stencil_reduce_array_i32_add_to_i32_s1"), "facade should emit LuaTrace stencil source")
+assert(dsl_artifact.source:match("LuaTrace bytecode copy%-patch artifact"), "facade should emit LuaTrace bytecode artifact")
+assert(dsl_artifact.bytecode_bank ~= nil, "facade should expose LuaTrace bytecode bank")
+assert(not dsl_artifact.source:match("local function ml_stencil_reduce_array_i32_add_to_i32_s1"), "facade bytecode artifact should not emit LuaTrace source")
 assert(not dsl_artifact.source:match("__ml_install"), "facade LuaTrace artifact must not build/install a binary bank")
 local dsl_chunk, dsl_load_err = loader(dsl_artifact.source, "@test_luajit_backend_luatrace_dsl_artifact")
 assert(dsl_chunk ~= nil, tostring(dsl_load_err) .. "\n" .. dsl_artifact.source)
 local dsl_module = dsl_chunk()
 assert(dsl_module.sum_i32(arr, count) == expected)
-
-local dsl_bc_artifact = moon.emit_luajit_artifact(dsl_sum, {
-    name = "test_luajit_backend_luatrace_dsl_bc_artifact",
-    stencil_provider = "lua_trace",
-    luatrace_materializer = "bytecode",
-})
-assert(dsl_bc_artifact.source:match("LuaTrace bytecode copy%-patch artifact"), "facade should emit LuaTrace bytecode artifact")
-assert(dsl_bc_artifact.bytecode_bank ~= nil, "facade should expose LuaTrace bytecode bank")
-local dsl_bc_chunk, dsl_bc_load_err = loader(dsl_bc_artifact.source, "@test_luajit_backend_luatrace_dsl_bc_artifact")
-assert(dsl_bc_chunk ~= nil, tostring(dsl_bc_load_err) .. "\n" .. dsl_bc_artifact.source)
-local dsl_bc_module = dsl_bc_chunk()
-assert(dsl_bc_module.sum_i32(arr, count) == expected)
 
 io.write("moonlift luajit_backend luatrace ok\n")

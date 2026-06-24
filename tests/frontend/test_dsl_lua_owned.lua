@@ -157,7 +157,7 @@ local unit_value = dsl.to_unit("DslSmoke", dsl.loadstring(src, "dsl-smoke")())
 assert(unit_value:syntax(), "syntax() failed")
 assert(unit_value:ast(), "ast() failed")
 assert(unit_value:typecheck(), "typecheck() failed")
-assert(unit_value:lower({ site = "test_dsl_lua_owned" }), "lower() failed")
+assert(unit_value:lower({ site = "test_dsl_lua_owned", c_target = { dialect = "c11" } }), "lower() failed")
 
 -- Test header / implementation split pattern
 local header = dsl.loadstring([[

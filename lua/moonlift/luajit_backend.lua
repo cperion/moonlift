@@ -85,8 +85,7 @@ local function bind_context(T)
     end
 
     local function luatrace_materializer(opts)
-        local materializer = tostring((opts or {}).luatrace_materializer or (opts or {}).stencil_materializer or (opts or {}).materializer or "source")
-        if materializer == "source" or materializer == "lua" then return "source" end
+        local materializer = tostring((opts or {}).luatrace_materializer or (opts or {}).stencil_materializer or (opts or {}).materializer or "bytecode")
         if materializer == "bytecode" or materializer == "bc" or materializer == "bc_copy_patch" or materializer == "bytecode_copy_patch" then
             return "bytecode"
         end
@@ -174,17 +173,15 @@ local function bind_context(T)
         end
         local provider = provider_name(opts)
         if is_luatrace_provider(provider) then
-            if luatrace_materializer(opts) == "bytecode" then
-                return StencilLuaJIT.realize_bytecode_artifacts(artifacts, {
-                    bank = opts.bytecode_bank or opts.bc_bank,
-                    stem = opts.stem,
-                    id = opts.bytecode_bank_id or opts.bc_bank_id,
-                    target = opts.bytecode_target or opts.bc_target,
-                    patch_bindings = opts.bytecode_patch_bindings or opts.patch_bindings,
-                    env = opts.bytecode_env,
-                })
-            end
-            return StencilLuaJIT.realize_artifacts(artifacts), nil
+            luatrace_materializer(opts)
+            return StencilLuaJIT.realize_bytecode_artifacts(artifacts, {
+                bank = opts.bytecode_bank or opts.bc_bank,
+                stem = opts.stem,
+                id = opts.bytecode_bank_id or opts.bc_bank_id,
+                target = opts.bytecode_target or opts.bc_target,
+                patch_bindings = opts.bytecode_patch_bindings or opts.patch_bindings,
+                env = opts.bytecode_env,
+            })
         end
         local bank = opts.bank
         if bank == nil then
@@ -228,21 +225,18 @@ local function bind_context(T)
         local stencil_source
         local bytecode_bank
         if is_luatrace_provider(provider) then
-            if luatrace_materializer(opts) == "bytecode" then
-                bytecode_bank = opts.bytecode_bank or opts.bc_bank
-                if bytecode_bank == nil then
-                    local bank_err
-                    bytecode_bank, bank_err = api.build_bytecode_bank(artifacts or {}, {
-                        stem = opts.stem,
-                        id = opts.bytecode_bank_id or opts.bc_bank_id,
-                        target = opts.bytecode_target or opts.bc_target,
-                    })
-                    if bytecode_bank == nil then return nil, bank_err end
-                end
-                stencil_source = StencilLuaJIT.emit_bytecode_bank_source(bytecode_bank, opts)
-            else
-                stencil_source = StencilLuaJIT.emit_lua_source(artifacts or {})
+            luatrace_materializer(opts)
+            bytecode_bank = opts.bytecode_bank or opts.bc_bank
+            if bytecode_bank == nil then
+                local bank_err
+                bytecode_bank, bank_err = api.build_bytecode_bank(artifacts or {}, {
+                    stem = opts.stem,
+                    id = opts.bytecode_bank_id or opts.bc_bank_id,
+                    target = opts.bytecode_target or opts.bc_target,
+                })
+                if bytecode_bank == nil then return nil, bank_err end
             end
+            stencil_source = StencilLuaJIT.emit_bytecode_bank_source(bytecode_bank, opts)
         else
             local bank = opts.bank
             if bank == nil and #(artifacts or {}) > 0 then
@@ -254,17 +248,12 @@ local function bind_context(T)
             chunk_name = opts.chunk_name or "moonlift_luajit_artifact",
         })
         local is_luatrace = is_luatrace_provider(provider)
-        local is_luatrace_bc = is_luatrace and luatrace_materializer(opts) == "bytecode"
         local source = table.concat({
             is_luatrace
-                and (is_luatrace_bc
-                    and "-- Generated Moonlift LuaJIT LuaTrace bytecode copy-patch artifact.\n"
-                    or "-- Generated Moonlift LuaJIT LuaTrace artifact.\n")
+                and "-- Generated Moonlift LuaJIT LuaTrace bytecode copy-patch artifact.\n"
                 or "-- Generated Moonlift LuaJIT copy-and-patch artifact.\n",
             is_luatrace
-                and (is_luatrace_bc
-                    and "-- Stencil descriptors are emitted below as LuaJIT bytecode stencils.\n"
-                    or "-- Stencil descriptors are emitted below as traceable LuaJIT loops.\n")
+                and "-- Stencil descriptors are emitted below as LuaJIT bytecode stencils.\n"
                 or "-- Native stencil bytes are embedded below as data and installed before the runtime module loads.\n",
             stencil_source,
             module_source,

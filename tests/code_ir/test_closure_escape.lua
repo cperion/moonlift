@@ -1,15 +1,13 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local ffi = require("ffi")
+local moon = require("moonlift")
 local pvm = require("moonlift.pvm")
 local A2 = require("moonlift.schema_projection")
 local ClosureConvert = require("moonlift.closure_convert")
-local Driver = require("moonlift.compiler_driver")
-local Jit = require("moonlift.back_jit")
 
 local T = pvm.context()
 A2(T)
-local C, Ty, B, Sem, Tr, Back = T.MoonCore, T.MoonType, T.MoonBind, T.MoonSem, T.MoonTree, T.MoonBack
+local C, Ty, B, Sem, Tr = T.MoonCore, T.MoonType, T.MoonBind, T.MoonSem, T.MoonTree
 local i32 = Ty.TScalar(C.ScalarI32)
 local closure_i32 = Ty.TClosure({ i32 }, i32)
 
@@ -70,16 +68,13 @@ local module = Tr.Module(Tr.ModuleSurface, {
 })
 
 local converted = ClosureConvert(T).module(module)
-local image = Driver.lower_module(converted, { site = "test_closure_escape", context = T })
-
-local artifact = Jit(T).jit():compile(image)
-local store = ffi.cast("int32_t (*)()", artifact:getpointer(Back.BackFuncId("closure_store")))
+local compiled = moon.compile("ClosureEscapeSmoke", converted)
+local store = compiled.closure_store
 assert(store() == 42)
-local pass = ffi.cast("int32_t (*)()", artifact:getpointer(Back.BackFuncId("closure_pass")))
+local pass = compiled.closure_pass
 assert(pass() == 42)
-local ret = ffi.cast("int32_t (*)()", artifact:getpointer(Back.BackFuncId("closure_return")))
+local ret = compiled.closure_return
 assert(ret() == 42)
-artifact:free()
 
 local bad_capture_return = Tr.FuncExport("closure_bad_capture_return", {}, closure_i32, {
     Tr.StmtLet(Tr.StmtSurface, y_binding, int_lit(1)),
@@ -88,7 +83,7 @@ local bad_capture_return = Tr.FuncExport("closure_bad_capture_return", {}, closu
 local bad_module = Tr.Module(Tr.ModuleSurface, { Tr.ItemFunc(bad_capture_return) })
 local bad_converted = ClosureConvert(T).module(bad_module)
 local ok, err = pcall(function()
-    Driver.lower_module(bad_converted, { site = "test_closure_escape:bad_capture_return", context = T })
+    moon.compile("ClosureEscapeBad", bad_converted)
 end)
 assert(not ok and tostring(err):find("closure environment ownership model", 1, true), "captured closure returns must fail loudly")
 

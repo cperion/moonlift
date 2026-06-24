@@ -1203,8 +1203,7 @@ owned handle continuations
 pull loops through block/jump
 literal constructors
 C backend emission
-object emission
-Cranelift execution
+LuaTrace bytecode execution
 C output suitable for downtape toolchains
 ```
 

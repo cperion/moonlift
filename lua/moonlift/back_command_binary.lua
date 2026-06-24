@@ -1,7 +1,7 @@
 -- BackProgram Flatline wire format encoder.
 --
 -- Encodes MoonBack.BackProgram into the Flatline binary format.
--- One tag per Cranelift IR operation. No sub-tag dispatch.
+-- One tag per flat backend command. No sub-tag dispatch.
 
 local ffi = require("ffi")
 local bit = require("bit")

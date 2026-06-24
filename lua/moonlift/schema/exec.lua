@@ -8,7 +8,6 @@ return schema. MoonExec {
   sum. ExecRuntime {
     ExecRuntimeC,
     ExecRuntimeLuaJIT,
-    ExecRuntimeCranelift,
     ExecRuntimeCopyPatch,
     ExecRuntimeNamed {
       variant_unique,

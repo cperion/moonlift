@@ -1,7 +1,7 @@
 -- Flatline backend image ABI.
 --
 -- FlatlineImage is the typed compiler boundary between MoonBack.Program and
--- native Cranelift/object consumers. The payload is the Flatline v4 binary
+-- flat backend command consumers. The payload is the Flatline v4 binary
 -- image documented in docs/BACK_WIRE_FORMAT.md.
 
 local pvm = require("moonlift.pvm")

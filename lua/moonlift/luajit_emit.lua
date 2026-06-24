@@ -40,6 +40,12 @@ local function bind_context(T)
         return "fn_" .. sanitize(name)
     end
 
+    local function func_ref_name(id)
+        local text = tostring(id.text or id)
+        text = text:gsub("^fn:", "")
+        return func_name(text)
+    end
+
     local function indent(n)
         return string.rep("    ", n)
     end
@@ -81,6 +87,12 @@ local function bind_context(T)
         if cls == LJ.LJCTypeNamed then return ty.spelling end
         if cls == LJ.LJCTypeFuncPtr then return "void (*)(void)" end
         unsupported(ty, "C type")
+    end
+
+    local function global_ref_expr(ref)
+        local cls = pvm.classof(ref)
+        if cls == Code.CodeGlobalRefFunc then return func_ref_name(ref.func) end
+        unsupported(ref, "global reference")
     end
 
     local function emit_cdecl(decl)
@@ -127,6 +139,7 @@ local function bind_context(T)
     end
 
     local expr
+    local place_expr
     local function call_bit(name, args)
         local alias = {
             tobit = "__ml_tobit",
@@ -182,20 +195,77 @@ local function bind_context(T)
         local value = expr(e.value)
         if is_trace_int(e.to) then return "bit.tobit(" .. value .. ")" end
         if e.to.register == LJ.LJRegLuaNumber then return "tonumber(" .. value .. ")" end
-        if is_cdata_reg(e.to) then return "ffi.cast(" .. lua_string(ctype_spelling(e.to.storage)) .. ", " .. value .. ")" end
+        if is_cdata_reg(e.to) then
+            if pvm.classof(e.to.storage) == LJ.LJCTypePointer then
+                return "((type(" .. value .. ") == 'table') and " .. value .. " or ffi.cast(" .. lua_string(ctype_spelling(e.to.storage)) .. ", " .. value .. "))"
+            end
+            return "ffi.cast(" .. lua_string(ctype_spelling(e.to.storage)) .. ", " .. value .. ")"
+        end
         return value
     end
 
     local function record_expr(e)
         local cls = pvm.classof(e.ty.storage)
+        local spelling = tostring(e.ty.storage and e.ty.storage.spelling or "")
+        local closure_record = spelling:match("lj_closure_") ~= nil
         local parts = {}
+        local capture_index = 0
         for i = 1, #e.fields do
-            parts[i] = sanitize(e.fields[i].name) .. " = " .. expr(e.fields[i].expr)
+            local name = e.fields[i].name
+            local value = expr(e.fields[i].expr)
+            parts[#parts + 1] = sanitize(name) .. " = " .. value
+            if closure_record and name ~= "__moon_fn" then
+                parts[#parts + 1] = "[" .. tostring(capture_index) .. "] = " .. value
+                capture_index = capture_index + 1
+            end
         end
-        if cls == LJ.LJCTypeNamed then
+        if cls == LJ.LJCTypeNamed and not closure_record then
             return "ffi.new(" .. lua_string(e.ty.storage.spelling) .. ", { " .. table.concat(parts, ", ") .. " })"
         end
         return "{ " .. table.concat(parts, ", ") .. " }"
+    end
+
+    place_expr = function(p)
+        local cls = pvm.classof(p)
+        if cls == LJ.LJPlaceLocal then return id_name(p.local_id) end
+        if cls == LJ.LJPlaceDeref then return "(" .. expr(p.addr) .. ")[0]" end
+        if cls == LJ.LJPlaceField then return "(" .. place_expr(p.base) .. ")." .. sanitize(p.name) end
+        if cls == LJ.LJPlaceIndex then return "(" .. place_expr(p.base) .. ")[" .. expr(p.index) .. "]" end
+        unsupported(p, "place")
+    end
+
+    local function ptr_offset_expr(e)
+        local offset = tonumber(e.const_offset or 0) or 0
+        local elem = tonumber(e.elem_size or 1) or 1
+        local terms = { expr(e.base), "(" .. expr(e.index) .. ")" }
+        if offset ~= 0 then
+            if elem ~= 0 and offset % elem == 0 then
+                terms[#terms + 1] = tostring(offset / elem)
+            else
+                unsupported(e, "byte-granular pointer offset")
+            end
+        end
+        return "(" .. table.concat(terms, " + ") .. ")"
+    end
+
+    local function call_target_expr(target, args)
+        local cls = pvm.classof(target)
+        if cls == LJ.LJCallDirect then return func_ref_name(target.func) .. "(" .. table.concat(args, ", ") .. ")" end
+        if cls == LJ.LJCallExtern then return "ffi.C." .. sanitize(target.extern_name) .. "(" .. table.concat(args, ", ") .. ")" end
+        if cls == LJ.LJCallIndirect then return expr(target.callee) .. "(" .. table.concat(args, ", ") .. ")" end
+        if cls == LJ.LJCallClosure then
+            local closure = expr(target.closure)
+            local call_args = { closure }
+            for i = 1, #args do call_args[#call_args + 1] = args[i] end
+            return "(" .. closure .. ").__moon_fn(" .. table.concat(call_args, ", ") .. ")"
+        end
+        unsupported(target, "call target")
+    end
+
+    local function call_expr(e)
+        local args = {}
+        for i = 1, #e.args do args[i] = expr(e.args[i]) end
+        return call_target_expr(e.target, args)
     end
 
     expr = function(e)
@@ -219,9 +289,20 @@ local function bind_context(T)
             return "(((" .. expr(e.cond) .. ") and (" .. expr(e.then_value) .. ")) or (" .. expr(e.else_value) .. "))"
         end
         if cls == LJ.LJExprCast then return cast_expr(e) end
+        if cls == LJ.LJExprAddrOfPlace then return place_expr(e.place) end
+        if cls == LJ.LJExprPtrOffset then return ptr_offset_expr(e) end
+        if cls == LJ.LJExprLoad then return place_expr(e.place) end
         if cls == LJ.LJExprProjectField then return "(" .. expr(e.base) .. ")." .. sanitize(e.name) end
         if cls == LJ.LJExprRecord then return record_expr(e) end
+        if cls == LJ.LJExprArray then
+            local elems = {}
+            for i = 1, #e.elems do elems[i] = "[" .. tostring(e.elems[i].index + 1) .. "] = " .. expr(e.elems[i].expr) end
+            return "{ " .. table.concat(elems, ", ") .. " }"
+        end
+        if cls == LJ.LJExprClosure then return "{ __moon_fn = " .. expr(e.fn) .. ", __moon_ctx = " .. expr(e.ctx) .. " }" end
+        if cls == LJ.LJExprCall then return call_expr(e) end
         if cls == LJ.LJExprCDataCast then return "ffi.cast(" .. lua_string(ctype_spelling(e.ty)) .. ", " .. expr(e.value) .. ")" end
+        if cls == LJ.LJExprGlobalRef then return global_ref_expr(e.ref) end
         unsupported(e, "expression")
     end
 
@@ -230,7 +311,11 @@ local function bind_context(T)
         if cls == LJ.LJStmtLet then
             line(out, n, "local " .. id_name(stmt.dst) .. " = " .. expr(stmt.expr))
         elseif cls == LJ.LJStmtStore then
-            line(out, n, expr(stmt.addr) .. "[0] = " .. expr(stmt.value))
+            line(out, n, place_expr(stmt.place) .. " = " .. expr(stmt.value))
+        elseif cls == LJ.LJStmtCall then
+            local args = {}
+            for i = 1, #stmt.args do args[i] = expr(stmt.args[i]) end
+            line(out, n, call_target_expr(stmt.target, args))
         elseif cls == LJ.LJStmtEmitMachine then
             line(out, n, "__emit_machine_" .. sanitize(stmt.machine.text) .. "()")
         else
@@ -251,6 +336,23 @@ local function bind_context(T)
         for i = 1, #params do
             line(out, n, id_name(params[i].value) .. " = " .. expr(args[i]))
         end
+    end
+
+    local function collect_store_locals(body)
+        local out = {}
+        local seen = {}
+        for _, b in ipairs(body.blocks or {}) do
+            for _, stmt in ipairs(b.stmts or {}) do
+                if pvm.classof(stmt) == LJ.LJStmtStore and pvm.classof(stmt.place) == LJ.LJPlaceLocal then
+                    local name = id_name(stmt.place.local_id)
+                    if not seen[name] then
+                        seen[name] = true
+                        out[#out + 1] = name
+                    end
+                end
+            end
+        end
+        return out
     end
 
     local function emit_term(out, n, term, block_by_id)
@@ -303,6 +405,7 @@ local function bind_context(T)
     local function emit_blocks_body(out, n, body)
         local block_by_id, order = build_block_map(body.blocks)
         line(out, n, "local __block = " .. lua_string(body.entry.text))
+        for _, local_name in ipairs(collect_store_locals(body)) do line(out, n, "local " .. local_name) end
         for _, key in ipairs(order) do
             local b = block_by_id[key]
             for i = 1, #b.params do line(out, n, "local " .. id_name(b.params[i].value)) end
@@ -612,7 +715,7 @@ local function bind_context(T)
     local function emit_func(out, n, func)
         local params = {}
         for i = 1, #func.params do params[i] = id_name(func.params[i].value) end
-        line(out, n, "local " .. func_name(func.name) .. " = function(" .. table.concat(params, ", ") .. ")")
+        line(out, n, func_name(func.name) .. " = function(" .. table.concat(params, ", ") .. ")")
         local body_cls = pvm.classof(func.body)
         if body_cls == LJ.LJBodySource then
             line(out, n + 1, func.body.source)
@@ -654,6 +757,9 @@ local function bind_context(T)
         end
         if #cdefs > 0 then
             line(out, 0, "pcall(ffi.cdef, " .. lua_string(table.concat(cdefs, "\n")) .. ")")
+        end
+        for i = 1, #(module.funcs or {}) do
+            line(out, 0, "local " .. func_name(module.funcs[i].name))
         end
         for i = 1, #(module.funcs or {}) do emit_func(out, 0, module.funcs[i]) end
         line(out, 0, "return {")

@@ -18,23 +18,19 @@ stencil descriptors and must lower those descriptors honestly.
 
 ## Materializers
 
-LuaTrace has more than one materialization strategy, but only one semantic
-lowering:
+LuaTrace has one runtime materializer and one semantic lowering:
 
 ```text
-source
-  emit readable Lua source and load it
-
 bytecode copy-patch
-  compile source stencils with LuaJIT, dump bytecode, patch declared holes, load
-  patched bytecode
+  compile trusted source templates with LuaJIT, dump bytecode, patch declared
+  holes, load patched bytecode
 ```
 
 The bytecode path is specified in
 `docs/LUAJIT_BYTECODE_COPY_PATCH_BACKEND.md`. It is a banked materializer under
 LuaTrace, not a second selector and not a hand-authored bytecode language.
 
-Select it explicitly:
+It is the default and only supported LuaTrace runtime materializer:
 
 ```lua
 Backend.compile_module(module, {
@@ -43,8 +39,8 @@ Backend.compile_module(module, {
 })
 ```
 
-Source remains the default materializer because it is the readable diagnostic
-and golden-equivalence path.
+The template source is retained in bank entries for provenance and rebuilds, but
+the direct loadstring source backend is removed.
 
 ## Trace Plan
 

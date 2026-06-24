@@ -74,16 +74,13 @@ local artifacts = {
 }
 
 local realization = StencilLuaJIT.realize_artifacts(artifacts)
-assert(realization.kind == "LuaTraceStencilRealization", "expected LuaTrace realization")
+assert(realization.kind == "LuaTraceBytecodeStencilRealization", "expected LuaTrace bytecode realization")
 assert(#realization.installed == #artifacts, "all artifacts installed")
 
-local source = StencilLuaJIT.emit_lua_source(artifacts)
-assert(source:match("local function ml_stencil_reduce_array_i32_add_to_i32_s1"), "expected reduce source")
-assert(source:match("local function ml_stencil_partition_array_i32_gt_stable_s1"), "expected partition source")
-local loader = loadstring or load
-local source_chunk, source_err = loader(source .. "\nreturn __moonlift_luajit_stencil_symbols\n", "@test_stencil_luajit_provider_source")
-assert(source_chunk ~= nil, tostring(source_err) .. "\n" .. source)
-local source_symbols = source_chunk()
+local reduce_template = StencilLuaJIT.emit_bytecode_stencil_source(artifacts[1])
+assert(reduce_template:match("local function ml_stencil_reduce_array_i32_add_to_i32_s1"), "expected reduce bytecode template")
+local partition_template = StencilLuaJIT.emit_bytecode_stencil_source(artifacts[9])
+assert(partition_template:match("local function ml_stencil_partition_array_i32_gt_stable_s1"), "expected partition bytecode template")
 
 local function artifact_with_facts(artifact, rewrite_fact)
     local schedule = artifact.instance.schedule
@@ -180,10 +177,10 @@ assert(pvm.classof(vector_artifact.instance.schedule) == Stencil.StencilSchedule
 assert(vector_artifact.instance.schedule.interleave == 2, "vector schedule should preserve interleave")
 local vector_plan = StencilLuaJIT.plan_artifact(vector_artifact)
 assert(vector_plan.loop_plan.group == 16, "explicit vector plan should preserve lanes * unroll * interleave")
-local vector_source = StencilLuaJIT.emit_lua_source({ vector_artifact })
-assert(vector_source:match("luatrace schedule: vector_as_trace_group factor=16"), "LuaTrace should consume vector schedule as trace group")
-assert(vector_source:match("while __ml_i < __ml_stop_group do"), "expected grouped LuaTrace loop")
-assert(source:match("luatrace plan: autovector_trace_group"), "LuaTrace should consume AutoVector facts")
+local vector_template = StencilLuaJIT.emit_bytecode_stencil_source(vector_artifact)
+assert(vector_template:match("luatrace schedule: vector_as_trace_group factor=16"), "LuaTrace should consume vector schedule as trace group")
+assert(vector_template:match("while __ml_i < __ml_stop_group do"), "expected grouped LuaTrace loop")
+assert(reduce_template:match("luatrace plan: autovector_trace_group"), "LuaTrace should consume AutoVector facts")
 
 local vector_schedule = vector_artifact.instance.schedule
 local vector_facts = vector_schedule.facts
@@ -220,9 +217,9 @@ local multiple_artifact = Stencil.StencilArtifact(
 )
 local multiple_plan = StencilLuaJIT.plan_artifact(multiple_artifact)
 assert(multiple_plan.loop_plan.tail_strategy == "no_tail_trip_count_multiple", "trip-count multiple should remove generic tail")
-local multiple_source = StencilLuaJIT.emit_lua_source({ multiple_artifact })
-assert(multiple_source:match("tail=no_tail_trip_count_multiple"), "source should expose no-tail trip-count policy")
-assert(not multiple_source:match("for i = __ml_i, stop %- 1, 1 do"), "no-tail trip-count policy must not emit generic tail loop")
+local multiple_template = StencilLuaJIT.emit_bytecode_stencil_source(multiple_artifact)
+assert(multiple_template:match("tail=no_tail_trip_count_multiple"), "template should expose no-tail trip-count policy")
+assert(not multiple_template:match("for i = __ml_i, stop %- 1, 1 do"), "no-tail trip-count policy must not emit generic tail loop")
 
 local strict_f64_reduce_artifact = StencilArtifactPlan.reduce_array_artifact({
     kind = Value.ReductionAdd,
@@ -250,8 +247,8 @@ local view_vector_artifact = StencilArtifactPlan.reduce_array_artifact(reduction
 local view_vector_plan = StencilLuaJIT.plan_artifact(view_vector_artifact)
 assert(view_vector_plan.access_by_name.xs.kind == "view_dynamic_stride", "expected dynamic view access plan")
 assert(view_vector_plan.access_by_name.xs.dynamic_stride_arg == "xs_stride", "expected named dynamic stride arg")
-local view_vector_source = StencilLuaJIT.emit_lua_source({ view_vector_artifact })
-assert(view_vector_source:match("xs%[%(%(__ml_i %+ 1%) %* xs_stride%)%]"), "grouped dynamic view access must parenthesize the lane index")
+local view_vector_template = StencilLuaJIT.emit_bytecode_stencil_source(view_vector_artifact)
+assert(view_vector_template:match("xs%[%(%(__ml_i %+ 1%) %* xs_stride%)%]"), "grouped dynamic view access must parenthesize the lane index")
 
 local function exercise(symbols)
     local function sym(artifact)
@@ -318,7 +315,6 @@ local function exercise(symbols)
 end
 
 exercise(realization.symbols)
-exercise(source_symbols)
 
 do
     local xs = ffi.new("int32_t[17]", { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 })

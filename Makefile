@@ -1,21 +1,16 @@
-MOONLIFT  = target/release/moonlift
 LUAJIT    = .vendor/LuaJIT/src
-MOONLIB   = target/release/libmoonlift.so
 TINYCC    = deps/tinycc
 TCC_PREFIX = $(CURDIR)/$(TINYCC)/.local
 LIBTCC    = $(TINYCC)/.local/lib/libtcc.so
 
-.PHONY: all lib clean bench libtcc
+.PHONY: all luajit clean bench libtcc
 
-all: lib
-lib: $(MOONLIB)
+all: luajit
+luajit: $(LUAJIT)/libluajit.a
 
 $(LUAJIT)/libluajit.a:
 	$(MAKE) -C $(LUAJIT) CFLAGS="-fPIC"
 	ln -sf libluajit.a $(LUAJIT)/libluajit-5.1.a
-
-$(MOONLIB):
-	cargo build --release --lib
 
 libtcc: $(LIBTCC)
 
@@ -26,8 +21,7 @@ $(LIBTCC): $(TINYCC)/configure
 
 clean:
 	$(MAKE) -C $(LUAJIT) clean
-	cargo clean
-	rm -f $(LUAJIT)/libluajit-5.1.a src/embedded_hosted_lua.rs
+	rm -f $(LUAJIT)/libluajit-5.1.a
 
 bench:
 	luajit benchmarks/bench_json_stack_decode.lua

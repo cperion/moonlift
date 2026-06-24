@@ -20,20 +20,14 @@ local decl = moon.unit("DriverSmoke", decls)
 
 local lowered = decl:lower()
 assert(pvm.classof(lowered))
-assert(tostring(pvm.classof(lowered)):match("MoonCompiler%.FlatlineImage"))
+assert(tostring(pvm.classof(lowered)):match("MoonC%.CBackendUnit"))
 
 local artifact = decl:emit_c_artifact()
 assert(artifact.unit)
 assert(tostring(pvm.classof(artifact.unit)):match("MoonC%.CBackendUnit"))
 assert(type(artifact.source) == "string")
 
-local object_bytes = require("moonlift").emit_object(decl, nil, "driver_smoke_object")
-assert(type(object_bytes) == "string")
-assert(#object_bytes > 0)
-
 local native = moon.compile("DriverSmoke", decls)
-assert(native.descriptor)
-assert(tostring(pvm.classof(native.descriptor)):match("MoonCompiler%.NativeArtifact"))
-native:free()
+assert(native.add(3, 4) == 7)
 
 io.write("moonlift compiler_driver ok\n")

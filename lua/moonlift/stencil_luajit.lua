@@ -738,27 +738,6 @@ local function bind_context(T)
         return build_artifact_plan(artifact)
     end
 
-    function api.emit_lua_source(artifacts)
-        local out = {
-            "-- Generated Moonlift LuaTrace stencil source.",
-            "local bit = require('bit')",
-            "local ffi = require('ffi')",
-            "local __moonlift_luajit_stencil_symbols = __moonlift_luajit_stencil_symbols or {}",
-            "local __ml_tobit = bit.tobit",
-            "local __ml_band = bit.band",
-            "local __ml_bor = bit.bor",
-            "local __ml_bxor = bit.bxor",
-            "local __ml_bnot = bit.bnot",
-            "local __ml_rshift = bit.rshift",
-        }
-        for _, artifact in ipairs(artifacts or {}) do
-            out[#out + 1] = "do"
-            out[#out + 1] = emit_lua_function(artifact)
-            out[#out + 1] = "end"
-        end
-        return table.concat(out, "\n") .. "\n"
-    end
-
     local function bytecode_stencil_source(artifact)
         return table.concat({
             "local __moonlift_luajit_stencil_symbols = {}",
@@ -912,37 +891,16 @@ local function bind_context(T)
         return table.concat(out, "\n") .. "\n"
     end
 
-    local function load_symbols(artifacts, chunk_name)
-        local source = api.emit_lua_source(artifacts) .. "\nreturn __moonlift_luajit_stencil_symbols\n"
-        local loader = loadstring or load
-        local chunk, err = loader(source, chunk_name or "@moonlift_stencil_luajit")
-        if chunk == nil then error("stencil_luajit: generated LuaTrace source failed to load: " .. tostring(err) .. "\n" .. source, 3) end
-        return chunk()
-    end
-
     function api.compile_artifact(artifact)
-        local symbols = load_symbols({ artifact }, "@moonlift_stencil_luajit/" .. tostring(artifact.symbol.text))
-        return assert(symbols[artifact.symbol.text], artifact.symbol.text)
+        local realization, err = api.realize_bytecode_artifacts({ artifact }, {
+            stem = "compile_artifact",
+        })
+        if realization == nil then error(tostring(err), 2) end
+        return assert(realization.symbols[artifact.symbol.text], artifact.symbol.text)
     end
 
     function api.realize_artifacts(artifacts)
-        artifacts = artifacts or {}
-        local symbols = load_symbols(artifacts, "@moonlift_stencil_luajit/realize")
-        local installed = {}
-        for _, artifact in ipairs(artifacts) do
-            assert(symbols[artifact.symbol.text], artifact.symbol.text)
-            installed[#installed + 1] = {
-                symbol = artifact.symbol.text,
-                artifact = artifact,
-                provider = Stencil.StencilProviderLuaTrace,
-            }
-        end
-        return {
-            kind = "LuaTraceStencilRealization",
-            symbols = symbols,
-            installed = installed,
-            provider = Stencil.StencilProviderLuaTrace,
-        }
+        return assert(api.realize_bytecode_artifacts(artifacts), "LuaTrace bytecode realization failed")
     end
 
     T._moonlift_api_cache.stencil_luajit = api

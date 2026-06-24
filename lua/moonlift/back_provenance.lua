@@ -2,7 +2,7 @@
 -- BackProvenanceMap: reverse index from BackCmd position to source AST span.
 --
 -- Constructed during lowering by recording every AST node→BackCmd[] mapping.
--- Never sent to Rust — lives only on the Lua side for diagnostic rendering.
+-- Lua-side backend provenance for diagnostic rendering.
 --
 -- Usage:
 --   local provenance = BackProvenance.new()

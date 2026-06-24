@@ -61,13 +61,12 @@ local function cache_policy(spec)
 end
 
 local function machine_abi(spec)
-    if spec == P.MachineAbiStatusReturning or spec == P.MachineAbiPure or spec == P.MachineAbiProcess or spec == P.MachineAbiC or spec == P.MachineAbiCranelift then return spec end
+    if spec == P.MachineAbiStatusReturning or spec == P.MachineAbiPure or spec == P.MachineAbiProcess or spec == P.MachineAbiC then return spec end
     spec = ident_text(spec or "status_returning", "machine ABI")
     if spec == "status" or spec == "status_returning" then return P.MachineAbiStatusReturning end
     if spec == "pure" then return P.MachineAbiPure end
     if spec == "process" or spec == "process_events" then return P.MachineAbiProcess end
     if spec == "c" or spec == "c_abi" then return P.MachineAbiC end
-    if spec == "cranelift" then return P.MachineAbiCranelift end
     error("phase_dsl: unknown machine ABI " .. tostring(spec), 3)
 end
 
@@ -106,7 +105,6 @@ local function impl_from(kind, spec)
     if kind == "moonlift" then return P.ImplMoonlift(assert(spec.module or spec.module_name, "impl.moonlift requires module"), assert(spec.func or spec.function_name or spec.symbol, "impl.moonlift requires func/function_name/symbol")) end
     if kind == "lua" then return P.ImplLua(assert(spec.module or spec.module_name, "impl.lua requires module"), assert(spec.func or spec.function_name or spec.symbol, "impl.lua requires func/function_name/symbol")) end
     if kind == "c" then return P.ImplC(assert(spec.symbol, "impl.c requires symbol")) end
-    if kind == "cranelift" then return P.ImplCranelift(assert(spec.symbol, "impl.cranelift requires symbol")) end
     if kind == "external" then return P.ImplExternal(assert(spec.capability, "impl.external requires capability")) end
     error("phase_dsl: unknown impl kind " .. tostring(kind), 3)
 end
@@ -318,7 +316,6 @@ local function abi_text(v)
     if v == P.MachineAbiPure then return "pure" end
     if v == P.MachineAbiProcess then return "process" end
     if v == P.MachineAbiC then return "c" end
-    if v == P.MachineAbiCranelift then return "cranelift" end
     return tostring(v)
 end
 
@@ -396,7 +393,6 @@ function M.format_doc(value, f)
         if icls == P.ImplMoonlift then return doc.group { "impl. moonlift ", record_doc { module = impl.module_name, func = impl.function_name } } end
         if icls == P.ImplLua then return doc.group { "impl. lua ", record_doc { module = impl.module_name, func = impl.function_name } } end
         if icls == P.ImplC then return doc.group { "impl. c ", record_doc { symbol = impl.symbol } } end
-        if icls == P.ImplCranelift then return doc.group { "impl. cranelift ", record_doc { symbol = impl.symbol } } end
         if icls == P.ImplExternal then return doc.group { "impl. external ", record_doc { capability = impl.capability } } end
     end
     return doc.text(tostring(value))

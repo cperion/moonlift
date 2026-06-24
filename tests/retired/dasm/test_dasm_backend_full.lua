@@ -1,5 +1,5 @@
 -- tests/retired/dasm/test_dasm_backend_full.lua
--- Comprehensive DynASM backend test — mirrors the cranelift test_back_*.lua tests.
+-- Comprehensive retired DynASM backend test.
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lib/?.lua;" ..
                "./.vendor/LuaJIT/dynasm/?.lua;" .. package.path

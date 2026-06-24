@@ -69,21 +69,4 @@ return schema. MoonCompiler {
     version [number],
     bytes [str],
   },
-
-  product. NativeArtifact {
-    interned,
-    backend [str],
-    field. id [str],
-    image [MoonCompiler.FlatlineImage],
-    exports [many [str]],
-  },
-
-  product. ObjectArtifact {
-    interned,
-    backend [str],
-    format [str],
-    module_name [str],
-    image [MoonCompiler.FlatlineImage],
-    bytes [str],
-  },
 }

@@ -1039,8 +1039,10 @@ end
 function Decl:compile(opts)
     opts = merge_source_ctx(opts, self)
     if opts.backend == "c" or opts.codegen == "c" then return self:emit_c_artifact(opts) end
-    opts.context = opts.context or T
-    return require("moonlift.compiler_driver").compile_jit(module_ast_of(self), opts)
+    opts.name = opts.name or self.name or "moonlift_luajit"
+    opts.stencil_provider = opts.stencil_provider or opts.provider or "lua_trace"
+    opts.luatrace_materializer = "bytecode"
+    return require("moonlift").compile(self, opts)
 end
 
 function Decl:__tostring()

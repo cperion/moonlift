@@ -13,7 +13,7 @@ local api = Target(T)
 
 local model = api.default_native()
 assert(pvm.classof(model) == B.BackTargetModel)
-assert(model.target == B.BackTargetCraneliftJit)
+assert(model.target == B.BackTargetNative)
 assert(#model.facts > 0)
 
 local host = api.host_target(model)

@@ -11,14 +11,14 @@ local function bind_context(T)
     local function shape_vec(elem, lanes) return Back.BackShapeVec(Back.BackVec(elem, lanes)) end
 
     function api.default_native()
-        return Back.BackTargetModel(Back.BackTargetCraneliftJit, {
+        return Back.BackTargetModel(Back.BackTargetNative, {
             Back.BackTargetPointerBits(64),
             Back.BackTargetIndexBits(64),
             Back.BackTargetEndian(Back.BackEndianLittle),
             Back.BackTargetCacheLineBytes(64),
             Back.BackTargetFeature(Back.BackFeatureSSE2),
             Back.BackTargetFeature(Back.BackFeaturePOPCNT),
-            -- Cranelift vector lowering is capped here to 128-bit shapes.
+            -- Native vector lowering keeps 128-bit shapes as the portable floor.
             Back.BackTargetSupportsShape(shape_scalar(Back.BackI32)),
             Back.BackTargetSupportsShape(shape_scalar(Back.BackI64)),
             Back.BackTargetSupportsShape(shape_scalar(Back.BackU32)),

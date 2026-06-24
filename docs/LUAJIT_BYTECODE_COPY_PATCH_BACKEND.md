@@ -22,16 +22,17 @@ is selected by key. Only declared, verifier-checked holes are patched.
 
 ## Purpose
 
-The source materializer is readable and is the golden debug path, but it pays for
-Lua parsing and bytecode generation every time an artifact is loaded. Bytecode
-copy-patch moves that work to bank construction:
+LuaTrace used to have a direct source materializer. That path is removed.
+It was slower to load, and the generated Lua was a low-value inspection surface:
+readable enough to debug template generation, but not a stable backend artifact.
+
+Lua source now exists only as the internal stencil template input used to build a
+bytecode bank:
 
 ```text
-source materializer:
-  emit Lua source -> loadstring parses -> LuaJIT builds Proto -> run
-
 bytecode bank:
-  compile template once -> string.dump Proto -> patch bytes -> load dumped Proto
+  emit trusted Lua template -> loadstring once -> string.dump Proto
+    -> patch bytes -> load dumped Proto
 ```
 
 The loaded bytecode is still LuaJIT recorder input. It is not native machine
@@ -39,14 +40,11 @@ code. Hot loops still trace normally.
 
 ## Architecture
 
-There are three sibling LuaJIT materializers:
+There are two backend materialization families:
 
 ```text
-luatrace.source
-  readable source, diagnostics, golden equivalence path
-
 luatrace.bc_copy_patch
-  LuaJIT bytecode stencil bank; faster load path with exact LuaJIT bytecode shape
+  LuaJIT bytecode stencil bank; the canonical LuaTrace materializer
 
 luajit.machine_copy_patch
   GCC/C stencil bank; native function pointers through FFI
@@ -94,8 +92,8 @@ LJBCStencilBank
   entries
 ```
 
-`source` is retained deliberately. It is the readable stencil, the rebuild input,
-and the equivalence reference. `bytecode` is the AOT dump produced by LuaJIT.
+`source` is retained deliberately as bank provenance and rebuild input. It is
+not a load-time backend. `bytecode` is the AOT dump produced by LuaJIT.
 
 ## Patch Discipline
 
@@ -209,7 +207,7 @@ local fn = assert(BC.load_symbol(bank, "example", {
 
 Offsets are zero-based, matching the native binary patch records.
 
-The backend-facing switch is:
+The backend-facing path is:
 
 ```lua
 local compiled = Backend.compile_module(code_module, {
@@ -223,8 +221,8 @@ local artifact = moon.emit_luajit_artifact(decl, {
 })
 ```
 
-Without `luatrace_materializer = "bytecode"`, LuaTrace uses the readable source
-materializer.
+`luatrace_materializer` defaults to `"bytecode"`. Source materialization is not
+a supported runtime mode.
 
 ## Completion Rule
 
@@ -234,11 +232,10 @@ Bytecode copy-patch is complete for a stencil family only when:
 all semantic choices are represented in the LuaTrace plan;
 the stencil key chooses topology, arity, locals, and branch shape;
 patches modify only verifier-approved same-width fields;
-source and bytecode materializers pass the same runtime tests;
 materialization-time benchmarks show the expected load benefit;
 runtime benchmarks show no trace-quality regression;
 target mismatch rebuild/reject behavior is tested.
 ```
 
-Until then, source remains the golden materializer and bytecode copy-patch is an
-additional bank path for explicitly supported stencils.
+Until then, the stencil is incomplete. The removed source materializer is not a
+fallback.

@@ -87,8 +87,7 @@ return schema {
 ]], "family_schema.lua")
 assert(schema_zone.name == "schema" and schema_zone.items[1].name == "FamilySchemaSmoke", "MoonSchema family namespace projects to schema zone")
 local native = moon.compile("FamilyZoneSmoke", out)
-assert(native.descriptor, "family-authored Moonlift zone projects to compile")
-native:free()
+assert(native.add(3, 4) == 7, "family-authored Moonlift zone projects to LuaJIT bytecode")
 
 local formatted = moon.family.format(out, { width = 100 })
 assert(formatted:match("moonlift%s*{"), "family formatter preserves moonlift zone")

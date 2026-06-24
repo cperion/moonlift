@@ -9,7 +9,6 @@ return schema. MoonStencil {
 
   sum. StencilProvider {
     StencilProviderC,
-    StencilProviderCranelift,
     StencilProviderLuaTrace,
     StencilProviderNamed {
       variant_unique,

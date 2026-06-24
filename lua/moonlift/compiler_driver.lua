@@ -38,19 +38,4 @@ function M.lower_module(module, opts)
     return report.output
 end
 
-function M.compile_jit(module, opts)
-    opts = opts or {}
-    local run_opts = {}
-    for k, v in pairs(opts) do run_opts[k] = v end
-    run_opts.root = "jit"
-    local descriptor = M.lower_module(module, run_opts)
-    local T = opts.context
-    if T == nil then
-        local cls = pvm.classof(module)
-        T = cls and rawget(cls, "__context")
-    end
-    T = T or pvm.context()
-    return require("moonlift.native_runtime")(T).wrap(descriptor)
-end
-
 return M

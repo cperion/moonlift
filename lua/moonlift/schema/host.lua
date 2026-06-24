@@ -369,7 +369,7 @@ return schema. MoonHost {
   sum. HostProducerKind {
     HostProducerLowLevelMoonlift,
     HostProducerLuaFfi,
-    HostProducerRustTypedRecordMemory,
+    HostProducerTypedRecordMemory,
     HostProducerExternal,
   },
   product. HostProducerPlan {
@@ -402,7 +402,7 @@ return schema. MoonHost {
   },
   product. HostFactSet { interned, facts [many [MoonHost.HostLayoutFact]], },
   sum. HostLayoutReject {
-    HostRejectJsonInRust,
+    HostRejectJsonInTypedRecordMemory,
     HostRejectDynamicObjectArena { variant_unique, reason [str], },
     HostRejectUnknownFieldKind { variant_unique, kind [str], },
     HostRejectInvalidLayout { variant_unique, reason [str], },

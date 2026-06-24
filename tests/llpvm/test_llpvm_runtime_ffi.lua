@@ -43,7 +43,7 @@ assert(image:sub(1, 4) == "LLPV", "runtime contract produces LLPV image")
 
 local buf, len = ll.bytebuffer(image)
 assert(len == #image, "bytebuffer reports exact image length")
-assert(buf ~= nil, "bytebuffer returns FFI buffer for Cranelift/runtime boundary")
+assert(buf ~= nil, "bytebuffer returns FFI buffer for runtime boundary")
 
 local lowered = spec:lower()
 assert(#lowered.root_ids == 2, "runtime image has explicit root tapes")

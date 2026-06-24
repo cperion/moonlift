@@ -38,8 +38,8 @@ return package "moonlift.compiler" {
         from. code,
         to. back,
         diagnostics. diag,
-        abi. cranelift,
-        impl. cranelift { symbol = "moon_lower_to_back" },
+        abi. c,
+        impl. c { symbol = "moon_lower_to_back" },
     },
 
     phase. typecheck {

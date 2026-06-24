@@ -1,7 +1,7 @@
 -- MoonPhase plan execution shell.
 --
 -- This is the runtime boundary for planned compiler packages. The executor is
--- deliberately explicit: Lua/Moonlift/C/Cranelift/external implementations all
+-- deliberately explicit: Lua/Moonlift/C/external implementations all
 -- resolve through a registry key, with Lua/Moonlift allowed to fall back to
 -- require(module)[function] for hosted compiler code.
 
@@ -30,7 +30,6 @@ local function impl_key(impl)
     if kind == "ImplLua" then return "lua", impl.module_name .. ":" .. impl.function_name end
     if kind == "ImplMoonlift" then return "moonlift", impl.module_name .. ":" .. impl.function_name end
     if kind == "ImplC" then return "c", impl.symbol end
-    if kind == "ImplCranelift" then return "cranelift", impl.symbol end
     if kind == "ImplExternal" then return "external", impl.capability end
     return "unknown", tostring(impl)
 end
@@ -60,10 +59,6 @@ end
 
 function Executor:register_c(symbol, fn)
     return self:register("c", symbol, fn)
-end
-
-function Executor:register_cranelift(symbol, fn)
-    return self:register("cranelift", symbol, fn)
 end
 
 function Executor:register_external(capability, fn)

@@ -100,7 +100,7 @@ Moonlift owns:
 ```text
 native typed CFG body vocabulary
 entry/block/jump/emit body vocabulary
-Cranelift/native backend lowering
+Moonlift CFG lowering
 resource and lease checking inside native CFG
 ```
 

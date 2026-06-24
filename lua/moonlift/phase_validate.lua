@@ -42,7 +42,6 @@ local function impl_kind(impl)
     if cls.kind == "ImplMoonlift" then return "moonlift" end
     if cls.kind == "ImplLua" then return "lua" end
     if cls.kind == "ImplC" then return "c" end
-    if cls.kind == "ImplCranelift" then return "cranelift" end
     if cls.kind == "ImplExternal" then return "external" end
     return "unknown"
 end
@@ -121,7 +120,7 @@ local function validate_impl(ctx, report, machine)
         if empty_string(impl.function_name) then
             add_diagnostic(ctx, report, "E_BAD_IMPL", "machine '" .. name .. "' " .. kind .. " implementation requires function_name", impl)
         end
-    elseif kind == "c" or kind == "cranelift" then
+    elseif kind == "c" then
         if empty_string(impl.symbol) then
             add_diagnostic(ctx, report, "E_BAD_IMPL", "machine '" .. name .. "' " .. kind .. " implementation requires symbol", impl)
         end

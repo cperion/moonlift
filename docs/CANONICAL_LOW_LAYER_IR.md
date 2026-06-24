@@ -37,7 +37,7 @@ what algebra is valid
 what memory facts are known
 ```
 
-That is why this layer should not be named after C, LuaJIT, Cranelift, or even
+That is why this layer should not be named after C, LuaJIT bytecode, native banks, or even
 Moonlift. It is a small descriptor/schedule/realization algebra.
 
 ## Descriptor
@@ -175,7 +175,6 @@ Possible providers:
 ```text
 C stencil
 binary copy-patch stencil
-Cranelift lowering
 Lua trace residual
 external runtime symbol
 ```
@@ -227,8 +226,8 @@ int32_t (*sum_stencil)(const int32_t *xs, int32_t start, int32_t stop, int32_t i
 ```
 
 LuaJIT artifacts call this through FFI. C output can emit the same body or call
-the same artifact. Cranelift can either call the artifact or lower the same
-scheduled descriptor directly.
+the same artifact. Native backend experiments can either call the artifact or
+lower the same scheduled descriptor directly.
 
 ## Generic Stack
 
@@ -311,7 +310,7 @@ source realization
   = lua/moonlift/stencil_c.lua turns planned artifacts into C source
 
 callable artifact
-  = LuaJIT FFI source artifact, C object, Cranelift native artifact, or link artifact
+  = LuaJIT bytecode artifact, C object, native bank entry, or link artifact
 ```
 
 The implementation-specific spelling is:
@@ -330,7 +329,7 @@ not MoonStencil.StencilZipMapVector
 
 ## Doctrine
 
-The canonical low-layer IR is not C, LuaJIT bytecode, Cranelift IR, backend
+The canonical low-layer IR is not C, LuaJIT bytecode, native machine code, backend
 commands, or a Moonlift-only internal form.
 
 It is:
@@ -347,7 +346,7 @@ families.
 Vectorize, unroll, tile, block, parallelize, mask tail, scalar-tail, and choose
 a compiler strategy are schedules.
 
-C, binary copy-patch, Lua trace residuals, and Cranelift are realizers.
+C, binary copy-patch, Lua trace residuals, and native bank entries are realizers.
 
 ## Generic Use Cases
 

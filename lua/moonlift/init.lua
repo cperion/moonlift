@@ -9,8 +9,6 @@
 --   moon.format_file(path [, opts]) — evaluate a format-owned file and render it
 --
 -- Object emission (hosted pipeline):
---   moon.emit_object(decl [, path [, name]])
---   moon.emit_shared(decl [, path [, name [, opts]]])
 --   moon.emit_c_artifact(decl [, opts])
 --   moon.emit_luajit_artifact(decl [, path_or_opts [, name [, opts]]])
 --
@@ -34,7 +32,6 @@ M.compiler_package = require("moonlift.compiler_package")
 M.compiler_model = require("moonlift.compiler_model")
 M.compiler_driver = require("moonlift.compiler_driver")
 M.flatline = require("moonlift.flatline")
-M.native_runtime = require("moonlift.native_runtime")
 M.ast = require("moonlift.ast")
 M.dsl = require("moonlift.dsl")
 M.moonlift = M.dsl.namespace()
@@ -43,8 +40,6 @@ M.debugger_core = require("moonlift.debugger_core")
 M.back_program = require("moonlift.back_program")
 M.back_target_model = require("moonlift.back_target_model")
 M.back_inspect = require("moonlift.back_inspect")
-M.back_diagnostics = require("moonlift.back_diagnostics")
-M.back_object = require("moonlift.back_object")
 M.link_target_model = require("moonlift.link_target_model")
 M.link_plan_validate = require("moonlift.link_plan_validate")
 M.link_command_plan = require("moonlift.link_command_plan")
@@ -700,90 +695,17 @@ function M.compile(name_or_decls, decls_or_opts, maybe_opts)
         name = opts.name or "Unit"
     end
     opts.name = opts.name or name
-    local module_ast = module_ast_from(decls, name)
-    if opts.context == nil then
-        local pvm = require("moonlift.pvm")
-        local A2 = require("moonlift.schema_projection")
-        local cls = pvm.classof(module_ast)
-        opts.context = (cls and rawget(cls, "__context")) or pvm.context()
-        if opts.context.MoonCompiler == nil then A2(opts.context) end
+    opts.stencil_provider = opts.stencil_provider or opts.provider or "lua_trace"
+    opts.luatrace_materializer = "bytecode"
+    local artifact = M.emit_luajit_artifact(decls, opts)
+    local loader = loadstring or load
+    local chunk, err = loader(artifact.source, "@" .. tostring(opts.name or name) .. ".luajit.lua")
+    if chunk == nil then error(tostring(err), 2) end
+    local module = chunk()
+    if type(module) == "table" then
+        rawset(module, "__moonlift_artifact", artifact)
     end
-    return require("moonlift.compiler_driver").compile_jit(module_ast, opts)
-end
-
---- Object/shared emission from a DSL declaration.
-
-function M.emit_object(decl, path, name)
-    local pvm = require("moonlift.pvm")
-    local A2 = require("moonlift.schema_projection")
-    local Driver = require("moonlift.compiler_driver")
-
-    local module_ast = module_ast_from(decl, name or "moonlift_object")
-    local cls = pvm.classof(module_ast)
-    local T = (cls and rawget(cls, "__context")) or pvm.context()
-    if T.MoonCompiler == nil then A2(T) end
-    name = name or "moonlift_object"
-    local artifact = Driver.lower_module(module_ast, { site = "emit_object", root = "emit_object", context = T, name = name })
-    local bytes = artifact.bytes
-    if path then
-        local f = assert(io.open(path, "wb"))
-        f:write(bytes)
-        f:close()
-    end
-    return bytes
-end
-
-function M.emit_shared(decl, path, name, opts)
-    local pvm = require("moonlift.pvm")
-    local A2 = require("moonlift.schema_projection")
-    local Driver = require("moonlift.compiler_driver")
-    local LinkTarget = require("moonlift.link_target_model")
-    local LinkValidate = require("moonlift.link_plan_validate")
-    local LinkCommand = require("moonlift.link_command_plan")
-    local LinkExecute = require("moonlift.link_execute")
-
-    local module_ast = module_ast_from(decl, name or "moonlift_shared")
-    local cls = pvm.classof(module_ast)
-    local T = (cls and rawget(cls, "__context")) or pvm.context()
-    if T.MoonCompiler == nil then A2(T) end
-    local Link = T.MoonLink
-    local LT = LinkTarget(T)
-    local LV = LinkValidate(T)
-    local LC = LinkCommand(T)
-    local LE = LinkExecute(T)
-    name = name or "moonlift_shared"
-    local keep_object = opts and opts.keep_object
-    local object_path = keep_object or (os.tmpname() .. ".o")
-    local object = Driver.lower_module(module_ast, { site = "emit_shared", root = "emit_object", context = T, name = name })
-    local out = assert(io.open(object_path, "wb"))
-    out:write(object.bytes)
-    out:close()
-
-    local link_plan = Link.LinkPlan(
-        LT.default_object(),
-        Link.LinkArtifactSharedLibrary,
-        Link.LinkTool(Link.LinkerSystemCc, Link.LinkPath("cc")),
-        Link.LinkPath(path or "lib" .. name .. ".so"),
-        { Link.LinkInputObject(Link.LinkPath(object_path)) },
-        Link.LinkExportAll,
-        Link.LinkExternRequireResolved,
-        {}
-    )
-    local link_report = LV.validate(link_plan)
-    if #link_report.issues ~= 0 then
-        local msgs = {}
-        for j = 1, #link_report.issues do msgs[#msgs + 1] = tostring(link_report.issues[j].message or link_report.issues[j]) end
-        error("emit_shared link validation failed: " .. table.concat(msgs, "\n"), 2)
-    end
-    local commands = LC.plan(link_plan)
-    local result_link = LE.execute(commands)
-    if not keep_object then os.remove(object_path) end
-
-    local LinkFailed = T.MoonLink.LinkFailed
-    if pvm.classof(result_link) == LinkFailed then
-        error("emit_shared link failed", 2)
-    end
-    return path
+    return module
 end
 
 function M.emit_c_artifact(decl, path_or_opts, name, opts)
@@ -855,11 +777,11 @@ function M.emit_luajit_artifact(decl, path_or_opts, name, opts)
         return provider == "lua_trace" or provider == "luatrace" or provider == "gps"
     end
     local function luatrace_materializer(o)
-        local materializer = tostring(o.luatrace_materializer or o.stencil_materializer or o.materializer or "source")
+        local materializer = tostring(o.luatrace_materializer or o.stencil_materializer or o.materializer or "bytecode")
         if materializer == "bytecode" or materializer == "bc" or materializer == "bc_copy_patch" or materializer == "bytecode_copy_patch" then
             return "bytecode"
         end
-        return "source"
+        error("emit_luajit_artifact: unsupported LuaTrace materializer " .. tostring(materializer), 2)
     end
     local checked = Pipeline.typecheck_module(module_ast, {
         context = T,

@@ -32,7 +32,6 @@ return schema. MoonPhase {
     MachineAbiPure,
     MachineAbiProcess,
     MachineAbiC,
-    MachineAbiCranelift,
   },
 
   sum. MachineImpl {
@@ -47,10 +46,6 @@ return schema. MoonPhase {
       function_name [str],
     },
     ImplC {
-      variant_unique,
-      symbol [str],
-    },
-    ImplCranelift {
       variant_unique,
       symbol [str],
     },

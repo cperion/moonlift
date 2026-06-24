@@ -135,6 +135,14 @@ local function bind_context(T)
         return LJ.LJExprValue(vid(id))
     end
 
+    local function captured_closure_descriptor(ctx, id)
+        local def = ctx.defs and id and ctx.defs[id.text] or nil
+        local k = def and def.kind or nil
+        if pvm.classof(k) ~= Code.CodeInstAggregate then return false end
+        if pvm.classof(k.ty) ~= Code.CodeTyClosure then return false end
+        return #(k.fields or {}) > 1
+    end
+
     local value_expr
     value_expr = function(ctx, expr)
         local cls = pvm.classof(expr)
@@ -195,6 +203,11 @@ local function bind_context(T)
             end
             return LJ.LJTermSwitch(value_id_expr(ctx, k.tag), cases, bid(k.default_dest), exprs(k.default_args))
         elseif cls == Code.CodeTermReturn then
+            for _, value in ipairs(k.values or {}) do
+                if captured_closure_descriptor(ctx, value) then
+                    error("luajit_lower: returning captured closure descriptors requires a closure environment ownership model", 3)
+                end
+            end
             return LJ.LJTermReturn(exprs(k.values))
         elseif cls == Code.CodeTermTrap then
             return LJ.LJTermTrap(k.reason)
@@ -862,6 +875,26 @@ local function bind_context(T)
         return found, nil
     end
 
+    local function kernel_plan_stencil_shaped(plan)
+        if pvm.classof(plan) ~= Kernel.KernelPlanned then return false end
+        local body = plan.body
+        local result = body and body.result or nil
+        if pvm.classof(result) == Kernel.KernelResultReduction
+            or pvm.classof(result) == Kernel.KernelResultFind then
+            return true
+        end
+        for _, effect in ipairs(body and body.effects or {}) do
+            local cls = pvm.classof(effect)
+            if cls == Kernel.KernelEffectStore
+                or cls == Kernel.KernelEffectScan
+                or cls == Kernel.KernelEffectPartition
+                or cls == Kernel.KernelEffectCopy then
+                return true
+            end
+        end
+        return false
+    end
+
     local function select_skeleton_artifact(opts, func, vocab, op, reduction, plan, info)
         if opts.stencil_skeleton_artifact_for ~= nil then return opts.stencil_skeleton_artifact_for(func, vocab, op, reduction, plan, info) end
         return nil
@@ -1205,7 +1238,9 @@ local function bind_context(T)
                     local artifact = machine.kind and machine.kind.artifact or nil
                     return LJ.LJStencilMachinePlan(func.id, plan.id, machine, artifact), pending_rejects
                 end
-                pending_rejects[#pending_rejects + 1] = { func = func.id, loop = loop_id, reason = reason }
+                if kernel_plan_stencil_shaped(plan) then
+                    pending_rejects[#pending_rejects + 1] = { func = func.id, loop = loop_id, reason = reason }
+                end
             end
         end
         return nil, pending_rejects
@@ -1280,27 +1315,12 @@ local function bind_context(T)
             end
         elseif opts.collect_rejects ~= nil and opts.stencil_machines_by_func == nil then
             for _, plan in ipairs(kernel.plans or {}) do
-                if pvm.classof(plan) == Kernel.KernelPlanned then
-                    local result = plan.body and plan.body.result or nil
-                    local stencil_shaped = pvm.classof(result) == Kernel.KernelResultReduction
-                        or pvm.classof(result) == Kernel.KernelResultFind
-                    for _, eff in ipairs(plan.body and plan.body.effects or {}) do
-                        local ecls = pvm.classof(eff)
-                        if ecls == Kernel.KernelEffectStore
-                            or ecls == Kernel.KernelEffectScan
-                            or ecls == Kernel.KernelEffectPartition
-                            or ecls == Kernel.KernelEffectCopy then
-                            stencil_shaped = true
-                            break
-                        end
-                    end
-                    if stencil_shaped then
-                        opts.collect_rejects[#opts.collect_rejects + 1] = {
-                            func = nil,
-                            loop = nil,
-                            reason = "missing preplanned stencil machine; run stencil planning with an artifact provider before LuaJIT projection",
-                        }
-                    end
+                if kernel_plan_stencil_shaped(plan) then
+                    opts.collect_rejects[#opts.collect_rejects + 1] = {
+                        func = nil,
+                        loop = nil,
+                        reason = "missing preplanned stencil machine; run stencil planning with an artifact provider before LuaJIT projection",
+                    }
                 end
             end
         end

@@ -26,9 +26,7 @@ MoonTree
   -> MoonKernel
   -> MoonSchedule
   -> MoonLower
-  -> MoonBack
-  -> wire bytes
-  -> Rust/Cranelift
+  -> LuaTrace / C / native stencil bank realization
 ```
 
 Each arrow is a PVM phase boundary. Each phase has one job. Each phase produces
@@ -57,9 +55,9 @@ Facts shape ordinary Code lowering.
 ```
 
 Memory, arithmetic, value, and effect facts are not just admission tests for
-Kernel. Ordinary loads/stores/ops/calls in Code -> Back consume the same facts.
-If a fact cannot be consumed by executable Back, it stays in the planning layers
-and does not exist in Back.
+Kernel. Ordinary loads/stores/ops/calls consume the same facts during executable
+lowering. If a fact cannot be consumed by an active executable backend, it stays
+in the planning layers and does not cross the backend boundary.
 
 ---
 
@@ -71,8 +69,8 @@ and does not exist in Back.
    meaning needed by another phase must be an ASDL value.
 3. **No whole-function performance cliff.** Whole-function kernel lowering is a
    special case of fragment lowering, not the model.
-4. **No decorative backend ASDL.** A Back fact is executable and consumed by
-   Rust/Cranelift, or it does not exist in Back.
+4. **No decorative backend ASDL.** A backend fact is executable and consumed by
+   LuaTrace, C, or a native stencil bank, or it stays in planning.
 5. **No benchmark recognizers.** If a transform matters, its proof is a general
    Flow/Value/Mem/Effect fact.
 6. **Kernel is semantic. Schedule is target-specific. Lower is compositional.**
@@ -655,19 +653,19 @@ Decision: `LowerStrategyCode` still consumes facts. It is not "unoptimized".
 
 ---
 
-## 13. Back boundary rules
+## 13. Executable backend boundary rules
 
-Back ASDL is executable backend input. It is not a place to park semantic facts
-that Rust cannot consume.
+Executable backend ASDL is not a place to park semantic facts that active
+backends cannot consume.
 
-### 13.1 Executable Back metadata
+### 13.1 Executable metadata
 
 The backend-consumed metadata set is deliberately finite:
 
 ```text
 memory:
   notrap
-  aligned / alignment bytes when Cranelift supports it
+  aligned / alignment bytes when the selected materializer consumes it
   can_move
   readonly
 
@@ -681,14 +679,14 @@ target:
   vector lane shape used by emitted commands
 ```
 
-If a semantic fact is not in this executable set, it must be consumed before
-Back. For example, alias/dependence facts may choose a schedule, permit motion,
-or reject a kernel; they do not become no-op Back commands.
+If a semantic fact is not in this executable set, it must be consumed before the
+backend boundary. For example, alias/dependence facts may choose a schedule,
+permit motion, or reject a kernel; they do not become no-op backend commands.
 
-### 13.2 Alias facts are not executable Back metadata
+### 13.2 Alias facts are not decorative metadata
 
-Decision: until the Rust/Cranelift backend consumes Moonlift alias/noalias facts
-as real metadata, alias facts do not exist in Back at all. They remain in
+Decision: alias facts only cross a backend boundary when the selected
+materializer consumes them as real executable metadata. Otherwise they remain in
 Mem/Lower/Schedule where they shape decisions.
 
 This prevents decorative ASDL without adding report machinery or wire-level
@@ -698,7 +696,7 @@ failure paths.
 
 ## 14. Lowering algorithm
 
-`lower_to_back` walks the Lower plan, not raw Code alone.
+Executable lowering walks the Lower plan, not raw Code alone.
 
 Pseudo-code:
 

@@ -1,22 +1,18 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
 local A2 = require("moonlift.schema_projection")
-local J = require("moonlift.back_jit")
-local Driver = require("moonlift.compiler_driver")
+local moon = require("moonlift")
 local Typecheck = require("moonlift.tree_typecheck")
 
 local T = pvm.context()
 A2(T)
-local jit_api = J(T)
 local TC = Typecheck(T)
 
 local C = T.MoonCore
 local Ty = T.MoonType
 local B = T.MoonBind
 local Tr = T.MoonTree
-local B2 = T.MoonBack
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local bool = Ty.TScalar(C.ScalarBool)
@@ -59,14 +55,11 @@ assert(typed_jump.h == Tr.StmtSurface)
 assert(pvm.classof(typed_jump.args[1].value.h) == Tr.ExprTyped)
 assert(pvm.classof(typed_region.entry.body[1].cond.h) == Tr.ExprTyped)
 
-local image = Driver.lower_module(module, { site = "test_tree_typecheck", context = T })
-local jit = jit_api.jit()
-local artifact = jit:compile(image)
-local f = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B2.BackFuncId("sum_typechecked")))
+local compiled = moon.compile("TreeTypecheckSmoke", module)
+local f = compiled.sum_typechecked
 assert(f(0) == 0)
 assert(f(1) == 0)
 assert(f(5) == 10)
-artifact:free()
 
 local bad = Tr.Module(Tr.ModuleSurface, {
     Tr.ItemFunc(Tr.FuncExport("bad", { Ty.Param("n", i32) }, i32, {

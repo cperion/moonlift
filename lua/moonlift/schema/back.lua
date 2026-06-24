@@ -33,7 +33,6 @@ return schema. MoonBack {
   },
   sum. BackTarget {
     BackTargetNative,
-    BackTargetCraneliftJit,
     BackTargetDynasmJit,
     BackTargetNamed { variant_unique, field. name [str], },
   },

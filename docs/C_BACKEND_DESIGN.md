@@ -63,7 +63,8 @@ The source of truth is the typed/resolved MoonTree program after:
 3. typecheck;
 4. target-aware layout resolution.
 
-The C backend does not consume `MoonBack.Cmd[]`. `MoonBack` is the Cranelift projection.
+The C backend consumes resolved MoonTree/MoonCode facts directly. It does not
+depend on the removed backend-command projection.
 The C backend preserves program-layer facts that would otherwise be erased:
 
 - typed pointers (`ptr(T)`), arrays, views, closures;
@@ -92,7 +93,7 @@ CBackendTarget {
 
 Current Moonlift layout code assumes 64-bit pointer/index in several places. A complete C
 backend must make pointer/index size target-aware before claiming non-native64 portability.
-For native64 C, pointer/index layout may match the current Cranelift path.
+For native64 C, pointer/index layout may match the LuaJIT host layout.
 
 ### 3.2 One layout authority
 
@@ -438,7 +439,7 @@ Trap behavior uses the backend trap helper.
 
 ### 14.3 Shifts/rotates
 
-Shift count semantics must match the MoonBack/Cranelift contract. The complete design uses
+Shift count semantics must match the MoonCode integer contract. The complete design uses
 one explicit mode per operation:
 
 - mask count modulo bit width; or
@@ -692,7 +693,7 @@ Source programs covering each language feature must pass `moon.emit_c` and C syn
 For executable subsets, each test runs both:
 
 ```text
-Moonlift -> Cranelift/JIT
+Moonlift -> LuaTrace bytecode
 Moonlift -> C -> cc -> executable/shared object
 ```
 
@@ -889,7 +890,7 @@ Lua DSL value
   -> tree_to_code
   -> code_validate
   -> code_to_c       -> c_validate    -> c_emit
-  -> code_to_back    -> back_validate -> back_jit/back_object
+  -> luatrace_plan   -> LuaJIT bytecode bank
 ```
 
 The final architecture has one normalized native lowering route. Direct Tree-to-Back lowering
@@ -897,7 +898,7 @@ has been deleted so native and C projection cannot drift behind separate Tree wa
 
 ### 26.2 What MoonCode must preserve
 
-MoonCode must preserve all facts needed by both C and Cranelift-like backends:
+MoonCode must preserve all facts needed by C, LuaTrace, and native stencil-bank backends:
 
 - typed values with stable `CodeValueId`s;
 - block params as the only phi form;
@@ -946,9 +947,9 @@ Summary order:
 7. implement `code_to_c` and migrate public C APIs to it;
 8. make default C output naturally optimizable: direct branches, minimal transfers,
    single-use expression coalescing, and clean loop-shaped gotos;
-9. implement or bridge `code_to_back` to keep native parity;
+9. implement LuaTrace/native-bank parity checks around MoonCode boundaries;
 10. reclassify C coverage around MoonCode boundaries;
-11. expand TCC/libtcc/gcc compile-run and Cranelift equivalence corpus;
+11. expand TCC/libtcc/gcc compile-run and LuaTrace equivalence corpus;
 12. update this document only when gates actually pass.
 
 Final full-support gates:
@@ -959,15 +960,14 @@ luajit tests/test_schema_compile_pipeline.lua
 luajit tests/test_tree_to_code.lua
 luajit tests/test_code_validate.lua
 luajit tests/test_code_to_c.lua
-luajit tests/test_code_to_back.lua
 MOONLIFT_C_BACKEND_FINAL=1 luajit tests/test_c_backend_coverage_matrix.lua
 luajit tests/test_c_gcc_feature_corpus.lua
 MOONLIFT_C_USE_LIBTCC=1 luajit tests/test_c_gcc_feature_corpus.lua
 luajit tests/test_c_full_semantic_equivalence.lua
-luajit benchmarks/bench_c_vs_cranelift.lua quick
+luajit benchmarks/bench_luajit_materializations.lua quick
 MOONLIFT_BENCH_C_RUNNER=gcc MOONLIFT_C_CC=gcc \
   MOONLIFT_BENCH_CFLAGS='-std=c99 -O2 -fPIC -shared' \
-  luajit benchmarks/bench_c_vs_cranelift.lua quick
+  luajit benchmarks/bench_luajit_materializations.lua quick
 ```
 
 A completion claim must name the milestone it satisfies.  The phrase "C backend complete"
@@ -994,7 +994,7 @@ These are user-facing or stable integration points and should survive the refact
 | `lua/moonlift/c_helpers.lua` | stay; semantic helper library for UB-free C operations |
 | `lua/moonlift/schema/c.lua` | canonical `MoonC` / `CBackend` ASDL consumed by C emission |
 | `tests/test_c_gcc_harness.lua` | stay; compile/run harness is backend-path neutral |
-| `benchmarks/bench_c_vs_cranelift.lua` | stay; should measure the new path |
+| `benchmarks/bench_luajit_materializations.lua` | stay; compares active materializations |
 
 ### 28.2 Direct Tree-to-C lowering removed
 

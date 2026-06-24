@@ -1,13 +1,11 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local ffi = require("ffi")
+local moon = require("moonlift")
 local pvm = require("moonlift.pvm")
 local A2 = require("moonlift.schema_projection")
 local OpenFacts = require("moonlift.open_facts")
 local OpenValidate = require("moonlift.open_validate")
 local OpenExpand = require("moonlift.open_expand")
-local Driver = require("moonlift.compiler_driver")
-local Jit = require("moonlift.back_jit")
 
 local T = pvm.context()
 A2(T)
@@ -16,7 +14,6 @@ local C, Ty, B, O, Tr = T.MoonCore, T.MoonType, T.MoonBind, T.MoonOpen, T.MoonTr
 local OF = OpenFacts(T)
 local OV = OpenValidate(T)
 local OE = OpenExpand(T)
-local jit_api = Jit(T)
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local hit_slot = O.ContSlot("test.hit", "hit", { Tr.BlockParam("pos", i32) })
@@ -71,11 +68,8 @@ assert(saw_cont_issue, "expected unfilled continuation slot issue")
 
 local filled = make_module({ O.ContBinding("hit", O.ContTargetLabel(Tr.BlockLabel("found"))) })
 local expanded = OE.module(filled, OE.env_with_frags({ region_frag }, {}))
-local image = Driver.lower_module(expanded, { site = "test_continuation_slot_expand", context = T })
-local artifact = jit_api.jit():compile(image)
-local ptr = artifact:getpointer(T.MoonBack.BackFuncId("cont_slot_smoke"))
-local fn = ffi.cast("int32_t (*)(void)", ptr)
+local compiled = moon.compile("ContinuationSlotSmoke", expanded)
+local fn = compiled.cont_slot_smoke
 assert(fn() == 42)
-artifact:free()
 
 print("moonlift continuation slot expand ok")

@@ -205,7 +205,7 @@ MoonLuaJIT.LJStencilMachinePlan:
 `MoonExec` is the target-neutral executable-fragment view. It records an
 inspectable per-kernel exec decision for each stencil selection, then groups
 materialized stencil artifacts and scalar Code block fragments per function
-before any C, LuaJIT, Cranelift, or object-code projection. Skipped stencil
+before any C, LuaJIT bytecode, native bank, or object-code projection. Skipped stencil
 entries stay visible as `ExecSkipStencil` decisions instead of disappearing
 into Lua control flow.
 
@@ -490,7 +490,6 @@ The broader suite validates the compiler and schema boundaries:
 luajit tests/run.lua code_ir
 luajit tests/run.lua schema
 luajit tests/run.lua
-cargo check -q
 ```
 
 ## Architectural invariants
