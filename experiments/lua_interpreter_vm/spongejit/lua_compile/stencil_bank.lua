@@ -3,10 +3,10 @@
 -- This layer is intentionally VM/language agnostic. It indexes validated
 -- Stencil.StencilModule values by stable Stencil.VariantKey identity and
 -- template name, selects a template, and delegates byte copying/patching to
--- stencil_materialize. It must not inspect Lua opcodes, MoonCFG internals,
+-- stencil_materialize. It must not inspect Lua opcodes, LalinCFG internals,
 -- runtime values, or language semantics.
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local B = require("lua_compile.builders")
 local T = B.T
 local S = T.Stencil

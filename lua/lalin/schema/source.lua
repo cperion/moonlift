@@ -1,0 +1,157 @@
+local S = require("lalin.schema.dsl")
+S.use()
+
+return schema. LalinSource {
+  product. DocUri { interned, text [str], },
+  product. DocVersion { interned, field. value [number], },
+  sum. LanguageId {
+    LangMlua,
+    LangLalin,
+    LangLua,
+    LangUnknown { variant_unique, field. name [str], },
+  },
+  product. DocumentSnapshot {
+    uri [LalinSource.DocUri],
+    version [LalinSource.DocVersion],
+    language [LalinSource.LanguageId],
+    text [str],
+  },
+  sum. PositionEncoding { PosUtf8Bytes, PosUtf16CodeUnits, PosUtf32Codepoints, },
+  product. SourcePos { interned, line [number], byte_col [number], utf16_col [number], },
+  product. SourceRange {
+    interned,
+    uri [LalinSource.DocUri],
+    start_offset [number],
+    stop_offset [number],
+    start [LalinSource.SourcePos],
+    stop [LalinSource.SourcePos],
+  },
+  sum. TextChange {
+    ReplaceAll { text [str], },
+    ReplaceRange { range [LalinSource.SourceRange], text [str], },
+  },
+  product. DocumentEdit {
+    uri [LalinSource.DocUri],
+    version [LalinSource.DocVersion],
+    changes [many [LalinSource.TextChange]],
+  },
+  product. SourceSlice { text [str], },
+  product. SourceOccurrence {
+    slice [LalinSource.SourceSlice],
+    range [LalinSource.SourceRange],
+  },
+  product. AnchorId { interned, text [str], },
+  sum. AnchorKind {
+    AnchorDocument,
+    AnchorLuaOpaque,
+    AnchorHostedIsland,
+    AnchorIslandBody,
+    AnchorKeyword,
+    AnchorScalarType,
+    AnchorStructName,
+    AnchorFieldName,
+    AnchorFieldUse,
+    AnchorFunctionName,
+    AnchorFunctionUse,
+    AnchorMethodName,
+    AnchorParamName,
+    AnchorLocalName,
+    AnchorBindingDef,
+    AnchorBindingUse,
+    AnchorRegionName,
+    AnchorExprName,
+    AnchorContinuationName,
+    AnchorContinuationUse,
+    AnchorBuiltinName,
+    AnchorPackedAlign,
+    AnchorDiagnostic,
+    AnchorExposeName,
+    AnchorModuleName,
+    AnchorOpaque { variant_unique, field. name [str], },
+  },
+  product. Anchor {
+    interned,
+    field. id [LalinSource.AnchorId],
+    kind [LalinSource.AnchorKind],
+    label [str],
+  },
+  product. AnchorSpan {
+    interned,
+    field. id [LalinSource.AnchorId],
+    kind [LalinSource.AnchorKind],
+    label [str],
+    range [LalinSource.SourceRange],
+  },
+  product. AnchorSet { interned, anchors [many [LalinSource.AnchorSpan]], },
+  product. SourceLineSpan {
+    interned,
+    line [number],
+    start_offset [number],
+    stop_offset [number],
+    next_offset [number],
+  },
+  product. PositionIndex {
+    document [LalinSource.DocumentSnapshot],
+    lines [many [LalinSource.SourceLineSpan]],
+  },
+  sum. SourceApplyIssue {
+    SourceIssueWrongDocument {
+      variant_unique,
+      expected [LalinSource.DocUri],
+      actual [LalinSource.DocUri],
+    },
+    SourceIssueStaleVersion {
+      variant_unique,
+      expected_after [LalinSource.DocVersion],
+      actual [LalinSource.DocVersion],
+    },
+    SourceIssueInvalidRange { variant_unique, reason [str], },
+    SourceIssueOverlappingRanges {
+      variant_unique,
+      previous [LalinSource.SourceRange],
+      current [LalinSource.SourceRange],
+    },
+    SourceIssueMixedReplaceAll,
+  },
+  sum. SourceApplyResult {
+    SourceApplyOk { document [LalinSource.DocumentSnapshot], },
+    SourceApplyRejected {
+      document [LalinSource.DocumentSnapshot],
+      issues [many [LalinSource.SourceApplyIssue]],
+    },
+  },
+  sum. SourcePositionResult {
+    SourcePositionHit { variant_unique, pos [LalinSource.SourcePos], },
+    SourcePositionMiss { variant_unique, reason [str], },
+  },
+  sum. SourceOffsetResult {
+    SourceOffsetHit { variant_unique, offset [number], },
+    SourceOffsetMiss { variant_unique, reason [str], },
+  },
+  product. AnchorIndex {
+    interned,
+    set [LalinSource.AnchorSet],
+    anchors [many [LalinSource.AnchorSpan]],
+  },
+  sum. AnchorQuery {
+    AnchorQueryPosition {
+      variant_unique,
+      index [LalinSource.AnchorIndex],
+      uri [LalinSource.DocUri],
+      offset [number],
+    },
+    AnchorQueryRange {
+      variant_unique,
+      index [LalinSource.AnchorIndex],
+      range [LalinSource.SourceRange],
+    },
+    AnchorQueryId {
+      variant_unique,
+      index [LalinSource.AnchorIndex],
+      field. id [LalinSource.AnchorId],
+    },
+  },
+  sum. AnchorLookupResult {
+    AnchorLookup { variant_unique, anchors [many [LalinSource.AnchorSpan]], },
+  },
+}

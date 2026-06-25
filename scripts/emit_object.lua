@@ -1,10 +1,10 @@
 #!/usr/bin/env luajit
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A2 = require("moonlift.schema_projection")
-local Pipeline = require("moonlift.frontend_pipeline")
-local Object = require("moonlift.back_object")
+local pvm = require("lalin.pvm")
+local A2 = require("lalin.schema_projection")
+local Pipeline = require("lalin.frontend_pipeline")
+local Object = require("lalin.back_object")
 
 local function usage()
     io.stderr:write("usage: luajit emit_object.lua input.mlua -o output.o [--module-name name]\n")

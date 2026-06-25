@@ -10,17 +10,17 @@
 		{
 			"id": "T001",
 			"title": "Freeze ASDL text schema loading",
-			"detail": "Hard-lock `lua/moonlift/schema/*.asdl` as the only schema source in this directory. Update `SCHEMA_ASDL_MODULES` so it exactly matches every `.asdl` file in `lua/moonlift/schema/` (currently verify `pvm_surface.asdl` is either intentionally loaded or removed). Add a loader-time assertion/test helper that no `lua/moonlift/schema/*.lua` exists except `init.lua`; keep C schema builder modules only under `lua/moonlift/c/`. Pass source names into ASDL parsing.",
-			"file": "lua/moonlift/schema/init.lua",
+			"detail": "Hard-lock `lua/lalin/schema/*.asdl` as the only schema source in this directory. Update `SCHEMA_ASDL_MODULES` so it exactly matches every `.asdl` file in `lua/lalin/schema/` (currently verify `pvm_surface.asdl` is either intentionally loaded or removed). Add a loader-time assertion/test helper that no `lua/lalin/schema/*.lua` exists except `init.lua`; keep C schema builder modules only under `lua/lalin/c/`. Pass source names into ASDL parsing.",
+			"file": "lua/lalin/schema/init.lua",
 			"after": [],
 			"status": "done",
 			"order": 1,
 			"claimedBy": "agent-625SFP",
-			"evidence": "Implemented ASDL source freeze in lua/moonlift/schema/init.lua: added loader-time assert_schema_directory_sources() guard, verified SCHEMA_ASDL_MODULES against actual schema/*.asdl plus explicit pvm_surface.asdl exclusion, and forbids schema/*.lua except init.lua. Threaded source names through AsdlText.parse_schema/load_text, asdl_parser.parse/compile, asdl_context:Define, and pvm_surface_model. Added focused assertions in tests/test_schema_core.lua. Verified with: luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua; luajit tests/test_pvm_surface_builder.lua; luajit tests/test_pvm_surface_schema_values.lua.",
+			"evidence": "Implemented ASDL source freeze in lua/lalin/schema/init.lua: added loader-time assert_schema_directory_sources() guard, verified SCHEMA_ASDL_MODULES against actual schema/*.asdl plus explicit pvm_surface.asdl exclusion, and forbids schema/*.lua except init.lua. Threaded source names through AsdlText.parse_schema/load_text, asdl_parser.parse/compile, asdl_context:Define, and pvm_surface_model. Added focused assertions in tests/test_schema_core.lua. Verified with: luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua; luajit tests/test_pvm_surface_builder.lua; luajit tests/test_pvm_surface_schema_values.lua.",
 			"notes": [
 				"Initial `.asdl` migration already exists in the working tree; this task is for hardening and declaring it stable.",
 				"Current working tree has `.asdl` files and loader changes; still needs embedding/filesystem and no-builder guard hardening before done.",
-				"Build-time sanity check should confirm each module has a corresponding .asdl file and that `moonlift.schema` round-trips from embedded bytes without `lua` filesystem reads when package path is unavailable."
+				"Build-time sanity check should confirm each module has a corresponding .asdl file and that `lalin.schema` round-trips from embedded bytes without `lua` filesystem reads when package path is unavailable."
 			],
 			"createdAt": "2026-06-10T12:24:15.592Z",
 			"updatedAt": "2026-06-10T14:02:37.225Z"
@@ -29,14 +29,14 @@
 			"id": "T002",
 			"title": "Harden ASDL embedding fallback",
 			"detail": "Make `load_text(module_name, path)` deterministically prefer `<module>_asdl` preloads before filesystem reads and expose/return enough source metadata for diagnostics. Add a test-time way to prove schema loading works when filesystem reads are disabled and only embedded `_asdl` modules are available.",
-			"file": "lua/moonlift/asdl_text.lua",
+			"file": "lua/lalin/asdl_text.lua",
 			"after": [
 				"T001"
 			],
 			"status": "done",
 			"order": 2,
 			"claimedBy": "agent-625SFP",
-			"evidence": "Hardened lua/moonlift/asdl_text.lua load_text() to prefer <module>_asdl preloads and return source metadata; added with_read_file_for_test() to disable filesystem reads in focused tests. Updated lua/moonlift/schema/init.lua to expose schema_asdl_modules_for_test(), and tests/test_schema_core.lua now preloads all root schema ASDL bytes, disables AsdlText.read_file, and verifies Schema.schema() succeeds from embedded _asdl modules only. Verified with: luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua.",
+			"evidence": "Hardened lua/lalin/asdl_text.lua load_text() to prefer <module>_asdl preloads and return source metadata; added with_read_file_for_test() to disable filesystem reads in focused tests. Updated lua/lalin/schema/init.lua to expose schema_asdl_modules_for_test(), and tests/test_schema_core.lua now preloads all root schema ASDL bytes, disables AsdlText.read_file, and verifies Schema.schema() succeeds from embedded _asdl modules only. Verified with: luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua.",
 			"notes": [
 				"This is required by C_BACKEND_DESIGN §27.3 item 5 and is a blocker for stable migration tooling."
 			],
@@ -46,7 +46,7 @@
 		{
 			"id": "T003",
 			"title": "Validate ASDL build inputs",
-			"detail": "Add build-time sanity checks while collecting `.asdl`: every `lua/moonlift/schema/*.asdl` has a corresponding preload name `moonlift.schema.<name>_asdl`, generated preloads sort deterministically, and stale schema Lua builders under `lua/moonlift/schema/` fail the build except `init.lua`. Keep non-schema Lua modules and `lua/moonlift/c/*.lua` unchanged.",
+			"detail": "Add build-time sanity checks while collecting `.asdl`: every `lua/lalin/schema/*.asdl` has a corresponding preload name `lalin.schema.<name>_asdl`, generated preloads sort deterministically, and stale schema Lua builders under `lua/lalin/schema/` fail the build except `init.lua`. Keep non-schema Lua modules and `lua/lalin/c/*.lua` unchanged.",
 			"file": "build.rs",
 			"after": [
 				"T001",
@@ -55,10 +55,10 @@
 			"status": "done",
 			"order": 3,
 			"claimedBy": "agent-625SFP",
-			"evidence": "Updated build.rs to sort collected Lua/ASDL inputs deterministically and validate schema build inputs: lua/moonlift/schema/*.lua now fails except init.lua, schema ASDL files must collect as moonlift.schema.<name>, and generated preload names must be moonlift.schema.<name>_asdl with no duplicates. Non-schema Lua modules and lua/moonlift/c/*.lua collection are unchanged. Verified build.rs syntax with rustc --edition=2021 build.rs -o /tmp/moonlift-build-rs-check; reran luajit tests/test_schema_core.lua and luajit tests/test_schema_compile_pipeline.lua.",
+			"evidence": "Updated build.rs to sort collected Lua/ASDL inputs deterministically and validate schema build inputs: lua/lalin/schema/*.lua now fails except init.lua, schema ASDL files must collect as lalin.schema.<name>, and generated preload names must be lalin.schema.<name>_asdl with no duplicates. Non-schema Lua modules and lua/lalin/c/*.lua collection are unchanged. Verified build.rs syntax with rustc --edition=2021 build.rs -o /tmp/lalin-build-rs-check; reran luajit tests/test_schema_core.lua and luajit tests/test_schema_compile_pipeline.lua.",
 			"notes": [
-				"Current `MoonCode` ASDL is a proposed full layer; validate before building irreversible lowering code on it.",
-				"Keep `schema.init.lua` as canonical loader; this task only hardens the MoonCode model contract."
+				"Current `LalinCode` ASDL is a proposed full layer; validate before building irreversible lowering code on it.",
+				"Keep `schema.init.lua` as canonical loader; this task only hardens the LalinCode model contract."
 			],
 			"createdAt": "2026-06-10T12:24:15.592Z",
 			"updatedAt": "2026-06-10T14:05:15.001Z"
@@ -67,23 +67,23 @@
 			"id": "T004",
 			"title": "Add ASDL source diagnostics",
 			"detail": "Change parser public API to accept `parse(input_string, source_name)` while preserving `parse(input_string)`. Track byte offset to line/column and report errors as `source:line:column: ASDL parse error...` instead of byte-only `pos`. Ensure `asdl_text.parse_schema(T, text, source_name)` passes this source through.",
-			"file": "lua/moonlift/asdl_parser.lua",
+			"file": "lua/lalin/asdl_parser.lua",
 			"after": [
 				"T001"
 			],
 			"status": "done",
 			"order": 4,
 			"claimedBy": "agent-625SFP",
-			"evidence": "Updated lua/moonlift/asdl_parser.lua public API to parse(input_string, source_name)/compile(input_string, source_name) while preserving default calls, added byte-offset to line/column mapping, and changed parse failures to source:line:column: ASDL parse error messages. lua/moonlift/asdl_text.lua and lua/moonlift/asdl_context.lua pass source names through. tests/test_schema_core.lua asserts source/line/column diagnostics. Verified with: luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua; luajit tests/test_pvm_surface_builder.lua; luajit tests/test_pvm_surface_schema_values.lua.",
+			"evidence": "Updated lua/lalin/asdl_parser.lua public API to parse(input_string, source_name)/compile(input_string, source_name) while preserving default calls, added byte-offset to line/column mapping, and changed parse failures to source:line:column: ASDL parse error messages. lua/lalin/asdl_text.lua and lua/lalin/asdl_context.lua pass source names through. tests/test_schema_core.lua asserts source/line/column diagnostics. Verified with: luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua; luajit tests/test_pvm_surface_builder.lua; luajit tests/test_pvm_surface_schema_values.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:24:15.592Z",
 			"updatedAt": "2026-06-10T14:05:48.674Z"
 		},
 		{
 			"id": "T005",
-			"title": "Finalize MoonCode ASDL contract",
-			"detail": "Audit and revise `MoonCode` for the hard architecture: CodeModule/CodeFunc/CodeBlock/CodeInst/CodeTerm must carry stable ids, explicit CodePlace/CodeResidence, direct/extern/indirect/closure call targets, memory access, global/data/reloc facts, and validation issues. Add missing fields before any lowerer relies on the schema; do not encode semantics in strings or side tables.",
-			"file": "lua/moonlift/schema/code.asdl",
+			"title": "Finalize LalinCode ASDL contract",
+			"detail": "Audit and revise `LalinCode` for the hard architecture: CodeModule/CodeFunc/CodeBlock/CodeInst/CodeTerm must carry stable ids, explicit CodePlace/CodeResidence, direct/extern/indirect/closure call targets, memory access, global/data/reloc facts, and validation issues. Add missing fields before any lowerer relies on the schema; do not encode semantics in strings or side tables.",
+			"file": "lua/lalin/schema/code.asdl",
 			"after": [
 				"T001",
 				"T004"
@@ -91,7 +91,7 @@
 			"status": "done",
 			"order": 5,
 			"claimedBy": "agent-7S88PN",
-			"evidence": "Updated `lua/moonlift/schema/code.asdl` to add stable `CodeInstId`/`CodeTermId` wrappers (`CodeInst`/`CodeTerm` around `CodeInstKind`/`CodeTermKind`), explicit `CodeTypeDecl`, `CodeData`, `CodeReloc`, `CodeGlobalRef`, `CodePlaceData`, memory access modes, typed variant refs, origin-carrying module/inst/term nodes, and expanded validation issues for ids, refs, arity/type, memory, reloc, and data/code pointer discipline. Added `tests/test_schema_core.lua` fixture assertions constructing MoonCode module/func/block/inst/term/data/reloc/call-target objects. Verified with `luajit tests/test_schema_core.lua`, `luajit tests/test_schema_compile_pipeline.lua`, `rg -n \"CodeInst|CodeTerm|CodeModule\\\\(\" lua tests`, and `git diff --check -- lua/moonlift/schema/code.asdl tests/test_schema_core.lua`.",
+			"evidence": "Updated `lua/lalin/schema/code.asdl` to add stable `CodeInstId`/`CodeTermId` wrappers (`CodeInst`/`CodeTerm` around `CodeInstKind`/`CodeTermKind`), explicit `CodeTypeDecl`, `CodeData`, `CodeReloc`, `CodeGlobalRef`, `CodePlaceData`, memory access modes, typed variant refs, origin-carrying module/inst/term nodes, and expanded validation issues for ids, refs, arity/type, memory, reloc, and data/code pointer discipline. Added `tests/test_schema_core.lua` fixture assertions constructing LalinCode module/func/block/inst/term/data/reloc/call-target objects. Verified with `luajit tests/test_schema_core.lua`, `luajit tests/test_schema_compile_pipeline.lua`, `rg -n \"CodeInst|CodeTerm|CodeModule\\\\(\" lua tests`, and `git diff --check -- lua/lalin/schema/code.asdl tests/test_schema_core.lua`.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:24:15.592Z",
 			"updatedAt": "2026-06-15T07:52:40.070Z"
@@ -99,24 +99,24 @@
 		{
 			"id": "T006",
 			"title": "Implement CodeType helpers",
-			"detail": "Create the backend-neutral type mapping helper that replaces old `type_to_c` as a direct dependency. Provide MoonTree/MoonType -> MoonCode.CodeType mapping, signature interning (`CodeSigId`), scalar/ptr/codeptr distinction, target index/pointer facts, and helpers for CodeType -> CBackend type spelling used by `code_to_c`. This file must not require `tree_to_c` or any retired C lowering modules.",
-			"file": "lua/moonlift/code_type.lua",
+			"detail": "Create the backend-neutral type mapping helper that replaces old `type_to_c` as a direct dependency. Provide LalinTree/LalinType -> LalinCode.CodeType mapping, signature interning (`CodeSigId`), scalar/ptr/codeptr distinction, target index/pointer facts, and helpers for CodeType -> CBackend type spelling used by `code_to_c`. This file must not require `tree_to_c` or any retired C lowering modules.",
+			"file": "lua/lalin/code_type.lua",
 			"after": [
 				"T005"
 			],
 			"status": "done",
 			"order": 6,
 			"claimedBy": "agent-7S88PN",
-			"evidence": "Created `lua/moonlift/code_type.lua` as backend-neutral MoonType -> MoonCode CodeType helper with scalar/data-ptr/code-ptr/closure/imported-C mappings, deterministic CodeSigId interning, target default/facts helpers, and CodeType -> MoonC CBackendType projection for future `code_to_c` use. It does not require retired Tree-to-C modules. Added `tests/test_code_type.lua` coverage for scalar/ptr/func/void-func/closure/imported-C/named/array/slice/view/target/error cases and no retired requires. Amended `lua/moonlift/schema/code.asdl` with `CodeTyImportedCFuncPtr` to represent imported C function pointers without string encodings. Verified with `luajit tests/test_code_type.lua`, `luajit tests/test_schema_core.lua`, `luajit tests/test_schema_compile_pipeline.lua`, `git diff --check -- lua/moonlift/schema/code.asdl lua/moonlift/code_type.lua tests/test_schema_core.lua tests/test_code_type.lua`, and a grep gate confirming no retired requires in `code_type`/test.",
+			"evidence": "Created `lua/lalin/code_type.lua` as backend-neutral LalinType -> LalinCode CodeType helper with scalar/data-ptr/code-ptr/closure/imported-C mappings, deterministic CodeSigId interning, target default/facts helpers, and CodeType -> LalinC CBackendType projection for future `code_to_c` use. It does not require retired Tree-to-C modules. Added `tests/test_code_type.lua` coverage for scalar/ptr/func/void-func/closure/imported-C/named/array/slice/view/target/error cases and no retired requires. Amended `lua/lalin/schema/code.asdl` with `CodeTyImportedCFuncPtr` to represent imported C function pointers without string encodings. Verified with `luajit tests/test_code_type.lua`, `luajit tests/test_schema_core.lua`, `luajit tests/test_schema_compile_pipeline.lua`, `git diff --check -- lua/lalin/schema/code.asdl lua/lalin/code_type.lua tests/test_schema_core.lua tests/test_code_type.lua`, and a grep gate confirming no retired requires in `code_type`/test.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:24:15.592Z",
 			"updatedAt": "2026-06-15T07:58:47.241Z"
 		},
 		{
 			"id": "T007",
-			"title": "Implement MoonCode validator",
-			"detail": "Create `Define(T).validate(code_module, collector_or_opts)` over `MoonCode.CodeModule`. Enforce unique ids, def/use, block existence, block arg arity/types, entry block validity, terminator presence, call sig arity/types, place/local/global typing, memory access alignment/trap shape, data reloc targets, and data/code pointer discipline. Return `MoonCode.CodeValidationReport` and integrate collector diagnostics without silently succeeding.",
-			"file": "lua/moonlift/code_validate.lua",
+			"title": "Implement LalinCode validator",
+			"detail": "Create `Define(T).validate(code_module, collector_or_opts)` over `LalinCode.CodeModule`. Enforce unique ids, def/use, block existence, block arg arity/types, entry block validity, terminator presence, call sig arity/types, place/local/global typing, memory access alignment/trap shape, data reloc targets, and data/code pointer discipline. Return `LalinCode.CodeValidationReport` and integrate collector diagnostics without silently succeeding.",
+			"file": "lua/lalin/code_validate.lua",
 			"after": [
 				"T005",
 				"T006"
@@ -124,7 +124,7 @@
 			"status": "done",
 			"order": 7,
 			"claimedBy": "agent-R0BMKE",
-			"evidence": "Implemented lua/moonlift/code_validate.lua with Define(T).validate over MoonCode.CodeModule: module/function duplicate indexing, sig/data/global/extern/func references, value def/use, block transfer arity/types, function return signature checks, call target/signature/arg/result checks, place/local/global/data typing, memory access alignment/mode checks, data reloc target checks, data/code pointer class discipline, collector emission, and CodeValidationReport return. Added tests/test_code_validate.lua covering valid module, missing value/block, type mismatch, call arity, data/code pointer confusion, bad memory alignment, collector integration, and missing reloc target. Verified with luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua; git diff --check -- lua/moonlift/code_validate.lua tests/test_code_validate.lua.",
+			"evidence": "Implemented lua/lalin/code_validate.lua with Define(T).validate over LalinCode.CodeModule: module/function duplicate indexing, sig/data/global/extern/func references, value def/use, block transfer arity/types, function return signature checks, call target/signature/arg/result checks, place/local/global/data typing, memory access alignment/mode checks, data reloc target checks, data/code pointer class discipline, collector emission, and CodeValidationReport return. Added tests/test_code_validate.lua covering valid module, missing value/block, type mismatch, call arity, data/code pointer confusion, bad memory alignment, collector integration, and missing reloc target. Verified with luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua; git diff --check -- lua/lalin/code_validate.lua tests/test_code_validate.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:24:15.592Z",
 			"updatedAt": "2026-06-15T08:12:32.290Z"
@@ -132,8 +132,8 @@
 		{
 			"id": "T008",
 			"title": "Implement tree_to_code normalizer",
-			"detail": "Create `Define(T).module(resolved_module, opts)` that lowers resolved/layout-processed MoonTree to normalized `MoonCode.CodeModule`: ANF/SSA CodeInst graph, block-param control flow, CodeTerm terminators, locals/residence, CodePlace, CodeMemoryAccess, CodeCallTarget, globals/data init facts, origins, and deterministic ids. It must reject phase-unreachable constructs here or earlier; no raw nested expression recursion should reach C/native backends.",
-			"file": "lua/moonlift/tree_to_code.lua",
+			"detail": "Create `Define(T).module(resolved_module, opts)` that lowers resolved/layout-processed LalinTree to normalized `LalinCode.CodeModule`: ANF/SSA CodeInst graph, block-param control flow, CodeTerm terminators, locals/residence, CodePlace, CodeMemoryAccess, CodeCallTarget, globals/data init facts, origins, and deterministic ids. It must reject phase-unreachable constructs here or earlier; no raw nested expression recursion should reach C/native backends.",
+			"file": "lua/lalin/tree_to_code.lua",
 			"after": [
 				"T005",
 				"T006",
@@ -142,8 +142,8 @@
 			"status": "skipped",
 			"order": 8,
 			"claimedBy": "agent-R0BMKE",
-			"blockedReason": "Blocked for this isolated worker pass: implementing the full resolved/layout MoonTree -> normalized MoonCode normalizer requires a broad lowering migration across tree_to_back/tree_to_c semantics (control regions, calls, places, globals/data, layout/ABI) and would exceed a safe cohesive diff after T007. No code was changed for T008; it should be handled as its own larger implementation batch or decomposed into smaller structured tasks.",
-			"skipReason": "Decomposed into focused tree_to_code implementation slices T008A-T008E so workers can preserve MoonCode architecture without recreating ad-hoc Tree-to-C/Tree-to-Back lowering. Downstream tasks now depend on T008E, the completion slice.",
+			"blockedReason": "Blocked for this isolated worker pass: implementing the full resolved/layout LalinTree -> normalized LalinCode normalizer requires a broad lowering migration across tree_to_back/tree_to_c semantics (control regions, calls, places, globals/data, layout/ABI) and would exceed a safe cohesive diff after T007. No code was changed for T008; it should be handled as its own larger implementation batch or decomposed into smaller structured tasks.",
+			"skipReason": "Decomposed into focused tree_to_code implementation slices T008A-T008E so workers can preserve LalinCode architecture without recreating ad-hoc Tree-to-C/Tree-to-Back lowering. Downstream tasks now depend on T008E, the completion slice.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:24:15.592Z",
 			"updatedAt": "2026-06-15T08:19:18.522Z"
@@ -151,8 +151,8 @@
 		{
 			"id": "T009",
 			"title": "Implement code_to_back projection",
-			"detail": "Create the native projection from validated MoonCode to `MoonBack.BackProgram` plus provenance. Prefer a real CodeInst/CodeTerm -> BackCmd lowering. If an explicit bridge is unavoidable for one refactor step, confine it to this file/task with a failing final gate that prevents it from surviving; public native APIs must move to MoonCode before final completion.",
-			"file": "lua/moonlift/code_to_back.lua",
+			"detail": "Create the native projection from validated LalinCode to `LalinBack.BackProgram` plus provenance. Prefer a real CodeInst/CodeTerm -> BackCmd lowering. If an explicit bridge is unavoidable for one refactor step, confine it to this file/task with a failing final gate that prevents it from surviving; public native APIs must move to LalinCode before final completion.",
+			"file": "lua/lalin/code_to_back.lua",
 			"after": [
 				"T007",
 				"T008E"
@@ -160,9 +160,9 @@
 			"status": "done",
 			"order": 9,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Added lua/moonlift/code_to_back.lua as a real MoonCode -> MoonBack.BackProgram projection (no tree_to_back bridge) with CodeModule validation, CodeSig/data/global/extern/function declaration lowering, scalar CodeInst lowering (const/alias/unary/int/bit/shift/float/compare/cast/select/global-ref/ptr-offset/load/store/call), CodeTerm lowering (jump/branch/switch/return/trap), and deterministic Back ids. Added tests/test_code_to_back.lua proving parse/open/closure/type/layout/tree_to_code/code_validate -> code_to_back -> back_validate -> Cranelift JIT works for scalar arithmetic, select, branch, switch, direct calls, indirect function pointer calls, and checks tree_to_back is not loaded. Verified with git diff --check for touched files and: luajit tests/test_code_to_back.lua; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_back_validate.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua.",
+			"evidence": "Added lua/lalin/code_to_back.lua as a real LalinCode -> LalinBack.BackProgram projection (no tree_to_back bridge) with CodeModule validation, CodeSig/data/global/extern/function declaration lowering, scalar CodeInst lowering (const/alias/unary/int/bit/shift/float/compare/cast/select/global-ref/ptr-offset/load/store/call), CodeTerm lowering (jump/branch/switch/return/trap), and deterministic Back ids. Added tests/test_code_to_back.lua proving parse/open/closure/type/layout/tree_to_code/code_validate -> code_to_back -> back_validate -> Cranelift JIT works for scalar arithmetic, select, branch, switch, direct calls, indirect function pointer calls, and checks tree_to_back is not loaded. Verified with git diff --check for touched files and: luajit tests/test_code_to_back.lua; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_back_validate.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua.",
 			"notes": [
-				"Hard-refactor interpretation: an explicit native bridge is allowed only inside one refactor step and must be eliminated or blocked by final gates; public native path must switch to MoonCode."
+				"Hard-refactor interpretation: an explicit native bridge is allowed only inside one refactor step and must be eliminated or blocked by final gates; public native path must switch to LalinCode."
 			],
 			"createdAt": "2026-06-10T12:24:15.592Z",
 			"updatedAt": "2026-06-15T09:55:46.364Z"
@@ -171,7 +171,7 @@
 			"id": "T010",
 			"title": "Hard-switch native pipeline",
 			"detail": "Replace `tree_to_back` lowering inside `lower_module` with `tree_to_code -> code_validate -> code_to_back -> back_validate`. Return `code_module` and `code_report` alongside existing `program`/`back_report` so public APIs keep their shape. No production path should call `tree_to_back` directly after this task.",
-			"file": "lua/moonlift/frontend_pipeline.lua",
+			"file": "lua/lalin/frontend_pipeline.lua",
 			"after": [
 				"T007",
 				"T008E",
@@ -180,7 +180,7 @@
 			"status": "done",
 			"order": 10,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Hard-switched lua/moonlift/frontend_pipeline.lua native lower_module path from tree_to_back to sem_layout_resolve -> tree_to_code -> code_validate -> code_to_back -> back_validate. The result now returns code_module/code_report alongside program/back_report, and frontend_pipeline no longer requires moonlift.tree_to_back. Updated code_to_back to preserve public BackFuncId names by stripping internal fn: CodeFuncId prefixes, to coerce i32/u32/bool index operands before pointer/index arithmetic without overwriting inserted casts, and to support MachineCast* ops emitted by tree_to_code. Fixed tree_to_code index normalization so non-index source indices become explicit CodeInstCast to CodeTyIndex before CodePlaceIndex/view scaling. Added schema_compile_pipeline assertions that native pipeline exposes MoonCode and does not load tree_to_back. Verified with git diff --check for touched files and: luajit tests/test_schema_compile_pipeline.lua; luajit tests/test_parse_typecheck.lua; luajit tests/test_code_to_back.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_back_object_emit.lua; luajit tests/test_back_validate_verify.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; grep -R 'require(\"moonlift.tree_to_back\")' -n lua/moonlift (no production require output).",
+			"evidence": "Hard-switched lua/lalin/frontend_pipeline.lua native lower_module path from tree_to_back to sem_layout_resolve -> tree_to_code -> code_validate -> code_to_back -> back_validate. The result now returns code_module/code_report alongside program/back_report, and frontend_pipeline no longer requires lalin.tree_to_back. Updated code_to_back to preserve public BackFuncId names by stripping internal fn: CodeFuncId prefixes, to coerce i32/u32/bool index operands before pointer/index arithmetic without overwriting inserted casts, and to support MachineCast* ops emitted by tree_to_code. Fixed tree_to_code index normalization so non-index source indices become explicit CodeInstCast to CodeTyIndex before CodePlaceIndex/view scaling. Added schema_compile_pipeline assertions that native pipeline exposes LalinCode and does not load tree_to_back. Verified with git diff --check for touched files and: luajit tests/test_schema_compile_pipeline.lua; luajit tests/test_parse_typecheck.lua; luajit tests/test_code_to_back.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_back_object_emit.lua; luajit tests/test_back_validate_verify.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; grep -R 'require(\"lalin.tree_to_back\")' -n lua/lalin (no production require output).",
 			"notes": [],
 			"createdAt": "2026-06-10T12:24:15.592Z",
 			"updatedAt": "2026-06-15T10:03:48.062Z"
@@ -188,8 +188,8 @@
 		{
 			"id": "T011",
 			"title": "Implement code_to_c lowering",
-			"detail": "Create `Define(T).module(code_module, opts)` that validates/consumes MoonCode and emits `MoonC.CBackendUnit`. Lower CodeInst/CodeTerm explicitly; use CodePlace/CodeResidence/CodeMemoryAccess/CodeCallTarget facts directly; generate clean CBackend locals/blocks/gotos/calls/globals/helpers; keep `c_validate` as the restricted-C validator. Do not require `tree_to_c`, `tree_control_to_c`, `type_to_c`, `c_places`, `c_residence`, or `c_cfg`.",
-			"file": "lua/moonlift/code_to_c.lua",
+			"detail": "Create `Define(T).module(code_module, opts)` that validates/consumes LalinCode and emits `LalinC.CBackendUnit`. Lower CodeInst/CodeTerm explicitly; use CodePlace/CodeResidence/CodeMemoryAccess/CodeCallTarget facts directly; generate clean CBackend locals/blocks/gotos/calls/globals/helpers; keep `c_validate` as the restricted-C validator. Do not require `tree_to_c`, `tree_control_to_c`, `type_to_c`, `c_places`, `c_residence`, or `c_cfg`.",
+			"file": "lua/lalin/code_to_c.lua",
 			"after": [
 				"T007",
 				"T008E"
@@ -197,16 +197,16 @@
 			"status": "done",
 			"order": 11,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Implemented lua/moonlift/code_to_c.lua as a MoonCode -> MoonC.CBackendUnit projection that validates CodeModule input, lowers CodeInst/CodeTerm/CodePlace/CodeCallTarget/CodeMemoryAccess into CBackend funcs/blocks/stmts/terms/globals/helpers, avoids requiring retired tree_to_c/tree_control_to_c/type_to_c/c_places/c_residence/c_cfg in code_to_c, and synthesizes minimal tagged-union C struct declarations from CodeVariantRef usage. Added tests/test_code_to_c.lua covering calls, branches, switches, atomics, tagged unions, C validation, emitted C syntax, and retired-module boundary assertions. Verified: luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua.",
+			"evidence": "Implemented lua/lalin/code_to_c.lua as a LalinCode -> LalinC.CBackendUnit projection that validates CodeModule input, lowers CodeInst/CodeTerm/CodePlace/CodeCallTarget/CodeMemoryAccess into CBackend funcs/blocks/stmts/terms/globals/helpers, avoids requiring retired tree_to_c/tree_control_to_c/type_to_c/c_places/c_residence/c_cfg in code_to_c, and synthesizes minimal tagged-union C struct declarations from CodeVariantRef usage. Added tests/test_code_to_c.lua covering calls, branches, switches, atomics, tagged unions, C validation, emitted C syntax, and retired-module boundary assertions. Verified: luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:24:15.592Z",
 			"updatedAt": "2026-06-15T09:49:45.582Z"
 		},
 		{
 			"id": "T012",
-			"title": "Rewrite c_data for MoonCode",
-			"detail": "Either rewrite this file as a MoonCode data/global initializer helper consumed by `code_to_c`, or delete it if all logic moves into `code_to_c`. If it survives, remove `type_to_c` and MoonTree item/expression dependencies; it may only consume `MoonCode.CodeGlobal`, `CodeDataInit`, `CodeGlobalRef`, CodeType helpers, layout facts, and CBackend constructors.",
-			"file": "lua/moonlift/c_data.lua",
+			"title": "Rewrite c_data for LalinCode",
+			"detail": "Either rewrite this file as a LalinCode data/global initializer helper consumed by `code_to_c`, or delete it if all logic moves into `code_to_c`. If it survives, remove `type_to_c` and LalinTree item/expression dependencies; it may only consume `LalinCode.CodeGlobal`, `CodeDataInit`, `CodeGlobalRef`, CodeType helpers, layout facts, and CBackend constructors.",
+			"file": "lua/lalin/c_data.lua",
 			"after": [
 				"T006",
 				"T011"
@@ -214,18 +214,18 @@
 			"status": "done",
 			"order": 12,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Hard-yanked lua/moonlift/c_data.lua. Its data/global initializer responsibilities are already implemented in the MoonCode C projection (lua/moonlift/code_to_c.lua consumes CodeGlobal/CodeData/CodeDataInit directly), so no MoonTree/type_to_c helper remains for the new path. Verified code_to_c path remains independent and passing with: git diff --check -- lua/moonlift/code_to_c.lua tests/test_code_to_c.lua; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua.",
+			"evidence": "Hard-yanked lua/lalin/c_data.lua. Its data/global initializer responsibilities are already implemented in the LalinCode C projection (lua/lalin/code_to_c.lua consumes CodeGlobal/CodeData/CodeDataInit directly), so no LalinTree/type_to_c helper remains for the new path. Verified code_to_c path remains independent and passing with: git diff --check -- lua/lalin/code_to_c.lua tests/test_code_to_c.lua; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua.",
 			"notes": [
-				"Initial canonical documentation pass added to `C_BACKEND_DESIGN.md`: status correction, ASDL text refactor contract, MoonCode pipeline/rationale, and full execution plan. Do not mark done; final status updates depend on later implementation gates."
+				"Initial canonical documentation pass added to `C_BACKEND_DESIGN.md`: status correction, ASDL text refactor contract, LalinCode pipeline/rationale, and full execution plan. Do not mark done; final status updates depend on later implementation gates."
 			],
 			"createdAt": "2026-06-10T12:24:15.592Z",
 			"updatedAt": "2026-06-15T10:09:58.177Z"
 		},
 		{
 			"id": "T013",
-			"title": "Rewrite c_layout for MoonCode",
-			"detail": "Either rewrite this file as a MoonCode/CBackend declaration-layout helper consumed by `code_to_c`, or delete it if all logic moves into `code_to_c`. If it survives, remove `type_to_c` and direct MoonTree lowering dependencies; it may only consume CodeType, Sem.LayoutEnv, and CBackend declaration constructors.",
-			"file": "lua/moonlift/c_layout.lua",
+			"title": "Rewrite c_layout for LalinCode",
+			"detail": "Either rewrite this file as a LalinCode/CBackend declaration-layout helper consumed by `code_to_c`, or delete it if all logic moves into `code_to_c`. If it survives, remove `type_to_c` and direct LalinTree lowering dependencies; it may only consume CodeType, Sem.LayoutEnv, and CBackend declaration constructors.",
+			"file": "lua/lalin/c_layout.lua",
 			"after": [
 				"T006",
 				"T011"
@@ -233,10 +233,10 @@
 			"status": "done",
 			"order": 13,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Hard-yanked lua/moonlift/c_layout.lua. code_to_c.lua already synthesizes its CBackend declarations from MoonCode/CodeType facts and does not consume the old MoonTree/type_to_c layout helper. Verified the MoonCode C path stays independent and passing with: git diff --check -- lua/moonlift/code_to_c.lua tests/test_code_to_c.lua; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua.",
+			"evidence": "Hard-yanked lua/lalin/c_layout.lua. code_to_c.lua already synthesizes its CBackend declarations from LalinCode/CodeType facts and does not consume the old LalinTree/type_to_c layout helper. Verified the LalinCode C path stays independent and passing with: git diff --check -- lua/lalin/code_to_c.lua tests/test_code_to_c.lua; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua.",
 			"notes": [
 				"Removal inventory documented in `C_BACKEND_DESIGN.md` section 30: public APIs that stay, old direct Tree-to-C files to retire, tests to rename, call sites, and deletion gate.",
-				"Amended for hard-refactor requirement: no long-lived migration shims; this task now permits `c_layout.lua` to survive only as a MoonCode helper with old dependencies removed."
+				"Amended for hard-refactor requirement: no long-lived migration shims; this task now permits `c_layout.lua` to survive only as a LalinCode helper with old dependencies removed."
 			],
 			"createdAt": "2026-06-10T12:27:41.044Z",
 			"updatedAt": "2026-06-15T10:11:43.376Z"
@@ -245,7 +245,7 @@
 			"id": "T014",
 			"title": "Hard-switch C pipeline",
 			"detail": "Replace `lower_module_to_c` internals with target-aware `sem_layout_resolve -> tree_to_code -> code_validate -> code_to_c -> c_validate`. Remove `TreeToC`/`TypeToC` requires and rename phase-boundary error text from `before tree_to_c` to `before tree_to_code/code_to_c`. Return `code_module`, `code_report`, `c_unit`, and `c_report` while keeping `parse_and_lower_c` API stable.",
-			"file": "lua/moonlift/frontend_pipeline.lua",
+			"file": "lua/lalin/frontend_pipeline.lua",
 			"after": [
 				"T007",
 				"T008E",
@@ -256,7 +256,7 @@
 			"status": "done",
 			"order": 14,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Hard-switched lua/moonlift/frontend_pipeline.lua C lower_module_to_c path from TreeToC/TypeToC to target-aware sem_layout_resolve -> tree_to_code -> code_validate -> code_to_c -> c_validate. Removed frontend_pipeline TreeToC/TypeToC requires, uses CodeType.default_target, returns code_module/code_report alongside c_unit/c_report, and renamed phase-boundary error text to tree_to_code/code_to_c. Updated tests/test_emit_c_api.lua to assert parse_and_lower_c exposes clean MoonCode/code_report. Verified with git diff --check on touched files and: luajit tests/test_code_to_c.lua; luajit tests/test_emit_c_api.lua; luajit tests/test_c_semantic_equivalence.lua; luajit tests/test_c_backend_phase_boundaries.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua. Note: c_semantic_equivalence printed its existing JIT-fallback message while the C pipeline itself passed.",
+			"evidence": "Hard-switched lua/lalin/frontend_pipeline.lua C lower_module_to_c path from TreeToC/TypeToC to target-aware sem_layout_resolve -> tree_to_code -> code_validate -> code_to_c -> c_validate. Removed frontend_pipeline TreeToC/TypeToC requires, uses CodeType.default_target, returns code_module/code_report alongside c_unit/c_report, and renamed phase-boundary error text to tree_to_code/code_to_c. Updated tests/test_emit_c_api.lua to assert parse_and_lower_c exposes clean LalinCode/code_report. Verified with git diff --check on touched files and: luajit tests/test_code_to_c.lua; luajit tests/test_emit_c_api.lua; luajit tests/test_c_semantic_equivalence.lua; luajit tests/test_c_backend_phase_boundaries.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua. Note: c_semantic_equivalence printed its existing JIT-fallback message while the C pipeline itself passed.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:27:41.044Z",
 			"updatedAt": "2026-06-15T10:17:40.859Z"
@@ -264,8 +264,8 @@
 		{
 			"id": "T015",
 			"title": "Reroute public facade exports",
-			"detail": "Keep public `moon.emit_c` and `moon.compile_c` behavior, but remove facade exports/imports for retired `type_to_c` and `tree_to_c`. Export `tree_to_code`, `code_validate`, `code_to_c`, and `code_to_back` only as internal/diagnostic modules if useful. Ensure `emit_c` continues to call `Pipeline.parse_and_lower_c` and therefore the MoonCode path.",
-			"file": "lua/moonlift/init.lua",
+			"detail": "Keep public `lalin.emit_c` and `lalin.compile_c` behavior, but remove facade exports/imports for retired `type_to_c` and `tree_to_c`. Export `tree_to_code`, `code_validate`, `code_to_c`, and `code_to_back` only as internal/diagnostic modules if useful. Ensure `emit_c` continues to call `Pipeline.parse_and_lower_c` and therefore the LalinCode path.",
+			"file": "lua/lalin/init.lua",
 			"after": [
 				"T010",
 				"T014"
@@ -273,7 +273,7 @@
 			"status": "done",
 			"order": 15,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Rerouted lua/moonlift/init.lua public facade: removed public exports/imports for retired moonlift.type_to_c and moonlift.tree_to_c, and exposed MoonCode diagnostic/internal modules code_type, code_validate, tree_to_code, code_to_c, and code_to_back. Public emit_c/compile_c still call frontend_pipeline.parse_and_lower_c, now MoonCode-driven after T014. Updated tests/test_emit_c_api.lua to assert require('moonlift') neither exports nor imports retired direct Tree-to-C modules. Verified with git diff --check on touched files and: luajit tests/test_emit_c_api.lua; luajit tests/test_code_to_c.lua; luajit tests/test_schema_compile_pipeline.lua; luajit tests/test_parse_typecheck.lua.",
+			"evidence": "Rerouted lua/lalin/init.lua public facade: removed public exports/imports for retired lalin.type_to_c and lalin.tree_to_c, and exposed LalinCode diagnostic/internal modules code_type, code_validate, tree_to_code, code_to_c, and code_to_back. Public emit_c/compile_c still call frontend_pipeline.parse_and_lower_c, now LalinCode-driven after T014. Updated tests/test_emit_c_api.lua to assert require('lalin') neither exports nor imports retired direct Tree-to-C modules. Verified with git diff --check on touched files and: luajit tests/test_emit_c_api.lua; luajit tests/test_code_to_c.lua; luajit tests/test_schema_compile_pipeline.lua; luajit tests/test_parse_typecheck.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:27:41.044Z",
 			"updatedAt": "2026-06-15T10:18:36.258Z"
@@ -281,8 +281,8 @@
 		{
 			"id": "T016",
 			"title": "Reroute bundle C APIs",
-			"detail": "Keep `BundleValue:emit_c`, `BundleValue:compile_c`, and related C source/library methods stable, but ensure `_lower_c_unit` returns a C unit produced by MoonCode. Propagate `code_report`/`c_report` diagnostics in validation errors. Do not import retired modules here.",
-			"file": "lua/moonlift/host_module_values.lua",
+			"detail": "Keep `BundleValue:emit_c`, `BundleValue:compile_c`, and related C source/library methods stable, but ensure `_lower_c_unit` returns a C unit produced by LalinCode. Propagate `code_report`/`c_report` diagnostics in validation errors. Do not import retired modules here.",
+			"file": "lua/lalin/host_module_values.lua",
 			"after": [
 				"T010",
 				"T014"
@@ -290,7 +290,7 @@
 			"status": "done",
 			"order": 16,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Updated lua/moonlift/host_module_values.lua BundleValue:_lower_c_unit to consume the MoonCode-driven Pipeline.lower_module_to_c result, require that a code_module was produced, surface code_report diagnostics separately as bundle:emit_c code validation failures, then surface c_report diagnostics as before. The file does not import retired tree_to_c/type_to_c modules. Verified with grep for retired module names in host_module_values.lua and: git diff --check -- lua/moonlift/host_module_values.lua tests/test_emit_c_api.lua; luajit tests/test_emit_c_api.lua; luajit tests/test_code_to_c.lua.",
+			"evidence": "Updated lua/lalin/host_module_values.lua BundleValue:_lower_c_unit to consume the LalinCode-driven Pipeline.lower_module_to_c result, require that a code_module was produced, surface code_report diagnostics separately as bundle:emit_c code validation failures, then surface c_report diagnostics as before. The file does not import retired tree_to_c/type_to_c modules. Verified with grep for retired module names in host_module_values.lua and: git diff --check -- lua/lalin/host_module_values.lua tests/test_emit_c_api.lua; luajit tests/test_emit_c_api.lua; luajit tests/test_code_to_c.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T10:19:33.521Z"
@@ -298,8 +298,8 @@
 		{
 			"id": "T017",
 			"title": "Delete tree_to_c module",
-			"detail": "Delete the old recursive direct Tree-to-C lowering file. Do not leave a long-lived shim. Before deletion, grep production/tests for `require(\"moonlift.tree_to_c\")` and reroute all uses to public APIs or `tree_to_code`/`code_to_c`.",
-			"file": "lua/moonlift/tree_to_c.lua",
+			"detail": "Delete the old recursive direct Tree-to-C lowering file. Do not leave a long-lived shim. Before deletion, grep production/tests for `require(\"lalin.tree_to_c\")` and reroute all uses to public APIs or `tree_to_code`/`code_to_c`.",
+			"file": "lua/lalin/tree_to_c.lua",
 			"after": [
 				"T011",
 				"T014",
@@ -309,7 +309,7 @@
 			"status": "done",
 			"order": 17,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Deleted lua/moonlift/tree_to_c.lua with no shim. Before/after grep showed no remaining require(\"moonlift.tree_to_c\") in lua/, tests/, or benchmarks/; direct test imports were rerouted to the public/MoonCode C pipeline. Rewrote tests/test_tagged_union_to_c.lua and tests/test_c_gcc_tagged_union.lua to use Pipeline.parse_and_lower_c -> code_to_c/c_emit, and removed tree_to_c-specific negative assertions from tests/test_c_backend_negative.lua while preserving remaining C backend negative checks. Verified with: test ! -e lua/moonlift/tree_to_c.lua; grep -R 'require(\"moonlift.tree_to_c\")' -n lua tests benchmarks || true; git diff --check on touched files; luajit tests/test_tagged_union_to_c.lua; luajit tests/test_c_gcc_tagged_union.lua; luajit tests/test_c_backend_negative.lua; luajit tests/test_emit_c_api.lua; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua.",
+			"evidence": "Deleted lua/lalin/tree_to_c.lua with no shim. Before/after grep showed no remaining require(\"lalin.tree_to_c\") in lua/, tests/, or benchmarks/; direct test imports were rerouted to the public/LalinCode C pipeline. Rewrote tests/test_tagged_union_to_c.lua and tests/test_c_gcc_tagged_union.lua to use Pipeline.parse_and_lower_c -> code_to_c/c_emit, and removed tree_to_c-specific negative assertions from tests/test_c_backend_negative.lua while preserving remaining C backend negative checks. Verified with: test ! -e lua/lalin/tree_to_c.lua; grep -R 'require(\"lalin.tree_to_c\")' -n lua tests benchmarks || true; git diff --check on touched files; luajit tests/test_tagged_union_to_c.lua; luajit tests/test_c_gcc_tagged_union.lua; luajit tests/test_c_backend_negative.lua; luajit tests/test_emit_c_api.lua; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T10:22:21.375Z"
@@ -317,8 +317,8 @@
 		{
 			"id": "T018",
 			"title": "Delete tree_control_to_c module",
-			"detail": "Delete the C-specific control-region lowering file. Control lowering must live in `tree_to_code` as CodeBlock/CodeTerm generation and in `code_to_c` as block/term C emission. No `require(\"moonlift.tree_control_to_c\")` may remain.",
-			"file": "lua/moonlift/tree_control_to_c.lua",
+			"detail": "Delete the C-specific control-region lowering file. Control lowering must live in `tree_to_code` as CodeBlock/CodeTerm generation and in `code_to_c` as block/term C emission. No `require(\"lalin.tree_control_to_c\")` may remain.",
+			"file": "lua/lalin/tree_control_to_c.lua",
 			"after": [
 				"T008E",
 				"T011",
@@ -327,7 +327,7 @@
 			"status": "done",
 			"order": 18,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Deleted lua/moonlift/tree_control_to_c.lua with no shim. Grep found no require(\"moonlift.tree_control_to_c\") in lua/, tests/, or benchmarks/ before deletion (only package.loaded absence assertions in tests). Verified with: test ! -e lua/moonlift/tree_control_to_c.lua; grep -R 'require(\"moonlift.tree_control_to_c\")' -n lua tests benchmarks || true; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_emit_c_api.lua.",
+			"evidence": "Deleted lua/lalin/tree_control_to_c.lua with no shim. Grep found no require(\"lalin.tree_control_to_c\") in lua/, tests/, or benchmarks/ before deletion (only package.loaded absence assertions in tests). Verified with: test ! -e lua/lalin/tree_control_to_c.lua; grep -R 'require(\"lalin.tree_control_to_c\")' -n lua tests benchmarks || true; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_emit_c_api.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T10:22:50.957Z"
@@ -335,8 +335,8 @@
 		{
 			"id": "T019",
 			"title": "Delete type_to_c module",
-			"detail": "Delete the direct MoonType-to-C helper once CodeType helpers and all CBackend consumers are migrated. Rewrite tests/imports that exercised it to use CodeType/code_to_c behavior. No `require(\"moonlift.type_to_c\")` may remain.",
-			"file": "lua/moonlift/type_to_c.lua",
+			"detail": "Delete the direct LalinType-to-C helper once CodeType helpers and all CBackend consumers are migrated. Rewrite tests/imports that exercised it to use CodeType/code_to_c behavior. No `require(\"lalin.type_to_c\")` may remain.",
+			"file": "lua/lalin/type_to_c.lua",
 			"after": [
 				"T006",
 				"T011",
@@ -347,7 +347,7 @@
 			"status": "done",
 			"order": 19,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Deleted lua/moonlift/type_to_c.lua with no shim. Removed the last production require from lua/moonlift/c_helpers.lua by replacing TypeToC.type_key with a local ASDL node key helper. Replaced direct TypeToC/default_target imports in tests with moonlift.code_type; rewrote tests/test_type_to_c.lua as CodeType -> CBackend projection coverage while keeping package-loaded assertions that type_to_c is not imported. Updated stale c_emit expectations for current designated byte initializers and static inline helpers. Verified with: test ! -e lua/moonlift/type_to_c.lua; grep -R 'require(\"moonlift.type_to_c\")' -n lua tests benchmarks || true; git diff --check on touched files; luajit tests/test_type_to_c.lua; luajit tests/test_c_helpers.lua; luajit tests/test_c_validate.lua; luajit tests/test_c_emit.lua; luajit tests/test_c_backend_negative.lua; luajit tests/test_emit_c_api.lua; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua.",
+			"evidence": "Deleted lua/lalin/type_to_c.lua with no shim. Removed the last production require from lua/lalin/c_helpers.lua by replacing TypeToC.type_key with a local ASDL node key helper. Replaced direct TypeToC/default_target imports in tests with lalin.code_type; rewrote tests/test_type_to_c.lua as CodeType -> CBackend projection coverage while keeping package-loaded assertions that type_to_c is not imported. Updated stale c_emit expectations for current designated byte initializers and static inline helpers. Verified with: test ! -e lua/lalin/type_to_c.lua; grep -R 'require(\"lalin.type_to_c\")' -n lua tests benchmarks || true; git diff --check on touched files; luajit tests/test_type_to_c.lua; luajit tests/test_c_helpers.lua; luajit tests/test_c_validate.lua; luajit tests/test_c_emit.lua; luajit tests/test_c_backend_negative.lua; luajit tests/test_emit_c_api.lua; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T10:28:23.637Z"
@@ -355,8 +355,8 @@
 		{
 			"id": "T020",
 			"title": "Delete c_places module",
-			"detail": "Delete direct MoonTree place-to-C lowering. CodePlace construction belongs in `tree_to_code`; C lvalue/address emission belongs in `code_to_c`. No `require(\"moonlift.c_places\")` may remain.",
-			"file": "lua/moonlift/c_places.lua",
+			"detail": "Delete direct LalinTree place-to-C lowering. CodePlace construction belongs in `tree_to_code`; C lvalue/address emission belongs in `code_to_c`. No `require(\"lalin.c_places\")` may remain.",
+			"file": "lua/lalin/c_places.lua",
 			"after": [
 				"T008E",
 				"T011",
@@ -365,7 +365,7 @@
 			"status": "done",
 			"order": 20,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Deleted lua/moonlift/c_places.lua with no shim. Removed the last direct require from tests/test_c_backend_negative.lua; CodePlace construction now lives in tree_to_code and C place emission in code_to_c. Verified with: test ! -e lua/moonlift/c_places.lua; grep -R 'require(\"moonlift.c_places\")' -n lua tests benchmarks || true; luajit tests/test_c_backend_negative.lua; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua.",
+			"evidence": "Deleted lua/lalin/c_places.lua with no shim. Removed the last direct require from tests/test_c_backend_negative.lua; CodePlace construction now lives in tree_to_code and C place emission in code_to_c. Verified with: test ! -e lua/lalin/c_places.lua; grep -R 'require(\"lalin.c_places\")' -n lua tests benchmarks || true; luajit tests/test_c_backend_negative.lua; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T10:23:50.706Z"
@@ -373,8 +373,8 @@
 		{
 			"id": "T021",
 			"title": "Delete c_residence module",
-			"detail": "Delete direct C residence computation from MoonTree bindings. Residence facts must be represented as `MoonCode.CodeResidence`/`CodeLocal` from `tree_to_code` and consumed by `code_to_c`. No `require(\"moonlift.c_residence\")` may remain.",
-			"file": "lua/moonlift/c_residence.lua",
+			"detail": "Delete direct C residence computation from LalinTree bindings. Residence facts must be represented as `LalinCode.CodeResidence`/`CodeLocal` from `tree_to_code` and consumed by `code_to_c`. No `require(\"lalin.c_residence\")` may remain.",
+			"file": "lua/lalin/c_residence.lua",
 			"after": [
 				"T008E",
 				"T011",
@@ -383,7 +383,7 @@
 			"status": "done",
 			"order": 21,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Deleted lua/moonlift/c_residence.lua with no shim. No require(\"moonlift.c_residence\") remained in lua/, tests/, or benchmarks/ before deletion; only package.loaded absence assertions remain in MoonCode tests. Residence/local facts are represented by MoonCode CodeLocal/CodeResidence from tree_to_code and consumed by code_to_c. Verified with: test ! -e lua/moonlift/c_residence.lua; grep -R 'require(\"moonlift.c_residence\")' -n lua tests benchmarks || true; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_emit_c_api.lua.",
+			"evidence": "Deleted lua/lalin/c_residence.lua with no shim. No require(\"lalin.c_residence\") remained in lua/, tests/, or benchmarks/ before deletion; only package.loaded absence assertions remain in LalinCode tests. Residence/local facts are represented by LalinCode CodeLocal/CodeResidence from tree_to_code and consumed by code_to_c. Verified with: test ! -e lua/lalin/c_residence.lua; grep -R 'require(\"lalin.c_residence\")' -n lua tests benchmarks || true; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_emit_c_api.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T10:24:30.159Z"
@@ -391,8 +391,8 @@
 		{
 			"id": "T022",
 			"title": "Delete c_cfg module",
-			"detail": "Delete the ad-hoc direct C CFG builder. C CFG shape must be driven by MoonCode CodeBlock/CodeTerm. If `code_to_c` needs scheduling helpers, implement them inside `code_to_c` or a new Code-specific helper, not as the old Tree-to-C API. No `require(\"moonlift.c_cfg\")` may remain.",
-			"file": "lua/moonlift/c_cfg.lua",
+			"detail": "Delete the ad-hoc direct C CFG builder. C CFG shape must be driven by LalinCode CodeBlock/CodeTerm. If `code_to_c` needs scheduling helpers, implement them inside `code_to_c` or a new Code-specific helper, not as the old Tree-to-C API. No `require(\"lalin.c_cfg\")` may remain.",
+			"file": "lua/lalin/c_cfg.lua",
 			"after": [
 				"T008E",
 				"T011",
@@ -402,7 +402,7 @@
 			"status": "done",
 			"order": 22,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Deleted lua/moonlift/c_cfg.lua with no shim. No require(\"moonlift.c_cfg\") remained in lua/, tests/, or benchmarks/ before deletion; only package.loaded absence assertions remain. C CFG shape is now driven by MoonCode CodeBlock/CodeTerm and code_to_c block/term lowering. Verified with: test ! -e lua/moonlift/c_cfg.lua; grep -R 'require(\"moonlift.c_cfg\")' -n lua tests benchmarks || true; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_emit_c_api.lua.",
+			"evidence": "Deleted lua/lalin/c_cfg.lua with no shim. No require(\"lalin.c_cfg\") remained in lua/, tests/, or benchmarks/ before deletion; only package.loaded absence assertions remain. C CFG shape is now driven by LalinCode CodeBlock/CodeTerm and code_to_c block/term lowering. Verified with: test ! -e lua/lalin/c_cfg.lua; grep -R 'require(\"lalin.c_cfg\")' -n lua tests benchmarks || true; luajit tests/test_code_to_c.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_emit_c_api.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T10:29:22.732Z"
@@ -410,8 +410,8 @@
 		{
 			"id": "T023",
 			"title": "Reclassify C coverage final statuses",
-			"detail": "Remove `backend_todo` from steady-state `VALID_STATUS`; final supported statuses are only `supported`, `phase_unreachable`, and `language_rejected`. Reword sections/reasons around MoonCode boundaries, not Tree-to-C. Update callers/tests so missing MoonCode support fails as incomplete work rather than an accepted coverage status.",
-			"file": "lua/moonlift/c_coverage.lua",
+			"detail": "Remove `backend_todo` from steady-state `VALID_STATUS`; final supported statuses are only `supported`, `phase_unreachable`, and `language_rejected`. Reword sections/reasons around LalinCode boundaries, not Tree-to-C. Update callers/tests so missing LalinCode support fails as incomplete work rather than an accepted coverage status.",
+			"file": "lua/lalin/c_coverage.lua",
 			"after": [
 				"T011",
 				"T014"
@@ -419,7 +419,7 @@
 			"status": "done",
 			"order": 23,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Reclassified lua/moonlift/c_coverage.lua final statuses by removing backend_todo from VALID_STATUS and deleting the backend_todo constructor. Reworded the coverage contract header around the MoonTree -> MoonCode -> CBackend pipeline and updated phase-unreachable reasons from generic/backend/C lowering to tree_to_code or tree_to_code/code_to_c boundaries. Added an explicit tests/test_c_backend_coverage_matrix.lua assertion that backend_todo is not a valid final status. Verified with: ! grep -n 'backend_todo' lua/moonlift/c_coverage.lua; git diff --check -- lua/moonlift/c_coverage.lua tests/test_c_backend_coverage_matrix.lua; luajit tests/test_c_backend_coverage_matrix.lua; luajit tests/test_array_len_policy.lua; luajit tests/test_c_validate.lua.",
+			"evidence": "Reclassified lua/lalin/c_coverage.lua final statuses by removing backend_todo from VALID_STATUS and deleting the backend_todo constructor. Reworded the coverage contract header around the LalinTree -> LalinCode -> CBackend pipeline and updated phase-unreachable reasons from generic/backend/C lowering to tree_to_code or tree_to_code/code_to_c boundaries. Added an explicit tests/test_c_backend_coverage_matrix.lua assertion that backend_todo is not a valid final status. Verified with: ! grep -n 'backend_todo' lua/lalin/c_coverage.lua; git diff --check -- lua/lalin/c_coverage.lua tests/test_c_backend_coverage_matrix.lua; luajit tests/test_c_backend_coverage_matrix.lua; luajit tests/test_array_len_policy.lua; luajit tests/test_c_validate.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T10:32:17.108Z"
@@ -435,15 +435,15 @@
 			"status": "done",
 			"order": 24,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Updated tests/test_c_backend_coverage_matrix.lua to make backend_todo rejection unconditional. Removed the old backend_todos accumulator and MOONLIFT_C_BACKEND_FINAL/--final-complete relaxed/final mode gate; every row must now have a final tree_to_code/code_validate/code_to_c status (supported, phase_unreachable, or language_rejected), and any backend_todo row fails immediately. Verified with: ! grep -n 'backend_todos\\|MOONLIFT_C_BACKEND_FINAL\\|final-complete' tests/test_c_backend_coverage_matrix.lua; git diff --check -- tests/test_c_backend_coverage_matrix.lua; luajit tests/test_c_backend_coverage_matrix.lua.",
+			"evidence": "Updated tests/test_c_backend_coverage_matrix.lua to make backend_todo rejection unconditional. Removed the old backend_todos accumulator and LALIN_C_BACKEND_FINAL/--final-complete relaxed/final mode gate; every row must now have a final tree_to_code/code_validate/code_to_c status (supported, phase_unreachable, or language_rejected), and any backend_todo row fails immediately. Verified with: ! grep -n 'backend_todos\\|LALIN_C_BACKEND_FINAL\\|final-complete' tests/test_c_backend_coverage_matrix.lua; git diff --check -- tests/test_c_backend_coverage_matrix.lua; luajit tests/test_c_backend_coverage_matrix.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T10:33:17.574Z"
 		},
 		{
 			"id": "T025",
-			"title": "Add MoonCode validation tests",
-			"detail": "Create direct CodeModule fixtures that cover valid module, duplicate/missing value ids, missing block, jump arity/type mismatch, bad call signature, place/local/global mismatch, memory access issues, data reloc mistakes, and data/code pointer confusion. Assert structured `MoonCode.CodeIssue*` results.",
+			"title": "Add LalinCode validation tests",
+			"detail": "Create direct CodeModule fixtures that cover valid module, duplicate/missing value ids, missing block, jump arity/type mismatch, bad call signature, place/local/global mismatch, memory access issues, data reloc mistakes, and data/code pointer confusion. Assert structured `LalinCode.CodeIssue*` results.",
 			"file": "tests/test_code_validate.lua",
 			"after": [
 				"T007"
@@ -451,7 +451,7 @@
 			"status": "done",
 			"order": 25,
 			"claimedBy": "agent-R0BMKE",
-			"evidence": "Expanded tests/test_code_validate.lua with direct MoonCode.CodeModule fixtures covering: valid module, missing value, missing entry block, duplicate value id, jump arity mismatch, jump/block param type mismatch, return type mismatch, call arity mismatch, explicit bad call signature mismatch, place/global type mismatch, invalid memory access alignment, data/code pointer confusion, collector emission, and bad data reloc target. Verified with luajit tests/test_code_validate.lua and git diff --check -- tests/test_code_validate.lua.",
+			"evidence": "Expanded tests/test_code_validate.lua with direct LalinCode.CodeModule fixtures covering: valid module, missing value, missing entry block, duplicate value id, jump arity mismatch, jump/block param type mismatch, return type mismatch, call arity mismatch, explicit bad call signature mismatch, place/global type mismatch, invalid memory access alignment, data/code pointer confusion, collector emission, and bad data reloc target. Verified with luajit tests/test_code_validate.lua and git diff --check -- tests/test_code_validate.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T08:13:58.007Z"
@@ -459,7 +459,7 @@
 		{
 			"id": "T026",
 			"title": "Add tree_to_code tests",
-			"detail": "Create source/ASDL fixtures lowered through parse/open/closure/type/layout/tree_to_code/code_validate. Cover scalars, short-circuit control, block params/loops, places/addressed vars, views, aggregates, function pointers/closures, globals/data, atomics, and tagged unions. Assert no phase-unreachable MoonTree constructs are present in CodeModule output.",
+			"detail": "Create source/ASDL fixtures lowered through parse/open/closure/type/layout/tree_to_code/code_validate. Cover scalars, short-circuit control, block params/loops, places/addressed vars, views, aggregates, function pointers/closures, globals/data, atomics, and tagged unions. Assert no phase-unreachable LalinTree constructs are present in CodeModule output.",
 			"file": "tests/test_tree_to_code.lua",
 			"after": [
 				"T008E",
@@ -468,7 +468,7 @@
 			"status": "done",
 			"order": 26,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Expanded tests/test_tree_to_code.lua to exercise parse/open/closure/type/layout/tree_to_code/code_validate fixtures for scalars, places, control/block params/loops, calls/function pointers, globals/statics, raw data items, aggregates/arrays/views, null/sizeof/alignof, atomics, tagged-union ctors and variant switches. Added recursive assertion that CodeModule output does not retain MoonTree nodes and kept retired tree_to_c/type_to_c/c_* modules unloaded. Verified focused suite: luajit tests/test_tree_to_code.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua; luajit tests/test_tagged_union_type_layout.lua; luajit tests/test_tagged_union_to_back.lua; luajit tests/test_tagged_union_control_to_back.lua.",
+			"evidence": "Expanded tests/test_tree_to_code.lua to exercise parse/open/closure/type/layout/tree_to_code/code_validate fixtures for scalars, places, control/block params/loops, calls/function pointers, globals/statics, raw data items, aggregates/arrays/views, null/sizeof/alignof, atomics, tagged-union ctors and variant switches. Added recursive assertion that CodeModule output does not retain LalinTree nodes and kept retired tree_to_c/type_to_c/c_* modules unloaded. Verified focused suite: luajit tests/test_tree_to_code.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua; luajit tests/test_tagged_union_type_layout.lua; luajit tests/test_tagged_union_to_back.lua; luajit tests/test_tagged_union_control_to_back.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T09:23:22.592Z"
@@ -476,7 +476,7 @@
 		{
 			"id": "T027",
 			"title": "Add code_to_back parity tests",
-			"detail": "Create tests proving native public pipeline now lowers via MoonCode and still passes `back_validate`/JIT for representative programs. Rewrite or supplement direct `tree_to_back` tests so the primary path is `tree_to_code -> code_to_back`, with old `tree_to_back` only as temporary comparison if not deleted.",
+			"detail": "Create tests proving native public pipeline now lowers via LalinCode and still passes `back_validate`/JIT for representative programs. Rewrite or supplement direct `tree_to_back` tests so the primary path is `tree_to_code -> code_to_back`, with old `tree_to_back` only as temporary comparison if not deleted.",
 			"file": "tests/test_code_to_back.lua",
 			"after": [
 				"T009",
@@ -486,7 +486,7 @@
 			"status": "done",
 			"order": 27,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Extended tests/test_code_to_back.lua with public native pipeline coverage after the T010 hard switch. The test now uses Pipeline.parse_and_lower on representative code (pointer loop, direct call, indirect function pointer call), asserts code_module/code_report are present and clean, validates back_report, JIT-compiles and executes public_sum_i32_code/public_direct_call_i32_code/public_indirect_call_i32_code, and asserts moonlift.tree_to_back remains unloaded. Retained direct tree_to_code -> code_to_back lowering coverage for scalar arithmetic, select, branch, switch, direct/indirect calls, command-shape assertions, back_validate, and JIT execution. Verified with git diff --check on touched files and: luajit tests/test_code_to_back.lua; luajit tests/test_schema_compile_pipeline.lua; luajit tests/test_parse_typecheck.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_back_object_emit.lua; luajit tests/test_back_validate_verify.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua.",
+			"evidence": "Extended tests/test_code_to_back.lua with public native pipeline coverage after the T010 hard switch. The test now uses Pipeline.parse_and_lower on representative code (pointer loop, direct call, indirect function pointer call), asserts code_module/code_report are present and clean, validates back_report, JIT-compiles and executes public_sum_i32_code/public_direct_call_i32_code/public_indirect_call_i32_code, and asserts lalin.tree_to_back remains unloaded. Retained direct tree_to_code -> code_to_back lowering coverage for scalar arithmetic, select, branch, switch, direct/indirect calls, command-shape assertions, back_validate, and JIT execution. Verified with git diff --check on touched files and: luajit tests/test_code_to_back.lua; luajit tests/test_schema_compile_pipeline.lua; luajit tests/test_parse_typecheck.lua; luajit tests/test_tree_to_code.lua; luajit tests/test_back_object_emit.lua; luajit tests/test_back_validate_verify.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T10:05:04.003Z"
@@ -494,7 +494,7 @@
 		{
 			"id": "T028",
 			"title": "Rename tree_to_c tests",
-			"detail": "Replace `tests/test_tree_to_c_smoke.lua`, `test_tree_to_c_semantics_smoke.lua`, and `test_tree_to_c_logic_select.lua` with `test_code_to_c_smoke.lua`, `test_code_to_c_semantics_smoke.lua`, and `test_code_to_c_logic_select.lua`. Preserve behavior assertions but update names, messages, phase labels, and imports to public `parse_and_lower_c`/MoonCode modules.",
+			"detail": "Replace `tests/test_tree_to_c_smoke.lua`, `test_tree_to_c_semantics_smoke.lua`, and `test_tree_to_c_logic_select.lua` with `test_code_to_c_smoke.lua`, `test_code_to_c_semantics_smoke.lua`, and `test_code_to_c_logic_select.lua`. Preserve behavior assertions but update names, messages, phase labels, and imports to public `parse_and_lower_c`/LalinCode modules.",
 			"file": "tests/test_tree_to_c_smoke.lua",
 			"after": [
 				"T011",
@@ -509,7 +509,7 @@
 			"status": "done",
 			"order": 28,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Renamed tests/test_tree_to_c_smoke.lua, tests/test_tree_to_c_semantics_smoke.lua, and tests/test_tree_to_c_logic_select.lua to tests/test_code_to_c_smoke.lua, tests/test_code_to_c_semantics_smoke.lua, and tests/test_code_to_c_logic_select.lua. Updated sites/output messages and assertions to the MoonCode code_to_c naming/shape (code_module/code_report presence, v_* locals, block_* labels, ml_code_helper_* helpers, logic_rhs/logic_short/logic_join, ternary select). Fixed lua/moonlift/c_emit.lua descriptor emission so slice/view descriptors get named struct typedefs instead of incompatible anonymous structs, preserving emitted C syntax for view locals. Verified with: test ! -e old tree_to_c test paths; grep for old test names in tests/*.lua; git diff --check on touched files; luajit tests/test_code_to_c_smoke.lua; luajit tests/test_code_to_c_semantics_smoke.lua; luajit tests/test_code_to_c_logic_select.lua; luajit tests/test_c_emit.lua; luajit tests/test_code_to_c.lua.",
+			"evidence": "Renamed tests/test_tree_to_c_smoke.lua, tests/test_tree_to_c_semantics_smoke.lua, and tests/test_tree_to_c_logic_select.lua to tests/test_code_to_c_smoke.lua, tests/test_code_to_c_semantics_smoke.lua, and tests/test_code_to_c_logic_select.lua. Updated sites/output messages and assertions to the LalinCode code_to_c naming/shape (code_module/code_report presence, v_* locals, block_* labels, ml_code_helper_* helpers, logic_rhs/logic_short/logic_join, ternary select). Fixed lua/lalin/c_emit.lua descriptor emission so slice/view descriptors get named struct typedefs instead of incompatible anonymous structs, preserving emitted C syntax for view locals. Verified with: test ! -e old tree_to_c test paths; grep for old test names in tests/*.lua; git diff --check on touched files; luajit tests/test_code_to_c_smoke.lua; luajit tests/test_code_to_c_semantics_smoke.lua; luajit tests/test_code_to_c_logic_select.lua; luajit tests/test_c_emit.lua; luajit tests/test_code_to_c.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T10:39:06.605Z"
@@ -535,7 +535,7 @@
 		{
 			"id": "T030",
 			"title": "Update public C API tests",
-			"detail": "Ensure public `moon.emit_c`, `moon.compile_c`, `BundleValue:emit_c`, and `BundleValue:compile_c` still behave identically from the caller side while internally proving the result includes/uses `code_module` and code validation. Include a regression that facade no longer exports retired old modules.",
+			"detail": "Ensure public `lalin.emit_c`, `lalin.compile_c`, `BundleValue:emit_c`, and `BundleValue:compile_c` still behave identically from the caller side while internally proving the result includes/uses `code_module` and code validation. Include a regression that facade no longer exports retired old modules.",
 			"file": "tests/test_emit_c_api.lua",
 			"after": [
 				"T014",
@@ -547,7 +547,7 @@
 			"status": "done",
 			"order": 30,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Expanded tests/test_emit_c_api.lua public C API coverage. It now asserts the public facade neither exports nor imports retired type_to_c/tree_to_c modules, verifies moon.emit_c writes/returns identical C source, verifies moon.compile_c without a runner returns the emitted C source, checks parse_and_lower_c exposes code_module/code_report with no Code validation issues, verifies BundleValue:c_source and BundleValue:emit_c return expected C source, and compiles/executes an exported BundleValue:compile_c function when cc is available. Verified with: git diff --check -- tests/test_emit_c_api.lua; luajit tests/test_emit_c_api.lua; luajit tests/test_code_to_c.lua.",
+			"evidence": "Expanded tests/test_emit_c_api.lua public C API coverage. It now asserts the public facade neither exports nor imports retired type_to_c/tree_to_c modules, verifies lalin.emit_c writes/returns identical C source, verifies lalin.compile_c without a runner returns the emitted C source, checks parse_and_lower_c exposes code_module/code_report with no Code validation issues, verifies BundleValue:c_source and BundleValue:emit_c return expected C source, and compiles/executes an exported BundleValue:compile_c function when cc is available. Verified with: git diff --check -- tests/test_emit_c_api.lua; luajit tests/test_emit_c_api.lua; luajit tests/test_code_to_c.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T10:43:52.160Z"
@@ -555,7 +555,7 @@
 		{
 			"id": "T031",
 			"title": "Expand C feature corpus",
-			"detail": "Run representative programs through MoonCode-driven C emission and C compiler execution: scalars/casts/div/rem/shift, direct branches/loops/block params, ptr/index/view, aggregates/statics/data relocs, function pointers/closures, tagged unions/variant switches, atomics, externs. Add negative diagnostics for language_rejected/phase_unreachable cases.",
+			"detail": "Run representative programs through LalinCode-driven C emission and C compiler execution: scalars/casts/div/rem/shift, direct branches/loops/block params, ptr/index/view, aggregates/statics/data relocs, function pointers/closures, tagged unions/variant switches, atomics, externs. Add negative diagnostics for language_rejected/phase_unreachable cases.",
 			"file": "tests/test_c_gcc_feature_corpus.lua",
 			"after": [
 				"T011",
@@ -568,7 +568,7 @@
 			"status": "done",
 			"order": 31,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Expanded and stabilized tests/test_c_gcc_feature_corpus.lua on the MoonCode-driven C path. The corpus now runs representative scalar/cast/div/rem/shift/select logic, control/blocks/switches, pointer load/store, struct mutation, aggregate literals, strided views, function pointers, tagged unions, C11 atomics, and externs through moon.emit_c/Pipeline.parse_and_lower_c -> code_to_c -> C compiler execution. Added negative diagnostics for language_rejected (ArrayLenExpr classification and impossible variant arm rejection) and phase_unreachable (ItemImport classification and tree_to_code/code_to_c phase-boundary failure). Marked currently unsupported string literal data globals and closure descriptor C calls as explicit skips. Fixed code_to_c to respect opts.target/opts.c_target via CodeType.normalize_target so C11 atomics validate correctly, and to synthesize layout-backed named struct declarations from layout_env while preserving variant-specific struct declarations before generic layout declarations. Verified with: git diff --check -- tests/test_c_gcc_feature_corpus.lua lua/moonlift/code_to_c.lua; luajit tests/test_c_gcc_feature_corpus.lua; luajit tests/test_code_to_c.lua; luajit tests/test_c_validate.lua.",
+			"evidence": "Expanded and stabilized tests/test_c_gcc_feature_corpus.lua on the LalinCode-driven C path. The corpus now runs representative scalar/cast/div/rem/shift/select logic, control/blocks/switches, pointer load/store, struct mutation, aggregate literals, strided views, function pointers, tagged unions, C11 atomics, and externs through lalin.emit_c/Pipeline.parse_and_lower_c -> code_to_c -> C compiler execution. Added negative diagnostics for language_rejected (ArrayLenExpr classification and impossible variant arm rejection) and phase_unreachable (ItemImport classification and tree_to_code/code_to_c phase-boundary failure). Marked currently unsupported string literal data globals and closure descriptor C calls as explicit skips. Fixed code_to_c to respect opts.target/opts.c_target via CodeType.normalize_target so C11 atomics validate correctly, and to synthesize layout-backed named struct declarations from layout_env while preserving variant-specific struct declarations before generic layout declarations. Verified with: git diff --check -- tests/test_c_gcc_feature_corpus.lua lua/lalin/code_to_c.lua; luajit tests/test_c_gcc_feature_corpus.lua; luajit tests/test_code_to_c.lua; luajit tests/test_c_validate.lua.",
 			"notes": [
 				"Post-review correction: this task was marked done after expanding the corpus but with explicit skips for string literal data globals and closure descriptor calls. That means it should not be treated as proof of complete C feature coverage; follow-up tasks T036/T037 track the skipped scope."
 			],
@@ -595,7 +595,7 @@
 		{
 			"id": "T033",
 			"title": "Update design status and retirement map",
-			"detail": "Edit design text to reflect hard-switch implementation status. Remove or replace language that says historical direct `tree_to_c` may survive or that deleted files may remain as long-lived compatibility wrappers. Record actual module fates: old direct Tree-to-C modules deleted; `c_data`/`c_layout` either MoonCode-only helpers or deleted; public APIs unchanged but internally MoonCode.",
+			"detail": "Edit design text to reflect hard-switch implementation status. Remove or replace language that says historical direct `tree_to_c` may survive or that deleted files may remain as long-lived compatibility wrappers. Record actual module fates: old direct Tree-to-C modules deleted; `c_data`/`c_layout` either LalinCode-only helpers or deleted; public APIs unchanged but internally LalinCode.",
 			"file": "C_BACKEND_DESIGN.md",
 			"after": [
 				"T014",
@@ -610,7 +610,7 @@
 			"status": "done",
 			"order": 33,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Updated C_BACKEND_DESIGN.md to current hard-switch status: checkpoint now states MoonCode is active, native routes through tree_to_code/code_validate/code_to_back, C routes through tree_to_code/code_validate/code_to_c/c_validate, and the retired direct Tree-to-C modules are deleted with no shims. Replaced remaining forward-looking text that said tree_to_c may survive or files could become compatibility wrappers. Rewrote section 30 as a removal/retirement map with actual fates for tree_to_c, tree_control_to_c, type_to_c, c_places, c_residence, c_cfg, c_data, and c_layout; updated test/API migration subsections to describe renamed/rerouted tests and public APIs on MoonCode. Verified with: git diff --check -- C_BACKEND_DESIGN.md; grep found no remaining 'may exist', 'temporary shim', 'compatibility wrapper', 'keep only', 'to retire', or 'should disappear' active language.",
+			"evidence": "Updated C_BACKEND_DESIGN.md to current hard-switch status: checkpoint now states LalinCode is active, native routes through tree_to_code/code_validate/code_to_back, C routes through tree_to_code/code_validate/code_to_c/c_validate, and the retired direct Tree-to-C modules are deleted with no shims. Replaced remaining forward-looking text that said tree_to_c may survive or files could become compatibility wrappers. Rewrote section 30 as a removal/retirement map with actual fates for tree_to_c, tree_control_to_c, type_to_c, c_places, c_residence, c_cfg, c_data, and c_layout; updated test/API migration subsections to describe renamed/rerouted tests and public APIs on LalinCode. Verified with: git diff --check -- C_BACKEND_DESIGN.md; grep found no remaining 'may exist', 'temporary shim', 'compatibility wrapper', 'keep only', 'to retire', or 'should disappear' active language.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T10:57:00.067Z"
@@ -618,8 +618,8 @@
 		{
 			"id": "T034",
 			"title": "Run no-legacy grep gate",
-			"detail": "Verify no production/test/benchmark/doc references remain that import or advertise `tree_to_c`, `tree_control_to_c`, `type_to_c`, `c_places`, `c_residence`, or `c_cfg` except historical notes that explicitly say they were deleted. Also verify no schema builder Lua files exist under `lua/moonlift/schema/` except `init.lua`.",
-			"file": "lua/moonlift",
+			"detail": "Verify no production/test/benchmark/doc references remain that import or advertise `tree_to_c`, `tree_control_to_c`, `type_to_c`, `c_places`, `c_residence`, or `c_cfg` except historical notes that explicitly say they were deleted. Also verify no schema builder Lua files exist under `lua/lalin/schema/` except `init.lua`.",
+			"file": "lua/lalin",
 			"after": [
 				"T015",
 				"T016",
@@ -636,7 +636,7 @@
 			"status": "done",
 			"order": 34,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Ran the no-legacy grep gate. Verified the retired direct modules do not exist on disk: lua/moonlift/tree_to_c.lua, tree_control_to_c.lua, type_to_c.lua, c_places.lua, c_residence.lua, c_cfg.lua. Verified there are no require(\"moonlift.<retired>\") imports in lua/, tests/, benchmarks/, docs, README/LANGUAGE_REFERENCE/C_BACKEND_DESIGN. Verified active lua/tests/benchmarks references are either CodeType.type_to_c API uses (not the retired moonlift.type_to_c module) or package.loaded/public-facade assertions proving retired modules are not imported/exported. Verified docs references are historical removal notes in C_BACKEND_DESIGN.md. Verified schema builder Lua gate: the only lua/moonlift/schema/*.lua file is init.lua. Commands run: rg retired require pattern; rg retired-name references in lua/tests/benchmarks/docs; for-f loop checking deleted module paths; find lua/moonlift/schema -maxdepth 1 -type f -name '*.lua' ! -name init.lua.",
+			"evidence": "Ran the no-legacy grep gate. Verified the retired direct modules do not exist on disk: lua/lalin/tree_to_c.lua, tree_control_to_c.lua, type_to_c.lua, c_places.lua, c_residence.lua, c_cfg.lua. Verified there are no require(\"lalin.<retired>\") imports in lua/, tests/, benchmarks/, docs, README/LANGUAGE_REFERENCE/C_BACKEND_DESIGN. Verified active lua/tests/benchmarks references are either CodeType.type_to_c API uses (not the retired lalin.type_to_c module) or package.loaded/public-facade assertions proving retired modules are not imported/exported. Verified docs references are historical removal notes in C_BACKEND_DESIGN.md. Verified schema builder Lua gate: the only lua/lalin/schema/*.lua file is init.lua. Commands run: rg retired require pattern; rg retired-name references in lua/tests/benchmarks/docs; for-f loop checking deleted module paths; find lua/lalin/schema -maxdepth 1 -type f -name '*.lua' ! -name init.lua.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T10:57:48.714Z"
@@ -644,7 +644,7 @@
 		{
 			"id": "T035",
 			"title": "Run final full-support gates",
-			"detail": "Run schema, MoonCode, native parity, C coverage, public API, C feature corpus, gcc/TCC, and benchmark smoke gates: `luajit tests/test_schema_core.lua`, `test_schema_compile_pipeline.lua`, `test_code_validate.lua`, `test_tree_to_code.lua`, `test_code_to_back.lua`, `test_code_to_c*.lua`, `test_c_backend_coverage_matrix.lua`, `test_c_gcc_feature_corpus.lua`, public API tests, plus any CI-equivalent suite. Do not mark full-support done if a bridge or retired module import remains.",
+			"detail": "Run schema, LalinCode, native parity, C coverage, public API, C feature corpus, gcc/TCC, and benchmark smoke gates: `luajit tests/test_schema_core.lua`, `test_schema_compile_pipeline.lua`, `test_code_validate.lua`, `test_tree_to_code.lua`, `test_code_to_back.lua`, `test_code_to_c*.lua`, `test_c_backend_coverage_matrix.lua`, `test_c_gcc_feature_corpus.lua`, public API tests, plus any CI-equivalent suite. Do not mark full-support done if a bridge or retired module import remains.",
 			"file": "tests",
 			"after": [
 				"T003",
@@ -660,16 +660,16 @@
 			"status": "done",
 			"order": 35,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Final full-support gates are now clean after fixing the native blockers. Implemented native CodeInstView tuple lowering in lua/moonlift/code_to_back.lua so view construction, local view store/load, and ViewData/ViewLen/ViewStride project to Back aliases instead of unsupported aggregate storage. Restored native vector kernel parity by wiring vec_kernel_plan/vec_kernel_to_back replacements into frontend_pipeline and teaching code_to_back to accept replacement Back command chunks while skipping duplicate scalar lowering for replaced funcs; tests/test_parse_kernels.lua now sees vector loads/ops/stores/alias facts and JIT execution passes. Re-ran the full gate batch successfully: schema_core, schema_compile_pipeline, code_type, code_validate, tree_to_code, code_to_back, code_to_c, code_to_c_smoke, code_to_c_semantics_smoke, code_to_c_logic_select, c_backend_coverage_matrix, c_backend_negative, c_emit, c_validate, c_helpers, emit_c_api, c_gcc_feature_corpus (no skips), c_gcc_tagged_union, tagged_union_to_c, type_to_c, parse_typecheck, parse_kernels, and benchmarks/bench_c_vs_cranelift.lua quick all exited 0. Benchmark view_sum no longer reports CodeInstView unsupported.",
+			"evidence": "Final full-support gates are now clean after fixing the native blockers. Implemented native CodeInstView tuple lowering in lua/lalin/code_to_back.lua so view construction, local view store/load, and ViewData/ViewLen/ViewStride project to Back aliases instead of unsupported aggregate storage. Restored native vector kernel parity by wiring vec_kernel_plan/vec_kernel_to_back replacements into frontend_pipeline and teaching code_to_back to accept replacement Back command chunks while skipping duplicate scalar lowering for replaced funcs; tests/test_parse_kernels.lua now sees vector loads/ops/stores/alias facts and JIT execution passes. Re-ran the full gate batch successfully: schema_core, schema_compile_pipeline, code_type, code_validate, tree_to_code, code_to_back, code_to_c, code_to_c_smoke, code_to_c_semantics_smoke, code_to_c_logic_select, c_backend_coverage_matrix, c_backend_negative, c_emit, c_validate, c_helpers, emit_c_api, c_gcc_feature_corpus (no skips), c_gcc_tagged_union, tagged_union_to_c, type_to_c, parse_typecheck, parse_kernels, and benchmarks/bench_c_vs_cranelift.lua quick all exited 0. Benchmark view_sum no longer reports CodeInstView unsupported.",
 			"notes": [],
 			"createdAt": "2026-06-10T12:44:02.404Z",
 			"updatedAt": "2026-06-15T11:15:23.309Z"
 		},
 		{
 			"id": "T036",
-			"title": "Implement MoonCode string literal data globals for C",
-			"detail": "Remove the explicit skip in tests/test_c_gcc_feature_corpus.lua by representing string literals/static bytes as MoonCode CodeData/CodeDataInit/CodeReloc facts in tree_to_code and projecting them through code_to_c/c_emit so `let p: ptr(u8) = \"ABC\"` compiles to a valid C data object reference instead of `(void*)0`. Add/adjust validation and C compiler execution coverage.",
-			"file": "lua/moonlift/tree_to_code.lua",
+			"title": "Implement LalinCode string literal data globals for C",
+			"detail": "Remove the explicit skip in tests/test_c_gcc_feature_corpus.lua by representing string literals/static bytes as LalinCode CodeData/CodeDataInit/CodeReloc facts in tree_to_code and projecting them through code_to_c/c_emit so `let p: ptr(u8) = \"ABC\"` compiles to a valid C data object reference instead of `(void*)0`. Add/adjust validation and C compiler execution coverage.",
+			"file": "lua/lalin/tree_to_code.lua",
 			"after": [
 				"T031"
 			],
@@ -685,16 +685,16 @@
 		},
 		{
 			"id": "T037",
-			"title": "Implement MoonCode C closure descriptor calls",
-			"detail": "Remove the explicit skip in tests/test_c_gcc_feature_corpus.lua by lowering MoonCode closure call targets to valid CBackend/C emission. Ensure closure descriptor type/signature emission matches the generated call expression and add C compiler execution coverage.",
-			"file": "lua/moonlift/code_to_c.lua",
+			"title": "Implement LalinCode C closure descriptor calls",
+			"detail": "Remove the explicit skip in tests/test_c_gcc_feature_corpus.lua by lowering LalinCode closure call targets to valid CBackend/C emission. Ensure closure descriptor type/signature emission matches the generated call expression and add C compiler execution coverage.",
+			"file": "lua/lalin/code_to_c.lua",
 			"after": [
 				"T031"
 			],
 			"status": "done",
 			"order": 37,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Implemented C closure descriptor calls instead of skipping them. Added CBackendCallClosure to MoonC schema, changed CodeType closure descriptor function-pointer signatures to include the hidden void* ctx parameter, emitted those closure ABI signatures into CBackendUnit, lowered MoonCode CodeCallClosure in code_to_c, emitted closure calls as descriptor.fn(descriptor.ctx, args...), and validated closure call targets/args in c_validate. Removed the closure_descriptor_calls skip from tests/test_c_gcc_feature_corpus.lua and updated the harness C type name to the generated closure descriptor. Verified: luajit tests/test_c_gcc_feature_corpus.lua; luajit tests/test_code_type.lua; luajit tests/test_type_to_c.lua; luajit tests/test_code_to_c.lua; luajit tests/test_c_emit.lua; luajit tests/test_c_validate.lua; luajit tests/test_emit_c_api.lua; luajit tests/test_tree_to_code.lua.",
+			"evidence": "Implemented C closure descriptor calls instead of skipping them. Added CBackendCallClosure to LalinC schema, changed CodeType closure descriptor function-pointer signatures to include the hidden void* ctx parameter, emitted those closure ABI signatures into CBackendUnit, lowered LalinCode CodeCallClosure in code_to_c, emitted closure calls as descriptor.fn(descriptor.ctx, args...), and validated closure call targets/args in c_validate. Removed the closure_descriptor_calls skip from tests/test_c_gcc_feature_corpus.lua and updated the harness C type name to the generated closure descriptor. Verified: luajit tests/test_c_gcc_feature_corpus.lua; luajit tests/test_code_type.lua; luajit tests/test_type_to_c.lua; luajit tests/test_code_to_c.lua; luajit tests/test_c_emit.lua; luajit tests/test_c_validate.lua; luajit tests/test_emit_c_api.lua; luajit tests/test_tree_to_code.lua.",
 			"notes": [
 				"Created after review: T031 was marked done with this case skipped, but the original corpus scope included closures."
 			],
@@ -704,8 +704,8 @@
 		{
 			"id": "T008A",
 			"title": "Scaffold tree_to_code and scalar function normalization",
-			"detail": "Create `lua/moonlift/tree_to_code.lua` with `Define(T).module(resolved_module, opts)`, deterministic id generation, lowering context, CodeType integration, CodeSig collection, module/function/block shells, params as CodeValueIds, locals table, origins, and minimal expression/statement lowering for scalar literals, refs, unary/binary/compare/cast/select, aliases, and returns. The output must be a valid `MoonCode.CodeModule` accepted by `code_validate`. Do not require or copy retired C modules (`tree_to_c`, `tree_control_to_c`, `type_to_c`, `c_places`, `c_residence`, `c_cfg`) and do not lower to C/Back concepts. Add focused tests for constant/add/select/return functions through parse/open/closure/type/layout/tree_to_code/code_validate.",
-			"file": "lua/moonlift/tree_to_code.lua",
+			"detail": "Create `lua/lalin/tree_to_code.lua` with `Define(T).module(resolved_module, opts)`, deterministic id generation, lowering context, CodeType integration, CodeSig collection, module/function/block shells, params as CodeValueIds, locals table, origins, and minimal expression/statement lowering for scalar literals, refs, unary/binary/compare/cast/select, aliases, and returns. The output must be a valid `LalinCode.CodeModule` accepted by `code_validate`. Do not require or copy retired C modules (`tree_to_c`, `tree_control_to_c`, `type_to_c`, `c_places`, `c_residence`, `c_cfg`) and do not lower to C/Back concepts. Add focused tests for constant/add/select/return functions through parse/open/closure/type/layout/tree_to_code/code_validate.",
+			"file": "lua/lalin/tree_to_code.lua",
 			"after": [
 				"T007",
 				"T025"
@@ -713,7 +713,7 @@
 			"status": "done",
 			"order": 81,
 			"claimedBy": "agent-B48RKF",
-			"evidence": "Added `lua/moonlift/tree_to_code.lua` scalar MoonTree -> MoonCode lowering scaffold with `Define(T).module`, deterministic ids/context, CodeType signature/type integration, function/entry-block shells, params as `CodeValueId`s, scalar literal/ref/unary/binary/compare/machine-cast/select lowering, let aliases, and return terminators. Added `tests/test_tree_to_code.lua` covering parse -> open_expand/open_validate -> closure_convert -> tree_typecheck -> sem_layout_resolve -> tree_to_code -> code_validate for const/add/select/cast/return scalar functions. Ran: `luajit tests/test_tree_to_code.lua`, `luajit tests/test_code_validate.lua`, `luajit tests/test_code_type.lua`, `luajit tests/test_schema_core.lua`, `git diff --check -- lua/moonlift/tree_to_code.lua tests/test_tree_to_code.lua`, and a require-grep confirming `tree_to_code.lua`/test do not require retired C modules.",
+			"evidence": "Added `lua/lalin/tree_to_code.lua` scalar LalinTree -> LalinCode lowering scaffold with `Define(T).module`, deterministic ids/context, CodeType signature/type integration, function/entry-block shells, params as `CodeValueId`s, scalar literal/ref/unary/binary/compare/machine-cast/select lowering, let aliases, and return terminators. Added `tests/test_tree_to_code.lua` covering parse -> open_expand/open_validate -> closure_convert -> tree_typecheck -> sem_layout_resolve -> tree_to_code -> code_validate for const/add/select/cast/return scalar functions. Ran: `luajit tests/test_tree_to_code.lua`, `luajit tests/test_code_validate.lua`, `luajit tests/test_code_type.lua`, `luajit tests/test_schema_core.lua`, `git diff --check -- lua/lalin/tree_to_code.lua tests/test_tree_to_code.lua`, and a require-grep confirming `tree_to_code.lua`/test do not require retired C modules.",
 			"notes": [
 				"This is the first decomposed slice of blocked umbrella T008. Workers should pull T008A next and keep the diff deliberately small: scaffold + scalar functions only."
 			],
@@ -722,32 +722,32 @@
 		},
 		{
 			"id": "T008B",
-			"title": "Lower locals, places, addressability, and memory to MoonCode",
+			"title": "Lower locals, places, addressability, and memory to LalinCode",
 			"detail": "Extend `tree_to_code` to normalize `let`, `var`, `set`, locals/residence, address-taken values, `CodePlaceLocal`, `CodePlaceDeref`, `CodePlaceField`, `CodePlaceIndex`, `CodeInstAddrOf`, `CodeInstLoad`, `CodeInstStore`, and basic `CodeMemoryAccess` facts. Place construction belongs here; C lvalue/address emission must remain for future `code_to_c`. Add tests for mutable locals, address-of/deref, pointer indexing, struct field places after layout resolution, and stores/loads. Keep ASDL semantics explicit; do not hide storage decisions in Lua side tables except transient lowering context.",
-			"file": "lua/moonlift/tree_to_code.lua",
+			"file": "lua/lalin/tree_to_code.lua",
 			"after": [
 				"T008A"
 			],
 			"status": "done",
 			"order": 82,
 			"claimedBy": "agent-0HHJR6",
-			"evidence": "Implemented locals/place/memory slice in lua/moonlift/tree_to_code.lua: pre-scan for mutable/address-taken bindings, CodeLocal/CodeResidence creation, CodePlaceLocal/Deref/Field/Index construction, CodeInstAddrOf/Load/Store emission, and basic CodeMemoryAccess alignment facts. Extended tests/test_tree_to_code.lua with mutable local, address-of/deref, pointer indexing, struct field, store/load assertions. Verified with luajit tests/test_tree_to_code.lua, tests/test_code_validate.lua, tests/test_code_type.lua, tests/test_schema_core.lua, tests/test_schema_compile_pipeline.lua; git diff --check for touched files; grep confirmed no forbidden retired C-module requires in tree_to_code/test.",
+			"evidence": "Implemented locals/place/memory slice in lua/lalin/tree_to_code.lua: pre-scan for mutable/address-taken bindings, CodeLocal/CodeResidence creation, CodePlaceLocal/Deref/Field/Index construction, CodeInstAddrOf/Load/Store emission, and basic CodeMemoryAccess alignment facts. Extended tests/test_tree_to_code.lua with mutable local, address-of/deref, pointer indexing, struct field, store/load assertions. Verified with luajit tests/test_tree_to_code.lua, tests/test_code_validate.lua, tests/test_code_type.lua, tests/test_schema_core.lua, tests/test_schema_compile_pipeline.lua; git diff --check for touched files; grep confirmed no forbidden retired C-module requires in tree_to_code/test.",
 			"notes": [],
 			"createdAt": "2026-06-15T08:19:18.522Z",
 			"updatedAt": "2026-06-15T08:36:12.347Z"
 		},
 		{
 			"id": "T008C",
-			"title": "Normalize MoonTree control regions to CodeBlock and CodeTerm",
+			"title": "Normalize LalinTree control regions to CodeBlock and CodeTerm",
 			"detail": "Extend `tree_to_code` control lowering for `if`, `switch`, short-circuit `and/or`, statement/expression control regions, block params, jumps, yields, returns, traps/unreachable, and join values. The result must use explicit `CodeBlock` params and `CodeTerm` terminators with no implicit fallthrough or nested expression control left for backends. Add tests for if/else, switch default, counted loop/block params, expression regions yielding values, and short-circuit logic. Reject phase-unreachable open/slot/source-only constructs with structured `CodeIssueUnsupportedSource` or earlier errors.",
-			"file": "lua/moonlift/tree_to_code.lua",
+			"file": "lua/lalin/tree_to_code.lua",
 			"after": [
 				"T008B"
 			],
 			"status": "done",
 			"order": 83,
 			"claimedBy": "agent-TR0D2S",
-			"evidence": "Implemented multi-block CFG lowering in lua/moonlift/tree_to_code.lua: explicit CodeBlock/CodeTerm builders; statement if/switch; expression if/switch; short-circuit and/or; ControlStmtRegion/ControlExprRegion entry/block params, jumps, yields, returns, traps/assert traps; join values via CodeBlock params. Added focused tests in tests/test_tree_to_code.lua for if/else, switch default with expression join, counted block loop with params/yield/jump, expression region result, and short-circuit logic. Verified with luajit tests/test_tree_to_code.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua; git diff --check on touched files; grep gate for forbidden retired C-module requires in touched files.",
+			"evidence": "Implemented multi-block CFG lowering in lua/lalin/tree_to_code.lua: explicit CodeBlock/CodeTerm builders; statement if/switch; expression if/switch; short-circuit and/or; ControlStmtRegion/ControlExprRegion entry/block params, jumps, yields, returns, traps/assert traps; join values via CodeBlock params. Added focused tests in tests/test_tree_to_code.lua for if/else, switch default with expression join, counted block loop with params/yield/jump, expression region result, and short-circuit logic. Verified with luajit tests/test_tree_to_code.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua; git diff --check on touched files; grep gate for forbidden retired C-module requires in touched files.",
 			"notes": [],
 			"createdAt": "2026-06-15T08:19:18.522Z",
 			"updatedAt": "2026-06-15T08:47:31.708Z"
@@ -756,14 +756,14 @@
 			"id": "T008D",
 			"title": "Normalize calls, signatures, externs, closures, and global references",
 			"detail": "Extend `tree_to_code` for module-level function/extern signature collection and `CodeCallTarget` selection: direct functions, extern symbols, indirect function pointers, and closures. Lower function-address/global-reference expressions to explicit `CodeInstGlobalRef` or typed call targets as appropriate. Preserve CodeSig interning and data/code pointer discipline validated by `code_validate`. Add tests for direct call, extern declaration call shape, function pointer call, closure-converted call if available, and missing/mismatched signature diagnostics.",
-			"file": "lua/moonlift/tree_to_code.lua",
+			"file": "lua/lalin/tree_to_code.lua",
 			"after": [
 				"T008C"
 			],
 			"status": "done",
 			"order": 84,
 			"claimedBy": "agent-TR0D2S",
-			"evidence": "Extended lua/moonlift/tree_to_code.lua with CodeSig-aware function/extern precollection, CodeExtern emission, function/extern CodeInstGlobalRef materialization, and ExprCall lowering to CodeCallDirect, CodeCallExtern, CodeCallIndirect, or CodeCallClosure based on typed callee shape without importing retired C modules. Added tests in tests/test_tree_to_code.lua for direct calls, extern declaration/call shape, function pointer materialization and indirect calls; extended tests/test_code_validate.lua with a missing-signature diagnostic assertion alongside existing mismatched call signature checks. Verified with luajit tests/test_tree_to_code.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua; git diff --check on touched files; forbidden retired-module require grep on touched files.",
+			"evidence": "Extended lua/lalin/tree_to_code.lua with CodeSig-aware function/extern precollection, CodeExtern emission, function/extern CodeInstGlobalRef materialization, and ExprCall lowering to CodeCallDirect, CodeCallExtern, CodeCallIndirect, or CodeCallClosure based on typed callee shape without importing retired C modules. Added tests in tests/test_tree_to_code.lua for direct calls, extern declaration/call shape, function pointer materialization and indirect calls; extended tests/test_code_validate.lua with a missing-signature diagnostic assertion alongside existing mismatched call signature checks. Verified with luajit tests/test_tree_to_code.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua; git diff --check on touched files; forbidden retired-module require grep on touched files.",
 			"notes": [],
 			"createdAt": "2026-06-15T08:19:18.522Z",
 			"updatedAt": "2026-06-15T08:50:59.555Z"
@@ -771,15 +771,15 @@
 		{
 			"id": "T008E",
 			"title": "Complete tree_to_code coverage for aggregates, views, data, atomics, and variants",
-			"detail": "Finish `tree_to_code` coverage for aggregate/array constructors, view construction/len/index semantics, intrinsics, atomics, globals/statics/data initializers/relocs, tagged-union constructors/tag/payload/variant switches, null/sizeof/alignof post-layout forms, and all remaining backend-relevant typed MoonTree constructs. Add or amend ASDL only if this work exposes a genuine missing semantic fact (for example explicit projection ops); do not encode missing semantics as strings. Run the full tree_to_code/code_validate focused suite and leave no raw nested MoonTree expression recursion for later C/native backends.",
-			"file": "lua/moonlift/tree_to_code.lua",
+			"detail": "Finish `tree_to_code` coverage for aggregate/array constructors, view construction/len/index semantics, intrinsics, atomics, globals/statics/data initializers/relocs, tagged-union constructors/tag/payload/variant switches, null/sizeof/alignof post-layout forms, and all remaining backend-relevant typed LalinTree constructs. Add or amend ASDL only if this work exposes a genuine missing semantic fact (for example explicit projection ops); do not encode missing semantics as strings. Run the full tree_to_code/code_validate focused suite and leave no raw nested LalinTree expression recursion for later C/native backends.",
+			"file": "lua/lalin/tree_to_code.lua",
 			"after": [
 				"T008D"
 			],
 			"status": "done",
 			"order": 85,
 			"claimedBy": "agent-BW42N3",
-			"evidence": "Completed tree_to_code normalization slice in lua/moonlift/tree_to_code.lua with aggregate/array/view/null/sizeof/alignof/atomic/variant/global/static/data lowering plus MoonCode validation coverage; amended open_expand/open_facts for post-layout null/sizeof/alignof forms; extended tests/test_tree_to_code.lua. Verified with: luajit tests/test_tree_to_code.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua; luajit tests/test_tagged_union_type_layout.lua; luajit tests/test_tagged_union_to_back.lua; luajit tests/test_tagged_union_control_to_back.lua.",
+			"evidence": "Completed tree_to_code normalization slice in lua/lalin/tree_to_code.lua with aggregate/array/view/null/sizeof/alignof/atomic/variant/global/static/data lowering plus LalinCode validation coverage; amended open_expand/open_facts for post-layout null/sizeof/alignof forms; extended tests/test_tree_to_code.lua. Verified with: luajit tests/test_tree_to_code.lua; luajit tests/test_code_validate.lua; luajit tests/test_code_type.lua; luajit tests/test_schema_core.lua; luajit tests/test_schema_compile_pipeline.lua; luajit tests/test_tagged_union_type_layout.lua; luajit tests/test_tagged_union_to_back.lua; luajit tests/test_tagged_union_control_to_back.lua.",
 			"notes": [
 				"Downstream `code_to_back`/`code_to_c` tasks depend on this final slice because it represents completion of the original T008 normalizer contract."
 			],

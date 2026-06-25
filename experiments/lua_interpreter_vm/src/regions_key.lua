@@ -3,12 +3,12 @@
 -- cannot drift. PUC Lua is an oracle for equality behavior only; no PUC table
 -- layout or hash shape is imported.
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 
 local I = {}
-for k, v in pairs(const.Tag) do I["TAG_" .. k] = moon.int(v) end
+for k, v in pairs(const.Tag) do I["TAG_" .. k] = lalin.int(v) end
 
 local value_key_hash = host.region {
     TAG_NIL = I.TAG_NIL,

@@ -287,7 +287,7 @@ function M.benchmark_and_select_layer(layer, output_dir, config)
 
     local raw_bench_candidates = benchmark_candidate_subset(M, layer, config.profile_db, config.max_bench or 512)
     local bench_candidates, rejected_lowering = {}, 0
-    local backend = config.backend or "moonlift"
+    local backend = config.backend or "lalin"
     local native_composition = layer.native_composition or (raw_bench_candidates[1] and raw_bench_candidates[1].native_composition)
     for _, cand in ipairs(raw_bench_candidates) do
         local ok = true
@@ -490,7 +490,7 @@ function M.main(argv)
                 max_per_arity = tonumber(opts.max_per_arity),
                 max_per_shape = tonumber(opts.max_per_shape),
                 code_size_weight = tonumber(opts.code_size_weight) or 1.0,
-                backend = opts.backend or "moonlift",
+                backend = opts.backend or "lalin",
                 cc = opts.cc,
                 cflags = opts.cflags,
             })

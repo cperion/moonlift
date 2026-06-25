@@ -1,8 +1,8 @@
--- Moonlift/.mlua side of the typed dispatch comparison.
+-- Lalin/.mlua side of the typed dispatch comparison.
 --
 -- Idiom shown here:
 --   Lua host code manufactures typed region/expression fragments.
---   Moonlift object code composes those fragments with `emit`.
+--   Lalin object code composes those fragments with `emit`.
 --   Dispatch is ordinary `switch`; exits are typed continuations.
 --   The backend ultimately sees blocks, jumps, switch arms, and flat commands.
 
@@ -176,4 +176,4 @@ assert(score_pair(scores, nscores) == 2005)
 
 compiled_parse_packet:free()
 compiled_score_pair:free()
-return "Moonlift typed region dispatch comparison ok"
+return "Lalin typed region dispatch comparison ok"

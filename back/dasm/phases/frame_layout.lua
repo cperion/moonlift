@@ -1,7 +1,7 @@
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local Mx = require("back.dasm.model")
 
-local frame_phase = pvm.phase("moonlift_dasm_frame_layout", function(alloc, slot_sa)
+local frame_phase = pvm.phase("lalin_dasm_frame_layout", function(alloc, slot_sa)
     local D = Mx.dasm()
 
     local spill = alloc and alloc.spill_size or 0

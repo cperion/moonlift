@@ -1,5 +1,5 @@
 # Fix Lua VM Compiler Recursive Emit Mess 
-Repair the source compiler architecture after agents built a recursive-descent parser out of Moonlift regions/emit, causing compile-time inlining explosion and OOM. Establish the correct explicit parser stack/function-frame design before implementation.
+Repair the source compiler architecture after agents built a recursive-descent parser out of Lalin regions/emit, causing compile-time inlining explosion and OOM. Establish the correct explicit parser stack/function-frame design before implementation.
 **Workflow ID**: wf-lua-vm-compiler-unfuck
 **Started**: 2026-05-30 16:34:38
 ---
@@ -8,11 +8,11 @@ Repair the source compiler architecture after agents built a recursive-descent p
 
 ## Files Retrieved
 
-1. `.pi/workflows/wf-lua-vm-compiler-unfuck.md` (lines 1-4) — workflow OOM claim: recursive-descent parser built via Moonlift `emit`, causing compile-time inlining/OOM.
+1. `.pi/workflows/wf-lua-vm-compiler-unfuck.md` (lines 1-4) — workflow OOM claim: recursive-descent parser built via Lalin `emit`, causing compile-time inlining/OOM.
 2. `.pi/workflows/wf-lua-vm-compiler-complete.md` (lines 45-380) — prior context: compiler entry/product facts, previous segfault evidence, allocator/lifetime notes, stale/current hazards.
 3. `explicit_programming.md` (lines 388-497, 1038-1122, 1254-1443, 1900-2010, 2414-2524) — doctrine for regions, emit, functions, parser state, and splicing semantics.
 4. `LANGUAGE_REFERENCE.md` (lines 640-715, 1018-1113, 1178-1227, 1526-1676, 1695-1774) — language spec for function calls vs region `emit`, control regions, blocks, validation.
-5. `experiments/lua_interpreter_vm/README.md` (lines 1-120) — experiment status: interpreter/compiler built from Moonlift regions; SpongeJIT separate.
+5. `experiments/lua_interpreter_vm/README.md` (lines 1-120) — experiment status: interpreter/compiler built from Lalin regions; SpongeJIT separate.
 6. `experiments/lua_interpreter_vm/VM_CONTRACT.md` (lines 1-76) — VM contract: PUC oracle only; explicit frame/allocator/error/yield boundaries.
 7. `experiments/lua_interpreter_vm/src/init.lua` (lines 1-40) — module loader exposing `regions_lexer`, `regions_parser`, `regions_codegen`, `regions_compiler`.
 8. `experiments/lua_interpreter_vm/src/compat.lua` (lines 1-14) — source compiler exposed as compatibility/source frontier.
@@ -39,7 +39,7 @@ Repair the source compiler architecture after agents built a recursive-descent p
 
 ```md
 # Fix Lua VM Compiler Recursive Emit Mess 
-Repair the source compiler architecture after agents built a recursive-descent parser out of Moonlift regions/emit, causing compile-time inlining explosion and OOM. Establish the correct explicit parser stack/function-frame design before implementation.
+Repair the source compiler architecture after agents built a recursive-descent parser out of Lalin regions/emit, causing compile-time inlining explosion and OOM. Establish the correct explicit parser stack/function-frame design before implementation.
 ```
 
 No more detailed OOM log was visible via grep in `.pi/workflows`. Prior workflow context records a different observed failure: `test_parser_compile.lua` previously segfaulted after many successful cases due to stale FFI schema; that schema appears repaired now via `tools/vm_ffi_schema.lua`.
@@ -48,7 +48,7 @@ No more detailed OOM log was visible via grep in `.pi/workflows`. Prior workflow
 
 `LANGUAGE_REFERENCE.md` states:
 
-```moonlift
+```lalin
 emit fragment(arg1, arg2, ...; exit1 = block1, exit2 = block2, ...)
 ```
 
@@ -65,7 +65,7 @@ runtime indirection.
 
 Function calls are distinct in `LANGUAGE_REFERENCE.md`:
 
-```moonlift
+```lalin
 func call_fp(fp: func(i32) -> i32, x: i32) -> i32
     return fp(x)
 end
@@ -135,7 +135,7 @@ parse_primary           -> reserve_reg/emit_load_integer/resolve_local/lex_next
 Notable current facts:
 - I found no literal direct self-`emit` cycle in current `regions_parser.lua`.
 - The architecture is nevertheless recursive-descent-shaped through nested region emits.
-- `parse_block` loops over statements with a Moonlift `jump loop()`, but each statement parse is another emitted region.
+- `parse_block` loops over statements with a Lalin `jump loop()`, but each statement parse is another emitted region.
 - `parse_if_statement` and `parse_while_statement` exist but `parse_statement` currently does **not** dispatch to `KW_IF` or `KW_WHILE`.
 - `parse_numeric_for_statement` is wired and emits `parse_simple_statement` for body, not `parse_block`.
 
@@ -272,7 +272,7 @@ end]]
 
 `tests/test_parser_compile.lua`:
 - Applies shared FFI schema.
-- Wraps `compile_lua_source_into` in a Moonlift `moon.func`.
+- Wraps `compile_lua_source_into` in a Lalin `lalin.func`.
 - Compiles that wrapper with `wrapper:compile()`.
 - Calls compiled wrapper on source strings.
 - Exercises lexer, arithmetic/local/return/numeric-for cases.
@@ -286,7 +286,7 @@ end]]
 
 ## Relationships
 
-- Moonlift docs define `emit` as compile-time CFG splicing. Therefore each parser helper emitted as a region is inlined into the compiler wrapper graph, not called with a runtime frame.
+- Lalin docs define `emit` as compile-time CFG splicing. Therefore each parser helper emitted as a region is inlined into the compiler wrapper graph, not called with a runtime frame.
 - Current source compiler is direct parser-to-bytecode: lexer/parser regions mutate `CompileUnit`/`FuncBuilder` and emit bytecode helpers. There is no AST/product layer between parse and codegen.
 - `compile_lua_source_into` → `compile_prepared_unit` → `parse_block` is the source compiler’s public entry path.
 - Codegen helpers (`regions_codegen.lua`) are also regions; parser regions emit them, further increasing the inlined graph.
@@ -328,7 +328,7 @@ end]]
 
 - Current parser helpers behave as though they have call frames, but they do not. Fields like `cu.expr_tmp`, `cu.expr_tmp2`, `cu.tmp_reg`, `cu.scratch_index`, and `cu.scratch_op` are effectively global temporaries shared by every spliced parser fragment. This only works while control is shallow and linear; nested or suspended parse states will clobber each other.
 
-- Moonlift continuations are not runtime values. A recursive-descent parser normally relies on an implicit call stack of return addresses; in Moonlift region composition, those continuation targets are consumed statically at the emit site. Any architecture that needs runtime parser depth cannot store “the continuation” itself as a block label.
+- Lalin continuations are not runtime values. A recursive-descent parser normally relies on an implicit call stack of return addresses; in Lalin region composition, those continuation targets are consumed statically at the emit site. Any architecture that needs runtime parser depth cannot store “the continuation” itself as a block label.
 
 - The current parser/codegen coupling amplifies the static graph. Parser regions emit codegen regions, and those codegen regions emit lower-level instruction regions. Even acyclic parser expansion duplicates the same error-forwarding and codegen paths many times.
 
@@ -354,13 +354,13 @@ end]]
 
 - `validate_proto` is downstream protection, not architectural validation for the compiler. It can reject bad bytecode, but it cannot detect recursive emit expansion, parser-state clobbering, incorrect error classification, or lost parse continuations.
 
-- Wrapper compilation and source compilation are distinct failure phases. The recursive-emit mistake primarily explodes when Moonlift compiles the compiler wrapper; Lua source size may be irrelevant. Tests need to distinguish “compiler wrapper compiled” from “compiled Lua source ran correctly.”
+- Wrapper compilation and source compilation are distinct failure phases. The recursive-emit mistake primarily explodes when Lalin compiles the compiler wrapper; Lua source size may be irrelevant. Tests need to distinguish “compiler wrapper compiled” from “compiled Lua source ran correctly.”
 
 - ABI drift is a real risk. `CompileUnit`, `FuncBuilder`, and parser products are mirrored in `tools/vm_ffi_schema.lua`; previous stale-schema issues caused segfaults. Parser architecture changes that add fields or products are not internal-only changes for the current harness.
 
 - Error positions depend on `cu.lexer.current` at the moment `parser_error` runs. More explicit or deferred parser states increase the risk that an error reports the wrong token unless token snapshots and current-token ownership are treated as invariants.
 
-- Moonlift’s type system enforces continuation exhaustiveness at each emit site, but it does not enforce grammar coverage. The code can be perfectly continuation-complete while silently failing to dispatch `if`, `while`, `function`, `repeat`, calls, globals, etc.
+- Lalin’s type system enforces continuation exhaustiveness at each emit site, but it does not enforce grammar coverage. The code can be perfectly continuation-complete while silently failing to dispatch `if`, `while`, `function`, `repeat`, calls, globals, etc.
 
 ### Knowledge Gaps
 
@@ -423,9 +423,9 @@ end]]
 
 ---
 
-### Approach C: Real Moonlift Function-Frame Recursive Parser
+### Approach C: Real Lalin Function-Frame Recursive Parser
 
-- **Core idea**: Keep recursive-descent grammar shape, but implement grammar routines as real Moonlift `func` calls returning typed result products, never as recursive `emit` splices.
+- **Core idea**: Keep recursive-descent grammar shape, but implement grammar routines as real Lalin `func` calls returning typed result products, never as recursive `emit` splices.
 
 - **Key changes**:
   - Convert recursive parser helpers in `regions_parser.lua` into `func parse_block(ctx, mode) -> ParseResult`, `func parse_statement(ctx) -> ParseResult`, `func parse_expr(ctx, min_prec) -> ExprResult`, etc.
@@ -445,14 +445,14 @@ end]]
   - Expression precedence uses Pratt or precedence-climbing recursion through `parse_expr(ctx, min_prec)`.
   - Nested functions push real `FuncBuilder` context, parse the function body, close the child proto, then restore the parent builder.
   - Allocation is explicit in `ParserContext`: arena pointer, stack-depth limit, vector growth helpers, child proto storage, constants, locvars, upvals.
-  - Errors are typed data results internally, then mapped once at the public compiler region boundary to Moonlift continuations.
+  - Errors are typed data results internally, then mapped once at the public compiler region boundary to Lalin continuations.
   - Tests include extremely nested parentheses/blocks/functions up to a configured depth limit, verifying graceful `limit_error` rather than wrapper compile OOM.
 
 ---
 
 ### Comparison
 
-- **Approach A** keeps direct-to-bytecode compilation and best matches Moonlift’s jump-first state-machine style, but makes the parser less grammar-shaped.
+- **Approach A** keeps direct-to-bytecode compilation and best matches Lalin’s jump-first state-machine style, but makes the parser less grammar-shaped.
 - **Approach B** gives the cleanest long-term compiler architecture for full Lua source, because parse, semantic analysis, and codegen become separate typed products, but it is the largest rewrite.
 - **Approach C** preserves recursive-descent readability by using actual function frames instead of `emit`, but must enforce recursion limits and is less explicit-stack-oriented than the other two.
 
@@ -462,17 +462,17 @@ end]]
 
 ## Goal
 
-Enable the Lua VM source compiler in `experiments/lua_interpreter_vm` to compile real Lua source without recursive Moonlift `emit` expansion, by replacing the current recursive-descent/direct-to-bytecode parser with a typed parse product layer and a separate lowering phase that owns bytecode generation.
+Enable the Lua VM source compiler in `experiments/lua_interpreter_vm` to compile real Lua source without recursive Lalin `emit` expansion, by replacing the current recursive-descent/direct-to-bytecode parser with a typed parse product layer and a separate lowering phase that owns bytecode generation.
 
 ## Incentives
 
-The current compiler architecture treats Moonlift regions as if they were runtime parser calls. That is invalid in Moonlift: `emit` is compile-time CFG splicing, not a function call, so every emitted parser helper is inlined into the compiler wrapper graph. This caused the workflow’s reported compile-time inlining explosion/OOM and makes full Lua grammar support impossible. Lua source has unbounded nesting in blocks, expressions, function bodies, calls, table constructors, and parentheses; representing that nesting through recursive `emit` paths would make compiler-wrapper compilation depend on grammar recursion rather than runtime input. The current direct-to-bytecode parser also entangles parsing, scope state, register allocation, patching, constants, child protos, upvalues, and error forwarding in shared scratch fields, which cannot scale to nested constructs.
+The current compiler architecture treats Lalin regions as if they were runtime parser calls. That is invalid in Lalin: `emit` is compile-time CFG splicing, not a function call, so every emitted parser helper is inlined into the compiler wrapper graph. This caused the workflow’s reported compile-time inlining explosion/OOM and makes full Lua grammar support impossible. Lua source has unbounded nesting in blocks, expressions, function bodies, calls, table constructors, and parentheses; representing that nesting through recursive `emit` paths would make compiler-wrapper compilation depend on grammar recursion rather than runtime input. The current direct-to-bytecode parser also entangles parsing, scope state, register allocation, patching, constants, child protos, upvalues, and error forwarding in shared scratch fields, which cannot scale to nested constructs.
 
 ## Current State
 
 The compiler entry point is `experiments/lua_interpreter_vm/src/regions_compiler.lua`, specifically `compile_lua_source_into`. It initializes a `CompileUnit` and `FuncBuilder`, then emits `compile_prepared_unit` from `regions_parser.lua`. The public protocol exposes continuations:
 
-```moonlift
+```lalin
 ok(proto: ptr(Proto))
 syntax_error(err: CompileError)
 semantic_error(err: CompileError)
@@ -556,13 +556,13 @@ There is no typed AST, parse IR, parser frame stack, expression operator stack, 
 
 The runtime VM already follows a more explicit design. `experiments/lua_interpreter_vm/src/products.lua` defines `Frame` and `ResumeState`, and runtime call machinery in `regions_call.lua` and `vm_loop.lua` explicitly pushes frames, saves resume state, switches frames, and reloads code/constants. The source compiler does not have an analogous explicit product boundary for parser state or compiler phases.
 
-The Moonlift documents establish the core violation. `LANGUAGE_REFERENCE.md` defines:
+The Lalin documents establish the core violation. `LANGUAGE_REFERENCE.md` defines:
 
-```moonlift
+```lalin
 emit fragment(arg1, arg2, ...; exit1 = block1, exit2 = block2, ...)
 ```
 
-as a splice of a region fragment’s control graph into the surrounding function or region. `explicit_programming.md` states that emitted regions are inlined at the emit site, with continuation jumps rewritten to caller blocks, and that there is no call frame, return address, or runtime indirection. Function calls are separate Moonlift constructs and compile to actual call instructions. Therefore recursive-descent parsing via `emit` is architecturally invalid.
+as a splice of a region fragment’s control graph into the surrounding function or region. `explicit_programming.md` states that emitted regions are inlined at the emit site, with continuation jumps rewritten to caller blocks, and that there is no call frame, return address, or runtime indirection. Function calls are separate Lalin constructs and compile to actual call instructions. Therefore recursive-descent parsing via `emit` is architecturally invalid.
 
 ## Chosen Target
 
@@ -837,7 +837,7 @@ Use shunting-yard or Pratt-as-state-machine:
 - reductions allocate `AstExpr(binary/unary, lhs, rhs)`
 - parentheses/table/function-call contexts are frames, not recursive emits
 
-This supports nested expressions without growing the Moonlift CFG.
+This supports nested expressions without growing the Lalin CFG.
 
 ### Scope, binding, and upvalue model
 
@@ -932,7 +932,7 @@ oom()
 Tests should separately verify:
 
 - compiler wrapper compiles once without graph blowup
-- deeply nested blocks compile or hit depth limits at runtime, not Moonlift compile time
+- deeply nested blocks compile or hit depth limits at runtime, not Lalin compile time
 - deeply nested expressions compile or hit parser limits
 - AST shape for representative Lua constructs
 - binding/upvalue resolution
@@ -941,7 +941,7 @@ Tests should separately verify:
 
 ### How it prevents compile-time OOM
 
-The emitted Moonlift graph is fixed-size: one parser loop, one lowering loop, bounded helpers. Lua nesting depth affects arena data and stack lengths, not recursive region expansion.
+The emitted Lalin graph is fixed-size: one parser loop, one lowering loop, bounded helpers. Lua nesting depth affects arena data and stack lengths, not recursive region expansion.
 
 ### Tradeoff
 
@@ -1229,7 +1229,7 @@ Add tape-focused tests:
 
 ### How it prevents compile-time OOM
 
-Parser and lowerer are fixed interpreters over arrays. Source nesting grows `ParseCmd`/`ExprCmd` length and explicit stacks, not emitted Moonlift graph size.
+Parser and lowerer are fixed interpreters over arrays. Source nesting grows `ParseCmd`/`ExprCmd` length and explicit stacks, not emitted Lalin graph size.
 
 ### Tradeoff
 
@@ -1494,7 +1494,7 @@ source -> VM behavior
 
 ### How it prevents compile-time OOM
 
-All recursion/nesting is represented as parse/HIR records and explicit phase stacks. The Moonlift CFG contains finite interpreters/builders. HIR construction may walk deeply nested products, but depth is runtime data with configurable limits, not recursive `emit` expansion.
+All recursion/nesting is represented as parse/HIR records and explicit phase stacks. The Lalin CFG contains finite interpreters/builders. HIR construction may walk deeply nested products, but depth is runtime data with configurable limits, not recursive `emit` expansion.
 
 ### Tradeoff
 
@@ -1506,7 +1506,7 @@ Best long-term correctness and phase separation; largest conceptual surface beca
 
 - **Design A — Arena AST**: pick this if you want a familiar compiler structure quickly: parse to tree, bind, lower. It is easiest to inspect and reason about, but uses the most memory.
 
-- **Design B — Flat Parse Tape**: pick this if you want compact storage, stable FFI, and a Moonlift-friendly flat command style. It is less readable than an AST but excellent for avoiding pointer/lifetime complexity.
+- **Design B — Flat Parse Tape**: pick this if you want compact storage, stable FFI, and a Lalin-friendly flat command style. It is less readable than an AST but excellent for avoiding pointer/lifetime complexity.
 
 - **Design C — Semantic HIR**: pick this if the goal is a serious long-term Lua compiler with strong validation boundaries. It costs the most design work but gives the cleanest separation between syntax, semantics, and bytecode lowering.
 
@@ -1518,11 +1518,11 @@ All three prevent compile-time OOM the same fundamental way: **the compiler wrap
 
 ## Goal
 
-Enable the Lua VM source compiler in `experiments/lua_interpreter_vm` to compile real nested Lua source without Moonlift compiler-wrapper graph explosion, by replacing recursive parser `emit` and direct-to-bytecode parsing with an explicit multi-phase compiler pipeline: typed parse products, semantic HIR, and bytecode lowering.
+Enable the Lua VM source compiler in `experiments/lua_interpreter_vm` to compile real nested Lua source without Lalin compiler-wrapper graph explosion, by replacing recursive parser `emit` and direct-to-bytecode parsing with an explicit multi-phase compiler pipeline: typed parse products, semantic HIR, and bytecode lowering.
 
 ## Incentives
 
-The current source compiler uses Moonlift regions as if they were runtime parser calls. That is incorrect. `LANGUAGE_REFERENCE.md` and `explicit_programming.md` define `emit` as compile-time CFG splicing: emitted regions are inlined at the emit site, with no runtime call frame, no return address, and no runtime continuation value. Lua grammar nesting is source-dependent and unbounded across blocks, expressions, function bodies, calls, table constructors, and parentheses. Representing that nesting through recursive or recursive-shaped `emit` paths causes the compiler wrapper itself to grow with grammar structure, producing the reported compile-time inlining explosion/OOM. The current parser also emits bytecode while parsing, which entangles syntax, scope, register allocation, jump patching, constants, upvalues, child protos, and error forwarding in one phase using shared scratch fields on `CompileUnit`.
+The current source compiler uses Lalin regions as if they were runtime parser calls. That is incorrect. `LANGUAGE_REFERENCE.md` and `explicit_programming.md` define `emit` as compile-time CFG splicing: emitted regions are inlined at the emit site, with no runtime call frame, no return address, and no runtime continuation value. Lua grammar nesting is source-dependent and unbounded across blocks, expressions, function bodies, calls, table constructors, and parentheses. Representing that nesting through recursive or recursive-shaped `emit` paths causes the compiler wrapper itself to grow with grammar structure, producing the reported compile-time inlining explosion/OOM. The current parser also emits bytecode while parsing, which entangles syntax, scope, register allocation, jump patching, constants, upvalues, child protos, and error forwarding in one phase using shared scratch fields on `CompileUnit`.
 
 ## Current State
 
@@ -1540,7 +1540,7 @@ experiments/lua_interpreter_vm/src/regions_parser.lua
 
 The compiler boundary currently exposes continuations:
 
-```moonlift
+```lalin
 ok(proto: ptr(Proto))
 syntax_error(err: CompileError)
 semantic_error(err: CompileError)
@@ -1625,7 +1625,7 @@ Bytecode helpers live in:
 experiments/lua_interpreter_vm/src/regions_codegen.lua
 ```
 
-The current parser emits these helpers directly while consuming tokens. This direct-to-bytecode design couples parsing with lowering and amplifies the static Moonlift graph because parser regions emit codegen regions, which may emit lower-level helpers.
+The current parser emits these helpers directly while consuming tokens. This direct-to-bytecode design couples parsing with lowering and amplifies the static Lalin graph because parser regions emit codegen regions, which may emit lower-level helpers.
 
 The runtime VM already uses explicit frame products in:
 
@@ -1927,7 +1927,7 @@ source -> VM behavior
 Required testing implications from the decision:
 
 - The compiler wrapper must compile once without graph blowup.
-- Deeply nested blocks, expressions, and functions must grow runtime compiler data, not Moonlift emitted CFG size.
+- Deeply nested blocks, expressions, and functions must grow runtime compiler data, not Lalin emitted CFG size.
 - Parse-product tests should verify source shape and delimiter handling.
 - HIR tests should verify name classification, scopes, labels/gotos, captures, varargs, and return legality.
 - Lowering tests should verify generated proto structure and bytecode behavior.
@@ -1938,7 +1938,7 @@ Required testing implications from the decision:
 
 This design has the largest conceptual surface. It introduces both parse products and semantic HIR instead of a single AST or flat tape. It requires explicit arenas, new product definitions, phase verifiers, lowering state, and FFI schema updates.
 
-The cost is accepted because it gives the cleanest separation between syntax, semantics, and bytecode lowering, and because it ensures Lua source nesting is represented as typed data plus explicit stacks rather than recursive Moonlift `emit`.
+The cost is accepted because it gives the cleanest separation between syntax, semantics, and bytecode lowering, and because it ensures Lua source nesting is represented as typed data plus explicit stacks rather than recursive Lalin `emit`.
 
 ## Risks Acknowledged
 
@@ -1972,7 +1972,7 @@ Before edits:
   - `experiments/lua_interpreter_vm/src/regions_codegen.lua`
   - `experiments/lua_interpreter_vm/tools/vm_ffi_schema.lua`
   - `experiments/lua_interpreter_vm/tests/test_parser_compile.lua`
-- Build Moonlift release backend before running VM compiler tests:
+- Build Lalin release backend before running VM compiler tests:
   - `cargo build --release`
 
 ---
@@ -2376,7 +2376,7 @@ Before edits:
 1. **Lines 15-28**: `[Modify/Add]` — keep `emit_compile_error`, but add span-based variant after it.
 
    **After**:
-   ```moonlift
+   ```lalin
    region emit_compile_error_at_span(cu: ptr(CompileUnit), code: i32, token: u16, span: SourceSpan;
                                      error: cont(err: CompileError))
        ...
@@ -2448,7 +2448,7 @@ Before edits:
      ```lua
      -- Lua Interpreter VM — source parser: bytes/tokens -> parse products only.
      ```
-   - Keep `moon`, `host`, `pconst`.
+   - Keep `lalin`, `host`, `pconst`.
    - Remove `const` import unless needed for token/operator constants.
    - Build `V` from:
      - `Tok`
@@ -2493,7 +2493,7 @@ Before edits:
 
 4. **`parse_source_to_products` structure**: `[Add]`
    - Must be one finite state machine:
-     ```moonlift
+     ```lalin
      entry start()
          cu.phase = SOURCE_PARSE
          emit lex_next(cu; token = first_token, lexical_error = syntax_bad, oom = out_of_mem)
@@ -2563,8 +2563,8 @@ Before edits:
 
 - Imports:
   ```lua
-  local moon = require("moonlift")
-  local host = require("moonlift.host")
+  local lalin = require("lalin")
+  local host = require("lalin.host")
   local pconst = require("experiments.lua_interpreter_vm.src.parser_constants")
   ```
 - Build `V` from:
@@ -2632,8 +2632,8 @@ Before edits:
 
 - Imports:
   ```lua
-  local moon = require("moonlift")
-  local host = require("moonlift.host")
+  local lalin = require("lalin")
+  local host = require("lalin.host")
   local const = require("experiments.lua_interpreter_vm.src.constants")
   local pconst = require("experiments.lua_interpreter_vm.src.parser_constants")
   local codegen = require("experiments.lua_interpreter_vm.src.regions_codegen")
@@ -2688,7 +2688,7 @@ Before edits:
 
 1. **Before line 5**: `[Add imports/env]`
    ```lua
-   local moon = require("moonlift")
+   local lalin = require("lalin")
    local pconst = require("experiments.lua_interpreter_vm.src.parser_constants")
    local parser = require("experiments.lua_interpreter_vm.src.regions_parser")
    local semantic = require("experiments.lua_interpreter_vm.src.regions_semantic")
@@ -2701,7 +2701,7 @@ Before edits:
        verify_hir = semantic.verify_hir,
        lower_hir_to_proto = lower.lower_hir_to_proto,
    }
-   for k, v in pairs(pconst.SourcePhase) do V["SOURCE_" .. k] = moon.int(v) end
+   for k, v in pairs(pconst.SourcePhase) do V["SOURCE_" .. k] = lalin.int(v) end
    ```
 
 2. **Line 5**: `[Modify]`
@@ -2716,12 +2716,12 @@ Before edits:
 
 3. **Lines 6-20 signature**: `[Modify ABI]`
    - Add workspace params after `locals_cap`:
-     ```moonlift
+     ```lalin
      workspace: ptr(u8),
      workspace_cap: index;
      ```
    - New public ABI:
-     ```moonlift
+     ```lalin
      region compile_lua_source_into(
          cu: ptr(CompileUnit),
          builder: ptr(FuncBuilder),
@@ -2740,14 +2740,14 @@ Before edits:
 
 4. **Lines 23-64 initialization**: `[Replace]`
    - Remove:
-     ```moonlift
+     ```lalin
      cu.arena = nil
      ...
      cu.tmp_reg = 0
      cu.scratch_*
      ```
    - Add:
-     ```moonlift
+     ```lalin
      cu.phase = @{SOURCE_INIT}
      cu.status = 0
      cu.arena = { base = workspace, pos = 0, cap = workspace_cap, overflowed = 0 }
@@ -2759,14 +2759,14 @@ Before edits:
      cu.root_hir_function = 0
      ```
    - Initialize all product vectors to nil/zero:
-     ```moonlift
+     ```lalin
      cu.parse_nodes = { data = nil, len = 0, cap = 0 }
      ...
      cu.expr_slots = { data = nil, len = 0, cap = 0 }
      ```
    - Keep lexer initialization.
    - Keep root builder initialization, but durable vectors may now be arena-backed during lowering:
-     ```moonlift
+     ```lalin
      builder.constants = { data = nil, len = 0, cap = 0 }
      builder.children = { data = nil, len = 0, cap = 0 }
      builder.locvars = { data = nil, len = 0, cap = 0 }
@@ -2775,11 +2775,11 @@ Before edits:
 
 5. **Lines 65-72**: `[Replace orchestration]`
    - Before:
-     ```moonlift
+     ```lalin
      emit compile_prepared_unit(cu; ...)
      ```
    - After:
-     ```moonlift
+     ```lalin
      emit @{parse_source_to_products}(cu;
          ok = parsed,
          syntax_error = syntax_bad,
@@ -2788,7 +2788,7 @@ Before edits:
      ```
 
 6. **After orchestration start blocks**: `[Add]`
-   ```moonlift
+   ```lalin
    block parsed()
        emit @{verify_parse_products}(cu;
            ok = parse_verified,
@@ -2830,7 +2830,7 @@ Before edits:
 
 **Danger zones**:
 - All wrappers/tests/harnesses must pass workspace pointer and cap.
-- Do not leave `cu.arena` as pointer in Moonlift after product change.
+- Do not leave `cu.arena` as pointer in Lalin after product change.
 
 ---
 
@@ -2887,11 +2887,11 @@ Before edits:
 
 1. **Lines 89-104 wrapper signature/body**: `[Modify]`
    - Add params:
-     ```moonlift
+     ```lalin
      workspace: ptr(u8), workspace_cap: index
      ```
    - Emit call:
-     ```moonlift
+     ```lalin
      emit @{compile_lua_source_into}(cu, b, p, bytes, n, code, code_cap, locals, locals_cap, workspace, workspace_cap; ...)
      ```
 
@@ -2930,7 +2930,7 @@ Before edits:
 3. **Lines 41-64 lexer runner**: `[Modify]`
    - Remove `cu.token_tmp.aux` usage.
    - Carry count as block param only:
-     ```moonlift
+     ```lalin
      block loop(count: index)
          ...
          emit @{lex_next}(cu; token = got, lexical_error = lex_bad, oom = oom_bad)
@@ -2985,8 +2985,8 @@ Before edits:
   verify_hir
   ```
 - **Imports required**:
-  - `moonlift`
-  - `moonlift.host`
+  - `lalin`
+  - `lalin.host`
   - `parser_constants`
 
 #### `experiments/lua_interpreter_vm/src/regions_lower.lua`
@@ -2997,8 +2997,8 @@ Before edits:
   lower_hir_to_proto
   ```
 - **Imports required**:
-  - `moonlift`
-  - `moonlift.host`
+  - `lalin`
+  - `lalin.host`
   - `constants`
   - `parser_constants`
   - `regions_codegen`

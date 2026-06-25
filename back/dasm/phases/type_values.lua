@@ -1,4 +1,4 @@
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local Mx = require("back.dasm.model")
 
 local function emit_entries(pairs, D)
@@ -108,7 +108,7 @@ local function cmd_phase()
         if not handlers[B[n]] then handlers[B[n]] = none end
     end
 
-    PHASE_CMD = pvm.phase("moonlift_dasm_type_values_cmd", handlers)
+    PHASE_CMD = pvm.phase("lalin_dasm_type_values_cmd", handlers)
     return PHASE_CMD
 end
 
@@ -137,7 +137,7 @@ local function phase()
     if PHASE then return PHASE end
     local D = Mx.dasm()
 
-    PHASE = pvm.phase("moonlift_dasm_type_values", {
+    PHASE = pvm.phase("lalin_dasm_type_values", {
         [D.DPhaseFunc] = function(pf, sig)
             return pvm.once(infer_type_values(pf, sig))
         end,
@@ -151,7 +151,7 @@ return {
     run = function(phase_func, sig)
         local D = Mx.dasm()
         if pvm.classof(phase_func) ~= D.DPhaseFunc then
-            error("type_values.run expects MoonDasm.DPhaseFunc", 2)
+            error("type_values.run expects LalinDasm.DPhaseFunc", 2)
         end
         return pvm.one(phase()(phase_func, sig))
     end,

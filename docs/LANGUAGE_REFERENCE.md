@@ -1,15 +1,15 @@
-# Moonlift Family Language Reference
+# Lalin Family Language Reference
 
 ## Status
 
-This document describes the complete `moonlift` LLB language family exposed by
-`require("moonlift")`.
+This document describes the complete `lalin` LLB language family exposed by
+`require("lalin")`.
 
 The family contains:
 
 ```text
-moonlift.dsl
-  Moonlift native-language heads, types, expressions, declarations, regions,
+lalin.dsl
+  Lalin native-language heads, types, expressions, declarations, regions,
   modules, diagnostics, formatting, LSP indexing, and compilation hooks.
 
 llpvm.dsl
@@ -30,45 +30,45 @@ The DSLs are ordinary Lua. Lua performs the mechanical parse, evaluates
 host-time expressions, and hands real Lua values to LLB objects. Declaration,
 control, LLPVM, and tooling heads are hosted by `lua/llb.lua`; each member
 language normalizes those values by role and emits explicit typed values.
-Moonlift core emits `MoonTree` and `MoonOpen` ASDL. LLPVM emits typed LLPVM
+Lalin core emits `LalinTree` and `LalinOpen` ASDL. LLPVM emits typed LLPVM
 program specs, bytecode images, and task/run records.
 
-`region.` is the LLB-owned generic control-machine head. Moonlift consumes
+`region.` is the LLB-owned generic control-machine head. Lalin consumes
 generic Region descriptors and lowers them through its native typed CFG
-vocabulary; Moonlift does not own the base region semantics.
+vocabulary; Lalin does not own the base region semantics.
 
 There is no second source parser in the normal authoring path.
-This is the recommended path for new generated/metaprogrammed Moonlift code.
+This is the recommended path for new generated/metaprogrammed Lalin code.
 
 ```text
 Lua syntax
   -> Lua values
   -> LLB family environment
   -> member-language role normalization
-  -> Moonlift ASDL / LLPVM program specs / LLB process events
+  -> Lalin ASDL / LLPVM program specs / LLB process events
 ```
 
 ## Family Model
 
-The authoring unit is the `moonlift` family, not a pile of manually stacked
+The authoring unit is the `lalin` family, not a pile of manually stacked
 global tables.
 
 ```lua
-local moon = require("moonlift")
-moon.family.use()
+local lalin = require("lalin")
+lalin.family.use()
 ```
 
-`moon.family.use()` installs the coherent authoring universe:
+`lalin.family.use()` installs the coherent authoring universe:
 
 ```text
-Moonlift native language:
+Lalin native language:
   ml
-  moonlift
+  lalin
 
 LLPVM:
   llpvm
 
-MoonSchema:
+LalinSchema:
   schema
 
 Llisle:
@@ -109,19 +109,19 @@ llpvm.task. compile {
 
 llisle {
   relation. lower_expr {
-    input { expr [MoonExpr], ctx [LowerCtx] },
+    input { expr [LalinExpr], ctx [LowerCtx] },
     output { value [BackValue] },
   },
 }
 
-schema. MoonEditor {
+schema. LalinEditor {
   schema.product. DiagnosticFact {
     message [schema.str],
   },
 }
 ```
 
-`ml` is the preferred short Moonlift namespace. `moonlift` is kept as the long
+`ml` is the preferred short Lalin namespace. `lalin` is kept as the long
 alias and points at the same namespace value in family environments.
 
 Namespaces can also be called to create family zones:
@@ -143,7 +143,7 @@ return {
 
   schema {
     schema. Demo {
-      schema.product. Pair { left [MoonType.Type], right [MoonType.Type] },
+      schema.product. Pair { left [LalinType.Type], right [LalinType.Type] },
     },
   },
 
@@ -161,7 +161,7 @@ explicit `schema.module. Name { ... }`.
 
 ### Reduced family law
 
-A good Moonlift family is reduced: one semantic primitive has one owner, and
+A good Lalin family is reduced: one semantic primitive has one owner, and
 other members reuse it instead of reimplementing it under a second surface.
 Overlap is a smell unless the second form is only syntax sugar that lowers to
 the owned primitive.
@@ -175,10 +175,10 @@ Current semantic ownership:
 llb             owns authoring substrate, namespaces, fragments, origins,
                 diagnostics, and family composition
 
-moonschema.dsl  owns schema modules, product/sum schema, schema identity,
+lalinschema.dsl  owns schema modules, product/sum schema, schema identity,
                 and type-family semantics
 
-moonlift.dsl    owns native programs, native control, native type values,
+lalin.dsl    owns native programs, native control, native type values,
                 resource discipline, and native compilation
 
 llpvm.dsl       owns bytecode programs, bytecode tapes, process/task specs,
@@ -191,31 +191,31 @@ llisle.dsl      owns lowering rules, rewrite relations, and explicit
 Current semantic reuse:
 
 ```text
-moonlift.dsl    uses LLB authoring/provenance/diagnostics and the shared
+lalin.dsl    uses LLB authoring/provenance/diagnostics and the shared
                 type-family semantics
 
-moonschema.dsl  uses LLB authoring/provenance/diagnostics
+lalinschema.dsl  uses LLB authoring/provenance/diagnostics
 
-llpvm.dsl       uses LLB authoring/provenance/diagnostics, Moonlift native type
-                values, and MoonSchema type-family semantics
+llpvm.dsl       uses LLB authoring/provenance/diagnostics, Lalin native type
+                values, and LalinSchema type-family semantics
 
 llisle.dsl      uses LLB authoring/provenance/diagnostics, fragments,
-                Moonlift native type values, and MoonSchema type-family
+                Lalin native type values, and LalinSchema type-family
                 semantics
 ```
 
 This is why `schema.product` / `schema.sum` are the family source of product and
 sum structure. LLPVM `lang` / `type` / `op` authoring belongs to bytecode/PVM
 programs, but any general product/sum/type-family meaning should be reused from
-MoonSchema, not reinvented inside LLPVM. Likewise, Moonlift native types are not
+LalinSchema, not reinvented inside LLPVM. Likewise, Lalin native types are not
 schema modules: they are native type values that can appear as operands inside
 family DSLs.
 
 The family exposes this as data:
 
 ```lua
-local reduction = require("moonlift").family.reduction()
-assert(reduction.owner["type-family"] == "moonschema.dsl")
+local reduction = require("lalin").family.reduction()
+assert(reduction.owner["type-family"] == "lalinschema.dsl")
 assert(#reduction.smells == 0)
 ```
 
@@ -231,22 +231,22 @@ process  belongs to LLB event-protocol regions lowered to GPS
 task     belongs to LLPVM typed process/task declarations
 record   belongs to LLPVM tape records
 value    is not a reserved family keyword; it is available as a user field/name
-moonlift is the long alias for ml
-schema   is the MoonSchema namespace, not LLPVM's internal schema directive
+lalin is the long alias for ml
+schema   is the LalinSchema namespace, not LLPVM's internal schema directive
 ```
 
 Prefer the family API for authored files and tools:
 
 ```lua
-moon.family.use()
-moon.family.use { scope = "env", target = env, global = false }
-moon.family.load(src, name)
-moon.family.loadfile(path)
+lalin.family.use()
+lalin.family.use { scope = "env", target = env, global = false }
+lalin.family.load(src, name)
+lalin.family.loadfile(path)
 ```
 
-Member-level `moon.use()` and `ll.use()` are lower-level tools for tests or
-deliberately isolated member-language installs. Normal Moonlift-family source
-should use `moon.family.use()`.
+Member-level `lalin.use()` and `ll.use()` are lower-level tools for tests or
+deliberately isolated member-language installs. Normal Lalin-family source
+should use `lalin.family.use()`.
 
 ## Complete Family Keyword Inventory
 
@@ -255,10 +255,10 @@ If a name appears in more than one member, the family policy decides the public
 binding. If a name is not listed here, it is user space and unknown lookups
 produce generic `llb.Symbol` values.
 
-### Moonlift namespace exports
+### Lalin namespace exports
 
-Moonlift native-language heads, type values, and helpers live under `ml` and
-the long alias `moonlift`.
+Lalin native-language heads, type values, and helpers live under `ml` and
+the long alias `lalin`.
 
 Compilation-unit and declaration heads:
 
@@ -397,7 +397,7 @@ llpvm.spread
 
 ### Schema namespace exports
 
-MoonSchema defines product/sum/alias type families and the ASDL-shaped schema
+LalinSchema defines product/sum/alias type families and the ASDL-shaped schema
 model used by the compiler itself.
 
 ```text
@@ -453,7 +453,7 @@ Reserved by family policy:
 
 ```text
 pvm lang language type op world tape record machine phase task event
-input output root ml moonlift llpvm schema
+input output root ml lalin llpvm schema
 ```
 
 Shared by family policy:
@@ -487,15 +487,15 @@ head [Type]     type/value slot through index:type or index:value
 ```
 
 Head tables below are written relative to their owning namespace. In family
-source, prefix Moonlift heads and type values with `ml.`, LLPVM heads with
+source, prefix Lalin heads and type values with `ml.`, LLPVM heads with
 `llpvm.`, and schema heads/helpers with `schema.`. In member-only loaders such
-as `require("moonlift").use()` or `require("llpvm").use()`, those same heads may
+as `require("lalin").use()` or `require("llpvm").use()`, those same heads may
 be installed bare for focused tests or isolated single-language files.
 
 All names in managed environments are generic `llb.Symbol` values until a role
 normalizes them.
 
-## Moonlift Core Head Reference
+## Lalin Core Head Reference
 
 ### Units and declarations
 
@@ -510,7 +510,7 @@ normalizes them.
 | `static` | `static. name [Type] { value }` | Typed static declaration. |
 | `fn` | `fn. name { params... } [result] { body... }` | Internal function. Result is optional for void. |
 | `export_fn` | `export_fn. name { params... } [result] { body... }` | Exported function. |
-| `region` | `region. name { params... } { exits... } { blocks... }` | LLB generic region descriptor; Moonlift consumes it as a typed native control fragment when the body uses `entry`/`block`/`jump`/`emit`. |
+| `region` | `region. name { params... } { exits... } { blocks... }` | LLB generic region descriptor; Lalin consumes it as a typed native control fragment when the body uses `entry`/`block`/`jump`/`emit`. |
 | `expr_frag` | `expr_frag. name { params... } [result] { expr }` | Reusable expression fragment declaration. |
 
 Declaration names are dot-headed:
@@ -569,7 +569,7 @@ Fragment role must match the receiving context.
 | `assert_` | `assert_ (cond)` | Checked assertion. |
 | `requires` | `requires { contracts... }` | Function contract block, extracted during lowering. |
 
-No `for`, `while`, `break`, or `continue` exist in Moonlift core. Control is
+No `for`, `while`, `break`, or `continue` exist in Lalin core. Control is
 jump-first. Every block path must terminate with `jump`, `yield`, `ret`, or
 `trap`.
 
@@ -784,8 +784,8 @@ string-name canonical declarations such as fn("add", ...)
 mutation-style ll.vm authoring
 implicit hidden language dependency installs
 angle-bracket type arguments
-Moonlift source generics
-for / while / break / continue in Moonlift control
+Lalin source generics
+for / while / break / continue in Lalin control
 fallthrough switch cases
 ```
 
@@ -898,7 +898,7 @@ This convention makes DSL source grep-shaped: `rg 'ret \('` finds returns,
 
 ## Design Rule
 
-Moonlift structure uses `{}`.
+Lalin structure uses `{}`.
 
 Lua computation and language leaves use `()` when ordinary Lua syntax requires it.
 
@@ -935,7 +935,7 @@ region. scan
 
 ## Why This Works
 
-Lua table syntax already models the shapes Moonlift cares about:
+Lua table syntax already models the shapes Lalin cares about:
 
 ```text
 array table   -> ordered product/body/protocol entries
@@ -945,21 +945,21 @@ mixed table   -> ordered children plus attributes
 ()            -> host-time call or leaf expression construction
 ```
 
-Moonlift does not need a new parser to understand products, protocols, bodies,
+Lalin does not need a new parser to understand products, protocols, bodies,
 or continuation maps. The shape is already present in the Lua value.
 
 ## Loading
 
-### Quick: `moon.family.use()` for plain `.lua` files
+### Quick: `lalin.family.use()` for plain `.lua` files
 
-The simplest way to author Moonlift-family code is to call
-`require("moonlift").family.use()` at the top of any `.lua` file. This injects
+The simplest way to author Lalin-family code is to call
+`require("lalin").family.use()` at the top of any `.lua` file. This injects
 the family namespace values as Lua globals:
 
 ```lua
 -- my_module.lua
-local moon = require("moonlift")
-moon.family.use()
+local lalin = require("lalin")
+lalin.family.use()
 
 return {
   ml.fn. add { a [ml.i32], b [ml.i32] } [ml.i32] {
@@ -968,37 +968,37 @@ return {
 }
 ```
 
-For headers split across files, call `moon.family.use()` at the top of each
+For headers split across files, call `lalin.family.use()` at the top of each
 `.lua` file:
 
 ```lua
 -- math_header.lua
-require("moonlift").family.use()
+require("lalin").family.use()
 return { ml.fn. add { a [ml.i32], b [ml.i32] } [ml.i32] }
 
 -- math_impl.lua
-require("moonlift").family.use()
+require("lalin").family.use()
 local header = require("math_header")
 return { header[1] { ml.ret (a + b) } }
 ```
 
 ### Family loading — inline, isolated env
 
-For programmatic use, `moon.family.load()` creates an isolated environment
+For programmatic use, `lalin.family.load()` creates an isolated environment
 without touching `_G`:
 
 ```lua
-local moon = require("moonlift")
+local lalin = require("lalin")
 
 -- One-shot: compile and execute
-local decls = moon.family.load([[return { ... }]], "demo.lua")
+local decls = lalin.family.load([[return { ... }]], "demo.lua")
 
 -- From a file
-local chunk = moon.family.loadfile("demo.lua")
+local chunk = lalin.family.loadfile("demo.lua")
 local decls = chunk()
 
 -- Full pipeline
-local unit_value = moon.unit("Demo", decls)
+local unit_value = lalin.unit("Demo", decls)
 unit_value:ast()
 unit_value:typecheck()
 unit_value:lower()
@@ -1006,17 +1006,17 @@ unit_value:compile()
 unit_value:emit_c_artifact()
 ```
 
-`require("moonlift.dsl").load()` remains the Moonlift-core member loader. Use
+`require("lalin.dsl").load()` remains the Lalin-core member loader. Use
 the family loader when code may use LLPVM heads, shared LLB helpers, or family
 collision policy.
 
 ### Package searcher integration
 
-Once loaded, the Moonlift core DSL auto-installs a Lua `package.searchers` entry so
+Once loaded, the Lalin core DSL auto-installs a Lua `package.searchers` entry so
 plain `require("foo")` automatically finds `foo.lua` files:
 
 ```lua
-local dsl = require("moonlift.dsl")
+local dsl = require("lalin.dsl")
 dsl.loadstring([[...]], "main")  -- triggers searcher install
 
 -- Now any .lua file can require other .lua files:
@@ -1048,7 +1048,7 @@ dsl.loadstring(src, "demo", { strict = true })
 
 In strict mode, assignment to a previously unknown global is rejected.
 
-## Lua Modules and Moonlift Units
+## Lua Modules and Lalin Units
 
 ```lua
 return {
@@ -1057,7 +1057,7 @@ return {
 ```
 
 The canonical Lua file returns a plain Lua table. That table is the Lua module
-value, and its array part is the ordered Moonlift declaration list.
+value, and its array part is the ordered Lalin declaration list.
 
 Supported declaration entries:
 
@@ -1078,11 +1078,11 @@ _(decls_fragment)
 In this Lua-owned DSL, source composition is done by Lua `require` and value
 splicing (`[]` / `_(...)`), not by a DSL `import` declaration.
 
-Moonlift creates a compilation unit when you explicitly project the Lua value:
+Lalin creates a compilation unit when you explicitly project the Lua value:
 
 ```lua
 local decls = require("math_impl")
-local native = require("moonlift").compile("Math", decls)
+local native = require("lalin").compile("Math", decls)
 ```
 
 When the source file itself wants to carry artifact metadata, use `unit. Name`:
@@ -1095,7 +1095,7 @@ return unit. Math {
 
 ## LLPVM Family Surface
 
-LLPVM is part of the Moonlift family because the bootstrap/compiler-runtime
+LLPVM is part of the Lalin family because the bootstrap/compiler-runtime
 side needs a typed bytecode language with the same no-parser authoring model.
 The complete LLPVM reference is `docs/LLPVM_GUIDE.md`; this section defines the
 family-level shape.
@@ -1156,7 +1156,7 @@ Canonical Llisle island shape:
 ```lua
 llisle {
   project. classify_expr {
-    input { expr [MoonExpr] },
+    input { expr [LalinExpr] },
     output { class [ExprClassFact] },
     strategy {
       select. best_cost,
@@ -1166,7 +1166,7 @@ llisle {
   },
 
   relation. lower_expr {
-    input { expr [MoonExpr], ctx [LowerCtx] },
+    input { expr [LalinExpr], ctx [LowerCtx] },
     output { value [BackValue] },
     effects { cmd [BackCmd], diagnostic [Diagnostic] },
     strategy {
@@ -1232,7 +1232,7 @@ family DSLs:
 
 ```lua
 local Llisle = require("llisle")
-local env = require("moonlift").family.env { scope = "env", base = _G }
+local env = require("lalin").family.env { scope = "env", base = _G }
 Llisle.use { scope = "env", target = env, base = env, global = false }
 
 local function has_type(value, ty)
@@ -1246,7 +1246,7 @@ end
 local function rules()
   return llisle {
     relation. lower_expr {
-      input { expr [MoonExpr], ctx [LowerCtx] },
+      input { expr [LalinExpr], ctx [LowerCtx] },
       output { value [BackValue] },
     },
 
@@ -1308,7 +1308,7 @@ local result = assert(engine:run("lower_expr", {
 
 The engine is deliberately Lua-integrated, but not registry-defined. Llisle owns relation structure, projection structure, predicate declarations, constructor declarations, pattern binding, guard order, local `choose` alternatives, costs, effects, and returns. Lua implementations are explicit values spliced through `[]` on `predicate.` and `constructor.` declarations. There is no `host.` directive, no `predicates` compile registry, and no `builders` compile registry.
 
-Relation field types are also evaluated Lua values. Use real family type values there, including MoonSchema/ASDL runtime classes:
+Relation field types are also evaluated Lua values. Use real family type values there, including LalinSchema/ASDL runtime classes:
 
 ```lua
 relation. select_expr_lowering {
@@ -1334,7 +1334,7 @@ Binder paths are symbolic family paths, not private string slots. A rule may bin
 the whole subject as `P.expr` and then use `P.expr.lhs.ty` in guards or emitted
 payloads. Field lookup accepts ordinary Lua string keys, `llb.Symbol`/`llb.Name`
 keys, and shared symbols supplied to `llisle.compile { symbols = ... }`. This is
-what lets Llisle rules operate over Moonlift, MoonSchema, kernel, and backend
+what lets Llisle rules operate over Lalin, LalinSchema, kernel, and backend
 facts without translating those facts into a separate record universe.
 
 `bind` may appear before `when` inside a rule or alternative. This expresses
@@ -1375,7 +1375,7 @@ loop facts, and scheduled stencil readiness into a
 strategy by cost across selected stencil reductions, skeletons, and stores. Lua
 builds only the selected machine; it no longer owns a procedural trial ladder
 or a separate vector-reduction path. Vectorization is carried by the selected
-`MoonStencil.StencilInstance.schedule` and realized by the C stencil compiler
+`LalinStencil.StencilInstance.schedule` and realized by the C stencil compiler
 policy.
 
 The stencil layer is performance-gated as a vocabulary, not as isolated
@@ -1383,7 +1383,7 @@ examples. Run `luajit benchmarks/bench_luajit_stencil_matrix.lua full` to
 measure every C stencil shape against a direct GCC loop baseline.
 The next layer is gated by
 `luajit benchmarks/bench_luajit_lower_stencil_matrix.lua full`, which asserts
-that MoonCode loops select the expected stencil vocabulary and compares the
+that LalinCode loops select the expected stencil vocabulary and compares the
 lowered LuaJIT wrapper with the raw artifact call.
 Array skeletons that are not plain stores or reductions are represented in the
 kernel schema before lowering: `KernelEffectScan`, `KernelEffectPartition`,
@@ -1404,7 +1404,7 @@ the semantic outcome. The rule layer owns no-plan rejection priority and kernel
 result priority: closed forms win over reductions, reductions win over skeleton
 results, skeleton results win over original control, and closed-form plans carry
 the explicit unknown-trip proof bit when Flow cannot provide an exact trip
-count. Lua then constructs the selected MoonKernel ASDL value.
+count. Lua then constructs the selected LalinKernel ASDL value.
 
 Schedule planning is Llisle-owned at the strategy boundary. `code_schedule_plan`
 builds `KernelScheduleInput` values from planned kernels, target vector
@@ -1450,7 +1450,7 @@ Use `task. compile { ... }` when progress/event structure is part of the typed
 compiler/runtime model. Use `llb.process. name { ... } (body_fn)` for the LLB
 event-protocol region lowered to the LuaJIT pull ABI.
 
-Moonlift phase execution reports expose `LlPvm.TaskRun` records, so compiler
+Lalin phase execution reports expose `LlPvm.TaskRun` records, so compiler
 progress, validation, source analysis, LSP indexing, and debugger stepping can
 share one typed run/event model.
 
@@ -1578,7 +1578,7 @@ Name tokens in DSL environments are created on demand:
 ret (acc + x)
 ```
 
-Here `acc` and `x` are name tokens resolved later by Moonlift semantic phases.
+Here `acc` and `x` are name tokens resolved later by Lalin semantic phases.
 
 For generated names inside arrays, use `N`:
 
@@ -1760,7 +1760,7 @@ Void extern:
 extern. trap
   { code [i32] }
   {
-    symbol = "moon_trap",
+    symbol = "lalin_trap",
   }
 ```
 
@@ -2069,7 +2069,7 @@ expr_frag. inc
   }
 ```
 
-They lower to `MoonOpen.ExprFrag` module items.
+They lower to `LalinOpen.ExprFrag` module items.
 
 ## Expressions
 
@@ -2090,7 +2090,7 @@ Because these are Lua calls, the no-parens form only applies to Lua's special
 single-argument forms:
 
 ```lua
-  const. greeting [ptr [u8]] "hello, moonlift"
+  const. greeting [ptr [u8]] "hello, lalin"
   const. nums [array [i32] [3]] { 1, 2, 3 }
   ret "done"
   ret { 1, 2, 3 }
@@ -2136,7 +2136,7 @@ a % b
 Comparisons use methods or constructors because Lua comparison operators cannot
 be overloaded into expression trees. Default style puts spaces before the
 method colon and before the argument list so comparison methods read like
-Moonlift operators:
+Lalin operators:
 
 ```lua
 i :ge (n)
@@ -2208,7 +2208,7 @@ payload arguments are an ordered table of expression values.
 
 ## Fragments And Splicing
 
-Lua has no spread syntax, so Moonlift uses `_ (value)` as the preferred splice
+Lua has no spread syntax, so Lalin uses `_ (value)` as the preferred splice
 marker. `spread(value)` remains available as the explicit fallback, especially
 in scopes where `_` is shadowed by a local variable.
 
@@ -2276,7 +2276,7 @@ return {
 }
 ```
 
-No source generics are needed. Lua performs generation; Moonlift receives
+No source generics are needed. Lua performs generation; Lalin receives
 monomorphic ASDL.
 
 ## Power: Natural Slicing Without A Parser
@@ -2354,7 +2354,7 @@ This is the main power of the layer:
 ```text
 program parts are ordinary values
 program shapes are ordinary Lua tables
-Moonlift still receives explicit ASDL
+Lalin still receives explicit ASDL
 ```
 
 The result is a metaprogramming surface with no parser debt.
@@ -2364,8 +2364,8 @@ The result is a metaprogramming surface with no parser debt.
 DSL unit/declaration values expose:
 
 ```lua
-value:syntax()          -- MoonTree module for units
-value:ast()             -- lowered MoonTree item/module
+value:syntax()          -- LalinTree module for units
+value:ast()             -- lowered LalinTree item/module
 value:typecheck(opts)   -- tree typecheck result
 value:lower(opts)       -- frontend lower_module result
 value:compile(opts)     -- JIT compile through backend pipeline
@@ -2386,7 +2386,7 @@ function body cannot mix entry/block declarations with ordinary statements
 expected product fragment, got stmt
 ```
 
-Semantic errors are reported by existing Moonlift phases after ASDL lowering:
+Semantic errors are reported by existing Lalin phases after ASDL lowering:
 
 ```text
 unresolved names
@@ -2434,7 +2434,7 @@ return unit. Name {
 }
 ```
 
-The surface remains Lua, but the grammar mirrors Moonlift’s algebra:
+The surface remains Lua, but the grammar mirrors Lalin’s algebra:
 
 ```text
 products    -> ordered tables of typed names
@@ -2445,24 +2445,24 @@ type slots  -> evaluated Lua values in []
 generation  -> ordinary Lua
 ```
 
-No parser is hiding behind the DSL. Lua is the parser; Moonlift owns the
+No parser is hiding behind the DSL. Lua is the parser; Lalin owns the
 semantics.
 
 ## Formatting
 
-Moonlift has semantic formatting for format-owned DSL files.
+Lalin has semantic formatting for format-owned DSL files.
 
 A format-owned file is ordinary Lua whose meaningful output is the evaluated
-Moonlift value it returns. The formatter evaluates the file, formats the
-returned Moonlift/LLB value, and emits canonical DSL Lua. It is not a general
+Lalin value it returns. The formatter evaluates the file, formats the
+returned Lalin/LLB value, and emits canonical DSL Lua. It is not a general
 Lua source formatter and does not preserve comments or arbitrary Lua
 metaprogramming shape.
 
 Canonical API:
 
 ```lua
-local moon = require("moonlift")
-moon.family.use()
+local lalin = require("lalin")
+lalin.family.use()
 
 local M = {
   fn. add { a [i32], b [i32] } [i32] {
@@ -2470,48 +2470,48 @@ local M = {
   },
 }
 
-print(moon.format(M))
+print(lalin.format(M))
 ```
 
 Format-owned file API:
 
 ```lua
-local text = require("moonlift").format_file("demo.lua")
-require("moonlift").write_format_file("demo.lua")
+local text = require("lalin").format_file("demo.lua")
+require("lalin").write_format_file("demo.lua")
 ```
 
 Family reference generation:
 
 ```lua
-local moon = require("moonlift")
+local lalin = require("lalin")
 
-local md = moon.markdown { title = "Moonlift Family Reference" }
-moon.write_markdown("docs/MOONLIFT_FAMILY_REFERENCE.md")
+local md = lalin.markdown { title = "Lalin Family Reference" }
+lalin.write_markdown("docs/LALIN_FAMILY_REFERENCE.md")
 ```
 
-`moon.markdown` delegates to the Moonlift family. The family writes the common
-reference frame, then delegates to each language member. Moonlift, MoonSchema,
+`lalin.markdown` delegates to the Lalin family. The family writes the common
+reference frame, then delegates to each language member. Lalin, LalinSchema,
 LLPVM, and Llisle own their semantic sections; plain LLB language metadata
 fills in the generated head, role, export, and pass tables.
 
 The generated reference always starts with the shared LLB syntax model. This is
-intentional: Moonlift-family languages all use the same Lua mechanics for dot
+intentional: Lalin-family languages all use the same Lua mechanics for dot
 heads, index/type slots, table/call slots, fragments, algebra, zones, origins,
 formatting, diagnostics, and indexing.
 
 CLI:
 
 ```sh
-luajit scripts/moonfmt.lua demo.lua
-luajit scripts/moonfmt.lua --check demo.lua
-luajit scripts/moonfmt.lua --write demo.lua
+luajit scripts/lalinfmt.lua demo.lua
+luajit scripts/lalinfmt.lua --check demo.lua
+luajit scripts/lalinfmt.lua --write demo.lua
 ```
 
-Canonical output includes the Moonlift prelude:
+Canonical output includes the Lalin prelude:
 
 ```lua
-local moon = require("moonlift")
-moon.family.use()
+local lalin = require("lalin")
+lalin.family.use()
 
 return {
   ml.fn. add { a [ml.i32], b [ml.i32] } [ml.i32] {
@@ -2536,12 +2536,12 @@ as [i32] (buffer[index + offset])
   :ne (sentinel)
 ```
 
-Factories that generate Moonlift declarations should thread origins so
+Factories that generate Lalin declarations should thread origins so
 diagnostics point to the abstraction call site:
 
 ```lua
-local moon = require("moonlift")
-moon.family.use()
+local lalin = require("lalin")
+lalin.family.use()
 
 local function checked_add(name, origin)
   origin = origin or here("checked_add")
@@ -2554,18 +2554,18 @@ local function checked_add(name, origin)
 end
 ```
 
-## `moon.family.use()` sessions
+## `lalin.family.use()` sessions
 
-`moon.family.use()` is the Moonlift-family wrapper over LLB family use sessions.
+`lalin.family.use()` is the Lalin-family wrapper over LLB family use sessions.
 LLB supplies the shared substrate (`llb`, `_`, `spread`, process helpers,
-origin helpers, and generic symbols). Moonlift, LLPVM, and MoonSchema are
-installed as namespace values (`ml`/`moonlift`, `llpvm`, `schema`). LLB manages
+origin helpers, and generic symbols). Lalin, LLPVM, and LalinSchema are
+installed as namespace values (`ml`/`lalin`, `llpvm`, `schema`). LLB manages
 environment installation, auto-names, collision policy, and cleanup.
 
 Most authoring files ignore the return value:
 
 ```lua
-require("moonlift").family.use()
+require("lalin").family.use()
 
 return {
   ml.fn. add { a [ml.i32], b [ml.i32] } [ml.i32] {
@@ -2577,7 +2577,7 @@ return {
 When explicit access is useful, use the returned session:
 
 ```lua
-local use = require("moonlift").family.use { scope = "env" }
+local use = require("lalin").family.use { scope = "env" }
 local env = use.env
 local add_head = env.ml.fn
 ```
@@ -2585,14 +2585,14 @@ local add_head = env.ml.fn
 Scopes:
 
 ```lua
-require("moonlift").family.use()                       -- permanent global install
-local s = require("moonlift").family.use { scope = "scoped" }
+require("lalin").family.use()                       -- permanent global install
+local s = require("lalin").family.use { scope = "scoped" }
 s:close()                                             -- remove what this session installed
-local isolated = require("moonlift").family.use { scope = "env" }
+local isolated = require("lalin").family.use { scope = "env" }
 ```
 
-Moonlift loaders and formatting use isolated `scope = "env"` sessions, so
-`moon.loadstring`, `moon.loadfile`, and `moon.format_file` do not mutate `_G`.
+Lalin loaders and formatting use isolated `scope = "env"` sessions, so
+`lalin.loadstring`, `lalin.loadfile`, and `lalin.format_file` do not mutate `_G`.
 
 The family namespace values are callable zone heads:
 
@@ -2614,15 +2614,15 @@ return {
 
   schema {
     schema. Demo {
-      schema.product. Pair { left [MoonType.Type], right [MoonType.Type] },
+      schema.product. Pair { left [LalinType.Type], right [LalinType.Type] },
     },
   },
 }
 ```
 
 Use `ml { ... }`, `llpvm { ... }`, and `schema { ... }` when one Lua value
-contains multiple family languages. `moonlift { ... }` is the long spelling of
-the `ml` zone. `moon.compile("Name", value)` recursively projects only Moonlift
+contains multiple family languages. `lalin { ... }` is the long spelling of
+the `ml` zone. `lalin.compile("Name", value)` recursively projects only Lalin
 declarations; LLPVM APIs recursively project only LLPVM programs. Zones are
 semantic partitions over values. They do not create lexical environments; the
 namespace prefix is still the lexical ownership marker.
@@ -2630,30 +2630,30 @@ namespace prefix is still the lexical ownership marker.
 The same family value is also the tooling boundary:
 
 ```lua
-local value = moon.family.loadfile("program.lua")()
+local value = lalin.family.loadfile("program.lua")()
 
-print(moon.family.format(value))
+print(lalin.family.format(value))
 
-local diagnostics = moon.family.diagnostics(value)
+local diagnostics = lalin.family.diagnostics(value)
 if diagnostics:has_errors() then
   print(diagnostics:render())
 end
 
-local index = moon.family.index(value)
+local index = lalin.family.index(value)
 
-local reduction = moon.family.reduction()
-assert(reduction.owner["type-family"] == "moonschema.dsl")
+local reduction = lalin.family.reduction()
+assert(reduction.owner["type-family"] == "lalinschema.dsl")
 ```
 
 Formatting delegates each owned value to its member language. Diagnostics run
-Moonlift projection/syntax/typecheck and LLPVM projection/lowering/task checks.
+Lalin projection/syntax/typecheck and LLPVM projection/lowering/task checks.
 Indexing returns a family index with zone facts and member symbols. Reduction
 returns the semantic owner/reuse graph and any overlap/external-use smells.
 
-`moon.family.use()` options are forwarded to LLB where possible:
+`lalin.family.use()` options are forwarded to LLB where possible:
 
 ```lua
-require("moonlift").use {
+require("lalin").use {
   scope = "permanent",
   strict = false,
   override = false,
@@ -2663,7 +2663,7 @@ require("moonlift").use {
 
 ## Fragment algebra
 
-Moonlift uses LLB fragment algebra for reusable, checked composition of DSL
+Lalin uses LLB fragment algebra for reusable, checked composition of DSL
 structure.
 
 Products/lists compose with `..`:
@@ -2737,7 +2737,7 @@ region. parse_i32 { p [ptr [u8]], n [index] } parse_exits {
 }
 ```
 
-Supported Moonlift fragment roles:
+Supported Lalin fragment roles:
 
 ```text
 product  -- product fields/params; `..` and `*`
@@ -2803,7 +2803,7 @@ conts { ok {} } + conts { ok {} }         -- duplicate alternative
 
 ### Preferred metaprogramming style
 
-Fragment algebra is the preferred way to metaprogram Moonlift DSL structure.
+Fragment algebra is the preferred way to metaprogram Lalin DSL structure.
 Factories should return role-tagged fragments instead of raw Lua arrays when
 producing reusable pieces of declarations, parameters, statements, expressions,
 continuation protocols, or union variants.
@@ -2847,18 +2847,18 @@ return out
 ```
 
 Raw Lua tables are still useful inside a factory, but the public result of a
-Moonlift metaprogramming helper should normally be a fragment with an explicit
+Lalin metaprogramming helper should normally be a fragment with an explicit
 role. This preserves role information, enables early diagnostics, keeps
 composition readable, and lets formatting/rendering recover canonical DSL
 structure after evaluation.
 
 ## LuaJIT copy-and-patch artifact emission
 
-Moonlift can emit a self-contained LuaJIT source artifact that embeds selected native stencil bytes and installs them with copy-and-patch at load time.
+Lalin can emit a self-contained LuaJIT source artifact that embeds selected native stencil bytes and installs them with copy-and-patch at load time.
 
 ```lua
-local moon = require("moonlift")
-moon.use { scope = "env" }
+local lalin = require("lalin")
+lalin.use { scope = "env" }
 
 local sum_i32 = fn. sum_i32 { xs [ptr [i32]], n [i32] } [i32] {
   requires { bounds(xs, n), readonly(xs) },
@@ -2882,7 +2882,7 @@ local sum_i32 = fn. sum_i32 { xs [ptr [i32]], n [i32] } [i32] {
   },
 }
 
-local artifact = moon.emit_luajit_artifact(sum_i32, {
+local artifact = lalin.emit_luajit_artifact(sum_i32, {
   path = "target/artifacts/sum_i32.lua",
   name = "SumI32",
   stem = "sum_i32",
@@ -2896,4 +2896,4 @@ local mod = assert(loadfile("target/artifacts/sum_i32.lua"))()
 print(mod.sum_i32(xs, n))
 ```
 
-This path uses the same Moonlift frontend and MoonStencil schedule/artifact selection as the normal compiler. Selected stencils are recorded as `StencilPlanEntry` values keyed by `KernelId`, converted into target-neutral `MoonExec.ExecPlanEntry` materialize/skip decisions, grouped into `MoonExec.ExecModulePlan`, and projected into `MoonLuaJIT.LJStencilMachineModulePlan` before LuaJIT wrapper lowering. The LuaJIT copy-and-patch backend realizes those already-selected `StencilArtifact` values; it does not re-lower loops or keep a separate vector/reduction machine.
+This path uses the same Lalin frontend and LalinStencil schedule/artifact selection as the normal compiler. Selected stencils are recorded as `StencilPlanEntry` values keyed by `KernelId`, converted into target-neutral `LalinExec.ExecPlanEntry` materialize/skip decisions, grouped into `LalinExec.ExecModulePlan`, and projected into `LalinLuaJIT.LJStencilMachineModulePlan` before LuaJIT wrapper lowering. The LuaJIT copy-and-patch backend realizes those already-selected `StencilArtifact` values; it does not re-lower loops or keep a separate vector/reduction machine.

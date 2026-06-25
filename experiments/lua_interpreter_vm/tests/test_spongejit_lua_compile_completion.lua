@@ -3,7 +3,7 @@ package.path = "./experiments/lua_interpreter_vm/spongejit/?.lua;./experiments/l
 
 -- Opt-in future completeness gate: this is intentionally stricter than the
 -- main suite and is not part of the green implemented-slice gate until the
--- corresponding MoonCFG regions exist. It must never treat rejection as success.
+-- corresponding LalinCFG regions exist. It must never treat rejection as success.
 
 local C = require("lua_compile")
 local Schema = require("lua_compile.schema")
@@ -17,7 +17,7 @@ end
 table.sort(names)
 
 local function luaexec_ok(case)
-  local r = C.compile_to_moon_kernel(C.unit_from_events(case.events, case.evidence or {}))
+  local r = C.compile_to_lalin_kernel(C.unit_from_events(case.events, case.evidence or {}))
   if r.kind ~= "Ok" then return false, r end
   local k = r.product and r.product.kernel
   if not (k and k.id and k.id.name and k.id.name.text == "lua_exec_core_kernel") then
@@ -50,14 +50,14 @@ local legacy_only = {
   { label = "unsupported SETLIST must not drop side effect", events = { {op="SETLIST",pc=1,a=1,vb=1,vc=1,k=false}, {op="RETURN0",pc=2} } },
 }
 for _, case in ipairs(legacy_only) do
-  local r = C.compile_to_moon_kernel(C.unit_from_events(case.events, case.evidence or {}))
+  local r = C.compile_to_lalin_kernel(C.unit_from_events(case.events, case.evidence or {}))
   if r.kind ~= "Reject" then red[#red + 1] = case.label .. " -> unexpected Ok" end
 end
 
 if #red > 0 then
-  io.stderr:write("SpongeJIT LuaCompile completion is RED: supported LuaExec/MoonCFG fixtures still reject\n")
+  io.stderr:write("SpongeJIT LuaCompile completion is RED: supported LuaExec/LalinCFG fixtures still reject\n")
   for _, line in ipairs(red) do io.stderr:write("  ", line, "\n") end
-  error("LuaCompile lowering incomplete: supported fixtures did not compile through LuaExec/MoonCFG", 0)
+  error("LuaCompile lowering incomplete: supported fixtures did not compile through LuaExec/LalinCFG", 0)
 end
 
-print("ok - SpongeJIT LuaCompile completion (LuaExec/MoonCFG semantic fixtures)")
+print("ok - SpongeJIT LuaCompile completion (LuaExec/LalinCFG semantic fixtures)")

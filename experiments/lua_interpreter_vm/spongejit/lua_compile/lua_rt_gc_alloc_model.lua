@@ -2,7 +2,7 @@
 -- Structural validation only; no allocator or collector lowering is introduced here.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local GC = T.LuaGC
 local RT = T.LuaRT

@@ -1,22 +1,22 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local Flow = T.MoonFlow
-local Schedule = T.MoonSchedule
-local Stencil = T.MoonStencil
-local Value = T.MoonValue
-local LJ = T.MoonLuaJIT
+local Core = T.LalinCore
+local Code = T.LalinCode
+local Flow = T.LalinFlow
+local Schedule = T.LalinSchedule
+local Stencil = T.LalinStencil
+local Value = T.LalinValue
+local LJ = T.LalinLuaJIT
 
-local StencilArtifactPlan = require("moonlift.stencil_artifact_plan")(T)
-local StencilBank = require("moonlift.stencil_bank")(T)
+local StencilArtifactPlan = require("lalin.stencil_artifact_plan")(T)
+local StencilBank = require("lalin.stencil_bank")(T)
 
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)
 local sem = Code.CodeIntSemantics(Code.CodeIntWrap, Code.CodeDivTrapOnZeroOrOverflow, Code.CodeShiftMaskCount)
@@ -78,4 +78,4 @@ for i = 0, n - 1 do
 end
 assert(fn(xs, 0, n, 0) == expected, "local absolute jump-table stencil produced wrong sum")
 
-io.write("moonlift stencil_bank local abs jump table ok\n")
+io.write("lalin stencil_bank local abs jump table ok\n")

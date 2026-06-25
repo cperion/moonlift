@@ -1,28 +1,28 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local CompilerPackage = require("moonlift.compiler_package")
-local Plan = require("moonlift.phase_plan")
+local pvm = require("lalin.pvm")
+local CompilerPackage = require("lalin.compiler_package")
+local Plan = require("lalin.phase_plan")
 
 local T = pvm.context()
 local pkg = CompilerPackage(T)
-local P = T.MoonPhase
+local P = T.LalinPhase
 
 assert(pvm.classof(pkg) == P.Package)
-assert(pkg.id.text == "moonlift.compiler")
+assert(pkg.id.text == "lalin.compiler")
 assert(#pkg.worlds == 5)
 assert(#pkg.machines == 3)
 assert(#pkg.phases == 3)
 assert(#pkg.roots == 2)
-assert(pkg.worlds[1].ty.module_name == "MoonTree")
+assert(pkg.worlds[1].ty.module_name == "LalinTree")
 assert(pkg.worlds[1].ty.type_name == "Module")
-assert(pkg.worlds[2].ty.module_name == "MoonTree")
+assert(pkg.worlds[2].ty.module_name == "LalinTree")
 assert(pkg.worlds[2].ty.type_name == "TypeModuleResult")
-assert(pkg.worlds[3].ty.module_name == "MoonCompiler")
+assert(pkg.worlds[3].ty.module_name == "LalinCompiler")
 assert(pkg.worlds[3].ty.type_name == "CodeResult")
-assert(pkg.worlds[4].ty.module_name == "MoonC")
+assert(pkg.worlds[4].ty.module_name == "LalinC")
 assert(pkg.worlds[4].ty.type_name == "CBackendUnit")
-assert(pkg.worlds[5].ty.module_name == "MoonDiag")
+assert(pkg.worlds[5].ty.module_name == "LalinDiag")
 assert(pkg.worlds[5].ty.type_name == "Report")
 
 local planned = Plan.assert_plan(pkg, "compile")
@@ -42,4 +42,4 @@ assert(c_plan.plan.steps[2].machine.text == "hosted_checked_to_c_code")
 assert(c_plan.plan.steps[3].machine.text == "hosted_c_code_to_c")
 assert(c_plan.plan.output.text == "c")
 
-io.write("moonlift compiler_package ok\n")
+io.write("lalin compiler_package ok\n")

@@ -1,15 +1,15 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 local ffi = require("ffi")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local Backend = require("moonlift.luajit_backend")(T)
+local Core = T.LalinCore
+local Code = T.LalinCode
+local Backend = require("lalin.luajit_backend")(T)
 
 local origin = Code.CodeOriginGenerated("generate_luajit_copy_patch_artifact")
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)

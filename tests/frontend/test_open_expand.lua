@@ -1,6 +1,6 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local function single(value) return { value } end
 local function as_list(values) return values end
 local function only(values)
@@ -36,21 +36,21 @@ local function flat_map(fn, values, n)
     for i = 1, n do append_all(out, fn(values[i])) end
     return out
 end
-local A = require("moonlift.schema_projection")
-local Expand = require("moonlift.open_expand")
-local Facts = require("moonlift.open_facts")
-local Validate = require("moonlift.open_validate")
+local A = require("lalin.schema_projection")
+local Expand = require("lalin.open_expand")
+local Facts = require("lalin.open_facts")
+local Validate = require("lalin.open_validate")
 
 local T = pvm.context()
 A(T)
 local E = Expand(T)
 local F = Facts(T)
 local V = Validate(T)
-local C = T.MoonCore
-local Ty = T.MoonType
-local O = T.MoonOpen
-local B = T.MoonBind
-local Tr = T.MoonTree
+local C = T.LalinCore
+local Ty = T.LalinType
+local O = T.LalinOpen
+local B = T.LalinBind
+local Tr = T.LalinTree
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local u64 = Ty.TScalar(C.ScalarU64)
@@ -123,4 +123,4 @@ assert(func_item.func.body[1].expr == lit("7"))
 local report = V.validate(F.facts_of_module(expanded_module))
 assert(#report.issues == 0)
 
-print("moonlift open_expand ok")
+print("lalin open_expand ok")

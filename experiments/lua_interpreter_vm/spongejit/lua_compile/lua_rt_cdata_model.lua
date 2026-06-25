@@ -8,7 +8,7 @@
 -- here.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local FFI = T.LuaFFI
 
@@ -34,9 +34,9 @@ M.FINALIZER = {
 }
 
 M.SCALAR = {
-  CInt32 = { width = 4, align = 4, moon_type = "i32", lua_tag = "IntegerTag" },
-  CInt64 = { width = 8, align = 8, moon_type = "i64", lua_tag = "IntegerTag" },
-  CDouble = { width = 8, align = 8, moon_type = "f64", lua_tag = "FloatTag" },
+  CInt32 = { width = 4, align = 4, lalin_type = "i32", lua_tag = "IntegerTag" },
+  CInt64 = { width = 8, align = 8, lalin_type = "i64", lua_tag = "IntegerTag" },
+  CDouble = { width = 8, align = 8, lalin_type = "f64", lua_tag = "FloatTag" },
 }
 
 -- The bank uses typed scalar pointers instead of an opaque ptr(u8) helper.

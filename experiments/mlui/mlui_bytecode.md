@@ -224,7 +224,7 @@ cycles if non-tree child references are ever allowed
 unsupported opcode/profile flags
 ```
 
-Failures become `UiStatus` values at the C seal and typed exits inside Moonlift.
+Failures become `UiStatus` values at the C seal and typed exits inside Lalin.
 Backends must never see malformed op rows.
 
 ## Frontend Rules

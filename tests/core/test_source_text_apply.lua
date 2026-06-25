@@ -1,12 +1,12 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local SourceApply = require("moonlift.source_text_apply")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local SourceApply = require("lalin.source_text_apply")
 
 local T = pvm.context()
 A(T)
-local S = T.MoonSource
+local S = T.LalinSource
 local Apply = SourceApply(T)
 
 local uri = S.DocUri("file:///edit.mlua")
@@ -74,4 +74,4 @@ local mixed = Apply.apply(d2, S.DocumentEdit(uri, S.DocVersion(2), {
 assert(pvm.classof(mixed) == S.SourceApplyRejected)
 assert(mixed.issues[1] == S.SourceIssueMixedReplaceAll)
 
-print("moonlift source text apply ok")
+print("lalin source text apply ok")

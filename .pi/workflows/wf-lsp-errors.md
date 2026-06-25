@@ -1,5 +1,5 @@
-# Full LSP + Compiler Error Reporting Overhaul 
-Audit and unify the LSP implementation and error reporting across the entire Moonlift compiler. The LSP is incomplete and inconsistent; error messages vary in quality, span coverage, and format across compiler phases. Goal: a complete, polished LSP with meaningful diagnostics, code actions, hover, completions, and a unified error reporting pipeline that produces rich, actionable messages everywhere.
+# Full LSP + Compiler Error Reporting Overhaul
+Audit and unify the LSP implementation and error reporting across the entire Lalin compiler. The LSP is incomplete and inconsistent; error messages vary in quality, span coverage, and format across compiler phases. Goal: a complete, polished LSP with meaningful diagnostics, code actions, hover, completions, and a unified error reporting pipeline that produces rich, actionable messages everywhere.
 **Started**: 2026-05-19 13:35:04
 ---
 
@@ -13,14 +13,14 @@ Now I have a complete picture. Let me compile the comprehensive audit.
 
 ### 1. LSP Infrastructure
 1. `lsp.lua` (lines 1-10) — Entry point: just runs `rpc_stdio_loop`
-2. `lua/moonlift/rpc_stdio_loop.lua` (lines 1-78) — Main LSP message loop: reads JSON-RPC, decodes, transitions state, encodes outgoing
-3. `lua/moonlift/rpc_json_decode.lua` (lines 1-132) — JSON-RPC decoder with ASDL value conversion
-4. `lua/moonlift/rpc_json_encode.lua` (lines 1-79) — JSON encoder
-5. `lua/moonlift/rpc_lsp_decode.lua` (lines 1-145) — LSP method→ClientEvent mapping: **maps all 22 LSP methods**
-6. `lua/moonlift/rpc_lsp_encode.lua` (lines 1-183) — ClientEvent→JSON-RPC encoding with **18 Payload variants**
-7. `lua/moonlift/rpc_out_commands.lua` (lines 1-160) — Event→response command decoder: central dispatch
-8. `lua/moonlift/lsp_capabilities.lua` (lines 1-12) — Server capabilities JSON
-9. `lua/moonlift/lsp_payload_adapt.lua` (lines 1-249) — ASDL↔protocol conversions
+2. `lua/lalin/rpc_stdio_loop.lua` (lines 1-78) — Main LSP message loop: reads JSON-RPC, decodes, transitions state, encodes outgoing
+3. `lua/lalin/rpc_json_decode.lua` (lines 1-132) — JSON-RPC decoder with ASDL value conversion
+4. `lua/lalin/rpc_json_encode.lua` (lines 1-79) — JSON encoder
+5. `lua/lalin/rpc_lsp_decode.lua` (lines 1-145) — LSP method→ClientEvent mapping: **maps all 22 LSP methods**
+6. `lua/lalin/rpc_lsp_encode.lua` (lines 1-183) — ClientEvent→JSON-RPC encoding with **18 Payload variants**
+7. `lua/lalin/rpc_out_commands.lua` (lines 1-160) — Event→response command decoder: central dispatch
+8. `lua/lalin/lsp_capabilities.lua` (lines 1-12) — Server capabilities JSON
+9. `lua/lalin/lsp_payload_adapt.lua` (lines 1-249) — ASDL↔protocol conversions
 
 ### 2. Editor Features (22 files)
 10. `editor_workspace_apply.lua` — State machine: open/change/close document management
@@ -56,15 +56,15 @@ Now I have a complete picture. Let me compile the comprehensive audit.
 38. `error/present_terminal.lua` — ErrorReport→terminal output (with colors, snippets)
 
 ### 4. Schema Definitions
-39. `schema/lsp.lua` — MoonLsp: payload types for all 18 response variants
-40. `schema/editor.lua` — MoonEditor: client events, diagnostic facts, subjects, symbols, binding scopes
-41. `schema/source.lua` — MoonSource: documents, positions, ranges, anchors
-42. `schema/tree.lua` (lines 1058-1260) — MoonTree.TypeIssue: 18 type issue variants
-43. `schema/back.lua` (lines 1025-1200) — MoonBack.BackValidationIssue: **30 issue variants**
-44. `schema/open.lua` (lines 658-745) — MoonOpen.ValidationIssue: 18+ issue variants
-45. `schema/parse.lua` (lines 1-20) — MoonParse.ParseIssue: single product type
-46. `schema/host.lua` (lines 6-125) — MoonHost.HostIssue: **22 issue variants**
-47. `schema/bind.lua` — MoonBind binding classes
+39. `schema/lsp.lua` — LalinLsp: payload types for all 18 response variants
+40. `schema/editor.lua` — LalinEditor: client events, diagnostic facts, subjects, symbols, binding scopes
+41. `schema/source.lua` — LalinSource: documents, positions, ranges, anchors
+42. `schema/tree.lua` (lines 1058-1260) — LalinTree.TypeIssue: 18 type issue variants
+43. `schema/back.lua` (lines 1025-1200) — LalinBack.BackValidationIssue: **30 issue variants**
+44. `schema/open.lua` (lines 658-745) — LalinOpen.ValidationIssue: 18+ issue variants
+45. `schema/parse.lua` (lines 1-20) — LalinParse.ParseIssue: single product type
+46. `schema/host.lua` (lines 6-125) — LalinHost.HostIssue: **22 issue variants**
+47. `schema/bind.lua` — LalinBind binding classes
 
 ### 5. Error Emitters
 48. `parse.lua` — Emits ParseIssue
@@ -160,7 +160,7 @@ LSP Client → stdio → rpc_stdio_loop
   → rpc_json_decode.decode_message() → RpcRequest/RpcNotification
   → rpc_lsp_decode.decode() → ClientEvent variant
   → editor_workspace_apply.apply_event() → Transition(before, event, after)
-  → rpc_out_commands.commands() → {SendMessage, LogMessage, StopServer}[] 
+  → rpc_out_commands.commands() → {SendMessage, LogMessage, StopServer}[]
     → for each SendMessage:
         lsp_payload_adapt.xxx() → Payload variant
         rpc_lsp_encode.encode_outgoing() → JSON string
@@ -184,7 +184,7 @@ Both are called. `rpc_out_commands.lua` uses **only** `ReportFacts.reports()` (n
 
 ### Error Separation: Three Independent Systems
 
-1. **`moonlift/diagnostic.lua`** — Legacy. Used by `mlua_run.lua`. Renders to terminal string. Not connected to LSP at all.
+1. **`lalin/diagnostic.lua`** — Legacy. Used by `mlua_run.lua`. Renders to terminal string. Not connected to LSP at all.
 2. **`editor_diagnostic_facts.lua`** — Old LSP path. Produces ASDL DiagnosticFact[]. Used by code_actions, subject_at. Not directly connected to rpc_out_commands.
 3. **`error/`** — New unified path. Connects through `editor_error_reports.lua` → `rpc_out_commands.lua`. Primary LSP diagnostic pipeline.
 
@@ -353,15 +353,15 @@ The problem is about **unifying error reporting across all compiler phases for a
 
 #### 1. The `error()` pattern in host code is architecturally *correct* — but only for one execution mode
 
-`raise_host_issue()` in `host_issue_values.lua` is called from Lua builder API code that runs at **metaprogramming time** — before Moonlift compilation even starts. These calls happen inside Lua expressions like `moon.struct(...)`, `module:seal()`, `region_compose(...)`. In the **interactive Lua REPL or script context**, `error()` is the right behavior: the user's Lua metaprogram has a bug, and compilation can't start. But in the **LSP context**, the same builder code runs every keystroke as the document is re-analyzed. The LSP MUST catch these errors to surface them as diagnostics rather than crashing the server.
+`raise_host_issue()` in `host_issue_values.lua` is called from Lua builder API code that runs at **metaprogramming time** — before Lalin compilation even starts. These calls happen inside Lua expressions like `lalin.struct(...)`, `module:seal()`, `region_compose(...)`. In the **interactive Lua REPL or script context**, `error()` is the right behavior: the user's Lua metaprogram has a bug, and compilation can't start. But in the **LSP context**, the same builder code runs every keystroke as the document is re-analyzed. The LSP MUST catch these errors to surface them as diagnostics rather than crashing the server.
 
-The catch: the LSP already catches these via `pcall` — the `editor_workspace_apply.lua` state machine applies document changes, runs analysis, and catches errors. The issue is that caught `error()` calls produce Lua stack traces, not structured ErrorReports. The schema HostIssue variants ARE constructed (look at `host_struct_values.lua:56` — it calls `api.raise_host_issue(self.session.T.MoonHost.HostIssueSealedMutation(self.name))`, constructing a proper ASDL value) but these are thrown via `error()` instead of collected.
+The catch: the LSP already catches these via `pcall` — the `editor_workspace_apply.lua` state machine applies document changes, runs analysis, and catches errors. The issue is that caught `error()` calls produce Lua stack traces, not structured ErrorReports. The schema HostIssue variants ARE constructed (look at `host_struct_values.lua:56` — it calls `api.raise_host_issue(self.session.T.LalinHost.HostIssueSealedMutation(self.name))`, constructing a proper ASDL value) but these are thrown via `error()` instead of collected.
 
 **The deeper tension**: The `frontend_pipeline.lua` and the LSP analysis path are DIFFERENT control flow graphs. The frontend pipeline uses `assert_no_issues()` which is a batch-compile guard. The LSP path calls individual phases separately and collects issues. The `error()` in `raise_host_issue` doesn't distinguish between these contexts — it always throws. The fix requires the host builder API to accept a "report issues here" callback instead of a hard `error()`.
 
 #### 2. The span mapping problem for backend issues is NOT about the Rust boundary — it's a graph provenance problem
 
-The scout implies that backend issues lack spans because Cranelift IR has no source mapping. But `back_validate.lua` runs **entirely in Lua** on BackCmd trees that are produced by `tree_to_back.lua`. The real problem is that `tree_to_back.lua` **discards source positions** when lowering the typed AST to flat BackCmd lists. Each BackCmd has an `index` (position in the command stream), but no link back to the MoonTree AST node that produced it.
+The scout implies that backend issues lack spans because Cranelift IR has no source mapping. But `back_validate.lua` runs **entirely in Lua** on BackCmd trees that are produced by `tree_to_back.lua`. The real problem is that `tree_to_back.lua` **discards source positions** when lowering the typed AST to flat BackCmd lists. Each BackCmd has an `index` (position in the command stream), but no link back to the LalinTree AST node that produced it.
 
 The fix isn't to annotate every BackCmd with source positions (which would blow up the wire format to Rust). The fix is to have `tree_to_back.lua` produce a **reverse mapping table**: `{cmd_index_start, cmd_index_end} → source_span`. This table is consumed only by the Lua-side diagnostic pipeline and never sent to Rust.
 
@@ -386,7 +386,7 @@ The new path (`error/registry`) gives you:
 
 The `error/registry.lua` does cascade suppression at emission time (during `emit()`), while `editor_diagnostic_facts.lua` does it in `publish_type_issue()` and `publish_binding_resolution()` — effectively also at emission time. Both suppress cascades before the user sees them.
 
-**The non-obvious tradeoff**: Emission-time suppression means cascades are invisible to tools. Report-time suppression means cascades exist in the registry (available for statistics, code actions that suggest fixes, etc.) but are filtered from the final output. 
+**The non-obvious tradeoff**: Emission-time suppression means cascades are invisible to tools. Report-time suppression means cascades exist in the registry (available for statistics, code actions that suggest fixes, etc.) but are filtered from the final output.
 
 Consider: a user has `let x: i32 = unresolved_fn()` which produces `TypeIssueUnresolvedValue` (E0201) and `TypeIssueExpected` (E0301 — expected i32, got void). With emission-time suppression, the E0301 is never recorded. With report-time suppression, it's recorded but not shown. The difference matters for:
 - **Code actions**: The E0301 might have a suggester action (e.g., "add type annotation") that would be useful even though it's a cascade
@@ -396,7 +396,7 @@ Consider: a user has `let x: i32 = unresolved_fn()` which produces `TypeIssueUnr
 
 #### 5. The three unhandled TypeIssue variants are the canary in the coal mine for control flow complexity
 
-The scout notes that `TypeIssueUnknownVariant`, `TypeIssueVariantPayloadMismatch`, and `TypeIssueDuplicateVariant` are in the schema but not handled by either path's type issue handlers. These are **union/variant-related** — a relatively recent language feature added to Moonlift's type system.
+The scout notes that `TypeIssueUnknownVariant`, `TypeIssueVariantPayloadMismatch`, and `TypeIssueDuplicateVariant` are in the schema but not handled by either path's type issue handlers. These are **union/variant-related** — a relatively recent language feature added to Lalin's type system.
 
 **What this reveals**: The issue handlers in BOTH paths are manually maintained switch statements. When a new language feature is added (variants), issue types are added to the schema but the diagnostic mapping is an afterthought. There is NO automated check that every schema issue variant has a diagnostic handler. The ASDL schema has 30+ BackIssue, 22 HostIssue, 18 TypeIssue, 18+ OpenIssue, and N LinkIssue variants — and the diagnostic system depends on a programmer remembering to update two (2) separate mapping tables and one (1) catalog code map.
 
@@ -425,16 +425,16 @@ The scout notes that vec rejects are intentionally suppressed from LSP with a co
 
 #### 9. The standalone compiler and the LSP compiler are diverging into two different products
 
-`frontend_pipeline.lua` and the LSP analysis path (`mlua_document_analysis.lua`) both compile Moonlift but with fundamentally different constraints:
+`frontend_pipeline.lua` and the LSP analysis path (`mlua_document_analysis.lua`) both compile Lalin but with fundamentally different constraints:
 
 | Aspect | frontend_pipeline | LSP path |
 |--------|------------------|----------|
 | Error handling | Fatal `error()` on first phase failure | Collect all issues across all phases |
 | Phase coupling | Strictly sequential: parse→open→close→typecheck→layout→lower→validate | Loosely coupled: phases called independently |
-| Consumer | Batch compiler / `moonlift run` | Editor diagnostics |
+| Consumer | Batch compiler / `lalin run` | Editor diagnostics |
 | Error format | `tostring()` of ASDL values | Rich ErrorReport → E0xxx |
 
-**The divergence**: These are already different implementations — the LSP path doesn't use `frontend_pipeline` at all. But `frontend_pipeline` is also the path used by `moonlift run` and the `moonlift` binary. This means users running the compiler from the terminal see `tostring()` of ASDL objects for type errors, while LSP users see rich E0301 messages with notes and suggestions. The same compiler, two different user experiences.
+**The divergence**: These are already different implementations — the LSP path doesn't use `frontend_pipeline` at all. But `frontend_pipeline` is also the path used by `lalin run` and the `lalin` binary. This means users running the compiler from the terminal see `tostring()` of ASDL objects for type errors, while LSP users see rich E0301 messages with notes and suggestions. The same compiler, two different user experiences.
 
 #### 10. The `pvm.classof()` pattern in `editor_error_reports.lua` duplicates the already-poor span mapping
 
@@ -442,7 +442,7 @@ Look at how `editor_error_reports.lua` maps type issues:
 
 ```lua
 [Tr.TypeIssueNotCallable] = function(issue, analysis)
-    return { kind = "TypeIssueNotCallable", ty = issue.ty, 
+    return { kind = "TypeIssueNotCallable", ty = issue.ty,
              span = span_from_range(site_range(analysis, "call")) }
 ```
 
@@ -563,10 +563,10 @@ Add a `@error(code, severity, message_template)` annotation to every issue varia
 
 ```lua
 -- Before:
-MoonBack.BackIssueInvalidAlignment(align: Swizzle, access: AccessMode)
+LalinBack.BackIssueInvalidAlignment(align: Swizzle, access: AccessMode)
 
 -- After:
-MoonBack.BackIssueInvalidAlignment(align: Swizzle, access: AccessMode)
+LalinBack.BackIssueInvalidAlignment(align: Swizzle, access: AccessMode)
 -- @error E0631, error, "invalid alignment {align} for access {access}"
 -- @span-fn: back_span(access)
 -- @note: "the access mode {access.name} requires an alignment that doesn't match"
@@ -844,7 +844,7 @@ This is the weakest dimension for Approach C. Let me be specific about what chan
   - No type-safety guarantee — a missed span resolver produces nil spans silently
   - The PVM memoization on the analysis itself still works, but the diagnostic output isn't independently cachable
 
-- ❌ **"Fail fast, fail loud"**: The `CollectingCollector` is the opposite of fail-fast — it collects everything. This is correct for the LSP path, but the philosophy says "assertions at boundaries, no silent fallbacks." The `FAIL_ON_NIL_SPAN` test-only check is philosophically weak — a check that only runs in tests provides no safety in production. Moonlift's philosophy would prefer a check that runs ALWAYS.
+- ❌ **"Fail fast, fail loud"**: The `CollectingCollector` is the opposite of fail-fast — it collects everything. This is correct for the LSP path, but the philosophy says "assertions at boundaries, no silent fallbacks." The `FAIL_ON_NIL_SPAN` test-only check is philosophically weak — a check that only runs in tests provides no safety in production. Lalin's philosophy would prefer a check that runs ALWAYS.
 
 - ❌ **Dynamic registration**: `set_span_resolver(phase, fn)` is a side-effecting API call. The rest of the compiler avoids these — configuration is explicit in `Define(T)` functions. A PVM-based approach would statically bind resolvers to phases via the same class-dispatch mechanism used everywhere else.
 
@@ -889,7 +889,7 @@ The current `editor_error_reports.lua` creates a fresh `Errors.registry()` per a
 
 **PVM memoization**: If analysis is PVM-cached, re-running diagnostics means calling collectors again. The collector MUST be stateless enough to re-derive from cached analysis. Approach C's architecture supports this: the collector receives issues; the cascade filter processes them. Both are pure functions of the issue stream.
 
-**Standalone binary path**: `frontend_pipeline.lua` currently uses `assert_no_issues()` with raw `error()`. Changing it to use `CollectingCollector` or `ThrowingCollector` changes the error output for the `moonlift` and `mom` binaries. The E0xxx formatted output would be an improvement, but it must be backward-compatible in terms of exit codes and error rendering format. The `mlua_run.lua` and `diagnostic.lua` (legacy) path also needs consideration.
+**Standalone binary path**: `frontend_pipeline.lua` currently uses `assert_no_issues()` with raw `error()`. Changing it to use `CollectingCollector` or `ThrowingCollector` changes the error output for the `lalin` and `mom` binaries. The E0xxx formatted output would be an improvement, but it must be backward-compatible in terms of exit codes and error rendering format. The `mlua_run.lua` and `diagnostic.lua` (legacy) path also needs consideration.
 
 **Workspace-level issues (LinkIssue)**: Link issues are per-workspace, not per-document. The collector is per-analysis (per-document). Link issues would need either a workspace-level collector or separate handling. The approach doesn't address this. Currently, link issues are invisible in the LSP (not collected by `editor_error_reports.lua`). Approach C would make them visible if a workspace collector is added — which is good, but requires architecture beyond what's described.
 
@@ -928,7 +928,7 @@ The current `editor_error_reports.lua` creates a fresh `Errors.registry()` per a
 
 This "modified Approach C minus the collector abstraction" preserves the clean separation while avoiding the highest-risk changes (threading a new object through 20+ modules, ThrowingCollector dependency cycle, dynamic resolver registration). It also preserves PVM compatibility — the `Errors.registry()` is called from inside the PVM-based `rpc_out_commands.lua` dispatch.
 
-**If the team is committed to a structural refactor**: Approach A (PVM-Supreme) is a better fit for Moonlift's philosophy. It extends the existing PVM type-dispatch mechanism that the team already understands, and the "collector" is already implicit in PVM's memoization. The PVM "always-run" mode tweak is a ~50-line change to `pvm.lua`. The cost is architecting how PVM phases can accept transient analysis context (for span resolution) without invalidating their cache keys.
+**If the team is committed to a structural refactor**: Approach A (PVM-Supreme) is a better fit for Lalin's philosophy. It extends the existing PVM type-dispatch mechanism that the team already understands, and the "collector" is already implicit in PVM's memoization. The PVM "always-run" mode tweak is a ~50-line change to `pvm.lua`. The cost is architecting how PVM phases can accept transient analysis context (for span resolution) without invalidating their cache keys.
 
 **Dark horse**: The schema-codegen approach (B) has the highest long-term payoff if the team is adding many new issue variants. The build-time safety of "missing annotation = build failure" is the only approach that eliminates the human-remember-to-update problem. But it requires a build step that doesn't currently exist. Worth considering as a follow-up after the urgent coverage gaps are fixed.
 
@@ -938,17 +938,17 @@ Now I have a thorough understanding of the entire codebase. Here is the architec
 
 ---
 
-# Moonlift Error Reporting Overhaul — Architectural Decision
+# Lalin Error Reporting Overhaul — Architectural Decision
 
-**Date**: 2026-05-19  
-**Decision**: Adopt **Approach C: Issue Stream** — a clean-break refactoring that replaces all existing diagnostic pipelines with a single `IssueCollector`-based architecture.  
+**Date**: 2026-05-19
+**Decision**: Adopt **Approach C: Issue Stream** — a clean-break refactoring that replaces all existing diagnostic pipelines with a single `IssueCollector`-based architecture.
 **Status**: Approved.
 
 ---
 
 ## Goal
 
-Replace Moonlift's three parallel, incomplete diagnostic pipelines (legacy `diagnostic.lua`, old PVM-based `editor_diagnostic_facts.lua`, new `editor_error_reports.lua` bridge) and the fatal `error()` pattern in host builders with a single, architecturally clean pipeline: compiler phases emit raw ASDL issue nodes to an `IssueCollector`, which resolves spans at its boundary via per-phase `SpanResolver` functions, passes the stream through a unified `CascadeFilter`, and renders via the existing `error/` catalog and presenters.
+Replace Lalin's three parallel, incomplete diagnostic pipelines (legacy `diagnostic.lua`, old PVM-based `editor_diagnostic_facts.lua`, new `editor_error_reports.lua` bridge) and the fatal `error()` pattern in host builders with a single, architecturally clean pipeline: compiler phases emit raw ASDL issue nodes to an `IssueCollector`, which resolves spans at its boundary via per-phase `SpanResolver` functions, passes the stream through a unified `CascadeFilter`, and renders via the existing `error/` catalog and presenters.
 
 The objective: every compiler error — from parse failures through type mismatches, host builder issues, backend validation, and link planning — must produce a rich, actionable diagnostic with a precise source span, a stable `E0xxx` error code, contextual notes, and suggestions, regardless of whether the user is in the LSP or running the standalone compiler.
 
@@ -974,20 +974,20 @@ The current state has measurable costs:
 
 ### The Three Existing Pipelines
 
-**Pipeline 1: Legacy `diagnostic.lua`** (`moonlift/diagnostic.lua`)  
+**Pipeline 1: Legacy `diagnostic.lua`** (`lalin/diagnostic.lua`)
 A standalone diagnostic module used only by `mlua_run.lua`. Produces terminal-formatted strings. No connection to the `error/` catalog, no source spans, no LSP integration. Approximately 140 lines. Used for one-off error rendering in the hosted Lua incantation path.
 
-**Pipeline 2: Old PVM path `editor_diagnostic_facts.lua`** (`moonlift/editor_diagnostic_facts.lua`, ~470 lines)  
-Uses PVM phase dispatch (`pvm.phase(...)`) to handle each issue variant by ASDL class. Produces `MoonEditor.DiagnosticFact[]` arrays. Used by:
+**Pipeline 2: Old PVM path `editor_diagnostic_facts.lua`** (`lalin/editor_diagnostic_facts.lua`, ~470 lines)
+Uses PVM phase dispatch (`pvm.phase(...)`) to handle each issue variant by ASDL class. Produces `LalinEditor.DiagnosticFact[]` arrays. Used by:
 - `editor_code_actions.lua` — source of truth for actionable diagnostics (bool storage, packed align, duplicate decl, unresolved binding)
 - `editor_subject_at.lua` — for position→semantic-subject resolution
 
 The PVM type-dispatch guarantees that every issue variant has a handler (or PVM throws "no handler for class X"). But the old path is incomplete: it handles 15 of 18 TypeIssue variants, 20 of 30 BackIssue variants, 13 of 22 HostIssue variants, and suppresses 4 OpenIssue variants entirely. VecRejects are intentionally suppressed ("optimization planning facts, not source-language diagnostics").
 
-**Pipeline 3: New `error/` registry path `editor_error_reports.lua`** (`moonlift/editor_error_reports.lua`, ~330 lines)  
+**Pipeline 3: New `error/` registry path `editor_error_reports.lua`** (`lalin/editor_error_reports.lua`, ~330 lines)
 Bridges compiler issues to `Errors.registry()` by converting ASDL nodes to ad-hoc `{kind="...", ...}` tables before emitting. Used by `rpc_out_commands.lua` for all LSP diagnostic publishing. Contains:
 - `type_issue_for_report()` — handles 14 of 18 TypeIssue variants
-- `host_issue_for_report()` — handles 13 of 22 HostIssue variants  
+- `host_issue_for_report()` — handles 13 of 22 HostIssue variants
 - `back_issue_for_report()` — generic `{kind=k, violation=k, span=nil}` for all BackIssues
 - `site_range()` / `operator_range()` — duplicates logic from `editor_diagnostic_facts.lua`
 
@@ -1010,7 +1010,7 @@ The `error()` pattern is architecturally *correct* for the interactive Lua metap
 
 ### The Batch Compiler Path
 
-`frontend_pipeline.lua` uses `assert_no_issues()` which calls `error()` if any phase produces issues. The standalone compiler (`moonlift` binary, `mom` binary) goes through this path. Link planning (`link_plan_validate.lua`, `link_execute.lua`) runs only in the batch compiler — the LSP path never invokes it, making link issues invisible in the editor.
+`frontend_pipeline.lua` uses `assert_no_issues()` which calls `error()` if any phase produces issues. The standalone compiler (`lalin` binary, `mom` binary) goes through this path. Link planning (`link_plan_validate.lua`, `link_execute.lua`) runs only in the batch compiler — the LSP path never invokes it, making link issues invisible in the editor.
 
 ### Data Structures
 
@@ -1289,7 +1289,7 @@ function parse_and_lower(src, opts)
 end
 ```
 
-The `CollectingCollector` is used for the LSP path (created in `analyze_document`). The `ThrowingCollector` is used everywhere else — `moon.run_mlua`, `mom run`, `--emit-object`, tests that compile Moonlift code.
+The `CollectingCollector` is used for the LSP path (created in `analyze_document`). The `ThrowingCollector` is used everywhere else — `lalin.run_mlua`, `mom run`, `--emit-object`, tests that compile Lalin code.
 
 `link_plan_validate.lua` and `link_execute.lua` emit to the same collector in the standalone path. In the LSP path, they are NOT triggered per-keystroke (same as today).
 
@@ -1312,22 +1312,22 @@ The `CollectingCollector` is used for the LSP path (created in `analyze_document
 
 ### Key Design Decisions and Rationale
 
-**1. Spans are resolved at the collector boundary, not in the catalog.**  
+**1. Spans are resolved at the collector boundary, not in the catalog.**
 The catalog receives a `ResolvedIssue` (with a span already attached), not raw analysis context. This means the catalog is purely a formatter — it needs no phase-specific knowledge. Span resolution uses phase-specific coordinate systems; catalog rendering uses error-specific message formatting. These are independent concerns, and this separation keeps them cleanly bounded.
 
-**2. Cascade suppression is a stream processor, not emission-time logic.**  
+**2. Cascade suppression is a stream processor, not emission-time logic.**
 The `CascadeFilter` runs after all phases complete, with the full picture. This eliminates the heuristic string matching in the current `error/registry.lua` (`site:find(name, 1, true)`) and the incomplete void-type checks in `editor_diagnostic_facts.lua`. Root causes are identified correctly because all phases have emitted before filtering begins.
 
-**3. Span resolvers are static.**  
+**3. Span resolvers are static.**
 A module-level table `SPAN_RESOLVERS` registered at `Define(T)` time. NOT a dynamic `set_span_resolver()` API. A missed resolver causes a hard error at collector creation. This is consistent with the project's "fail fast, fail loud" philosophy and eliminates the risk of silent nil spans.
 
-**4. The collector is created per analysis cycle.**  
+**4. The collector is created per analysis cycle.**
 In the LSP, `mlua_document_analysis.lua:analyze_document()` creates a fresh `CollectingCollector` per call. In the standalone path, `frontend_pipeline.lua` creates a fresh `ThrowingCollector`. The collector is not a global, not a PVM context, not memoized. It's scoped to a single analysis invocation.
 
-**5. The provenance map is a side table, not embedded in BackCmd.**  
+**5. The provenance map is a side table, not embedded in BackCmd.**
 Adding a `span` field to every `BackCmd` would change the wire format sent to Rust (Flatline v4 binary encoding). The provenance map lives only on the Lua side and is never serialized. This is consistent with the project's "flat backend commands" philosophy — commands remain flat, and span metadata is a separate concern.
 
-**6. No parallel paths survive.**  
+**6. No parallel paths survive.**
 Three files are deleted. `editor_code_actions.lua` and `editor_subject_at.lua` are refactored to use the new pipeline or query anchors directly. The old path was a maintenance liability with different bugs in each path; a single path eliminates the bug surface.
 
 ### Safety Invariants
@@ -1342,7 +1342,7 @@ Three files are deleted. `editor_code_actions.lua` and `editor_subject_at.lua` a
 
 ### Migration Strategy
 
-**Phase 1 — Foundation (no behavioral change)**  
+**Phase 1 — Foundation (no behavioral change)**
 1. Create `error/issue_collector.lua` with both collector implementations
 2. Create `back_provenance.lua` module
 3. Create `error/cascade_filter.lua` with the unified cascade algorithm
@@ -1352,7 +1352,7 @@ Three files are deleted. `editor_code_actions.lua` and `editor_subject_at.lua` a
 7. All new code is side-by-side with existing code — no deletions yet
 8. Tests: unit tests for CascadeFilter, BackProvenanceMap, each SpanResolver
 
-**Phase 2 — Integration (plumb collector through phases)**  
+**Phase 2 — Integration (plumb collector through phases)**
 1. Modify `host_issue_values.lua`: `raise_host_issue()` checks if a collector is attached to the session; if so, emits to collector; otherwise falls back to `error()`
 2. Modify `parse.lua`: accept optional collector parameter, emit issues instead of returning array
 3. Modify `tree_typecheck.lua`: emit issues to collector (passed through lowering context)
@@ -1362,14 +1362,14 @@ Three files are deleted. `editor_code_actions.lua` and `editor_subject_at.lua` a
 7. Modify `frontend_pipeline.lua`: create ThrowingCollector, use collector output
 8. Tests: comparison tests that run both old and new paths and verify identical diagnostic output
 
-**Phase 3 — Consolidation (delete old paths)**  
+**Phase 3 — Consolidation (delete old paths)**
 1. Delete `editor_diagnostic_facts.lua` — refactor `editor_code_actions.lua` and `editor_subject_at.lua` to use anchor index directly
 2. Delete `editor_error_reports.lua` — all routing now goes through collector
 3. Delete `diagnostic.lua` — ThrowingCollector replaces it
 4. Remove `Errors.registry()` fallback code in `error/init.lua` (if applicable)
 5. Tests: full LSP integration tests, standalone compiler smoke tests
 
-**Phase 4 — Polish (span quality)**  
+**Phase 4 — Polish (span quality)**
 1. Implement per-variant span resolution for OpenIssues (currently full_range)
 2. Implement per-variant span resolution for the remaining BackIssues (currently nil)
 3. Add VecReject span resolution (currently suppressed — make visible with proper spans)
@@ -1386,7 +1386,7 @@ Three files are deleted. `editor_code_actions.lua` and `editor_subject_at.lua` a
 
 4. **Code action integration**: `editor_code_actions.lua` currently inspects `DiagnosticFact.origin` (the ASDL issue) to decide which actions to offer. With the new pipeline, code actions receive `ResolvedIssue` objects. The `issue.ASDL_node` field provides the same typing information. The code action phases continue to work identically — only the input format changes.
 
-5. **Multi-file compilation**: The `moonlift` binary compiles a single `.mlua` file at a time. The LSP manages multiple open documents. The collector architecture scales to multiple documents: each document analysis creates its own collector, and the LSP aggregates diagnostic payloads per document. No shared state needed.
+5. **Multi-file compilation**: The `lalin` binary compiles a single `.mlua` file at a time. The LSP manages multiple open documents. The collector architecture scales to multiple documents: each document analysis creates its own collector, and the LSP aggregates diagnostic payloads per document. No shared state needed.
 
 ### Relationship to PVM
 
@@ -1472,7 +1472,7 @@ Before beginning, verify:
 
 ## Phase 1: Foundation
 
-### 1. `lua/moonlift/error/issue_collector.lua` (NEW)
+### 1. `lua/lalin/error/issue_collector.lua` (NEW)
 
 **Goal**: Two collector implementations with a uniform interface.
 
@@ -1524,7 +1524,7 @@ ResolvedIssue = {
 - `CollectingCollector` stores `ResolvedIssue[]` in insertion order.
 - `ThrowingCollector` only stores the first issue (for error message rendering).
 
-### 2. `lua/moonlift/error/cascade_filter.lua` (NEW)
+### 2. `lua/lalin/error/cascade_filter.lua` (NEW)
 
 **Goal**: A single pure function `filter(ResolvedIssue[]) → ResolvedIssue[]` that replaces both existing cascade suppression systems.
 
@@ -1537,11 +1537,11 @@ function M.filter(resolved_issues)
     table.sort(resolved_issues, function(a, b)
         return (PHASE_ORDER[a.phase] or 99) < (PHASE_ORDER[b.phase] or 99)
     end)
-    
+
     -- 2. Build root-cause index (unresolved names, structural failures)
     local root_causes = {}   -- root_key → true
     local unresolved_names = {}  -- name → true
-    
+
     for _, ri in ipairs(resolved_issues) do
         local cls = pvm.classof(ri.issue)
         local kind = cls and cls.kind or ""
@@ -1554,22 +1554,22 @@ function M.filter(resolved_issues)
         end
         -- More root cause detection...
     end
-    
+
     -- 3. Second pass: filter cascades
     local out = {}
     for _, ri in ipairs(resolved_issues) do
         local cls = pvm.classof(ri.issue)
         local kind = cls and cls.kind or ""
-        
+
         -- Check for cascade
         if is_cascade(kind, ri.issue, unresolved_names) then
             goto continue  -- skip cascade
         end
-        
+
         out[#out + 1] = ri
         ::continue::
     end
-    
+
     return out
 end
 ```
@@ -1585,7 +1585,7 @@ end
 
 **Line estimation**: ~90 lines
 
-### 3. `lua/moonlift/error/span_resolvers.lua` (NEW)
+### 3. `lua/lalin/error/span_resolvers.lua` (NEW)
 
 **Goal**: Static table of per-phase span resolver functions. NOT dynamic registration.
 
@@ -1596,8 +1596,8 @@ end
 -- Each resolver is a pure function: (issue, analysis_context) → SourceSpan
 -- A nil return triggers an assertion failure in the collector.
 
-local Span = require("moonlift.error.span")
-local PositionIndex = require("moonlift.source_position_index")
+local Span = require("lalin.error.span")
+local PositionIndex = require("lalin.source_position_index")
 
 local M = {}
 
@@ -1724,7 +1724,7 @@ return M
 
 **Quirks**: The `typecheck_resolver` and `host_resolver` duplicate logic currently in `editor_error_reports.lua`. The worker must extract the span-from-anchor logic and the `site_range()` / `operator_range()` functions from `editor_error_reports.lua` lines ~50-180 and adapt them to return `SourceSpan` directly.
 
-### 4. `lua/moonlift/back_provenance.lua` (NEW)
+### 4. `lua/lalin/back_provenance.lua` (NEW)
 
 **Goal**: A side table mapping `cmd_index → SourceSpan`, produced by `tree_to_back.lua` during lowering.
 
@@ -1735,7 +1735,7 @@ return M
 -- Constructed during lowering by recording every AST node→BackCmd[] mapping.
 -- Never sent to Rust — lives only on the Lua side for diagnostic rendering.
 
-local Span = require("moonlift.error.span")
+local Span = require("lalin.error.span")
 
 local M = {}
 
@@ -1749,7 +1749,7 @@ function M.new()
 end
 
 function ProvenanceMap:record(cmd_start, cmd_end, source_range, doc_uri)
-    -- source_range is a MoonSource.Range (from anchor index)
+    -- source_range is a LalinSource.Range (from anchor index)
     -- Convert to SourceSpan and store
     local span = Span.from_offsets(
         doc_uri,
@@ -1793,7 +1793,7 @@ return M
 
 **Important**: The `ProvenanceMap` is **not** modified directly in this file. It is populated by `tree_to_back.lua` during lowering. The `record()` method is called from lowering functions.
 
-### 5. `lua/moonlift/error/catalog.lua` — Add missing entries
+### 5. `lua/lalin/error/catalog.lua` — Add missing entries
 
 **Goal**: Add the ~40 missing `issue_code_map` entries and their corresponding `register()` build functions.
 
@@ -1820,7 +1820,7 @@ Add after `BackIssueMissingValue = "E0601":`
     BackIssueCanMoveWithoutNonTrapping = "E0603",
     BackIssueShapeRequiresScalar = "E0301",
     BackIssueShapeRequiresVector = "E0301",
-    
+
     -- HostIssue variants (unmapped)
     HostIssueSpliceExpected = "E0701",
     HostIssueSpliceEvalError = "E9999",  -- generic: splice eval failed
@@ -1831,7 +1831,7 @@ Add after `BackIssueMissingValue = "E0601":`
     HostIssueRegionComposeIncompleteRoute = "E0403",
     HostIssueRegionComposeContextMismatch = "E0405",
     HostIssueDuplicateFunc = "E0203",
-    
+
     -- TypeIssue variants (variant-related, unmapped)
     TypeIssueMissingJumpArg = "E0404",
     TypeIssueExtraJumpArg = "E0404",
@@ -1879,16 +1879,16 @@ For `HostIssueRegionCompose*` — map to existing E04xx codes with specific mess
 
 **Line estimation**: ~50 lines added to `issue_code_map`, ~100 lines of additional `register()` calls for the codes that don't have builders yet.
 
-### 6. `lua/moonlift/error/init.lua` — Expose new modules
+### 6. `lua/lalin/error/init.lua` — Expose new modules
 
 **Lines ~4-12**: Add imports for new modules:
 
 ```lua
-M.CollectingCollector = require("moonlift.error.issue_collector").CollectingCollector
-M.ThrowingCollector = require("moonlift.error.issue_collector").ThrowingCollector
-M.CascadeFilter = require("moonlift.error.cascade_filter")
-M.SpanResolvers = require("moonlift.error.span_resolvers")
-M.Span = require("moonlift.error.span")
+M.CollectingCollector = require("lalin.error.issue_collector").CollectingCollector
+M.ThrowingCollector = require("lalin.error.issue_collector").ThrowingCollector
+M.CascadeFilter = require("lalin.error.cascade_filter")
+M.SpanResolvers = require("lalin.error.span_resolvers")
+M.Span = require("lalin.error.span")
 ```
 
 **Add convenience functions** (~lines 30-50):
@@ -1919,7 +1919,7 @@ end
 
 ## Phase 2: Phase Integration
 
-### 7. `lua/moonlift/host_issue_values.lua` — Add collector to `api` table
+### 7. `lua/lalin/host_issue_values.lua` — Add collector to `api` table
 
 **Current**: `raise_host_issue()` calls `error()` unconditionally (line ~58-59).
 
@@ -1928,10 +1928,10 @@ end
 ```lua
 -- Modify the Install function to accept an optional collector parameter
 function M.Install(api, session, collector)
-    local H = session.T.MoonHost
-    
+    local H = session.T.LalinHost
+
     -- ... (existing code stays) ...
-    
+
     -- Modify raise_host_issue to check for collector
     function api.raise_host_issue(issue)
         if collector then
@@ -1940,12 +1940,12 @@ function M.Install(api, session, collector)
             error(api.host_issue_to_string(issue), 2)
         end
     end
-    
+
     -- Add a setter for dynamic collector attachment
     function api.set_issue_collector(c)
         collector = c
     end
-    
+
     -- When collector is nil (metaprogramming context), error() is preserved
     -- When collector is provided (LSP context), issues go to collector
 end
@@ -1955,7 +1955,7 @@ end
 
 **Quirks**: The `Install` function is called from `host_issue_values.lua`'s callers. The worker must check every call site of `M.Install(api, session)` and decide whether to pass a collector or nil. For the LSP path, the collector from `mlua_document_analysis.lua` is passed. For the standalone/metaprogramming path, `nil` is passed.
 
-### 8. `lua/moonlift/parse.lua` — Accept collector parameter
+### 8. `lua/lalin/parse.lua` — Accept collector parameter
 
 **Current** (lines ~2416-2422): `M.parse_module_document(T, src, opts)` returns `{module, issues, protocol_types}`.
 
@@ -1969,14 +1969,14 @@ function M.parse_module_document(T, src, opts)
     ...
     -- After issues are collected (around line 2390-2413)
     local issues = { ... }  -- existing issue collection
-    
+
     -- Emit to collector if provided
     if opts.collector then
         for i = 1, #issues do
             opts.collector:emit(issues[i], "parse")
         end
     end
-    
+
     -- Return issues as before (backward compat during migration)
     return { module = p.module, issues = issues, protocol_types = p.protocol_types }
 end
@@ -1985,14 +1985,14 @@ end
 Also, in the `M.Define(T)` return (line 2453-2469), the `parse_module` function should pass through the collector:
 
 ```lua
-parse_module = function(src, opts) 
-    return M.parse_module_document(T, src, opts) 
+parse_module = function(src, opts)
+    return M.parse_module_document(T, src, opts)
 end,
 ```
 
 **Note**: The collector is an optional parameter. If not provided, parsing works exactly as before (returning issues array). If provided, issues are ALSO emitted to the collector. This allows gradual migration.
 
-### 9. `lua/moonlift/tree_typecheck.lua` — Emit issues to collector
+### 9. `lua/lalin/tree_typecheck.lua` — Emit issues to collector
 
 **Current**: `check_module` at line 892 returns `pvm.one(type_module(module))` → `Tr.TypeModuleResult(module, issues)`.
 
@@ -2017,7 +2017,7 @@ end,
 
 **Quirks**: The typecheck issues are ASDL `TypeIssue*` nodes. The collector emits them raw. The span resolver (from `span_resolvers.lua`) resolves spans using the anchor index. The typecheck span resolver needs access to `analysis.anchors` — this must be passed through the `opts.collector` construction (which already has the analysis context).
 
-### 10. `lua/moonlift/back_validate.lua` — Emit issues to collector
+### 10. `lua/lalin/back_validate.lua` — Emit issues to collector
 
 **Current** (lines 492-498, 671-676): `validate_program_impl(program, use_flat)` accumulates issues in a local `issues` table and returns `B.BackValidationReport(issues)`.
 
@@ -2029,14 +2029,14 @@ Modify `validate_program_impl` to accept an optional `collector` parameter:
 local function validate_program_impl(program, use_flat, collector)
     local issues = {}
     -- ... existing validation logic stays exactly the same ...
-    
+
     -- After all validation, emit to collector if provided
     if collector then
         for i = 1, #issues do
             collector:emit(issues[i], "backend")
         end
     end
-    
+
     return B.BackValidationReport(issues)
 end
 ```
@@ -2044,7 +2044,7 @@ end
 Modify the `validate_program` PVM phase (line 674):
 
 ```lua
-local validate_program = pvm.phase("moonlift_back_validate_program", function(program, collector)
+local validate_program = pvm.phase("lalin_back_validate_program", function(program, collector)
     return validate_program_impl(program, true, collector)
 end)
 ```
@@ -2053,7 +2053,7 @@ The `return` table (lines 678-688) should expose the collector-passing variants.
 
 **Note**: The PVM phase signature changes. All callers of `validate_program` must be updated to pass or omit the collector. The `pvm.phase` function signature is `(name, handler, options)` — the handler can accept additional arguments after the phase's primary input.
 
-### 11. `lua/moonlift/tree_to_back.lua` — Produce provenance map
+### 11. `lua/lalin/tree_to_back.lua` — Produce provenance map
 
 **Current** (lines 2528-2536): `lower_module_direct` returns `Back.BackProgram(cmds)`.
 
@@ -2064,7 +2064,7 @@ This is the most invasive change in the plan. Every function that appends to `cm
 **A. Import `BackProvenanceMap`** (line ~3):
 
 ```lua
-local BackProvenance = require("moonlift.back_provenance")
+local BackProvenance = require("lalin.back_provenance")
 ```
 
 **B. Pass provenance map through `lower_context`** (line 24):
@@ -2072,8 +2072,8 @@ local BackProvenance = require("moonlift.back_provenance")
 Add to `lower_context` initialization:
 
 ```lua
-local lower_context = { 
-    const_env = Bn.ConstEnv({}), 
+local lower_context = {
+    const_env = Bn.ConstEnv({}),
     globals = {},
     provenance = nil,  -- BackProvenanceMap, set per module
 }
@@ -2130,7 +2130,7 @@ end
 **F. Update `module_to_back` PVM phase** (line 2541):
 
 ```lua
-module_to_back = pvm.phase("moonlift_tree_module_to_back", function(module)
+module_to_back = pvm.phase("lalin_tree_module_to_back", function(module)
     return lower_module_direct(module)
 end)
 ```
@@ -2157,13 +2157,13 @@ For each, before returning, calculate `cmd_start` and `cmd_end` relative to the 
 
 **Line estimation**: ~100 lines added throughout the file for provenance recording.
 
-### 12. `lua/moonlift/open_validate.lua` — Emit issues to collector
+### 12. `lua/lalin/open_validate.lua` — Emit issues to collector
 
 **Pattern**: Same as `back_validate.lua`. The `validate` function returns `O.ValidationReport({issues})`. Accept an optional collector and emit each issue.
 
 **Import changes**: None. The `M.Define(T)` function's returned functions need an additional `collector` parameter.
 
-### 13. `lua/moonlift/host_splice.lua` — Replace `error()` with collector
+### 13. `lua/lalin/host_splice.lua` — Replace `error()` with collector
 
 **Current**: 18 `error()` calls throughout the file (lines 78, 98, 104, 162, 173, 199, 213, 227, 238, 246, 272, 328, 338, 363, 385, 406, 420, 422).
 
@@ -2189,7 +2189,7 @@ local function raise_or_error(msg, issue, collector, site)
             collector:emit(issue, "host")
         else
             -- Construct a HostIssueSpliceExpected from the error context
-            -- (requires session.T.MoonHost)
+            -- (requires session.T.LalinHost)
         end
     else
         error(msg, 2)
@@ -2217,19 +2217,19 @@ function M.fill(session, slot, value, site, role, spread, collector)
 
 **Changes required per file**:
 
-**`lua/moonlift/host_struct_values.lua`**: Find all calls to `api.raise_host_issue(issue)`. These construct proper ASDL `HostIssue*` nodes (e.g., `HostIssueSealedMutation`, `HostIssueDuplicateField`). No source change needed in this file — the fix in `host_issue_values.lua` automatically redirects to the collector if one is attached to `api`.
+**`lua/lalin/host_struct_values.lua`**: Find all calls to `api.raise_host_issue(issue)`. These construct proper ASDL `HostIssue*` nodes (e.g., `HostIssueSealedMutation`, `HostIssueDuplicateField`). No source change needed in this file — the fix in `host_issue_values.lua` automatically redirects to the collector if one is attached to `api`.
 
-**`lua/moonlift/host_template_values.lua`**: Same — calls `api.raise_host_issue(issue)`.
+**`lua/lalin/host_template_values.lua`**: Same — calls `api.raise_host_issue(issue)`.
 
-**`lua/moonlift/host_region_values.lua`**: Same pattern.
+**`lua/lalin/host_region_values.lua`**: Same pattern.
 
-**`lua/moonlift/region_compose.lua`**: Constructs proper `HostIssueRegionCompose*` ASDL nodes and calls `api.raise_host_issue(issue)`. No source change needed.
+**`lua/lalin/region_compose.lua`**: Constructs proper `HostIssueRegionCompose*` ASDL nodes and calls `api.raise_host_issue(issue)`. No source change needed.
 
-**`lua/moonlift/host_decl_validate.lua`**: Currently calls `api.raise_host_issue(issue)` or constructs `HostIssue*` nodes and adds them to a report. Check if it has direct `error()` calls — if so, replace with `api.raise_host_issue()`.
+**`lua/lalin/host_decl_validate.lua`**: Currently calls `api.raise_host_issue(issue)` or constructs `HostIssue*` nodes and adds them to a report. Check if it has direct `error()` calls — if so, replace with `api.raise_host_issue()`.
 
 **Key design decision**: These files do NOT need modification because `raise_host_issue` now checks the collector internally. The only change is in `host_issue_values.lua` (file #7). This is the "no parameter changes" advantage of the ThrowingCollector approach.
 
-### 15. `lua/moonlift/link_plan_validate.lua` and `link_execute.lua` — Emit to collector
+### 15. `lua/lalin/link_plan_validate.lua` and `link_execute.lua` — Emit to collector
 
 **`link_plan_validate.lua`** (lines ~14-33): `validate` function builds a `Link.LinkReport(issues)`. Accept optional collector, emit issues.
 
@@ -2239,7 +2239,7 @@ function M.fill(session, slot, value, site, role, spread, collector)
 
 ## Phase 3: Analysis Integration
 
-### 16. `lua/moonlift/mlua_document_analysis.lua` — Create collector, thread through phases
+### 16. `lua/lalin/mlua_document_analysis.lua` — Create collector, thread through phases
 
 **Current** (lines ~150-210): `analyze_document(document)` creates `Mlua.DocumentAnalysis(...)` with all phase results.
 
@@ -2250,9 +2250,9 @@ At the start of `analyze_document` (~line 150):
 ```lua
 function M.Define(T)
     -- ... existing imports ...
-    local SpanResolvers = require("moonlift.error.span_resolvers")
-    local Errors = require("moonlift.error")
-    
+    local SpanResolvers = require("lalin.error.span_resolvers")
+    local Errors = require("lalin.error")
+
     local function analyze_document(document)
         -- Create the collector at the top
         local analysis_ctx = {
@@ -2263,42 +2263,42 @@ function M.Define(T)
             back_provenance = nil,  -- will be set after lowering
         }
         local collector = Errors.CollectingCollector(SpanResolvers.RESOLVERS, analysis_ctx)
-        
+
         -- ... existing parse code ...
         -- After parse_module_document (around line 180):
         -- Pass collector to parse
         local parsed = ParseApi.parse_module(document.text, { collector = collector })
-        
+
         -- ... build_anchors, document_parts ...
         -- Set anchors on analysis_ctx
         analysis_ctx.anchors = anchors
-        
+
         -- ... host validation ...
         -- After host validation, emit host issues to collector
         -- (host validation currently returns report.issues)
-        
+
         -- ... typecheck ...
         -- Pass collector to check_module
         local type_result = Typecheck.check_module(combined.module, { collector = collector })
-        
+
         -- ... lowering ...
         -- Pass collector to tree_to_back
-        local program, provenance = Pipeline.lower_module(combined.module, { 
-            site = "mlua_document_analysis", 
-            collector = collector 
+        local program, provenance = Pipeline.lower_module(combined.module, {
+            site = "mlua_document_analysis",
+            collector = collector
         })
         analysis_ctx.back_provenance = provenance
-        
+
         -- ... back validation ...
         -- Pass collector to validate
         local back_report = BackV.validate_program(program, collector)
-        
+
         -- After all phases, get resolved issues
         local resolved = collector:resolved_issues()
-        local filtered = require("moonlift.error.cascade_filter").filter(resolved)
+        local filtered = require("lalin.error.cascade_filter").filter(resolved)
         -- Store filtered issues for diagnostic rendering
         -- filtered can be rendered via present_lsp
-        
+
         return Mlua.DocumentAnalysis(parse, host, open_report, type_issues, control_facts, {}, {}, back_report, anchors)
     end
 ```
@@ -2309,7 +2309,7 @@ function M.Define(T)
 - Analysis context (`analysis_ctx`) is updated as phases complete (anchors, back_provenance)
 - The collector's `resolved_issues()` provides the final issue list
 
-### 17. `lua/moonlift/frontend_pipeline.lua` — Use ThrowingCollector
+### 17. `lua/lalin/frontend_pipeline.lua` — Use ThrowingCollector
 
 **Current** (lines ~15-50): `assert_no_issues()` and `lower_module()` with `error()` on phase failures.
 
@@ -2318,41 +2318,41 @@ function M.Define(T)
 ```lua
 function M.Define(T)
     -- ... existing imports ...
-    local Errors = require("moonlift.error")
-    local SpanResolvers = require("moonlift.error.span_resolvers")
-    
+    local Errors = require("lalin.error")
+    local SpanResolvers = require("lalin.error.span_resolvers")
+
     local function lower_module(module, opts)
         opts = opts or {}
         local site = opts.site or "frontend"
-        
+
         -- Create ThrowingCollector (standalone mode)
         local analysis_ctx = { source_text = opts.src or "" }
         local collector = Errors.ThrowingCollector(
-            SpanResolvers.RESOLVERS, 
+            SpanResolvers.RESOLVERS,
             analysis_ctx,
             Errors.Catalog,
             Errors.Terminal.render
         )
-        
+
         -- ... existing phase calls with collector passed through ...
         local expanded = OpenExpand.module(module, opts.expand_env)
         local open_report = OpenValidate.validate(expanded, { collector = collector })
         -- ThrowingCollector throws on first issue — no need for assert_no_issues
-        
+
         local closed = ClosureConvert.module(expanded)
         local checked = Typecheck.check_module(closed, { collector = collector })
-        
+
         -- ... rest of pipeline ...
         -- If any phase produces issues, ThrowingCollector throws with formatted output
         -- If no issues, phases complete normally
-        
+
         return {
             expanded = expanded,
             open_report = open_report,
             ...
         }
     end
-    
+
     local function parse_and_lower(src, opts)
         opts = opts or {}
         opts.src = src
@@ -2369,7 +2369,7 @@ function M.Define(T)
 - The ThrowingCollector renderer produces E0xxx formatted terminal output
 - The E0xxx output is backward-compatible (exit codes unchanged)
 
-### 18. `lua/moonlift/rpc_out_commands.lua` — Use new collection pipeline
+### 18. `lua/lalin/rpc_out_commands.lua` — Use new collection pipeline
 
 **Current** (lines ~20-25): `rendered_diagnostics(doc)` calls `ReportFacts.reports(analysis)` then `Errors.render_lsp(...)`.
 
@@ -2379,10 +2379,10 @@ The `ReportFacts` import changes from `editor_error_reports` to the new pipeline
 
 ```lua
 -- Remove:
-local ErrorReports = require("moonlift.editor_error_reports")
+local ErrorReports = require("lalin.editor_error_reports")
 
 -- Add:
-local Errors = require("moonlift.error")
+local Errors = require("lalin.error")
 ```
 
 In `rendered_diagnostics` (lines ~20-25):
@@ -2418,7 +2418,7 @@ A.field "resolved_issues" (A.many "...whatever...")
 
 ## Phase 4: Dependent Refactoring
 
-### 19. `lua/moonlift/error/registry.lua` — Simplify
+### 19. `lua/lalin/error/registry.lua` — Simplify
 
 **Current** (177 lines): Has cascade suppression, dedup, `reports()` generation.
 
@@ -2433,7 +2433,7 @@ Cascade suppression moves to `cascade_filter.lua`. The registry becomes a thin w
 **Lines to remove**: ~55-120 (the cascade detection section)
 **Lines to simplify**: ~130-170 (reports() — remove cascade skip, just build all reports)
 
-### 20. `lua/moonlift/editor_code_actions.lua` — Refactor to use collector pipeline
+### 20. `lua/lalin/editor_code_actions.lua` — Refactor to use collector pipeline
 
 **Current** (line 99): Calls `Diag.diagnostics(analysis)` which depends on `editor_diagnostic_facts.lua`.
 
@@ -2442,8 +2442,8 @@ Cascade suppression moves to `cascade_filter.lua`. The registry becomes a thin w
 Replace the `diagnostics` call with the collector pipeline:
 
 ```lua
--- Remove: local Diagnostics = require("moonlift.editor_diagnostic_facts")
--- Add: local Errors = require("moonlift.error")
+-- Remove: local Diagnostics = require("lalin.editor_diagnostic_facts")
+-- Add: local Errors = require("lalin.error")
 
 -- In candidate_diagnostics (line 96-103):
 local function candidate_diagnostics(query, analysis)
@@ -2455,7 +2455,7 @@ local function candidate_diagnostics(query, analysis)
         local ri = all[i]
         -- Convert ResolvedIssue to DiagnosticFact-like structure for overlap checks
         local d = {
-            range = ri.span,  -- or convert span to MoonSource.Range
+            range = ri.span,  -- or convert span to LalinSource.Range
             origin = ri.issue,  -- the raw ASDL issue
         }
         if overlaps(d.range, query.range.range) then out[#out + 1] = d end
@@ -2470,7 +2470,7 @@ The `code_actions_phase` PVM handler (line ~106-138) checks `pvm.classof(d.origi
 
 **Line estimation**: ~20 lines changed.
 
-### 21. `lua/moonlift/editor_subject_at.lua` — Refactor to use anchor index directly
+### 21. `lua/lalin/editor_subject_at.lua` — Refactor to use anchor index directly
 
 **Current** (line 100): Calls `Diag.diagnostics(analysis)` in `diagnostic_at`.
 
@@ -2494,7 +2494,7 @@ end
 
 **Check callers**: The `diagnostic_at` function is called from the subject resolution logic. The return value is used to constrain subject type. If the function returns `nil` when no diagnostic covers the offset, the subject resolution falls through to the next check. The actual diagnostic content is not used — only the presence/absence of a diagnostic at the given position matters.
 
-**Lines to remove**: The import of `Diagnostics = require("moonlift.editor_diagnostic_facts")` (line 4) and `Diag = Diagnostics.Define(T)` (line 32).
+**Lines to remove**: The import of `Diagnostics = require("lalin.editor_diagnostic_facts")` (line 4) and `Diag = Diagnostics.Define(T)` (line 32).
 
 **Line estimation**: ~5 lines changed.
 
@@ -2502,17 +2502,17 @@ end
 
 ## Phase 5: Deletion
 
-### 22. Delete `lua/moonlift/editor_diagnostic_facts.lua` (470 lines)
+### 22. Delete `lua/lalin/editor_diagnostic_facts.lua` (470 lines)
 
 **Check**: After files 20 and 21 are refactored, no file imports `editor_diagnostic_facts.lua`. Verify with `rg "require.*editor_diagnostic_facts"` that no references remain.
 
-### 23. Delete `lua/moonlift/editor_error_reports.lua` (330 lines)
+### 23. Delete `lua/lalin/editor_error_reports.lua` (330 lines)
 
 **Check**: After files 16-18 are modified, no file imports `editor_error_reports.lua`. Verify with `rg "require.*editor_error_reports"` that no references remain.
 
-### 24. Delete `lua/moonlift/diagnostic.lua` (211 lines)
+### 24. Delete `lua/lalin/diagnostic.lua` (211 lines)
 
-**Check**: `rg "require.*moonlift%.diagnostic"`. The only caller was `mlua_run.lua`, which should now use the ThrowingCollector path. Verify `mlua_run.lua` is updated.
+**Check**: `rg "require.*lalin%.diagnostic"`. The only caller was `mlua_run.lua`, which should now use the ThrowingCollector path. Verify `mlua_run.lua` is updated.
 
 ---
 
@@ -2545,7 +2545,7 @@ end
 | After file 7 (host_issue_values) | Host builders still work in standalone | `luajit tests/test_mlua_host_pipeline.lua` |
 | After file 11 (tree_to_back provenance) | Lowering still produces correct programs | `luajit tests/test_back_add_i32.lua` + `tests/test_back_object_emit.lua` |
 | After file 16 (mlua_document_analysis) | LSP analysis still produces results | `luajit tests/test_lsp_integrated.lua` |
-| After file 17 (frontend_pipeline) | Standalone compiler still works | `make && target/release/moonlift tests/test_files/*.mlua` |
+| After file 17 (frontend_pipeline) | Standalone compiler still works | `make && target/release/lalin tests/test_files/*.mlua` |
 | After file 18 (rpc_out_commands) | LSP diagnostics still published | `luajit tests/test_lsp_diagnostic_pull.lua` |
 | After Phase 4 (code_actions/subject_at refactor) | Code actions still offered | `luajit tests/test_lsp_code_actions.lua` |
 | After Phase 5 (deletions) | Full test suite passes | `for f in tests/test_*.lua; do luajit "$f" || echo "FAIL: $f"; done` |
@@ -2572,18 +2572,18 @@ Implemented the `BackProvenanceMap` integration in `tree_to_back.lua` — the pr
 
 ### Changes Made
 
-**1. `lua/moonlift/back_provenance.lua`** — Extended the `record()` function to support name-only entries (when source_range isn't available). Added `resolve_entry()` method returns the raw entry for name-based lookup. Updated `resolve_range()` to skip name-only entries.
+**1. `lua/lalin/back_provenance.lua`** — Extended the `record()` function to support name-only entries (when source_range isn't available). Added `resolve_entry()` method returns the raw entry for name-based lookup. Updated `resolve_range()` to skip name-only entries.
 
-**2. `lua/moonlift/tree_to_back.lua`** — Three changes:
-- **Import**: Added `BackProvenance = require("moonlift.back_provenance")` and `provenance = nil` to the initial `lower_context`
+**2. `lua/lalin/tree_to_back.lua`** — Three changes:
+- **Import**: Added `BackProvenance = require("lalin.back_provenance")` and `provenance = nil` to the initial `lower_context`
 - **Context init**: Added `provenance = BackProvenance.new()` in `with_module_context`
 - **Recording**: Added `item_name()` helper that extracts names from all item variants (ItemFunc, ItemExtern, ItemConst, ItemStatic, ItemType, ItemUseModule, ItemImport). In `lower_module_direct`, before the inner `pcall` each item's cmd range is recorded as a name-only entry. The provenance map is captured in an outer local (surviving the `pcall`) and returned alongside `BackProgram` as a second return value.
 
-**3. `lua/moonlift/frontend_pipeline.lua`** — Captures the provenance map from `Lower.module()` and attaches it to `analysis_ctx.back_provenance`. Also includes provenance in the returned result table.
+**3. `lua/lalin/frontend_pipeline.lua`** — Captures the provenance map from `Lower.module()` and attaches it to `analysis_ctx.back_provenance`. Also includes provenance in the returned result table.
 
-**4. `lua/moonlift/error/span_resolvers.lua`** — Enhanced the `backend_resolver` to try name-based resolution via `resolve_entry()` when `resolve()` returns nil. If the entry has a name, it looks up the name in the anchor index to find the source range.
+**4. `lua/lalin/error/span_resolvers.lua`** — Enhanced the `backend_resolver` to try name-based resolution via `resolve_entry()` when `resolve()` returns nil. If the entry has a name, it looks up the name in the anchor index to find the source range.
 
-**5. `lua/moonlift/mlua_document_analysis.lua`** — Updated the placeholder comment to reflect that provenance is now attached via the pipeline.
+**5. `lua/lalin/mlua_document_analysis.lua`** — Updated the placeholder comment to reflect that provenance is now attached via the pipeline.
 
 ### How It Works
 
@@ -2607,11 +2607,11 @@ error/span_resolvers.lua:backend_resolver(issue, analysis)
 
 ### Files Changed
 
-- `lua/moonlift/back_provenance.lua` — Added `name` param to `record()`, added `resolve_entry()`, updated `resolve_range()`
-- `lua/moonlift/tree_to_back.lua` — Import, context init, `item_name()` helper, recording, return value
-- `lua/moonlift/frontend_pipeline.lua` — Capture provenance from `Lower.module()` 
-- `lua/moonlift/error/span_resolvers.lua` — Enhanced `backend_resolver` with name-based resolution
-- `lua/moonlift/mlua_document_analysis.lua` — Updated comment
+- `lua/lalin/back_provenance.lua` — Added `name` param to `record()`, added `resolve_entry()`, updated `resolve_range()`
+- `lua/lalin/tree_to_back.lua` — Import, context init, `item_name()` helper, recording, return value
+- `lua/lalin/frontend_pipeline.lua` — Capture provenance from `Lower.module()`
+- `lua/lalin/error/span_resolvers.lua` — Enhanced `backend_resolver` with name-based resolution
+- `lua/lalin/mlua_document_analysis.lua` — Updated comment
 
 ### Notes
 - The `test_back_object_emit` and `test_parse_typecheck` tests fail due to a pre-existing `pvm.with` issue in the already-modified `frontend_pipeline.lua` (unrelated to provenance changes)
@@ -2623,7 +2623,7 @@ Now I have all the data. Let me compile the comprehensive audit.
 
 ---
 
-# Moonlift Error Message Quality Audit
+# Lalin Error Message Quality Audit
 
 Date: 2026-05-19
 
@@ -2812,7 +2812,7 @@ Date: 2026-05-19
 ```
 E9999: "unclassified error — please report as a bug"
 span: `issue_span()` fallback
-message: `issue.message or tostring(issue)` 
+message: `issue.message or tostring(issue)`
 ```
 
 - `tostring(issue)` for an ASDL node produces a Lua table address like `table: 0x7f1234567890`
@@ -2903,14 +2903,14 @@ E0404 uses `issue.cont_name`, `issue.expected_params`, `issue.actual_params` —
 | `host_splice.lua:42` | `error((site or "splice") .. ": " .. msg, level or 2)` | Same pattern. Fallback when no collector. Messages like "splice: expected type value for @{} type splice, got table" — legible but not E0xxx. |
 | `host_module_values.lua:293` | `error("bundle:library link validation failed: ...")` | Link validation in standalone path. Raw Lua error. Message is concatenation of all validation messages. |
 | `host_module_values.lua:299` | `error("bundle:library link failed")` | Link execution failure. Raw Lua error. |
-| `host_func_values.lua:354-356` | `error("moon.stmts[[]] does not evaluate @{}; use moon.stmts{values}[[]] instead")` | Metaprogramming API misuse. Reasonably descriptive but not E0xxx. |
-| `host.lua:56-58` | Same pattern | Multiple `moon.XXX` API sites. |
+| `host_func_values.lua:354-356` | `error("lalin.stmts[[]] does not evaluate @{}; use lalin.stmts{values}[[]] instead")` | Metaprogramming API misuse. Reasonably descriptive but not E0xxx. |
+| `host.lua:56-58` | Same pattern | Multiple `lalin.XXX` API sites. |
 
 ### Runtime / library loading errors (beyond compiler errors):
 
 These are environment errors, not compilation errors. They're acceptable as raw errors:
 
-- `back_jit.lua:47` — "could not load Rust moonlift library"
+- `back_jit.lua:47` — "could not load Rust lalin library"
 - `back_object.lua:37` — same
 - `host_arena_native.lua:85` — same
 - `back_jit.lua:78` — "unsupported host architecture"
@@ -3072,7 +3072,7 @@ The problem is about **error content quality** — not pipeline architecture (th
 
 2. **Coverage completeness has two distinct sub-problems**: (a) 45 variants missing from `issue_code_map` (Open, Link, Vec, Source) → E9999, and (b) 3 registry builders (E0601/E0602/E0603) mapping to correct codes but reading wrong fields → misleading messages. The scout conflated these; they need different fixes.
 
-3. **The metaprogramming path is paradoxically superior**: `host_issue_to_string()` produces legible messages for 13 HostIssue variants AND falls through to the same bad `tostring(issue)` for the rest. The `raise_host_issue(collector_available)` dual path means metaprogramming users (who hit errors in `region_compose`, `moon.struct`, etc.) see BETTER errors via `error()` string than LSP users see via the catalog.
+3. **The metaprogramming path is paradoxically superior**: `host_issue_to_string()` produces legible messages for 13 HostIssue variants AND falls through to the same bad `tostring(issue)` for the rest. The `raise_host_issue(collector_available)` dual path means metaprogramming users (who hit errors in `region_compose`, `lalin.struct`, etc.) see BETTER errors via `error()` string than LSP users see via the catalog.
 
 ---
 
@@ -3101,15 +3101,15 @@ E0301 handles 22 site patterns (call, let, var, return, yield, set, if cond, sel
 ### 3. OpenIssue variants have NO source position in their schema — the span resolver isn't just wrong, it's impossible to fix without changing the schema
 
 The OpenIssue variants carry:
-- `issue.slot` → which is a `MoonOpen.Slot*` object with fields `key` and `pretty_name` — **no range, no offset, no anchor reference**
+- `issue.slot` → which is a `LalinOpen.Slot*` object with fields `key` and `pretty_name` — **no range, no offset, no anchor reference**
 - `issue.use_id` → a string like `"reg:@my_fragment"` — **no source position**
-- `issue.import` → a `MoonOpen.ValueImport` object — again, **no source position**
+- `issue.import` → a `LalinOpen.ValueImport` object — again, **no source position**
 
 The span resolver tries `issue.param_name` and `issue.island_name` — fields that DON'T EXIST on any OpenIssue variant. This isn't the resolver author's fault — the resolver was written for a generic model that doesn't match the OpenIssue data.
 
 **Why this exists**: Open validation runs on the partially-expanded AST (after `OpenExpand`). The slots and use_ids are resolved from the original source positions — the open validator KNOWS where in the source the slot appeared. But when constructing the ValidationIssue, it stores only the slot/use_id object, not the source range. The source position is lost at the boundary between "finding the error" and "recording the error."
 
-**The fix requires schema changes**: Every OpenIssue variant needs a source range field. This is 22 schema changes (add `A.field "range" "MoonSource.Range"` to every variant), plus changes in `open_validate.lua` to attach the range when constructing the issue. Without this, the span resolver can only produce `full_range`.
+**The fix requires schema changes**: Every OpenIssue variant needs a source range field. This is 22 schema changes (add `A.field "range" "LalinSource.Range"` to every variant), plus changes in `open_validate.lua` to attach the range when constructing the issue. Without this, the span resolver can only produce `full_range`.
 
 ### 4. VecReject suppression reveals a philosophical tension that's invisible in the code
 
@@ -3119,7 +3119,7 @@ The comment "Vector rejects are optimization planning facts, not source-language
 
 **The real cost of suppression**: A user writes a loop over a view, expecting vectorization. The loop compiles and runs correctly, but at 1/4 speed. There is zero diagnostic output explaining why. The user has to either: (a) know to run a special diagnostic tool, (b) read compiler source to understand what patterns vectorize, or (c) benchmark every loop and guess. For a language that advertises auto-vectorization, this is a UX gap that no amount of compiler correctness can fix.
 
-**What other compilers do**: rustc has `-Z dump-mir=...` and perf annotations, clang has `-Rpass=loop-vectorize`, GCC has `-fopt-info-vec`. None show vec diagnostics by default — they're opt-in flags. Moonlift's current behavior (suppress by default, available through a flag) is consistent with industry practice. The problem is that Moonlift has NO opt-in flag — the vec diagnostics are simply invisible. The fix isn't "show vec rejects by default" (too noisy) — it's "add a `--show-vec-rejects` flag and plumb it through."
+**What other compilers do**: rustc has `-Z dump-mir=...` and perf annotations, clang has `-Rpass=loop-vectorize`, GCC has `-fopt-info-vec`. None show vec diagnostics by default — they're opt-in flags. Lalin's current behavior (suppress by default, available through a flag) is consistent with industry practice. The problem is that Lalin has NO opt-in flag — the vec diagnostics are simply invisible. The fix isn't "show vec rejects by default" (too noisy) — it's "add a `--show-vec-rejects` flag and plumb it through."
 
 ### 5. The `tostring(issue)` fallback is fundamentally broken for ASDL objects — and it affects BOTH code paths
 
@@ -3128,7 +3128,7 @@ The E9999 builder does `issue.message or tostring(issue)`. The `host_issue_to_st
 **The deeper problem**: ASDL nodes are Lua tables with `__asdl_type` metadata. They have NO `__tostring` metamethod. When you `tostring()` an ASDL `BackIssueMissingFunc`, you get `"table: 0x7f..."` — the Lua VM tells you the memory address, not the issue details.
 
 **Why this matters**: For the 45 variants with NO catalog entry (Open, Link, Vec, Source), BOTH code paths produce the same garbage:
-- LSP path via catalog: E9999 → `tostring(issue)` → `"table: 0x..."` 
+- LSP path via catalog: E9999 → `tostring(issue)` → `"table: 0x..."`
 - Metaprogramming path via `error()`: `host_issue_to_string()` → `tostring(issue)` → `"table: 0x..."`
 
 Adding a `__tostring` metamethod to ASDL nodes that prints a summary (class name + key fields) would make the fallback behave identically to `class_name(issue)` — not great, but vastly better than a memory address. This is a 10-line fix in `ast.lua` or `pvm.lua` that would improve EVERY fallback path.
@@ -3245,7 +3245,7 @@ Now I have a thorough understanding of the entire landscape. Here are three arch
 -- schema/back.lua
 A.variant "BackIssueMissingFunc" {
     A.field "index" "number",
-    A.field "func" "MoonBack.BackFuncId",
+    A.field "func" "LalinBack.BackFuncId",
     A.variant_unique,
 },
 -- @error E0601, error, "missing function `{func.text}`"
@@ -3255,7 +3255,7 @@ A.variant "BackIssueMissingFunc" {
 
 A.variant "BackIssueIntScalarExpected" {
     A.field "index" "number",
-    A.field "scalar" "MoonBack.BackScalar",
+    A.field "scalar" "LalinBack.BackScalar",
     A.variant_unique,
 },
 -- @error E0304, error, "expected an integer type, got scalar `{scalar}`"
@@ -3316,7 +3316,7 @@ A.variant "BackIssueIntScalarExpected" {
 5. Add `range` field to OpenIssue Slot types; populate in `open_validate.lua`
 6. Write the `@explain` escape hatch for the ~5 complex cases that can't be templated
 7. Integrate codegen into `Makefile` and `build.rs`
-8. Update `error/catalog.lua` to `require("moonlift.error.generated_catalog")` and fall back to hand-written entries for complex cases
+8. Update `error/catalog.lua` to `require("lalin.error.generated_catalog")` and fall back to hand-written entries for complex cases
 9. Fix `host_module_values.lua` to emit LinkIssues to collector (orthogonal but required)
 
 ---
@@ -3330,7 +3330,7 @@ A.variant "BackIssueIntScalarExpected" {
 - **Phase modules gain `explain()` functions**:
 
 ```lua
--- lua/moonlift/tree_typecheck.lua
+-- lua/lalin/tree_typecheck.lua
 function M.explain_type_issue(issue, analysis)
     local cls = pvm.classof(issue)
     if cls == Tr.TypeIssueExpected then
@@ -3347,12 +3347,12 @@ function M.explain_type_issue(issue, analysis)
     -- ... one branch per variant ...
 end
 
--- lua/moonlift/back_validate.lua
+-- lua/lalin/back_validate.lua
 function M.explain_back_issue(issue, analysis)
     local cls = pvm.classof(issue)
     local provenance = analysis.back_provenance
     local span = provenance and provenance:resolve(issue.func or issue.block or issue.index) or fallback_span(analysis)
-    
+
     if cls == B.BackIssueMissingFunc then
         return {
             code = "E0601",
@@ -3369,15 +3369,15 @@ end
 
 ```lua
 local explainers = {
-    parse = require("moonlift.parse").explain_parse_issue,
-    host = require("moonlift.host_issue_values").explain_host_issue,
-    open = require("moonlift.open_validate").explain_open_issue,
-    binding = require("moonlift.editor_binding_facts").explain_binding_issue,
-    typecheck = require("moonlift.tree_typecheck").explain_type_issue,
-    backend = require("moonlift.back_validate").explain_back_issue,
-    link = require("moonlift.link_plan_validate").explain_link_issue,
-    vec = require("moonlift.vec_loop_facts").explain_vec_reject,
-    source = require("moonlift.rpc_json_decode").explain_source_issue,
+    parse = require("lalin.parse").explain_parse_issue,
+    host = require("lalin.host_issue_values").explain_host_issue,
+    open = require("lalin.open_validate").explain_open_issue,
+    binding = require("lalin.editor_binding_facts").explain_binding_issue,
+    typecheck = require("lalin.tree_typecheck").explain_type_issue,
+    backend = require("lalin.back_validate").explain_back_issue,
+    link = require("lalin.link_plan_validate").explain_link_issue,
+    vec = require("lalin.vec_loop_facts").explain_vec_reject,
+    source = require("lalin.rpc_json_decode").explain_source_issue,
 }
 
 function M.build_report(issue, phase, analysis)
@@ -3721,7 +3721,7 @@ The issues are produced by the PVM phase as a batch. The collector iterates over
 
 **Score: 2/5 (Poor alignment)**
 
-The Moonlift design philosophy, as stated in AGENTS.md:
+The Lalin design philosophy, as stated in AGENTS.md:
 
 > **ASDL is the architecture**: all meaningful compilation state is interned, immutable ASDL values. No hidden state in strings, callbacks, or side tables.
 
@@ -3861,7 +3861,7 @@ This is architecturally identical to the current system, with one difference: th
 
 **Feasibility verdict for Option B**: Technically feasible, but the cost-benefit ratio is terrible. ~298 changes, ~1100 lines of catalog deleted and moved into phase code, zero user-visible improvement, significant degradation in maintainability and auditability.
 
-**Option A is not feasible** (breaks PVM).  
+**Option A is not feasible** (breaks PVM).
 **Option B is technically feasible but architecturally regressive** (moves formatting into phases, duplicates logic, degrades auditability).
 
 ---
@@ -3921,10 +3921,10 @@ Now I have a thorough understanding of every relevant file. Let me produce the s
 
 ---
 
-# Moonlift Error Message Content — Architectural Decision
+# Lalin Error Message Content — Architectural Decision
 
-**Date**: 2026-05-19  
-**Decision**: Adopt **Approach B: Phase-Local Explainers** — error message content moves from centralized catalog builders into `explain()` functions co-located in each compiler phase module. The catalog becomes a thin dispatcher.  
+**Date**: 2026-05-19
+**Decision**: Adopt **Approach B: Phase-Local Explainers** — error message content moves from centralized catalog builders into `explain()` functions co-located in each compiler phase module. The catalog becomes a thin dispatcher.
 **Status**: Approved.
 
 ---
@@ -3995,7 +3995,7 @@ Thin wrapper: looks up `entries[code]`, calls `pcall(entry.build, issue, analysi
 
 Currently embedded in `catalog.lua`:
 
-- **`type_name(ty)`** (~70 lines): Formats MoonType.Type ASDL values to human-readable strings: `"ptr(i32)"`, `"func(...) -> f64"`, `"MyStruct"`, etc. Called by every type-related builder.
+- **`type_name(ty)`** (~70 lines): Formats LalinType.Type ASDL values to human-readable strings: `"ptr(i32)"`, `"func(...) -> f64"`, `"MyStruct"`, etc. Called by every type-related builder.
 - **`op_symbol(op)`** (~30 lines): Converts `BinAdd` / `CmpEq` / `LogicAnd` to `"+"` / `"=="` / `"&&"`.
 - **`issue_span(issue, analysis)`** (~25 lines): Fallback span resolution from `issue.offset` and `analysis.source_text`. Used as the first line of every builder.
 
@@ -4040,15 +4040,15 @@ The catalog is reduced to a thin **dispatch table**:
 ```lua
 -- error/catalog.lua — new architecture (~50 lines)
 local explainers = {
-    parse     = require("moonlift.parse").explain_parse_issue,
-    host      = require("moonlift.host_issue_values").explain_host_issue,
-    open      = require("moonlift.open_validate").explain_open_issue,
-    binding   = require("moonlift.editor_binding_facts").explain_binding_issue,
-    typecheck = require("moonlift.tree_typecheck").explain_type_issue,
-    backend   = require("moonlift.back_validate").explain_back_issue,
-    link      = require("moonlift.link_plan_validate").explain_link_issue,
-    vec       = require("moonlift.vec_loop_facts").explain_vec_reject,
-    source    = require("moonlift.rpc_json_decode").explain_source_issue,
+    parse     = require("lalin.parse").explain_parse_issue,
+    host      = require("lalin.host_issue_values").explain_host_issue,
+    open      = require("lalin.open_validate").explain_open_issue,
+    binding   = require("lalin.editor_binding_facts").explain_binding_issue,
+    typecheck = require("lalin.tree_typecheck").explain_type_issue,
+    backend   = require("lalin.back_validate").explain_back_issue,
+    link      = require("lalin.link_plan_validate").explain_link_issue,
+    vec       = require("lalin.vec_loop_facts").explain_vec_reject,
+    source    = require("lalin.rpc_json_decode").explain_source_issue,
 }
 
 function M.build_report(code, issue, phase, analysis)
@@ -4139,15 +4139,15 @@ This is identical to the field structure currently produced by `register()` buil
 
 #### 1. Parse Explainer — `parse.lua`
 
-**Variants**: 1 (`ParseIssue`).  
-**Fields**: `issue.message`, `issue.offset`.  
-**Message strategy**: Direct pass-through of the parser's error string. The parser already produces messages like `"expected 'end', got end of input"`. The explainer wraps this with context about which construct is open.  
-**Span**: `span_resolvers.parse_resolver(issue, analysis)` — offset-based.  
-**What was broken before**: Nothing — E0101 was already good because the parser produces a human-readable message.  
+**Variants**: 1 (`ParseIssue`).
+**Fields**: `issue.message`, `issue.offset`.
+**Message strategy**: Direct pass-through of the parser's error string. The parser already produces messages like `"expected 'end', got end of input"`. The explainer wraps this with context about which construct is open.
+**Span**: `span_resolvers.parse_resolver(issue, analysis)` — offset-based.
+**What was broken before**: Nothing — E0101 was already good because the parser produces a human-readable message.
 
 ```lua
 function M.explain_parse_issue(issue, analysis)
-    local span = require("moonlift.error.span_resolvers").parse_resolver(issue, analysis)
+    local span = require("lalin.error.span_resolvers").parse_resolver(issue, analysis)
     local msg = issue.message or "unexpected token"
     -- Enrich with construct context (same logic as current E0101 builder)
     local notes, suggestions = enrich_parse_message(msg)
@@ -4163,19 +4163,19 @@ end
 
 #### 2. Host Explainer — `host_issue_values.lua`
 
-**Variants**: 22 (`HostIssue*`).  
-**Fields**: Per variant: `HostIssueDuplicateField` has `.type_name`, `.field_name`; `HostIssueSpliceExpected` has `.splice_id`, `.expected`, `.actual`; `HostIssueRegionComposeIncompatibleCont` has `.fragment_name`, `.exit_name`, `.expected`, `.actual`; etc.  
-**Message strategy**: Each variant produces a specific message using its actual schema fields. The existing `host_issue_to_string()` function already does this — the explainer wraps it in the ExplainEvent structure.  
-**Span**: `span_resolvers.host_resolver(issue, analysis)` — anchor-based (`.field_name`, `.type_name`, `.name`).  
+**Variants**: 22 (`HostIssue*`).
+**Fields**: Per variant: `HostIssueDuplicateField` has `.type_name`, `.field_name`; `HostIssueSpliceExpected` has `.splice_id`, `.expected`, `.actual`; `HostIssueRegionComposeIncompatibleCont` has `.fragment_name`, `.exit_name`, `.expected`, `.actual`; etc.
+**Message strategy**: Each variant produces a specific message using its actual schema fields. The existing `host_issue_to_string()` function already does this — the explainer wraps it in the ExplainEvent structure.
+**Span**: `span_resolvers.host_resolver(issue, analysis)` — anchor-based (`.field_name`, `.type_name`, `.name`).
 **What was broken before**: Missing variants (`HostIssueSpliceEvalError`, `HostIssueLuaStepError`, `HostIssueTemplateParseError`, four `HostIssueRegionCompose*` variants) fell through to `tostring(issue)` in the metaprogramming path, or E9999 in the LSP path. The explainer handles ALL 22 variants explicitly.
 
 ```lua
 function M.explain_host_issue(issue, analysis)
-    local resolvers = require("moonlift.error.span_resolvers")
+    local resolvers = require("lalin.error.span_resolvers")
     local span = resolvers.host_resolver(issue, analysis)
-    local cls = require("moonlift.pvm").classof(issue)
+    local cls = require("lalin.pvm").classof(issue)
     local kind = cls and cls.kind or ""
-    
+
     if kind == "HostIssueDuplicateField" then
         return {
             code = "E0501",
@@ -4202,17 +4202,17 @@ end
 
 #### 3. Open Explainer — `open_validate.lua`
 
-**Variants**: 22 (`ValidationIssue` / `OpenIssue`).  
-**Fields**: 14 `Issue*Slot` variants each carry `.slot` (a Slot product with `.key` and `.pretty_name`); `IssueUnexpandedExprFragUse` carries `.use_id`; etc.  
-**Message strategy**: Slot variants say "unfilled slot `{slot.key}` ({slot.pretty_name}) in fragment". Use variants say "unexpanded fragment use `{use_id}`".  
-**Span**: The open explainer has access to the parse tree via `analysis.parse`. It resolves slot keys to source positions by searching the anchor index — replacing the current broken heuristic of `issue.param_name` (which does not exist on any OpenIssue variant).  
+**Variants**: 22 (`ValidationIssue` / `OpenIssue`).
+**Fields**: 14 `Issue*Slot` variants each carry `.slot` (a Slot product with `.key` and `.pretty_name`); `IssueUnexpandedExprFragUse` carries `.use_id`; etc.
+**Message strategy**: Slot variants say "unfilled slot `{slot.key}` ({slot.pretty_name}) in fragment". Use variants say "unexpanded fragment use `{use_id}`".
+**Span**: The open explainer has access to the parse tree via `analysis.parse`. It resolves slot keys to source positions by searching the anchor index — replacing the current broken heuristic of `issue.param_name` (which does not exist on any OpenIssue variant).
 **What was broken before**: ALL 22 variants fell through to E9999 "table: 0x...". The span resolver read `issue.param_name` (non-existent) → full_range. This explainer makes open validation errors the first visible, precise diagnostics they should be.
 
 ```lua
 function M.explain_open_issue(issue, analysis)
-    local resolvers = require("moonlift.error.span_resolvers")
+    local resolvers = require("lalin.error.span_resolvers")
     local span = resolvers.open_resolver(issue, analysis)  -- improved: slot key → anchor
-    
+
     -- Find slot key from variant-specific field
     local slot_key = nil
     local pretty_name = nil
@@ -4224,7 +4224,7 @@ function M.explain_open_issue(issue, analysis)
             break
         end
     end
-    
+
     return {
         code = slot_code(issue),  -- E0801-E0802 as appropriate
         severity = "error",
@@ -4240,28 +4240,28 @@ end
 
 #### 4. Binding Explainer — `editor_binding_facts.lua`
 
-**Variants**: 1 (`BindingUnresolved`).  
-**Fields**: `issue.use` (has `.anchor` with `.label` and `.range`).  
-**Message strategy**: "unresolved name `{label}`". Suggestions via `Sugggest.did_you_mean()`.  
-**Span**: Direct anchor range. Already precise.  
+**Variants**: 1 (`BindingUnresolved`).
+**Fields**: `issue.use` (has `.anchor` with `.label` and `.range`).
+**Message strategy**: "unresolved name `{label}`". Suggestions via `Sugggest.did_you_mean()`.
+**Span**: Direct anchor range. Already precise.
 **What was broken before**: Nothing — E0201 was already good. The explainer preserves the existing quality.
 
 #### 5. Typecheck Explainer — `tree_typecheck.lua`
 
-**Variants**: 18 (`TypeIssue*`).  
-**Fields**: `TypeIssueExpected` has `.site`, `.expected`, `.actual`; `TypeIssueInvalidBinary` has `.op`, `.lhs`, `.rhs`; etc.  
-**Message strategy**: Ports the 118-line E0301 builder logic (22 site patterns) into the typecheck module. Each `TypeIssue*` variant gets its own branch, accessing its actual fields directly. The `site_range()` and `operator_range()` logic remains in `span_resolvers.lua` and is imported.  
-**Span**: `span_resolvers.typecheck_resolver(issue, analysis)` — site string → anchor, operator → ordinal.  
+**Variants**: 18 (`TypeIssue*`).
+**Fields**: `TypeIssueExpected` has `.site`, `.expected`, `.actual`; `TypeIssueInvalidBinary` has `.op`, `.lhs`, `.rhs`; etc.
+**Message strategy**: Ports the 118-line E0301 builder logic (22 site patterns) into the typecheck module. Each `TypeIssue*` variant gets its own branch, accessing its actual fields directly. The `site_range()` and `operator_range()` logic remains in `span_resolvers.lua` and is imported.
+**Span**: `span_resolvers.typecheck_resolver(issue, analysis)` — site string → anchor, operator → ordinal.
 **What was broken before**: The E0301 builder was excellent (22 site patterns, precise notes), but three variant-related variants (`TypeIssueUnknownVariant`, `TypeIssueVariantPayloadMismatch`, `TypeIssueDuplicateVariant`) were mapped to E0301 but the builder couldn't access `.variant_name` or `.type_name`. The explainer handles them with proper `"unknown variant `V` in type `T`"` messages.
 
 ```lua
 function M.explain_type_issue(issue, analysis)
-    local resolvers = require("moonlift.error.span_resolvers")
-    local format = require("moonlift.error.format")
+    local resolvers = require("lalin.error.span_resolvers")
+    local format = require("lalin.error.format")
     local span = resolvers.typecheck_resolver(issue, analysis)
-    local cls = require("moonlift.pvm").classof(issue)
+    local cls = require("lalin.pvm").classof(issue)
     local kind = cls and cls.kind or ""
-    
+
     if kind == "TypeIssueExpected" then
         local msg = site_description(issue.site or "expression")
         return {
@@ -4292,20 +4292,20 @@ end
 
 #### 6. Backend Explainer — `back_validate.lua`
 
-**Variants**: 37 (`BackIssue*`).  
-**Fields**: Each variant carries variant-specific fields: `BackIssueMissingFunc` has `.func` (BackFuncId); `BackIssueIntScalarExpected` has `.scalar` (BackScalar); `BackIssueLoadAccessMode` has `.mode` (BackAccessMode); etc.  
-**Message strategy**: Each variant gets its own branch. Entity references use `tostring(issue.func)` for BackFuncId (produces `"f42"` — the user-visible function name from `.text`). Scalar names use the same scalar_labels table from `format.lua`. Access modes use `tostring(issue.mode)`.  
-**Span**: `span_resolvers.backend_resolver(issue, analysis)` — provenance map lookup. The backend explainer has access to `analysis.back_provenance` for resolving IDs to positions.  
+**Variants**: 37 (`BackIssue*`).
+**Fields**: Each variant carries variant-specific fields: `BackIssueMissingFunc` has `.func` (BackFuncId); `BackIssueIntScalarExpected` has `.scalar` (BackScalar); `BackIssueLoadAccessMode` has `.mode` (BackAccessMode); etc.
+**Message strategy**: Each variant gets its own branch. Entity references use `tostring(issue.func)` for BackFuncId (produces `"f42"` — the user-visible function name from `.text`). Scalar names use the same scalar_labels table from `format.lua`. Access modes use `tostring(issue.mode)`.
+**Span**: `span_resolvers.backend_resolver(issue, analysis)` — provenance map lookup. The backend explainer has access to `analysis.back_provenance` for resolving IDs to positions.
 **What was broken before**: E0601/E0602/E0603 read non-existent fields. All 37 BackIssue variants produced either `"?"` or `"command order violation"`. The explainer fixes all 37 with per-variant messages.
 
 ```lua
 function M.explain_back_issue(issue, analysis)
-    local resolvers = require("moonlift.error.span_resolvers")
-    local format = require("moonlift.error.format")
+    local resolvers = require("lalin.error.span_resolvers")
+    local format = require("lalin.error.format")
     local span = resolvers.backend_resolver(issue, analysis) or resolvers.full_span(analysis)
-    local cls = require("moonlift.pvm").classof(issue)
+    local cls = require("lalin.pvm").classof(issue)
     local kind = cls and cls.kind or ""
-    
+
     if kind == "BackIssueMissingFunc" then
         return {
             code = "E0601",
@@ -4341,28 +4341,28 @@ end
 
 #### 7. Link Explainer — `link_plan_validate.lua`
 
-**Variants**: 10 (`LinkIssue*`).  
-**Fields**: `LinkIssueMissingInput` has `.path` (LinkPath with `.text`); `LinkIssueCommandFailed` has `.index`, `.code`, `.stderr`; etc.  
-**Message strategy**: Direct field access. `"missing input file: {path.text}"`, `"linker command #{index} failed with exit code {code}: {stderr}"`.  
-**Span**: No document span — link validation is batch compilation, not per-keystroke. Returns nil.  
-**Prerequisite**: `host_module_values.lua` must be fixed to emit LinkIssues to the collector instead of calling `error()` with concatenated strings. The explainer exists and works once the plumbing is in place.  
+**Variants**: 10 (`LinkIssue*`).
+**Fields**: `LinkIssueMissingInput` has `.path` (LinkPath with `.text`); `LinkIssueCommandFailed` has `.index`, `.code`, `.stderr`; etc.
+**Message strategy**: Direct field access. `"missing input file: {path.text}"`, `"linker command #{index} failed with exit code {code}: {stderr}"`.
+**Span**: No document span — link validation is batch compilation, not per-keystroke. Returns nil.
+**Prerequisite**: `host_module_values.lua` must be fixed to emit LinkIssues to the collector instead of calling `error()` with concatenated strings. The explainer exists and works once the plumbing is in place.
 **What was broken before**: ALL 10 variants → E9999. The standalone path never saw structured diagnostics (raw `error()` with string concatenation). The explainer makes link issues visible in both paths.
 
 #### 8. Vec Explainer — `vec_loop_facts.lua`
 
-**Variants**: 8 (`VecReject*`).  
-**Fields**: Each variant carries a `reason` field that is already a human-readable string: `"[loop] does not have a predictable number of iterations"`, `"[expr] write to ptr(i8) does not satisfy bounds contract"`.  
-**Message strategy**: Pass through `issue.reason` as the primary message. The `reason` field is already more informative than most catalog builders produce.  
-**Span**: `span_resolvers.vec_resolver(issue, analysis)` — delegates to typecheck path (loop/region anchors).  
-**Opt-in**: VecRejects are not collected by default. The explainer is available when the user passes `--show-vec-rejects` to the standalone compiler or the LSP.  
+**Variants**: 8 (`VecReject*`).
+**Fields**: Each variant carries a `reason` field that is already a human-readable string: `"[loop] does not have a predictable number of iterations"`, `"[expr] write to ptr(i8) does not satisfy bounds contract"`.
+**Message strategy**: Pass through `issue.reason` as the primary message. The `reason` field is already more informative than most catalog builders produce.
+**Span**: `span_resolvers.vec_resolver(issue, analysis)` — delegates to typecheck path (loop/region anchors).
+**Opt-in**: VecRejects are not collected by default. The explainer is available when the user passes `--show-vec-rejects` to the standalone compiler or the LSP.
 **What was broken before**: ALL 8 variants → E9999. The `reason` field — the best error source in the entire system — was discarded.
 
 #### 9. Source Explainer — `rpc_json_decode.lua`
 
-**Variants**: 5 (`SourceApplyIssue*`).  
-**Fields**: `SourceIssueWrongDocument` has `.expected`, `.actual` (DocUri with `.text`); `SourceIssueStaleVersion` has `.expected_after`, `.actual` (DocVersion with `.value`); `SourceIssueInvalidRange` has `.reason`; `SourceIssueOverlappingRanges` has `.previous`, `.current` (SourceRange); `SourceIssueMixedReplaceAll` (no fields).  
-**Message strategy**: "edit applied to wrong document: expected {expected.text}, got {actual.text}" etc.  
-**Span**: No document span — these are internal LSP errors. Returns nil.  
+**Variants**: 5 (`SourceApplyIssue*`).
+**Fields**: `SourceIssueWrongDocument` has `.expected`, `.actual` (DocUri with `.text`); `SourceIssueStaleVersion` has `.expected_after`, `.actual` (DocVersion with `.value`); `SourceIssueInvalidRange` has `.reason`; `SourceIssueOverlappingRanges` has `.previous`, `.current` (SourceRange); `SourceIssueMixedReplaceAll` (no fields).
+**Message strategy**: "edit applied to wrong document: expected {expected.text}, got {actual.text}" etc.
+**Span**: No document span — these are internal LSP errors. Returns nil.
 **What was broken before**: ALL 5 variants → E9999.
 
 ### Shared Formatters (`error/format.lua`, NEW)
@@ -4373,7 +4373,7 @@ Extracted from `catalog.lua` to avoid duplication across explainers:
 -- error/format.lua — shared formatting utilities
 local M = {}
 
--- type_name(ty): MoonType.Type → "ptr(i32)" / "func(...) -> f64" / "MyStruct"
+-- type_name(ty): LalinType.Type → "ptr(i32)" / "func(...) -> f64" / "MyStruct"
 M.type_name = function(ty) ... end
 
 -- op_symbol(op): BinAdd → "+", CmpEq → "==", UnaryNot → "not"
@@ -4386,10 +4386,10 @@ M.scalar_name = function(scalar) ... end
 M.access_mode_name = function(mode) ... end
 
 -- Re-export Suggest for convenience
-M.Suggest = require("moonlift.error.suggest")
+M.Suggest = require("lalin.error.suggest")
 
 -- Re-export SpanResolvers for convenience
-M.SpanResolvers = require("moonlift.error.span_resolvers")
+M.SpanResolvers = require("lalin.error.span_resolvers")
 
 return M
 ```
@@ -4406,12 +4406,12 @@ A test in `test_error_system.lua` enumerates all 122 ASDL issue variants by read
 function test_explainer_coverage()
     local schema = load_schema_files()  -- scan schema/*.lua
     local all_variants = enumerate_issue_variants(schema)  -- 122 items
-    
+
     for _, v in ipairs(all_variants) do
         local phase = phase_for_variant(v.name)
         local explainer = explainers[phase]
         assert(explainer ~= nil, "no explainer for phase " .. phase)
-        
+
         -- Verify the explainer handles this variant by calling it with a mock issue
         local cls = { kind = v.name }
         local mock_issue = setmetatable({}, { __index = { ... mock fields ... } })
@@ -4461,28 +4461,28 @@ Parse, host, open, binding, typecheck, backend explainers MUST return a non-nil 
 
 ### Key Design Decisions
 
-**1. ASDL issue nodes remain the canonical representation.**  
+**1. ASDL issue nodes remain the canonical representation.**
 Phases construct `Tr.TypeIssueExpected(...)` exactly as before. The cascade filter uses `pvm.classof(ri.issue)` to detect void-type cascades. Code actions use `pvm.classof(issue)` for type dispatch on `HostIssueBareBoolInBoundaryStruct` etc. The collector emits raw ASDL nodes. Only the message-construction logic moves — nothing else changes.
 
-**2. Explainers are pure functions of `(issue, analysis)`.**  
+**2. Explainers are pure functions of `(issue, analysis)`.**
 No side effects, no collector access, no state. They receive the analysis context for span resolution and name lookup. They return an ExplainEvent table. The catalog wraps it in an ErrorReport.
 
-**3. Span resolvers remain in `span_resolvers.lua`.**  
+**3. Span resolvers remain in `span_resolvers.lua`.**
 Explainers import and call them. No span resolution logic moves into phase modules. The existing `span_resolvers.lua` module (9 resolvers in a static table) is unchanged.
 
-**4. Backend ID resolution uses `tostring(issue.func)`.**  
+**4. Backend ID resolution uses `tostring(issue.func)`.**
 `BackFuncId` is an ASDL product type with a `.text` field. `tostring()` on an ASDL product with `__asdl_type` metadata produces the value of the first annotation field or `.text`. This gives user-visible names like `"f42"` or `"main"`. The explainer can also access `issue.func.text` directly.
 
-**5. OpenIssue span resolution uses the parse tree.**  
+**5. OpenIssue span resolution uses the parse tree.**
 The open explainer has access to `analysis.parse` (the parsed document). It searches the anchor index for slots matching the issue's slot key. This replaces the current broken `issue.param_name` heuristic. No schema change is needed — the span is resolved retrospectively from the parse tree.
 
-**6. The `issue_code_map` is removed.**  
+**6. The `issue_code_map` is removed.**
 The map's function (mapping class name → error code) moves into each explainer's per-variant branches. Each branch returns `code = "E0301"` directly. This eliminates the maintenance burden of a 90-entry table and the silent E9999 fallthrough for missing entries.
 
-**7. LinkIssue explainer exists but requires plumbing.**  
+**7. LinkIssue explainer exists but requires plumbing.**
 The explainer code lives in `link_plan_validate.lua`. It is wired into the catalog dispatcher. But link validation is not triggered per-keystroke in the LSP — only during batch compilation. The `host_module_values.lua` fix (emit to collector instead of `error()`) is a separate prerequisite that must be completed before link issues reach the diagnostic pipeline.
 
-**8. VecReject explainer exists with an opt-in flag.**  
+**8. VecReject explainer exists with an opt-in flag.**
 The explainer is registered in the catalog. The `mlua_document_analysis.lua` does NOT call `vec_loop_facts.lua` by default. A new `--show-vec-rejects` flag enables it. When enabled, VecRejects flow through the normal collector → cascade filter → explainer → ErrorReport pipeline, with the `reason` field as the primary message.
 
 ### Migration Steps
@@ -4580,7 +4580,7 @@ Before beginning, verify:
 
 ## Files to Create
 
-### 1. `lua/moonlift/error/format.lua` (NEW — ~150 lines)
+### 1. `lua/lalin/error/format.lua` (NEW — ~150 lines)
 
 **Goal**: Shared formatting utilities extracted from `catalog.lua` and `span_resolvers.lua`.
 
@@ -4605,7 +4605,7 @@ local scalar_labels = {
 local function type_name(ty)
     if not ty then return "<unknown>" end
     if type(ty) ~= "table" then return tostring(ty) end
-    local pvm = require("moonlift.pvm")
+    local pvm = require("lalin.pvm")
     local cls = pvm.classof(ty)
     if cls then
         if scalar_labels[cls.kind] then return scalar_labels[cls.kind] end
@@ -4649,7 +4649,7 @@ local function op_symbol(op)
     if not op then return "?" end
     local s = tostring(op)
     if op_symbols[s] then return op_symbols[s] end
-    local short = s:match("^MoonCore%.(.+)$")
+    local short = s:match("^LalinCore%.(.+)$")
     if short and op_symbols[short] then return op_symbols[short] end
     return s
 end
@@ -4661,7 +4661,7 @@ M.op_symbol = op_symbol
 ```lua
 function M.scalar_name(scalar)
     if not scalar then return "?" end
-    local pvm = require("moonlift.pvm")
+    local pvm = require("lalin.pvm")
     local cls = pvm.classof(scalar)
     if cls and scalar_labels[cls.kind] then return scalar_labels[cls.kind] end
     return tostring(scalar)
@@ -4669,7 +4669,7 @@ end
 
 function M.access_mode_name(mode)
     if not mode then return "?" end
-    local pvm = require("moonlift.pvm")
+    local pvm = require("lalin.pvm")
     local cls = pvm.classof(mode)
     if not cls then return tostring(mode) end
     if cls.kind == "AccessModeLoad" then return "load" end
@@ -4682,22 +4682,22 @@ end
 **Lines ~112-120**: Re-exports:
 
 ```lua
-M.Suggest = require("moonlift.error.suggest")
-M.SpanResolvers = require("moonlift.error.span_resolvers")
+M.Suggest = require("lalin.error.suggest")
+M.SpanResolvers = require("lalin.error.span_resolvers")
 M.scalar_labels = scalar_labels
 
 return M
 ```
 
 **Quirks/notes**:
-- The `type_name` function requires `require("moonlift.pvm")` internally — the lazy require keeps it working
+- The `type_name` function requires `require("lalin.pvm")` internally — the lazy require keeps it working
 - `op_symbols` table is duplicated between `catalog.lua` and `span_resolvers.lua` currently. After this file exists, the copy in `span_resolvers.lua` should remain (it's used for span resolution, not formatting) but the copy in `catalog.lua` is removed
 
 ---
 
 ## Files to Delete (within catalog.lua)
 
-### 2. `lua/moonlift/error/catalog.lua` — Rewrite as thin dispatcher
+### 2. `lua/lalin/error/catalog.lua` — Rewrite as thin dispatcher
 
 **Goal**: Remove all `register()` builders, `issue_code_map`, `code_for_issue()`, inline `type_name()`, `op_symbol()`. Replace with ~80-line phase dispatcher.
 
@@ -4782,15 +4782,15 @@ local REQUIRED_PHASES = {"parse","host","open","binding","typecheck","backend","
 
 local function ensure_explainers()
     if explainers.parse then return end
-    explainers.parse = require("moonlift.parse").explain_parse_issue
-    explainers.host = require("moonlift.host_issue_values").explain_host_issue
-    explainers.open = require("moonlift.open_validate").explain_open_issue
-    explainers.binding = require("moonlift.editor_binding_facts").explain_binding_issue
-    explainers.typecheck = require("moonlift.tree_typecheck").explain_type_issue
-    explainers.backend = require("moonlift.back_validate").explain_back_issue
-    explainers.link = require("moonlift.link_plan_validate").explain_link_issue
-    explainers.vec = require("moonlift.vec_loop_facts").explain_vec_reject
-    explainers.source = require("moonlift.source_text_apply").explain_source_issue
+    explainers.parse = require("lalin.parse").explain_parse_issue
+    explainers.host = require("lalin.host_issue_values").explain_host_issue
+    explainers.open = require("lalin.open_validate").explain_open_issue
+    explainers.binding = require("lalin.editor_binding_facts").explain_binding_issue
+    explainers.typecheck = require("lalin.tree_typecheck").explain_type_issue
+    explainers.backend = require("lalin.back_validate").explain_back_issue
+    explainers.link = require("lalin.link_plan_validate").explain_link_issue
+    explainers.vec = require("lalin.vec_loop_facts").explain_vec_reject
+    explainers.source = require("lalin.source_text_apply").explain_source_issue
     -- Validate all required phases have explainers
     for _, name in ipairs(REQUIRED_PHASES) do
         if not explainers[name] then
@@ -4832,7 +4832,7 @@ end
 **Danger zones**: The `build_report` signature changes from `(code, issue, analysis)` to `(code, issue, phase, analysis)`. ALL callers must be updated. Find callers with:
 
 ```bash
-rg "build_report" lua/moonlift/
+rg "build_report" lua/lalin/
 ```
 
 Expected callers: `error/registry.lua`, `error/issue_collector.lua`, `error/init.lua` (`quick_error` function). Update each.
@@ -4841,33 +4841,33 @@ Expected callers: `error/registry.lua`, `error/issue_collector.lua`, `error/init
 
 ## Files to Modify
 
-### 3. `lua/moonlift/error/init.lua` — Add `M.Format`
+### 3. `lua/lalin/error/init.lua` — Add `M.Format`
 
 **Lines ~2-18**: Add at line ~12 (after `M.SpanResolvers`):
 
 ```lua
-M.Format = require("moonlift.error.format")
+M.Format = require("lalin.error.format")
 ```
 
-### 4. `lua/moonlift/error/span_resolvers.lua` — Remove duplicate `op_symbols`
+### 4. `lua/lalin/error/span_resolvers.lua` — Remove duplicate `op_symbols`
 
 **Lines ~80-100**: After `format.lua` exists, the `op_symbols` table and `op_symbol_name` function in `span_resolvers.lua` can stay (it's used for span resolution, not formatting). However, if desired, change it to use `format.lua`:
 
 ```lua
 -- At line ~80: remove local op_symbols table and op_symbol_name function
 -- Replace with:
-local Format = require("moonlift.error.format")
+local Format = require("lalin.error.format")
 local op_symbol_name = Format.op_symbol
 ```
 
 This is optional — the duplication is harmless. **Recommendation**: leave as-is for now (zero behavior change, minimal risk).
 
-### 5. `lua/moonlift/error/issue_collector.lua` — Update `build_report` call
+### 5. `lua/lalin/error/issue_collector.lua` — Update `build_report` call
 
 **Find callers** of `M.Catalog.build_report(code, issue, analysis)` — must pass `phase`:
 
 ```bash
-rg "build_report" lua/moonlift/error/
+rg "build_report" lua/lalin/error/
 ```
 
 Expected: `error/issue_collector.lua` (ThrowingCollector line), `error/registry.lua` (reports() line), `error/init.lua` (quick_error line).
@@ -4878,7 +4878,7 @@ Expected: `error/issue_collector.lua` (ThrowingCollector line), `error/registry.
 - `error/registry.lua` (reports or emit): change to pass `phase` parameter
 - `error/init.lua` (quick_error): `Catalog.build_report(code, { message = message, span = span }, nil, { source_text = source_text })` — pass `nil` for phase (triggers E9999 fallback, which is acceptable for the one-off case)
 
-### 6. `lua/moonlift/parse.lua` — Add `explain_parse_issue()`
+### 6. `lua/lalin/parse.lua` — Add `explain_parse_issue()`
 
 **Add after `parse_module_document` function** (~line 2464-2482, at end of file before `M.TK = TK`):
 
@@ -4887,12 +4887,12 @@ Expected: `error/issue_collector.lua` (ThrowingCollector line), `error/registry.
 ```lua
 -- explain_parse_issue: explains a single ParseIssue
 function M.explain_parse_issue(issue, analysis)
-    local resolvers = require("moonlift.error.span_resolvers")
+    local resolvers = require("lalin.error.span_resolvers")
     local span = resolvers.parse_resolver(issue, analysis)
     local msg = issue.message or "unexpected token"
     local notes = {}
     local suggestions = {}
-    
+
     -- Same enrichment logic as the current E0101 catalog builder (lines ~136-180)
     local m = msg:match("expected '(.-)', got")
     if m then
@@ -4911,7 +4911,7 @@ function M.explain_parse_issue(issue, analysis)
             notes[#notes + 1] = { message = "there may be a missing comma or extra argument in this list" }
         end
     end
-    
+
     -- Also produce E0102 if construct/name available (unterminated construct)
     if issue.construct then
         local construct = issue.construct
@@ -4928,13 +4928,13 @@ function M.explain_parse_issue(issue, analysis)
             suggestions = { { message = "add `end` at the end of this " .. construct } },
         }
     end
-    
+
     -- Also handle missing keyword (E0103)
     if issue.keyword or issue.expected then
         local keyword = issue.keyword or issue.expected or "?"
         ... -- same logic as catalog.lua E0103 builder lines ~207-240
     end
-    
+
     -- Default: parse error (E0101)
     return {
         code = "E0101",
@@ -4957,7 +4957,7 @@ M.explain_parse_issue = explain_parse_issue
 
 (No need to change `Define(T)` — it's already a separate scope.)
 
-### 7. `lua/moonlift/host_issue_values.lua` — Add `explain_host_issue()`
+### 7. `lua/lalin/host_issue_values.lua` — Add `explain_host_issue()`
 
 **Add at end of file** (after `return M` at line ~80, but BEFORE it — add inside M scope):
 
@@ -4967,17 +4967,17 @@ M.explain_parse_issue = explain_parse_issue
 
 ```lua
 function M.explain_host_issue(issue, analysis)
-    local resolvers = require("moonlift.error.span_resolvers")
-    local pvm = require("moonlift.pvm")
+    local resolvers = require("lalin.error.span_resolvers")
+    local pvm = require("lalin.pvm")
     local H = nil  -- resolved lazily — but we can use pvm.classof directly
-    
+
     local span = resolvers.host_resolver(issue, analysis)
     local cls = pvm.classof(issue)
     if not cls then
         return { code = "E9999", severity = "error", primary = { span = span, message = tostring(issue) } }
     end
     local kind = cls.kind
-    
+
     -- Map to the same messages as host_issue_to_string() but structured
     if kind == "HostIssueInvalidName" then
         return {
@@ -5031,7 +5031,7 @@ function M.explain_host_issue(issue, analysis)
     -- HostIssueRegionComposeMissingExit, HostIssueRegionComposeIncompatibleCont,
     -- HostIssueRegionComposeIncompleteRoute, HostIssueRegionComposeContextMismatch,
     -- HostIssueTemplateParseError
-    
+
     -- Fallback
     return { code = "E9999", severity = "error", primary = { span = span, message = tostring(issue) } }
 end
@@ -5039,7 +5039,7 @@ end
 
 **Quirks**: The function is defined directly on `M` (module-level), not inside `Install()`. This is because the catalog needs to `require()` it without creating a session.
 
-### 8. `lua/moonlift/open_validate.lua` — Add `explain_open_issue()`
+### 8. `lua/lalin/open_validate.lua` — Add `explain_open_issue()`
 
 **Add after `emit_open_issues` function** (~line 68), before `return`:
 
@@ -5047,25 +5047,25 @@ end
 
 ```lua
 local function explain_open_issue(issue, analysis)
-    local resolvers = require("moonlift.error.span_resolvers")
-    local pvm = require("moonlift.pvm")
+    local resolvers = require("lalin.error.span_resolvers")
+    local pvm = require("lalin.pvm")
     local span = resolvers.open_resolver(issue, analysis)
     local cls = pvm.classof(issue)
     if not cls then
         return { code = "E9999", severity = "error", primary = { span = span, message = tostring(issue) } }
     end
     local kind = cls.kind
-    
+
     -- All 22 OpenIssue variants
     -- Slot variants: extract slot key
     local slot = issue.slot
     local slot_key = slot and (slot.key or tostring(slot))
     local slot_pretty = slot and slot.pretty_name
-    
+
     -- Use ID from use_id or import
     local use_id = issue.use_id
     local import_val = issue.import
-    
+
     if kind == "IssueUnfilledTypeSlot" then
         return { code = "E0801", severity = "error", primary = { span = span, message = "unfilled type slot `" .. (slot_key or "?") .. "`" } }
     elseif kind == "IssueUnfilledValueSlot" or kind == "IssueOpenSlot" then
@@ -5125,7 +5125,7 @@ M.explain_open_issue = explain_open_issue
 - Open module name is E0804
 - Each adds `notes = { { message = "this issue occurs during fragment expansion; ensure all splices are resolved" } }` could be added
 
-### 9. `lua/moonlift/editor_binding_facts.lua` — Add `explain_binding_issue()`
+### 9. `lua/lalin/editor_binding_facts.lua` — Add `explain_binding_issue()`
 
 **Add at end of file** (after `return` at line ~350):
 
@@ -5133,25 +5133,25 @@ M.explain_open_issue = explain_open_issue
 
 ```lua
 function M.explain_binding_issue(issue, analysis)
-    local resolvers = require("moonlift.error.span_resolvers")
+    local resolvers = require("lalin.error.span_resolvers")
     local span = resolvers.binding_resolver(issue, analysis)
     local use = issue.use
     local label = use and use.anchor and use.anchor.label or "?"
     local reason = issue.reason or "unresolved binding"
     local candidates = {}
-    
+
     -- Collect scope names for "did you mean?" from analysis
     if analysis and analysis.scopes then
         -- Use existing scope info from binding scope facts
         -- (analysis.scopes is available from editor_binding_scope_facts)
         candidates = analysis.in_scope_names or {}
     end
-    
-    local dym = require("moonlift.error.suggest").did_you_mean(label, candidates)
+
+    local dym = require("lalin.error.suggest").did_you_mean(label, candidates)
     local notes = { { message = "`" .. label .. "` is not defined in this scope" } }
     local suggestions = {}
     if dym then suggestions[#suggestions + 1] = { message = dym } end
-    
+
     return {
         code = "E0201",
         severity = "error",
@@ -5163,7 +5163,7 @@ function M.explain_binding_issue(issue, analysis)
 end
 ```
 
-### 10. `lua/moonlift/tree_typecheck.lua` — Add `explain_type_issue()`
+### 10. `lua/lalin/tree_typecheck.lua` — Add `explain_type_issue()`
 
 **Add at end of file** (after `return` at line ~900):
 
@@ -5172,15 +5172,15 @@ end
 **Pattern**: Map each variant by `pvm.classof(issue).kind` to an ExplainEvent. For E0301 (TypeIssueExpected), port the 118-line logic from `catalog.lua` lines ~350-470. For E0302-E0305, port the corresponding builders.
 
 ```lua
-local Format = require("moonlift.error.format")
+local Format = require("lalin.error.format")
 local function explain_type_issue(issue, analysis)
-    local resolvers = require("moonlift.error.span_resolvers")
-    local pvm = require("moonlift.pvm")
+    local resolvers = require("lalin.error.span_resolvers")
+    local pvm = require("lalin.pvm")
     local span = resolvers.typecheck_resolver(issue, analysis)
     local cls = pvm.classof(issue)
     if not cls then return { code = "E9999", severity = "error", primary = { span = span, message = tostring(issue) } } end
     local kind = cls.kind
-    
+
     if kind == "TypeIssueExpected" then
         -- PORT THE E0301 BUILDER from catalog.lua lines ~350-470
         -- (All 22 site patterns, type_name formatting, conversion suggestions)
@@ -5254,29 +5254,29 @@ M.explain_type_issue = explain_type_issue
 - bool→int, f64↔integer conversion suggestions
 - All site-specific notes per pattern (call, let/var, return, yield, set, if cond, etc.)
 
-### 11. `lua/moonlift/back_validate.lua` — Add `explain_back_issue()`
+### 11. `lua/lalin/back_validate.lua` — Add `explain_back_issue()`
 
 **Add at end of file** (after `return` at line ~700):
 
 **~300 lines** — 37 variants.
 
 ```lua
-local Format = require("moonlift.error.format")
+local Format = require("lalin.error.format")
 local function explain_back_issue(issue, analysis)
-    local resolvers = require("moonlift.error.span_resolvers")
-    local pvm = require("moonlift.pvm")
+    local resolvers = require("lalin.error.span_resolvers")
+    local pvm = require("lalin.pvm")
     local span = resolvers.backend_resolver(issue, analysis)
     local cls = pvm.classof(issue)
     if not cls then return { code = "E9999", severity = "error", primary = { span = span, message = tostring(issue) } } end
     local kind = cls.kind
-    
+
     -- Entity helpers
     local function entity_name(field)
         if not field then return "?" end
         if type(field) == "table" and field.text then return field.text end
         return tostring(field)
     end
-    
+
     -- Missing definitions (E0601)
     if kind == "BackIssueMissingSig" then
         return { code = "E0601", severity = "error", primary = { span = span, message = "missing signature `" .. entity_name(issue.sig) .. "`" } }
@@ -5294,7 +5294,7 @@ local function explain_back_issue(issue, analysis)
         return { code = "E0601", severity = "error", primary = { span = span, message = "missing stack slot `" .. entity_name(issue.slot) .. "`" } }
     elseif kind == "BackIssueMissingAccess" then
         return { code = "E0601", severity = "error", primary = { span = span, message = "missing access `" .. entity_name(issue.access) .. "`" } }
-    
+
     -- Duplicate definitions (E0602)
     elseif kind == "BackIssueDuplicateSig" then
         return { code = "E0602", severity = "error", primary = { span = span, message = "duplicate signature `" .. entity_name(issue.sig) .. "`" } }
@@ -5312,7 +5312,7 @@ local function explain_back_issue(issue, analysis)
         return { code = "E0602", severity = "error", primary = { span = span, message = "duplicate value `" .. entity_name(issue.value) .. "`" } }
     elseif kind == "BackIssueDuplicateAccess" then
         return { code = "E0602", severity = "error", primary = { span = span, message = "duplicate access `" .. entity_name(issue.access) .. "`" } }
-    
+
     -- Command order violations (E0603) — per-variant messages
     elseif kind == "BackIssueEmptyProgram" then
         return { code = "E0603", severity = "error", primary = { span = span, message = "no backend commands were emitted" } }
@@ -5334,7 +5334,7 @@ local function explain_back_issue(issue, analysis)
         return { code = "E0603", severity = "error", primary = { span = span, message = "non-trapping access requires a dereference" } }
     elseif kind == "BackIssueCanMoveWithoutNonTrapping" then
         return { code = "E0603", severity = "error", primary = { span = span, message = "`can_move` requires non-trapping access" } }
-    
+
     -- Type-related back issues (E0301 / E0304)
     elseif kind == "BackIssueLoadAccessMode" then
         return { code = "E0301", severity = "error", primary = { span = span, message = "type mismatch for load access mode `" .. Format.access_mode_name(issue.mode) .. "`" } }
@@ -5367,7 +5367,7 @@ M.explain_back_issue = explain_back_issue
 
 **Key change from current catalog**: E0601 no longer reads non-existent `issue.def_kind` / `issue.name`. It reads `issue.sig`, `issue.func`, `issue.block`, `issue.value`, etc. E0603 no longer reads non-existent `issue.violation`. Each variant has its own distinct message.
 
-### 12. `lua/moonlift/link_plan_validate.lua` — Add `explain_link_issue()`
+### 12. `lua/lalin/link_plan_validate.lua` — Add `explain_link_issue()`
 
 **Add at end of file** (after `return` at line ~55):
 
@@ -5375,12 +5375,12 @@ M.explain_back_issue = explain_back_issue
 
 ```lua
 function M.explain_link_issue(issue, analysis)
-    local pvm = require("moonlift.pvm")
+    local pvm = require("lalin.pvm")
     local cls = pvm.classof(issue)
     if not cls then return { code = "E9999", severity = "error", primary = { span = nil, message = tostring(issue) } } end
     local kind = cls.kind
     local Link = nil  -- Not needed for classof
-    
+
     if kind == "LinkIssueMissingOutput" then
         return { code = "E0901", severity = "error", primary = { span = nil, message = "link plan has no output path" } }
     elseif kind == "LinkIssueNoInputs" then
@@ -5411,7 +5411,7 @@ function M.explain_link_issue(issue, analysis)
 end
 ```
 
-### 13. `lua/moonlift/vec_loop_facts.lua` — Add `explain_vec_reject()`
+### 13. `lua/lalin/vec_loop_facts.lua` — Add `explain_vec_reject()`
 
 **Add at end of file** (after `return` at line ~640):
 
@@ -5419,16 +5419,16 @@ end
 
 ```lua
 function M.explain_vec_reject(issue, analysis)
-    local pvm = require("moonlift.pvm")
-    local resolvers = require("moonlift.error.span_resolvers")
+    local pvm = require("lalin.pvm")
+    local resolvers = require("lalin.error.span_resolvers")
     local span = resolvers.vec_resolver(issue, analysis)
     local cls = pvm.classof(issue)
     if not cls then return { code = "E9999", severity = "error", primary = { span = span, message = tostring(issue) } } end
     local kind = cls.kind
-    
+
     -- All 8 VecReject variants carry a `reason` field (human-readable string)
     local reason = issue.reason or "reason not specified"
-    
+
     if kind == "VecRejectUnsupportedLoop" then
         return { code = "E1001", severity = "info", primary = { span = span, message = "loop not vectorized: " .. reason } }
     elseif kind == "VecRejectUnsupportedExpr" then
@@ -5453,7 +5453,7 @@ end
 
 **Note**: VecRejects use `severity = "info"` — consistent with the current suppression (they're "optimization planning facts"). The explainer exists for when the `--show-vec-rejects` flag is enabled.
 
-### 14. `lua/moonlift/source_text_apply.lua` — Add `explain_source_issue()`
+### 14. `lua/lalin/source_text_apply.lua` — Add `explain_source_issue()`
 
 **Add after `Define(T)` return** (line ~72):
 
@@ -5461,11 +5461,11 @@ end
 
 ```lua
 function M.explain_source_issue(issue, analysis)
-    local pvm = require("moonlift.pvm")
+    local pvm = require("lalin.pvm")
     local cls = pvm.classof(issue)
     if not cls then return { code = "E9999", severity = "error", primary = { span = nil, message = tostring(issue) } } end
     local kind = cls.kind
-    
+
     if kind == "SourceIssueWrongDocument" then
         local expected = issue.expected and issue.expected.text or "?"
         local actual = issue.actual and issue.actual.text or "?"
@@ -5496,14 +5496,14 @@ end
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Catalog = require("moonlift.error.catalog")
+local pvm = require("lalin.pvm")
+local Catalog = require("lalin.error.catalog")
 
 -- Static list of ALL issue variants across all phases
 -- (phase → { variant_name = true })
 local expected = {
     parse = { ParseIssue = true },
-    
+
     typecheck = {
         TypeIssueExpected = true, TypeIssueArgCount = true,
         TypeIssueNotCallable = true, TypeIssueNotIndexable = true, TypeIssueNotPointer = true,
@@ -5516,7 +5516,7 @@ local expected = {
         TypeIssueUnknownVariant = true, TypeIssueVariantPayloadMismatch = true,
         TypeIssueDuplicateVariant = true,
     },
-    
+
     host = {
         HostIssueInvalidName = true, HostIssueExpected = true, HostIssueArgCount = true,
         HostIssueDuplicateField = true, HostIssueDuplicateType = true,
@@ -5530,7 +5530,7 @@ local expected = {
         HostIssueRegionComposeMissingExit = true, HostIssueRegionComposeIncompatibleCont = true,
         HostIssueRegionComposeIncompleteRoute = true, HostIssueRegionComposeContextMismatch = true,
     },
-    
+
     open = {
         IssueUnfilledTypeSlot = true, IssueUnfilledValueSlot = true, IssueOpenSlot = true,
         IssueUnfilledExprSlot = true, IssueUnfilledPlaceSlot = true,
@@ -5544,9 +5544,9 @@ local expected = {
         IssueUnexpandedModuleUse = true, IssueGenericValueImport = true,
         IssueOpenModuleName = true,
     },
-    
+
     binding = { BindingUnresolved = true },
-    
+
     backend = {
         BackIssueEmptyProgram = true, BackIssueMissingFinalize = true,
         BackIssueCommandAfterFinalize = true, BackIssueCommandOutsideFunction = true,
@@ -5568,7 +5568,7 @@ local expected = {
         BackIssueCanMoveWithoutNonTrapping = true,
         BackIssueShapeRequiresScalar = true, BackIssueShapeRequiresVector = true,
     },
-    
+
     link = {
         LinkIssueMissingOutput = true, LinkIssueNoInputs = true,
         LinkIssueMissingInput = true, LinkIssueUnsupportedPlatform = true,
@@ -5576,14 +5576,14 @@ local expected = {
         LinkIssueUnresolvedSymbol = true, LinkIssueDuplicateSymbol = true,
         LinkIssueToolUnavailable = true, LinkIssueCommandFailed = true,
     },
-    
+
     vec = {
         VecRejectUnsupportedLoop = true, VecRejectUnsupportedExpr = true,
         VecRejectUnsupportedStmt = true, VecRejectUnsupportedMemory = true,
         VecRejectDependence = true, VecRejectRange = true,
         VecRejectTarget = true, VecRejectCost = true,
     },
-    
+
     source = {
         SourceIssueWrongDocument = true, SourceIssueStaleVersion = true,
         SourceIssueInvalidRange = true, SourceIssueOverlappingRanges = true,
@@ -5623,7 +5623,7 @@ if failed > 0 then os.exit(1) end
 
 ## Callers to Update
 
-### 16. `lua/moonlift/error/init.lua` — `quick_error()` function
+### 16. `lua/lalin/error/init.lua` — `quick_error()` function
 
 **Line ~78**: `M.Catalog.build_report(code, { message = message, span = span }, { source_text = source_text })`
 
@@ -5631,7 +5631,7 @@ Change to: `M.Catalog.build_report(code, { message = message, span = span }, nil
 
 (Add `nil` for the phase parameter.)
 
-### 17. `lua/moonlift/error/issue_collector.lua`
+### 17. `lua/lalin/error/issue_collector.lua`
 
 Find the `build_report` call in the ThrowingCollector. It should be something like:
 
@@ -5641,7 +5641,7 @@ local report = Catalog.build_report(code, ri.issue, ri.phase, ri.analysis)
 
 If it currently passes 3 args, update to pass 4 args with `phase`.
 
-### 18. `lua/moonlift/error/registry.lua`
+### 18. `lua/lalin/error/registry.lua`
 
 Find the `Catalog.build_report` call (in `reports()` or the emit path). Update to pass `phase`.
 
@@ -5691,7 +5691,7 @@ Find the `Catalog.build_report` call (in `reports()` or the emit path). Update t
 
 ### Final verification:
 5. Run ALL tests: `for f in tests/test_*.lua; do luajit "$f" || echo "FAIL: $f"; done`
-6. Verify the standalone compiler still works: `target/release/moonlift tests/test_files/*.mlua` or `luajit tests/test_mlua_host_pipeline.lua`
+6. Verify the standalone compiler still works: `target/release/lalin tests/test_files/*.mlua` or `luajit tests/test_mlua_host_pipeline.lua`
 
 ---
 
@@ -5734,21 +5734,21 @@ Implemented **Approach B: Phase-Local Explainers** — replaced the centralized 
 
 | File | Change |
 |------|--------|
-| `lua/moonlift/error/format.lua` | **NEW** (~160 lines) — Shared formatting utilities extracted from catalog: `type_name()`, `op_symbol()`, `scalar_name()`, `access_mode_name()`, `resolve_class()`, re-exports `Suggest` and `SpanResolvers` |
-| `lua/moonlift/error/catalog.lua` | **REWRITTEN** (~1185→270 lines) — Removed all 31 `register()` builders, kept `issue_code_map`/`code_for_issue` for collector compatibility. Added `ensure_explainers()` dispatcher that routes `build_report(code, issue, phase, analysis)` to the phase's explainer |
-| `lua/moonlift/error/init.lua` | Added `M.Format = require("moonlift.error.format")` |
-| `lua/moonlift/error/issue_collector.lua` | Updated 2 `build_report` calls to pass `phase` parameter |
-| `lua/moonlift/error/registry.lua` | Updated `build_report` call to pass `data.phase` |
-| `lua/moonlift/mlua_run.lua` | Updated 4 `build_report` calls to pass `nil` for phase |
-| `lua/moonlift/parse.lua` | Added `explain_parse_issue()` — handles E0101/E0102/E0103 with site enrichment |
-| `lua/moonlift/host_issue_values.lua` | Added `explain_host_issue()` — handles all 22 HostIssue variants using same messages as `host_issue_to_string()` |
-| `lua/moonlift/open_validate.lua` | Added `explain_open_issue()` — handles 22 OpenIssue variants with new E0801-E0804 codes |
-| `lua/moonlift/editor_binding_facts.lua` | Added `explain_binding_issue()` — handles BindingUnresolved with "did you mean?" suggestions |
-| `lua/moonlift/tree_typecheck.lua` | Added `explain_type_issue()` — handles 18 TypeIssue variants, ports the 118-line E0301 builder logic (22 site patterns, conversion suggestions) |
-| `lua/moonlift/back_validate.lua` | Added `explain_back_issue()` — handles 37 BackIssue variants. **FIXES E0601/E0602/E0603**: reads actual schema fields (`.sig`, `.func`, `.block`, etc.) instead of non-existent `.def_kind`/`.name`/`.violation` |
-| `lua/moonlift/link_plan_validate.lua` | Added `explain_link_issue()` — handles 10 LinkIssue variants with new E0901-E0905 codes |
-| `lua/moonlift/vec_loop_facts.lua` | Added `explain_vec_reject()` — handles 8 VecReject variants with new E1001-E1005 codes, reads `.reason` field (already human-readable) |
-| `lua/moonlift/source_text_apply.lua` | Added `explain_source_issue()` — handles 5 SourceApplyIssue variants with new E1101-E1105 codes |
+| `lua/lalin/error/format.lua` | **NEW** (~160 lines) — Shared formatting utilities extracted from catalog: `type_name()`, `op_symbol()`, `scalar_name()`, `access_mode_name()`, `resolve_class()`, re-exports `Suggest` and `SpanResolvers` |
+| `lua/lalin/error/catalog.lua` | **REWRITTEN** (~1185→270 lines) — Removed all 31 `register()` builders, kept `issue_code_map`/`code_for_issue` for collector compatibility. Added `ensure_explainers()` dispatcher that routes `build_report(code, issue, phase, analysis)` to the phase's explainer |
+| `lua/lalin/error/init.lua` | Added `M.Format = require("lalin.error.format")` |
+| `lua/lalin/error/issue_collector.lua` | Updated 2 `build_report` calls to pass `phase` parameter |
+| `lua/lalin/error/registry.lua` | Updated `build_report` call to pass `data.phase` |
+| `lua/lalin/mlua_run.lua` | Updated 4 `build_report` calls to pass `nil` for phase |
+| `lua/lalin/parse.lua` | Added `explain_parse_issue()` — handles E0101/E0102/E0103 with site enrichment |
+| `lua/lalin/host_issue_values.lua` | Added `explain_host_issue()` — handles all 22 HostIssue variants using same messages as `host_issue_to_string()` |
+| `lua/lalin/open_validate.lua` | Added `explain_open_issue()` — handles 22 OpenIssue variants with new E0801-E0804 codes |
+| `lua/lalin/editor_binding_facts.lua` | Added `explain_binding_issue()` — handles BindingUnresolved with "did you mean?" suggestions |
+| `lua/lalin/tree_typecheck.lua` | Added `explain_type_issue()` — handles 18 TypeIssue variants, ports the 118-line E0301 builder logic (22 site patterns, conversion suggestions) |
+| `lua/lalin/back_validate.lua` | Added `explain_back_issue()` — handles 37 BackIssue variants. **FIXES E0601/E0602/E0603**: reads actual schema fields (`.sig`, `.func`, `.block`, etc.) instead of non-existent `.def_kind`/`.name`/`.violation` |
+| `lua/lalin/link_plan_validate.lua` | Added `explain_link_issue()` — handles 10 LinkIssue variants with new E0901-E0905 codes |
+| `lua/lalin/vec_loop_facts.lua` | Added `explain_vec_reject()` — handles 8 VecReject variants with new E1001-E1005 codes, reads `.reason` field (already human-readable) |
+| `lua/lalin/source_text_apply.lua` | Added `explain_source_issue()` — handles 5 SourceApplyIssue variants with new E1101-E1105 codes |
 | `tests/test_error_system.lua` | Updated `build_report` calls to use new 4-arg signature with phase + ASDL-compatible mock issues |
 | `tests/test_explainer_coverage.lua` | **NEW** — Coverage test verifying all 127 issue variants produce non-E9999 codes |
 
@@ -5766,7 +5766,7 @@ Now I have all the data. Let me compile the full audit.
 
 ---
 
-# Moonlift Error Message Quality Audit
+# Lalin Error Message Quality Audit
 
 ## Complete per-code evaluation
 
@@ -5861,7 +5861,7 @@ Now I have all the data. Let me compile the full audit.
 ### E0304: "invalid operator"
 **Message**: Specific — names the operator and types. Three branches:
 - Unary: `"invalid unary operator 'not' for type 'i32'"`
-- Binary: `"invalid operator '+'"` 
+- Binary: `"invalid operator '+'"`
 - Comparison/Logic: `"invalid operator '=='"`
 - Backend scalar: `"expected integer type, got scalar 'f64'"`
 **Notes**: YES — context-dependent: "`not` requires a `bool` operand", "arithmetic operators require numeric types", "both operands must have the same type"
@@ -6278,9 +6278,9 @@ Now I have enough context. Here is my analysis.
 
 Headers are about **declaring boundaries** — between what a module exposes and what it hides, between design-time types and compile-time implementations, between the product/protocol graph and the code that fills it. The relevant dimensions:
 
-1. **The extern precedent is misleading.** Extern works without a multi-file pipeline because the implementation promise is deferred to a C linker — a completely different linking model. A Moonlift header's implementation is in another `.mlua` file, compiled by the same compiler. This means the compiler must either: (a) compile all files together and resolve references, or (b) compile files separately and provide some form of ABI-stable type checking between them. Option (b) is what C does, but Moonlift is not C — its types are monomorphic and layout-resolved at compile time.
+1. **The extern precedent is misleading.** Extern works without a multi-file pipeline because the implementation promise is deferred to a C linker — a completely different linking model. A Lalin header's implementation is in another `.mlua` file, compiled by the same compiler. This means the compiler must either: (a) compile all files together and resolve references, or (b) compile files separately and provide some form of ABI-stable type checking between them. Option (b) is what C does, but Lalin is not C — its types are monomorphic and layout-resolved at compile time.
 
-2. **The ASDL already has the interface concepts, but they're used for the Lua builder API, not source parsing.** `TypeRefGlobal(module_name, type_name)` exists. `ItemUseModule` exists with fills. `ItemImport` exists. The parser never produces these — they're constructed by the Lua builder API when `moon.named("Module", "Type")` is called. The gap is not in the data model; it's that the parser has no syntax for cross-module references.
+2. **The ASDL already has the interface concepts, but they're used for the Lua builder API, not source parsing.** `TypeRefGlobal(module_name, type_name)` exists. `ItemUseModule` exists with fills. `ItemImport` exists. The parser never produces these — they're constructed by the Lua builder API when `lalin.named("Module", "Type")` is called. The gap is not in the data model; it's that the parser has no syntax for cross-module references.
 
 3. **Open fragments are already a form of header.** A `func ... end` is a completed unit. But a `func ... requires bounds(...) end` is still a completed unit. The closest thing to a header is a region fragment — a typed control specification with declared continuations but no implementation. Region fragments ARE protocols. Headers would just make this pattern explicit at the file level.
 
@@ -6294,11 +6294,11 @@ Headers are about **declaring boundaries** — between what a module exposes and
 
 At first glance, extern looks like the perfect template for headers: `extern func name(params) -> T end` is a bodyless declaration with a signature, terminated by `end`. The lexer already handles it. The parser already handles it. It seems like you'd just strip the `extern` keyword and you have a header declaration.
 
-**But extern has a fundamentally different semantics:** an extern function is a call to an external C symbol. The compiler emits a `CmdCallExtern` which the linker resolves to a symbol in a `.o` file. The linker is the runtime linker — `ld` or `ld.lld`. The extern's implementation is NOT compiled by the Moonlift compiler.
+**But extern has a fundamentally different semantics:** an extern function is a call to an external C symbol. The compiler emits a `CmdCallExtern` which the linker resolves to a symbol in a `.o` file. The linker is the runtime linker — `ld` or `ld.lld`. The extern's implementation is NOT compiled by the Lalin compiler.
 
-A header declaration for a Moonlift function would mean: "this function exists, its implementation is in another `.mlua` file, compile it and link the result." This is a **compile-time linking** problem, not a runtime linking problem. The extern model doesn't apply — there's no C symbol, no `as "symbol_name"` clause, no linker symbol resolution.
+A header declaration for a Lalin function would mean: "this function exists, its implementation is in another `.mlua` file, compile it and link the result." This is a **compile-time linking** problem, not a runtime linking problem. The extern model doesn't apply — there's no C symbol, no `as "symbol_name"` clause, no linker symbol resolution.
 
-**The critical difference**: extern functions become `BackCallExtern` in the backend — a Cranelift `call` to an unresolved symbol. A Moonlift header function would become a `BackCallDirect` — a call to a known function within the same compiled module graph. The backend handshake is completely different.
+**The critical difference**: extern functions become `BackCallExtern` in the backend — a Cranelift `call` to an unresolved symbol. A Lalin header function would become a `BackCallDirect` — a call to a known function within the same compiled module graph. The backend handshake is completely different.
 
 This means: the parser syntax might look similar (`func name(params) -> T end` without a body), but everything downstream — type checking, lowering, codegen — treats the two cases differently. An extern has a symbol name and no body. A header-declared function has a module path and a body in another file.
 
@@ -6309,20 +6309,20 @@ The ASDL has:
 ```lua
 A.variant "ItemUseModule" {
     A.field "use_id" "string",
-    A.field "module" "MoonTree.Module",      -- <-- nested Module!
-    A.field "fills" (A.many "MoonOpen.SlotBinding"),
+    A.field "module" "LalinTree.Module",      -- <-- nested Module!
+    A.field "fills" (A.many "LalinOpen.SlotBinding"),
 }
 
 A.variant "ItemImport" {
-    A.field "imp" "MoonTree.ImportItem",     -- ImportItem has .source_module, .local_name
+    A.field "imp" "LalinTree.ImportItem",     -- ImportItem has .source_module, .local_name
 }
 ```
 
 `ItemUseModule` carries a **nested `Module`** — the full AST of the imported module is inlined into the importing module's AST. This is an eager, flattening model: import resolution means "parse the imported file and splice its AST into mine." There is no separate compilation, no module boundary, no ABI.
 
-**The philosophical implication**: Moonlift's ASDL assumes a **closed-world** model. All modules are compiled together. The nested `Module` field in `ItemUseModule` physically embeds the imported module's AST. This is the opposite of C's separate compilation model where each `.c` file compiles independently, and the header only provides the type information.
+**The philosophical implication**: Lalin's ASDL assumes a **closed-world** model. All modules are compiled together. The nested `Module` field in `ItemUseModule` physically embeds the imported module's AST. This is the opposite of C's separate compilation model where each `.c` file compiles independently, and the header only provides the type information.
 
-If Moonlift adopts headers, the ASDL must change. Either:
+If Lalin adopts headers, the ASDL must change. Either:
 - `ItemUseModule` stops inlining the full `Module` and instead carries a reference (`TypeRefGlobal(module_name, type_name)`) — which it already does for types but NOT for functions.
 - Or the closed-world model is preserved, and headers are just syntactic sugar for the parser: a `.mh` file produces the same ASDL as a `.mlua` file, just with the guarantee that every declaration at the module level is a signature, and the implementations are in the corresponding `.mlua` file. The compiler still compiles the file that `uses` the header by inlining the entire graph.
 
@@ -6334,12 +6334,12 @@ The ASDL has three "open" variants:
 
 ```lua
 A.variant "FuncOpen" {
-    A.field "sym" "MoonCore.FuncSym",
-    A.field "visibility" "MoonCore.Visibility",
-    A.field "params" (A.many "MoonOpen.OpenParam"),
-    A.field "open" "MoonOpen.OpenSet",        -- the set of slots to fill
-    A.field "result" "MoonType.Type",
-    A.field "body" (A.many "MoonTree.Stmt"),  -- still has a body!
+    A.field "sym" "LalinCore.FuncSym",
+    A.field "visibility" "LalinCore.Visibility",
+    A.field "params" (A.many "LalinOpen.OpenParam"),
+    A.field "open" "LalinOpen.OpenSet",        -- the set of slots to fill
+    A.field "result" "LalinType.Type",
+    A.field "body" (A.many "LalinTree.Stmt"),  -- still has a body!
 }
 ```
 
@@ -6360,7 +6360,7 @@ The LSP currently works per-file: `mlua_document_analysis.lua:analyze_document(d
 3. Re-analyze affected `.mlua` files when a `.mh` file changes
 4. Support "go to definition" that jumps from a function use in `.mlua` to its signature in `.mh`
 
-**The non-obvious cost**: The LSP currently has `"interFileDependencies": false` in its capabilities (`lsp_capabilities.lua:6`). This is a declaration to the editor that Moonlift diagnostics are per-file. Headers would change this to `true`, which changes how editors manage diagnostics (VS Code, for example, suppresses cross-file diagnostics for single-file saves). This is a small config change with big downstream effects on the editing experience.
+**The non-obvious cost**: The LSP currently has `"interFileDependencies": false` in its capabilities (`lsp_capabilities.lua:6`). This is a declaration to the editor that Lalin diagnostics are per-file. Headers would change this to `true`, which changes how editors manage diagnostics (VS Code, for example, suppresses cross-file diagnostics for single-file saves). This is a small config change with big downstream effects on the editing experience.
 
 Worse: the LSP's cascade suppression and error filtering depend on a single-file view. A type error in file A that's caused by a header change in file B must be correctly attributed. The LSP currently can't do this because it has no inter-file dependency tracking.
 
@@ -6368,16 +6368,16 @@ Worse: the LSP's cascade suppression and error filtering depend on a single-file
 
 The methodology paper (as described in the task) says "the header IS the architecture — every product and every protocol in one file." This is a explicit design-first claim: you should be able to specify the complete type graph and control graph of a system before writing any implementation.
 
-**Moonlift already supports this pattern**, just through a different mechanism. The Lua builder API can construct types and region fragment declarations without implementing them:
+**Lalin already supports this pattern**, just through a different mechanism. The Lua builder API can construct types and region fragment declarations without implementing them:
 
 ```lua
 -- app.mh — header pattern using Lua
 local M = {}
 
-M.Vec3 = moon.struct[[ x: f32; y: f32; z: f32 end]]
-M.Scanner = moon.union[[ hit(pos: i32) | miss(pos: i32) end]]
+M.Vec3 = lalin.struct[[ x: f32; y: f32; z: f32 end]]
+M.Scanner = lalin.union[[ hit(pos: i32) | miss(pos: i32) end]]
 
-M.process = moon.region[[
+M.process = lalin.region[[
     scan(v: ptr(Vec3), n: i32; hit: cont(pos: i32), miss: cont())
 entry loop(i: i32 = 0)
     -- body TBD
@@ -6387,13 +6387,13 @@ end
 return M
 
 -- app.mlua — implementation
-local app = moon.require("app")
+local app = lalin.require("app")
 -- ... use app.Scanner, app.Vec3, fill in the region
 ```
 
-**The hidden tension**: This pattern already works. It uses Lua's module system (`moon.require`), which is LuaJIT's battle-tested require mechanism. The question is whether a new syntax is needed for something that already works. The answer depends on whether you want the compiler to ENFORCE the header/implementation split — i.e., reject `.mlua` files that contain declarations without implementations, or reject `.mh` files that contain implementations. The Lua-based pattern has no such enforcement.
+**The hidden tension**: This pattern already works. It uses Lua's module system (`lalin.require`), which is LuaJIT's battle-tested require mechanism. The question is whether a new syntax is needed for something that already works. The answer depends on whether you want the compiler to ENFORCE the header/implementation split — i.e., reject `.mlua` files that contain declarations without implementations, or reject `.mh` files that contain implementations. The Lua-based pattern has no such enforcement.
 
-**Headers would add the enforcement boundary**: a `.mh` file parsed by the Moonlift parser would reject function bodies. A `.mlua` file that uses a header would reject undeclared exports. This enforcement is the value-add over the Lua-based pattern — not the ability to split files (Lua already does that), but the ability to specify and verify the boundary.
+**Headers would add the enforcement boundary**: a `.mh` file parsed by the Lalin parser would reject function bodies. A `.mlua` file that uses a header would reject undeclared exports. This enforcement is the value-add over the Lua-based pattern — not the ability to split files (Lua already does that), but the ability to specify and verify the boundary.
 
 #### 6. The real cost is not parsing or compilation — it's the loss of PVM memoization across files
 
@@ -6403,7 +6403,7 @@ PVM phases are auto-cached memoization boundaries: edit one subtree, only that s
 
 **The cost of headers WITH separate compilation**: You need ABI-stable types (types whose layout doesn't change between compilations), a binary interface between modules, and cross-module optimization barriers. The Rust backend's wire format (Flatline v4) could theoretically serve as a compiled module format, but it was designed for JIT compilation, not ABI stability. This is a fundamentally different backend architecture.
 
-**The cost of the Lua-based pattern (current approach)**: No separate compilation, no multi-file PVM invalidation, but also no complexity. Each `.mlua` file is compiled independently (via `moon.require`), and cross-file references go through LuaJIT FFI (function pointers, not direct calls). The generated code has call overhead that wouldn't exist with intra-module compilation.
+**The cost of the Lua-based pattern (current approach)**: No separate compilation, no multi-file PVM invalidation, but also no complexity. Each `.mlua` file is compiled independently (via `lalin.require`), and cross-file references go through LuaJIT FFI (function pointers, not direct calls). The generated code has call overhead that wouldn't exist with intra-module compilation.
 
 The choice is between three regimes with very different cost profiles:
 
@@ -6422,9 +6422,9 @@ The task mentions the UI library's `build.lua` functions (Box, Text, Scroll) as 
 - **Continuation protocol/exits**: what control flows out
 - **Named state points/blocks**: the state machine structure
 
-It does NOT declare the implementation. The body is the same `.mlua` file (or a separate `.mlua` file via `moon.require`).
+It does NOT declare the implementation. The body is the same `.mlua` file (or a separate `.mlua` file via `lalin.require`).
 
-```moonlift
+```lalin
 -- This IS a header, it just lives in the same file as the implementation:
 region scan(p: ptr(u8), n: i32;
             hit: cont(pos: i32),
@@ -6441,15 +6441,15 @@ A header system would just say: "the region fragment lives in one file, the body
 
 **The deeper implication**: If region fragments are already headers, and structs/unions are already declarations, then "headers" is not a new feature — it's just moving existing declaration syntax into separate files. The question becomes: what new syntax is needed? The answer: only for **functions**, which currently always require a body. A `func name(params) -> T end` without a body (but also without `extern`) would be the only truly new syntax.
 
-#### 8. The `.mh` extension would create a two-tier developer experience that contradicts Moonlift's philosophy
+#### 8. The `.mh` extension would create a two-tier developer experience that contradicts Lalin's philosophy
 
-Moonlift's philosophy says "Lua is where genericity lives." All metaprogramming, all configuration, all module composition happens through Lua. A `.mh` file bypasses Lua — it's pure Moonlift source parsed by the Moonlift parser.
+Lalin's philosophy says "Lua is where genericity lives." All metaprogramming, all configuration, all module composition happens through Lua. A `.mh` file bypasses Lua — it's pure Lalin source parsed by the Lalin parser.
 
-**The contradiction**: If headers are important enough to warrant their own parser, their own file extension, and their own compiler infrastructure, then they're important enough to be a first-class language concept. But Moonlift's philosophy explicitly rejects this — the language is monomorphic and metaprogramming lives in Lua.
+**The contradiction**: If headers are important enough to warrant their own parser, their own file extension, and their own compiler infrastructure, then they're important enough to be a first-class language concept. But Lalin's philosophy explicitly rejects this — the language is monomorphic and metaprogramming lives in Lua.
 
-**The pragmatic resolution**: `.mh` files would NOT be a new language. They would be Moonlift source files with the constraint that top-level items are signatures only (no function bodies, no region bodies, no expr fragment bodies). The parser would parse them identically to `.mlua` files but reject implementations. This is a file-level constraint, not a language-level feature.
+**The pragmatic resolution**: `.mh` files would NOT be a new language. They would be Lalin source files with the constraint that top-level items are signatures only (no function bodies, no region bodies, no expr fragment bodies). The parser would parse them identically to `.mlua` files but reject implementations. This is a file-level constraint, not a language-level feature.
 
-**What this means for the developer experience**: The `.mh` file is pure Moonlift syntax. It can be highlighted, linted, and type-checked by the same tooling. It's just Moonlift with a prohibition on bodies. This is philosophically consistent — Moonlift syntax is the canonical representation, and the `.mh` constraint is a project convention enforced by the compiler, not a new language.
+**What this means for the developer experience**: The `.mh` file is pure Lalin syntax. It can be highlighted, linted, and type-checked by the same tooling. It's just Lalin with a prohibition on bodies. This is philosophically consistent — Lalin syntax is the canonical representation, and the `.mh` constraint is a project convention enforced by the compiler, not a new language.
 
 #### 9. The `type_name` function in the catalog reveals an implicit header: named type formatting already assumes cross-module references
 
@@ -6464,7 +6464,7 @@ if rcls and rcls.kind == "TypeRefPath" and ref.path then
 end
 ```
 
-The compiler ALREADY assumes types can reference other modules. The error formatter ALREADY displays cross-module types. But the parser never produces these references. The only way to get a `TypeRefGlobal` is through the Lua builder API (`moon.named("Module", "Type")`).
+The compiler ALREADY assumes types can reference other modules. The error formatter ALREADY displays cross-module types. But the parser never produces these references. The only way to get a `TypeRefGlobal` is through the Lua builder API (`lalin.named("Module", "Type")`).
 
 **This is the most telling gap**: the downstream infrastructure (error formatting, type classification, layout resolution) all handle cross-module references. Only the parser doesn't produce them. This means the parser is the bottleneck, not the type system. A header syntax would just be the parser catching up to what the rest of the compiler already supports.
 
@@ -6480,7 +6480,7 @@ Currently, link planning (`link_plan_validate.lua`, `link_execute.lua`) runs at 
 
 ### Knowledge Gaps
 
-1. **What does the `moon.require()` implementation look like?** The language reference mentions it but I couldn't find the implementation. It's probably in `host_module_values.lua` or `host.lua`. Understanding how it works would clarify whether it already handles cross-module compilation or just delegates to Lua's `require`.
+1. **What does the `lalin.require()` implementation look like?** The language reference mentions it but I couldn't find the implementation. It's probably in `host_module_values.lua` or `host.lua`. Understanding how it works would clarify whether it already handles cross-module compilation or just delegates to Lua's `require`.
 
 2. **How does `FuncOpen` get resolved to `FuncLocal`?** Is there a phase that processes open declarations and fills in the holes? Understanding this pipeline would show whether the same mechanism could be used for header resolution (to a body from another file).
 
@@ -6495,11 +6495,11 @@ Now I have a thorough understanding of the codebase. Let me produce the three ap
 ## Approach A: "Inline Header" — Headers as First-Class Source Files
 
 ### Core idea
-A `.mh` file is a Moonlift source file parsed by the same parser in `header_mode`. It produces a `Module` with bodyless `FuncDecl` variants. The `.mlua` file imports it via `requires "mod"`, which triggers inlining the header's `Module` as an `ItemUseModule`. Everything is compiled together (closed world).
+A `.mh` file is a Lalin source file parsed by the same parser in `header_mode`. It produces a `Module` with bodyless `FuncDecl` variants. The `.mlua` file imports it via `requires "mod"`, which triggers inlining the header's `Module` as an `ItemUseModule`. Everything is compiled together (closed world).
 
 ### Syntax — What does a `.mh` file look like?
 
-```moonlift
+```lalin
 -- app.mh
 struct Vec3 x: f32; y: f32; z: f32 end
 union Result ok(i32) | err(string) end
@@ -6521,7 +6521,7 @@ Key syntactic choices:
 
 ### New syntax: `requires "path"` in `.mlua` files
 
-```moonlift
+```lalin
 -- app.mlua
 requires "app"      -- loads app.mh (or app.mlua — search path convention)
 requires "sub/lib"  -- loads sub/lib.mh
@@ -6563,8 +6563,8 @@ A `requires` at module scope is parsed by `parse_module_document` as a new islan
 -- In A.sum "Func":
 A.variant "FuncDecl" {
     A.field "name" "string",
-    A.field "params" (A.many "MoonType.Param"),
-    A.field "result" "MoonType.Type",
+    A.field "params" (A.many "LalinType.Param"),
+    A.field "result" "LalinType.Type",
     A.variant_unique,
 },
 ```
@@ -6642,8 +6642,8 @@ for each (name, sig) in "needs implementation":
 - **Fail fast**: Unmatched implementations are caught at compile time.
 
 **Tensions:**
-- **Lua is metaprogramming**: Headers bypass Lua entirely. They're parsed by the Moonlift parser, not the Lua builder API. This contradicts the principle that "all module composition happens through Lua." However, the existing builder API path (`moon.struct`, `moon.region`) continues to work — this adds an alternative, not a replacement.
-- **Headers add a new file type**: The `.mh` extension is a new concept, though it fits the pattern of `.mlua` (Moonlift + Lua) vs `.mh` (Moonlift header).
+- **Lua is metaprogramming**: Headers bypass Lua entirely. They're parsed by the Lalin parser, not the Lua builder API. This contradicts the principle that "all module composition happens through Lua." However, the existing builder API path (`lalin.struct`, `lalin.region`) continues to work — this adds an alternative, not a replacement.
+- **Headers add a new file type**: The `.mh` extension is a new concept, though it fits the pattern of `.mlua` (Lalin + Lua) vs `.mh` (Lalin header).
 
 ### Tradeoffs and downsides
 
@@ -6671,7 +6671,7 @@ This is genuinely different from Approach A because:
 
 Same as Approach A, but with one difference: the `end` keyword is optional after declarations:
 
-```moonlift
+```lalin
 -- app.mh
 struct Vec3 x: f32; y: f32; z: f32 end
 union Result ok(i32) | err(string) end
@@ -6688,7 +6688,7 @@ Note: `func normalize(v: ptr(Vec3))` has NO `end` — the declaration ends at th
 
 ### New syntax: `import "mod"` in `.mlua` files
 
-```moonlift
+```lalin
 -- app.mlua
 import "app"
 
@@ -6722,7 +6722,7 @@ end
 
 ```lua
 A.variant "ItemImportSignature" {
-    A.field "path" "MoonCore.Path",
+    A.field "path" "LalinCore.Path",
     A.variant_unique,
 },
 ```
@@ -6748,7 +6748,7 @@ This marks a module that has been type-checked but NOT lowered. It carries a `en
 
 The pipeline gains a new phase between `Parse` and `OpenExpand`:
 
-1. **Import resolution phase**: 
+1. **Import resolution phase**:
    - Walk all items in the module
    - For each `ItemImportSignature(path)`:
      - Resolve `path.text` to a `.mh` file
@@ -6821,7 +6821,7 @@ Unlike Approach A (which checks by walking the inlined AST), Approach B checks b
 **Tensions:**
 - **Closed-world model is weakened**: Approach B compiles all files before linking, but the compilation is NOT inlining-the-AST across modules. Each module compiles to its own `BackProgram`. This is closer to a multi-unit compilation model.
 - **Cross-module calls**: `BackCallModuleFunc` is a new backend concern. The current backend assumes all calls are either local (intra-module) or extern (C symbols). Adding a third call type (cross-module within the same compilation) adds complexity to the backend.
-- **Lua is metaprogramming, not import resolution**: The `import` mechanism bypasses Lua's module system. An `.mh` file cannot contain Lua or use the builder API. This is a deliberate choice — headers are pure Moonlift — but it creates a split between "Lua modules" (via `moon.require`) and "Moonlift modules" (via `import`).
+- **Lua is metaprogramming, not import resolution**: The `import` mechanism bypasses Lua's module system. An `.mh` file cannot contain Lua or use the builder API. This is a deliberate choice — headers are pure Lalin — but it creates a split between "Lua modules" (via `lalin.require`) and "Lalin modules" (via `import`).
 
 ### Tradeoffs and downsides
 
@@ -6837,12 +6837,12 @@ Unlike Approach A (which checks by walking the inlined AST), Approach B checks b
 ## Approach C: "Lua-Enforced Header Protocol" — Headers Without New Syntax
 
 ### Core idea
-No new file extension. No new syntax. No parser changes. Headers ARE the existing `.mlua` files that export only types and region fragment declarations (via the Lua builder API). The `moon.require()` mechanism already supports cross-module references. The addition is a new compiler pass: **`--verify-header <file>`** that checks every function/region/expr declared in the exported interface has a matching implementation. The check happens after compilation, as a verification step.
+No new file extension. No new syntax. No parser changes. Headers ARE the existing `.mlua` files that export only types and region fragment declarations (via the Lua builder API). The `lalin.require()` mechanism already supports cross-module references. The addition is a new compiler pass: **`--verify-header <file>`** that checks every function/region/expr declared in the exported interface has a matching implementation. The check happens after compilation, as a verification step.
 
 This is genuinely different from A and B because:
 - There is NO `.mh` extension — headers are regular `.mlua` files
 - There is NO new parser mode — all parsing uses the existing island-based parser
-- There is NO `requires`/`import` syntax — existing `moon.require()` handles module loading
+- There is NO `requires`/`import` syntax — existing `lalin.require()` handles module loading
 - The "header" concept is a PROJECT CONVENTION enforced by a verification tool, not a language feature
 - The only code change is in the builder API (`host_module_values.lua`) and a new verification pass
 
@@ -6852,30 +6852,30 @@ This is genuinely different from A and B because:
 -- app-header.mlua  (or app.mlua in a "headers/" directory)
 -- This IS a Lua module. It uses the Lua builder API.
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 
 local M = {}
 
-M.Vec3 = moon.struct[[ x: f32; y: f32; z: f32 end]]
+M.Vec3 = lalin.struct[[ x: f32; y: f32; z: f32 end]]
 
-M.Result = moon.union[[ ok(i32) | err(string) end]]
+M.Result = lalin.union[[ ok(i32) | err(string) end]]
 
 -- No function body — just a type stub for the function signature
--- Using moon.header_func to declare a signature
-M.normalize = moon.header_func("normalize",
-    { { name = "v", param_ty = moon.ptr(M.Vec3) } },  -- params
-    moon.void,                                           -- result
+-- Using lalin.header_func to declare a signature
+M.normalize = lalin.header_func("normalize",
+    { { name = "v", param_ty = lalin.ptr(M.Vec3) } },  -- params
+    lalin.void,                                           -- result
     {}                                                   -- contracts (none)
 )
 
-M.dot = moon.header_func("dot",
-    { { name = "a", param_ty = moon.ptr(M.Vec3) },
-      { name = "b", param_ty = moon.ptr(M.Vec3) } },
-    moon.f32, {}
+M.dot = lalin.header_func("dot",
+    { { name = "a", param_ty = lalin.ptr(M.Vec3) },
+      { name = "b", param_ty = lalin.ptr(M.Vec3) } },
+    lalin.f32, {}
 )
 
 -- Region fragments ARE already declarations:
-M.scan = moon.region[[
+M.scan = lalin.region[[
 scan(p: ptr(u8), n: i32, target: i32;
      hit: cont(pos: i32),
      miss: cont(pos: i32))
@@ -6889,17 +6889,17 @@ end
 return M
 ```
 
-The `moon.header_func(...)` API (new) creates an ASDL `FuncDecl` node without a body — same `FuncDecl` variant from approaches A/B, but constructed by the Lua API rather than the parser. The resulting module has `ItemFunc(FuncDecl(...))` items.
+The `lalin.header_func(...)` API (new) creates an ASDL `FuncDecl` node without a body — same `FuncDecl` variant from approaches A/B, but constructed by the Lua API rather than the parser. The resulting module has `ItemFunc(FuncDecl(...))` items.
 
-### Implementation files use moon.require
+### Implementation files use lalin.require
 
 ```lua
 -- app.mlua
-local app = moon.require("app-header")  -- loads app-header.mlua
+local app = lalin.require("app-header")  -- loads app-header.mlua
 
 -- Implements normalize by name-matching
 func normalize(v: ptr(Vec3))
-    -- no need to declare Vec3 — it's imported via moon.require
+    -- no need to declare Vec3 — it's imported via lalin.require
 end
 
 func dot(a: ptr(Vec3), b: ptr(Vec3)) -> f32
@@ -6914,15 +6914,15 @@ end
 
 ### File model
 
-- No `.mh` extension — headers ARE `.mlua` files that use the builder API to declare function signatures via `moon.header_func()`
+- No `.mh` extension — headers ARE `.mlua` files that use the builder API to declare function signatures via `lalin.header_func()`
 - The header file is a Lua module that returns a table of declarations
-- The implementation file uses `moon.require("header")` to access types and declarations
+- The implementation file uses `lalin.require("header")` to access types and declarations
 - The **convention** is: `module_name.mlua` for the header, `module_name_impl.mlua` for the implementation — but this is enforced by the verification tool, not the compiler
-- The **verification tool** (`moonlift --verify-header file.mlua`) checks that every `moon.header_func(...)` call in the header has a matching implementation in the same `moon.require` chain
+- The **verification tool** (`lalin --verify-header file.mlua`) checks that every `lalin.header_func(...)` call in the header has a matching implementation in the same `lalin.require` chain
 
 ### Parser changes
 
-**NONE.** The parser sees a `.mlua` file with Moonlift islands. The `moon.header_func()` call happens in Lua, not in Moonlift syntax. The Moonlift islands (`func ... end`) in the implementation file are parsed exactly as today — they become `FuncExport` or `FuncLocal`. The matching between header declarations and implementations is NOT done by the parser; it's done by the verification pass.
+**NONE.** The parser sees a `.mlua` file with Lalin islands. The `lalin.header_func()` call happens in Lua, not in Lalin syntax. The Lalin islands (`func ... end`) in the implementation file are parsed exactly as today — they become `FuncExport` or `FuncLocal`. The matching between header declarations and implementations is NOT done by the parser; it's done by the verification pass.
 
 ### ASDL changes
 
@@ -6931,19 +6931,19 @@ end
 ```lua
 A.variant "FuncDecl" {
     A.field "name" "string",
-    A.field "params" (A.many "MoonType.Param"),
-    A.field "result" "MoonType.Type",
+    A.field "params" (A.many "LalinType.Param"),
+    A.field "result" "LalinType.Type",
     A.variant_unique,
 },
 ```
 
-The `FuncDecl` is constructed by `moon.header_func()` in Lua, NOT by the parser.
+The `FuncDecl` is constructed by `lalin.header_func()` in Lua, NOT by the parser.
 
 **No new Item variants.** `FuncDecl` is a variant of the existing `Func` sum type, so `ItemFunc(FuncDecl(...))` works without any Item changes.
 
 ### Pipeline changes (`host_module_values.lua` + new verification pass)
 
-1. **New builder API**: `moon.header_func(name, params, result, contracts)` in `host_func_values.lua`:
+1. **New builder API**: `lalin.header_func(name, params, result, contracts)` in `host_func_values.lua`:
    ```lua
    function M.header_func(name, params, result, contracts)
        return Tr.FuncDecl(name, params, result)
@@ -6951,7 +6951,7 @@ The `FuncDecl` is constructed by `moon.header_func()` in Lua, NOT by the parser.
    ```
    This creates a `FuncDecl` ASDL node. It's stored in the module's items via `ItemFunc(FuncDecl(...))`.
 
-2. **New compilation flag**: `moonlift --verify-header header.mlua source.mlua`:
+2. **New compilation flag**: `lalin --verify-header header.mlua source.mlua`:
    - Compiles `header.mlua` (produces `Module` with `FuncDecl` items)
    - Compiles `source.mlua` (produces `Module` with `FuncExport` items)
    - After typecheck, compares: for every `FuncDecl` in the header module, find a matching `FuncExport` in the source module by name + signature
@@ -6977,22 +6977,22 @@ The `FuncDecl` is constructed by `moon.header_func()` in Lua, NOT by the parser.
            end
        end
    end
-   
+
    for name, sig in pairs(header_funcs) do
        -- Find matching FuncExport in impl
        -- Report error if not found or signature mismatch
    end
    ```
 
-### How existing `moon.require()` already handles this
+### How existing `lalin.require()` already handles this
 
-The scout confirms: `moon.require("mod")` in `host_module_values.lua` loads and compiles a `.mlua` file via `moon.loadfile()`, producing a compiled Lua chunk that returns a table. The table contains the struct/union/function declarations.
+The scout confirms: `lalin.require("mod")` in `host_module_values.lua` loads and compiles a `.mlua` file via `lalin.loadfile()`, producing a compiled Lua chunk that returns a table. The table contains the struct/union/function declarations.
 
-For header functions, the returned table would contain `FuncDecl` nodes (constructed by `moon.header_func()`). These are stored as `ItemFunc(FuncDecl(...))` in the requiring module's items. The requiring module's type environment gets the function signatures from the header's env.
+For header functions, the returned table would contain `FuncDecl` nodes (constructed by `lalin.header_func()`). These are stored as `ItemFunc(FuncDecl(...))` in the requiring module's items. The requiring module's type environment gets the function signatures from the header's env.
 
 The key difference from "approaches A/B": in Approach C, this machinery ALREADY EXISTS. The only new code is:
-1. `moon.header_func()` builder API (~20 lines)
-2. `moonlift --verify-header` verification pass (~150 lines)
+1. `lalin.header_func()` builder API (~20 lines)
+2. `lalin --verify-header` verification pass (~150 lines)
 3. `FuncDecl` ASDL variant (~5 lines)
 
 ### Safety property
@@ -7003,15 +7003,15 @@ This is a weaker guarantee than Approach A (compile-time guarantee) or Approach 
 
 ### LSP impact
 
-- The LSP already handles `.mlua` files with `moon.require()` — it parses the Lua `local mod = moon.require(...)` island and resolves cross-file references via the workspace analysis cache
-- `moon.header_func()` is a new builder API call that the LSP's Lua analysis sees as a function call — the LSP would need to understand that `moon.header_func(name, ...)` creates a Moonlift function declaration
-- This is the most LSP work of the three approaches, because the LSP must understand the Lua builder API to provide cross-file references. Currently, the LSP's Lua analysis treats `moon.require()` as opaque — Approach C would require extending the LSP's Lua analysis to understand the builder API
+- The LSP already handles `.mlua` files with `lalin.require()` — it parses the Lua `local mod = lalin.require(...)` island and resolves cross-file references via the workspace analysis cache
+- `lalin.header_func()` is a new builder API call that the LSP's Lua analysis sees as a function call — the LSP would need to understand that `lalin.header_func(name, ...)` creates a Lalin function declaration
+- This is the most LSP work of the three approaches, because the LSP must understand the Lua builder API to provide cross-file references. Currently, the LSP's Lua analysis treats `lalin.require()` as opaque — Approach C would require extending the LSP's Lua analysis to understand the builder API
 
 ### Philosophy fit
 
 **Excellent alignment:**
-- **Lua is metaprogramming**: Headers are EXPRESSED IN LUA, using the builder API. This is the closest to Moonlift's philosophy of all three approaches.
-- **No new syntax**: The existing Lua-based module composition (`moon.require`) is the mechanism. No parser changes.
+- **Lua is metaprogramming**: Headers are EXPRESSED IN LUA, using the builder API. This is the closest to Lalin's philosophy of all three approaches.
+- **No new syntax**: The existing Lua-based module composition (`lalin.require`) is the mechanism. No parser changes.
 - **Existing patterns preserved**: The present builder API is extended, not replaced.
 - **ASDL is the architecture**: Single new `FuncDecl` variant. Everything else reuses existing types.
 
@@ -7025,9 +7025,9 @@ This is a weaker guarantee than Approach A (compile-time guarantee) or Approach 
 | Optimizes for | Sacrifices |
 |---|---|
 | Minimal code change: one new API function, one new ASDL variant, one verification pass | No language-level enforcement — the guarantee comes from an opt-in verification tool |
-| Zero parser changes, zero pipeline changes | The LSP must understand `moon.header_func()` to provide cross-file references |
-| Uses the existing `moon.require()` mechanism — battle-tested | Header files cannot be distinguished from regular `.mlua` files by extension |
-| Closest to Moonlift's design philosophy | The verification pass is a separate tool invocation, not integrated into the compiler pipeline by default |
+| Zero parser changes, zero pipeline changes | The LSP must understand `lalin.header_func()` to provide cross-file references |
+| Uses the existing `lalin.require()` mechanism — battle-tested | Header files cannot be distinguished from regular `.mlua` files by extension |
+| Closest to Lalin's design philosophy | The verification pass is a separate tool invocation, not integrated into the compiler pipeline by default |
 
 ---
 
@@ -7035,14 +7035,14 @@ This is a weaker guarantee than Approach A (compile-time guarantee) or Approach 
 
 | Dimension | A: Inline Header | B: Signature Module | C: Lua-Enforced Protocol |
 |---|---|---|---|
-| **New syntax** | `requires "mod"` + bodyless `func end` | `import "mod"` + bodyless `func` | None (uses `moon.require` + `moon.header_func`) |
+| **New syntax** | `requires "mod"` + bodyless `func end` | `import "mod"` + bodyless `func` | None (uses `lalin.require` + `lalin.header_func`) |
 | **New file extension** | `.mh` | `.mh` | None (uses `.mlua`) |
 | **Parser changes** | New island kind, new mode | New keyword, new mode | None |
 | **ASDL changes** | `FuncDecl` variant, `ItemImport` already exists | `FuncDecl`, `ItemImportSignature`, `ModuleSignature` states | `FuncDecl` variant only |
 | **Pipeline changes** | Import resolution + inline via `ItemUseModule` | New import resolution phase, link step for cross-module calls | Verification pass only |
 | **Safety guarantee** | Compile-time (type-checked inlining) | Link-time (env matching) | Verification-time (opt-in tool) |
-| **Cross-module calls** | Inlined — zero overhead | `BackCallModuleFunc` — call overhead at module boundary | Inlined via `moon.require` — same as current |
-| **Incremental compilation** | None — everything recompiles | Yes — only changed `.mlua` files recompile | Yes — same as current `moon.require` |
+| **Cross-module calls** | Inlined — zero overhead | `BackCallModuleFunc` — call overhead at module boundary | Inlined via `lalin.require` — same as current |
+| **Incremental compilation** | None — everything recompiles | Yes — only changed `.mlua` files recompile | Yes — same as current `lalin.require` |
 | **LSP effort** | Moderate — workspace cache for `.mh` files | Moderate — workspace cache for signatures | Highest — must understand builder API |
 | **Lua is metaprogramming** | ❌ Headers bypass Lua | ❌ Headers bypass Lua | ✅ Headers ARE Lua |
 | **Implementation effort** | ~500 lines: parser mode + import resolution | ~2000 lines: new pipeline phase + backend call type + link step | ~200 lines: API + ASDL + verification pass |
@@ -7051,6 +7051,6 @@ This is a weaker guarantee than Approach A (compile-time guarantee) or Approach 
 
 **Pick A** if you want the simplest conceptual model: headers are just source files without bodies, and everything is compiled together. This is the most conservative approach architecturally — it reuses the existing `ItemUseModule` mechanism and makes no changes to the backend. The cost is that every header change triggers full recompilation.
 
-**Pick B** if you need incremental compilation for large projects (100+ files) and are willing to add cross-module call support to the backend. This is the most architecturally ambitious approach — it introduces a new pipeline phase and a link step. It's the right choice if Moonlift targets large multi-file projects but requires significant new backend infrastructure.
+**Pick B** if you need incremental compilation for large projects (100+ files) and are willing to add cross-module call support to the backend. This is the most architecturally ambitious approach — it introduces a new pipeline phase and a link step. It's the right choice if Lalin targets large multi-file projects but requires significant new backend infrastructure.
 
-**Pick C** if you want to stay as close as possible to Moonlift's design philosophy. Headers are expressed in Lua, using the builder API, with no new syntax. The `FuncDecl` addition is minimal. The tradeoff is that the guarantee comes from an opt-in verification tool, not from the compiler itself. Pick this if the philosophy constraint ("Lua is metaprogramming") is the strongest driver.
+**Pick C** if you want to stay as close as possible to Lalin's design philosophy. Headers are expressed in Lua, using the builder API, with no new syntax. The `FuncDecl` addition is minimal. The tradeoff is that the guarantee comes from an opt-in verification tool, not from the compiler itself. Pick this if the philosophy constraint ("Lua is metaprogramming") is the strongest driver.

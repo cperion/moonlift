@@ -4,33 +4,33 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 
 local ffi = require("ffi")
 local bit = require("bit")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
-local Measure = require("moonlift.luajit_measure")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
+local Measure = require("lalin.luajit_measure")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local Flow = T.MoonFlow
-local LJ = T.MoonLuaJIT
-local Schedule = T.MoonSchedule
-local Value = T.MoonValue
-local Stencil = T.MoonStencil
-local CType = require("moonlift.luajit_ctype")(T)
-local Emit = require("moonlift.luajit_emit")(T)
-local StencilArtifactPlan = require("moonlift.stencil_artifact_plan")(T)
-local StencilBank = require("moonlift.stencil_bank")(T)
+local Core = T.LalinCore
+local Code = T.LalinCode
+local Flow = T.LalinFlow
+local LJ = T.LalinLuaJIT
+local Schedule = T.LalinSchedule
+local Value = T.LalinValue
+local Stencil = T.LalinStencil
+local CType = require("lalin.luajit_ctype")(T)
+local Emit = require("lalin.luajit_emit")(T)
+local StencilArtifactPlan = require("lalin.stencil_artifact_plan")(T)
+local StencilBank = require("lalin.stencil_bank")(T)
 
 local mode = arg and arg[1] or "quick"
 local full = mode == "full"
-local n = tonumber(os.getenv("MOONLIFT_LJ_VEC_BENCH_N") or (full and "5000000" or "350000"))
-local samples = tonumber(os.getenv("MOONLIFT_LJ_VEC_BENCH_SAMPLES") or (full and "9" or "5"))
-local rounds = tonumber(os.getenv("MOONLIFT_LJ_VEC_BENCH_ROUNDS") or "1")
-local cc = os.getenv("MOONLIFT_LJ_VEC_BENCH_CC") or os.getenv("CC") or "gcc"
-local cflags = os.getenv("MOONLIFT_LJ_VEC_BENCH_CFLAGS") or "-std=c99 -O3 -march=native"
-local with_gcc = os.getenv("MOONLIFT_LJ_VEC_BENCH_GCC") ~= "0"
+local n = tonumber(os.getenv("LALIN_LJ_VEC_BENCH_N") or (full and "5000000" or "350000"))
+local samples = tonumber(os.getenv("LALIN_LJ_VEC_BENCH_SAMPLES") or (full and "9" or "5"))
+local rounds = tonumber(os.getenv("LALIN_LJ_VEC_BENCH_ROUNDS") or "1")
+local cc = os.getenv("LALIN_LJ_VEC_BENCH_CC") or os.getenv("CC") or "gcc"
+local cflags = os.getenv("LALIN_LJ_VEC_BENCH_CFLAGS") or "-std=c99 -O3 -march=native"
+local with_gcc = os.getenv("LALIN_LJ_VEC_BENCH_GCC") ~= "0"
 
 local function stencil_object_cflags()
     return cflags .. " -ffunction-sections -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -c"
@@ -258,7 +258,7 @@ local expected = handwritten_sum()
 assert(compiled.sum_i32_fold(xs, n) == expected)
 if compiled.sum_i32_vec_stencil then assert(compiled.sum_i32_vec_stencil(xs, n) == expected) end
 
-print(string.format("MoonLuaJIT stencil reduce benchmark mode=%s n=%d samples=%d rounds=%d", mode, n, samples, rounds))
+print(string.format("LalinLuaJIT stencil reduce benchmark mode=%s n=%d samples=%d rounds=%d", mode, n, samples, rounds))
 print("emitted source bytes " .. tostring(#src))
 local cases = {
     { name = "emitted fold i32", fn = function() return compiled.sum_i32_fold(xs, n) end },
@@ -290,6 +290,6 @@ elseif artifacts then
     io.stderr:write("skipping GCC baseline; compile failed: " .. artifacts.baseline_cmd .. "\n")
 end
 
-if os.getenv("MOONLIFT_LJ_VEC_BENCH_SOURCE") == "1" then
+if os.getenv("LALIN_LJ_VEC_BENCH_SOURCE") == "1" then
     print(src)
 end

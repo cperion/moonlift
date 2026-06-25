@@ -1,12 +1,12 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 local T = pvm.context(); Schema(T)
 
-local Core = T.MoonCore
-local C = T.MoonC
-local H = require("moonlift.c_helpers")(T)
+local Core = T.LalinCore
+local C = T.LalinC
+local H = require("lalin.c_helpers")(T)
 
 local function exec_ok(cmd)
     local r = os.execute(cmd)
@@ -112,4 +112,4 @@ compile_run("div zero traps", string.format("(void)%s((int32_t)1, (int32_t)0);",
 compile_run("signed min div -1 traps", string.format("(void)%s((int32_t)INT32_MIN, (int32_t)-1);", div_i32), false)
 compile_run("signed min rem -1 traps", string.format("(void)%s((int32_t)INT32_MIN, (int32_t)-1);", rem_i32), false)
 
-io.write("moonlift C helper runtime audit ok\n")
+io.write("lalin C helper runtime audit ok\n")

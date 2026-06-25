@@ -5,12 +5,12 @@
 --   opcode windows + facts/evidence
 --   -> LuaCompile.Unit
 --   -> LuaRT / LuaExec
---   -> MoonCFG.Kernel + emitted Moonlift source
---   -> ASDL StencilTemplate artifacts generated from MoonCFG/LuaExec shapes
---   -> semantic representative key (`MoonCFG + CompileContract + Stencil.VariantKey`)
+--   -> LalinCFG.Kernel + emitted Lalin source
+--   -> ASDL StencilTemplate artifacts generated from LalinCFG/LuaExec shapes
+--   -> semantic representative key (`LalinCFG + CompileContract + Stencil.VariantKey`)
 --
 -- Source opcode windows are preserved as aliases/members of semantic
--- representatives. Runtime materialization is handled by the Moonlift-native
+-- representatives. Runtime materialization is handled by the Lalin-native
 -- fact-selection and copy/patch design.
 --
 -- Usage:
@@ -39,7 +39,7 @@ local LuaFoundry = require("lua_compile.lua_compile_foundry")
 
 local DEFAULTS = {
   corpus_awfy_root = root .. "/experiments/lua_interpreter_vm",
-  corpus_moonlift_root = root .. "/lua/moonlift",
+  corpus_lalin_root = root .. "/lua/lalin",
   out_dir = spongejit .. "/build/lua_compile_foundry",
   max_files = 200,
   max_regions = 10000,
@@ -67,7 +67,7 @@ local function load_corpus_windows(config)
     end
   end
   add_from(config.corpus_awfy_root, "awfy_")
-  add_from(config.corpus_moonlift_root, "moonlift_")
+  add_from(config.corpus_lalin_root, "lalin_")
 
   local by_key, windows = {}, {}
   local function key(ops)

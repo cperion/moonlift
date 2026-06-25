@@ -1,17 +1,17 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local Value = T.MoonValue
-local Stencil = T.MoonStencil
-local StencilArtifactPlan = require("moonlift.stencil_artifact_plan")(T)
+local Core = T.LalinCore
+local Code = T.LalinCode
+local Value = T.LalinValue
+local Stencil = T.LalinStencil
+local StencilArtifactPlan = require("lalin.stencil_artifact_plan")(T)
 local StencilBinary = require("tests.code_ir.stencil_binary_helper")
 
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)
@@ -189,4 +189,4 @@ assert(sym(artifacts[16])(xs, 0, 5) == 3, "count")
 assert(sym(artifacts[17])(xs, 0, 5, 0) == -7, "map reduce")
 assert(sym(artifacts[18])(xs, ys, 0, 5, 0) == 157, "zip reduce")
 
-io.write("moonlift stencil_bank all shapes ok\n")
+io.write("lalin stencil_bank all shapes ok\n")

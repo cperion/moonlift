@@ -42,7 +42,7 @@ Design proper ASDL vocabulary for a complete rewrite of SpongeJIT Lua SSA compil
 32. `experiments/lua_interpreter_vm/spongejit/runtime/sponjit_l1_interpreter.h` (lines 1-108) — Prototype L1 interpreter/materializer public C API.
 33. `experiments/lua_interpreter_vm/spongejit/runtime/sponjit_l1_interpreter.c` (lines 1-402) — Prototype C materializer/runtime path: selects bank choices, patches relocs, runs image.
 34. `experiments/lua_interpreter_vm/tests/test_spongejit_real_ssa.lua` (lines 1-288) — Current SSA/fact/contract invariants and regression assertions.
-35. `experiments/lua_interpreter_vm/src/contract.lua` (lines 1-19) — Moonlift VM gate: `sponjit_allowed = false`.
+35. `experiments/lua_interpreter_vm/src/contract.lua` (lines 1-19) — Lalin VM gate: `sponjit_allowed = false`.
 36. `experiments/lua_interpreter_vm/src/op/protocols.lua` (lines 1-42) — Current VM opcode continuation protocols.
 37. `experiments/lua_interpreter_vm/src/op/_init.lua` (lines 1-150) — Opcode-region boilerplate and protocol wiring.
 38. `experiments/lua_interpreter_vm/src/op/arithmetic.lua` (lines 1-300) — Example interpreter opcode semantics for arithmetic; useful contrast with SpongeJIT SSA semantics.
@@ -745,7 +745,7 @@ The guide principle “the loop is the only execution” maps here to the bank/r
 
 ### Knowledge Gaps
 
-- Whether the rewrite intends to use Moonlift/PVM ASDL directly or only borrow its design discipline.
+- Whether the rewrite intends to use Lalin/PVM ASDL directly or only borrow its design discipline.
 - The desired scope of inline loop handling versus permanent loop-boundary stance.
 - The complete Lua opcode semantic target set for the first rewritten vocabulary.
 - The exact runtime payload-lease representation expected outside the foundry prototype.

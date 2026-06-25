@@ -11,7 +11,7 @@
 			"id": "T001",
 			"title": "Add CmdAtomicLoad encoder branch",
 			"detail": "Insert CmdAtomicLoad elseif branch after CmdStoreInfo (~line 270). Wire: AtomicLoad(112)=4 slots [dst, scalar_type, memflags, addr]. Fields: cmd.dst, cmd.ty (BackScalar, use st() directly), cmd.addr (use emit_effective_addr), cmd.memory (use memflags). Ordering field silently dropped (seq_cst hardcoded in Rust).",
-			"file": "lua/moonlift/back_command_binary.lua",
+			"file": "lua/lalin/back_command_binary.lua",
 			"after": [],
 			"status": "done",
 			"order": 1,
@@ -25,7 +25,7 @@
 			"id": "T002",
 			"title": "Add CmdAtomicStore encoder branch",
 			"detail": "Insert CmdAtomicStore elseif branch after CmdAtomicLoad. Wire: AtomicStore(113)=4 slots [scalar_type, memflags, addr, value]. Fields: cmd.ty, cmd.addr, cmd.value, cmd.memory. No dst — store has no result.",
-			"file": "lua/moonlift/back_command_binary.lua",
+			"file": "lua/lalin/back_command_binary.lua",
 			"after": [
 				"T001"
 			],
@@ -40,7 +40,7 @@
 			"id": "T003",
 			"title": "Add CmdAtomicRmw encoder branch with op_kind mapping",
 			"detail": "Insert CmdAtomicRmw elseif branch after CmdAtomicStore. Wire: AtomicRmw(114)=6 slots [dst, scalar_type, op_kind, memflags, addr, value]. Must map cmd.op.kind to numeric: BackAtomicRmwAdd→1, Sub→2, And→3, Or→4, Xor→5, Xchg→6. This mapping MUST match decode.rs rmw() function line 81-83. Fields: cmd.dst, cmd.ty, cmd.op, cmd.addr, cmd.value, cmd.memory.",
-			"file": "lua/moonlift/back_command_binary.lua",
+			"file": "lua/lalin/back_command_binary.lua",
 			"after": [
 				"T002"
 			],
@@ -55,7 +55,7 @@
 			"id": "T004",
 			"title": "Add CmdAtomicCas encoder branch",
 			"detail": "Insert CmdAtomicCas elseif branch after CmdAtomicRmw. Wire: AtomicCas(115)=6 slots [dst, scalar_type, memflags, addr, expected, replacement]. Fields: cmd.dst, cmd.ty, cmd.addr, cmd.expected, cmd.replacement, cmd.memory.",
-			"file": "lua/moonlift/back_command_binary.lua",
+			"file": "lua/lalin/back_command_binary.lua",
 			"after": [
 				"T003"
 			],
@@ -70,7 +70,7 @@
 			"id": "T005",
 			"title": "Add CmdAtomicFence encoder branch (zero-data)",
 			"detail": "Insert CmdAtomicFence elseif branch after CmdAtomicCas. Wire: Fence(116)=0 slots — write only tag, no data. Fields: cmd.ordering (silently dropped). Follows same pattern as CmdReturnVoid/Trap: just w4(buf, T.Fence).",
-			"file": "lua/moonlift/back_command_binary.lua",
+			"file": "lua/lalin/back_command_binary.lua",
 			"after": [
 				"T004"
 			],
@@ -85,7 +85,7 @@
 			"id": "T006",
 			"title": "Add CmdRotate encoder branch",
 			"detail": "Insert CmdRotate elseif branch after CmdShift (~line 218). Wire: Rotl(63)=3 slots, Rotr(64)=3 slots — same arity as shift. Fields: cmd.dst, cmd.op (BackRotateLeft→T.Rotl, BackRotateRight→T.Rotr), cmd.lhs, cmd.rhs. Follow the exact CmdShift pattern — sub-dispatch on cmd.op.kind, fallback to T.Rotl. Note: no lowering path for rotate exists yet, but encoder branch prevents silent drop if lowering is added later.",
-			"file": "lua/moonlift/back_command_binary.lua",
+			"file": "lua/lalin/back_command_binary.lua",
 			"after": [],
 			"status": "done",
 			"order": 6,
@@ -99,7 +99,7 @@
 			"id": "T007",
 			"title": "Add CmdVecMask encoder branch with non-uniform arity sub-dispatch",
 			"detail": "Insert CmdVecMask elseif branch after CmdVecSelect (~line 312). Non-uniform arity: VecMaskNot(150)=2 slots [dst, vec] uses cmd.args[1] only; VecMaskAnd(151)=3 slots [dst, lhs, rhs] uses cmd.args[1],cmd.args[2]; VecMaskOr(152)=3 slots same. Sub-dispatch on cmd.op.kind: BackVecMaskNot→T.VecMaskNot, BackVecMaskAnd→T.VecMaskAnd, BackVecMaskOr→T.VecMaskOr. Each sub-branch writes tag then its specific slot count. Fallback: T.VecMaskNot + cmd.args[1] only.",
-			"file": "lua/moonlift/back_command_binary.lua",
+			"file": "lua/lalin/back_command_binary.lua",
 			"after": [],
 			"status": "done",
 			"order": 7,
@@ -112,7 +112,7 @@
 			"id": "T008",
 			"title": "Add loud else clause for unrecognized BackCmds",
 			"detail": "Add 'else error(\"unrecognized BackCmd: \" .. tostring(k))' at the end of the if-elseif chain in encode_body(), before the 'end' that closes the if block. This makes future gaps immediately visible instead of silently dropping commands. The current chain ends at CmdCall; insert the else clause between the CmdCall branch's end and the for-loop's end.",
-			"file": "lua/moonlift/back_command_binary.lua",
+			"file": "lua/lalin/back_command_binary.lua",
 			"after": [],
 			"status": "done",
 			"order": 8,

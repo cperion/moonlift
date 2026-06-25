@@ -2,7 +2,7 @@
 -- Compatibility module for the canonical MLUI LLPVM machine declaration.
 -- Source of truth: mlui_stack.mlua.
 
-local M = moon.require("mlui_stack")
+local M = lalin.require("mlui_stack")
 
 return {
     T = M.T,

@@ -1,11 +1,11 @@
--- Comparative VM benchmark (Moonlift VM vs LuaJIT -joff vs PUC Lua)
+-- Comparative VM benchmark (Lalin VM vs LuaJIT -joff vs PUC Lua)
 
 local ffi = require("ffi")
 local bit = require("bit")
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
@@ -24,21 +24,21 @@ local function set_AsBx(i, op, a, sbx) i.word = pack_AsBx(op, a, sbx) end
 local function op_of(i) return bit.band(i.word, 127) end
 
 ffi.cdef [[
-void* moonlift_scratch_raw(int slot, int elem_size, int count);
+void* lalin_scratch_raw(int slot, int elem_size, int count);
 ]]
 
-local function load_moonlift_lib()
+local function load_lalin_lib()
     local tried = {}
-    for _, name in ipairs({ "./target/release/libmoonlift.so", "./target/debug/libmoonlift.so", "libmoonlift" }) do
+    for _, name in ipairs({ "./target/release/liblalin.so", "./target/debug/liblalin.so", "liblalin" }) do
         tried[#tried + 1] = name
         local ok, lib = pcall(ffi.load, name)
         if ok then return lib end
     end
-    error("could not load libmoonlift; tried: " .. table.concat(tried, ", ") .. "\nBuild first: cargo build --release")
+    error("could not load liblalin; tried: " .. table.concat(tried, ", ") .. "\nBuild first: cargo build --release")
 end
 
-local lib = load_moonlift_lib()
-local scratch_raw = lib.moonlift_scratch_raw
+local lib = load_lalin_lib()
+local scratch_raw = lib.lalin_scratch_raw
 
 ffi.cdef [[
 typedef struct { void* next; uint8_t tt; uint8_t marked; } GCHeader;
@@ -184,7 +184,7 @@ local function reset(thread, stack, frames)
     set_num(stack[3], BITS_7)
 end
 
-local runner_fn = moon.func { vm_resume = vm.vm_loop.vm_resume } [[
+local runner_fn = lalin.func { vm_resume = vm.vm_loop.vm_resume } [[
 run(L: ptr(LuaThread), nargs: i32): i32
     return region: i32
     entry start()
@@ -202,8 +202,8 @@ run(L: ptr(LuaThread), nargs: i32): i32
 end
 ]]:compile()
 
-local STEPS = tonumber(os.getenv("MOONLIFT_VM_STEPS")) or 10000
-local RUNS = tonumber(os.getenv("MOONLIFT_VM_RUNS")) or 1000
+local STEPS = tonumber(os.getenv("LALIN_VM_STEPS")) or 10000
+local RUNS = tonumber(os.getenv("LALIN_VM_RUNS")) or 1000
 
 local function run_bench(name, fill_code, init_stack, steps_override, code_slots_override, init_consts, maxstack)
     local steps = steps_override or STEPS
@@ -532,7 +532,7 @@ end
 
 print(string.format("\nSTEPS=%-8d  RUNS=%-8d\n", STEPS, RUNS))
 print(string.rep("-", 104))
-print(string.format("%-16s  %-8s  %12s  %12s  %12s  %-8s  %-8s", "CASE", "GROUP", "Moonlift VM", "LuaJIT -joff", "PUC Lua", "VM/LJ", "VM/PUC"))
+print(string.format("%-16s  %-8s  %12s  %12s  %12s  %-8s  %-8s", "CASE", "GROUP", "Lalin VM", "LuaJIT -joff", "PUC Lua", "VM/LJ", "VM/PUC"))
 print(string.rep("-", 104))
 for _, op in ipairs(ops) do
     local ljit = read_num("luajit -joff /tmp/mlcmp_" .. op.name .. ".lua 2>/dev/null")
@@ -544,7 +544,7 @@ for _, op in ipairs(ops) do
         op.name, op.group, vm_ns, ljit or -1, lua or -1, vs_lj, vs_lua))
 end
 print(string.rep("-", 104))
-print("VM/LJ and VM/PUC are cost ratios; lower is better for Moonlift VM.")
-print("Negative VM ns/op means RETURN-overhead subtraction noise; increase MOONLIFT_VM_STEPS/RUNS.")
+print("VM/LJ and VM/PUC are cost ratios; lower is better for Lalin VM.")
+print("Negative VM ns/op means RETURN-overhead subtraction noise; increase LALIN_VM_STEPS/RUNS.")
 
 runner_fn:free()

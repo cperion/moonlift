@@ -9,7 +9,7 @@ local bit = require("bit")
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
@@ -28,21 +28,21 @@ local function set_AsBx(i, op, a, sbx) i.word = pack_AsBx(op, a, sbx) end
 local function op_of(i) return bit.band(i.word, 127) end
 
 ffi.cdef [[
-    void* moonlift_scratch_raw(int slot, int elem_size, int count);
+    void* lalin_scratch_raw(int slot, int elem_size, int count);
 ]]
 
-local function load_moonlift_lib()
+local function load_lalin_lib()
     local tried = {}
-    for _, name in ipairs({ "libmoonlift", "./target/release/libmoonlift.so", "./target/debug/libmoonlift.so" }) do
+    for _, name in ipairs({ "liblalin", "./target/release/liblalin.so", "./target/debug/liblalin.so" }) do
         tried[#tried + 1] = name
         local ok, lib = pcall(ffi.load, name)
         if ok then return lib end
     end
-    error("could not load libmoonlift; tried: " .. table.concat(tried, ", ") .. "\nBuild it first with: cargo build --release")
+    error("could not load liblalin; tried: " .. table.concat(tried, ", ") .. "\nBuild it first with: cargo build --release")
 end
 
-local libmoon = load_moonlift_lib()
-local scratch_raw = libmoon.moonlift_scratch_raw
+local liblalin = load_lalin_lib()
+local scratch_raw = liblalin.lalin_scratch_raw
 
 -- FFI layouts must match experiments/lua_interpreter_vm/src/products.lua exactly.
 ffi.cdef [[
@@ -176,7 +176,7 @@ local function reset(thread, stack, frames)
 end
 
 print("Compiling runner...")
-local runner = moon.func { vm_resume = vm.vm_loop.vm_resume } [[
+local runner = lalin.func { vm_resume = vm.vm_loop.vm_resume } [[
 run(L: ptr(LuaThread), nargs: i32): i32
     return region: i32
     entry start()
@@ -206,7 +206,7 @@ assert(math.abs(got - 42.0) < 0.001, "expected result 42, got " .. tostring(got)
 print("OK: LOADK+RETURN =", got, "nres =", warm)
 reset(thread, stack, frames)
 
-local ITERS = tonumber(os.getenv("MOONLIFT_VM_BENCH_ITERS")) or 50000
+local ITERS = tonumber(os.getenv("LALIN_VM_BENCH_ITERS")) or 50000
 local t0 = os.clock()
 for _ = 1, ITERS do
     run(thread, 0)
@@ -214,7 +214,7 @@ for _ = 1, ITERS do
 end
 local vm_elapsed = os.clock() - t0
 local vm_rate = ITERS / vm_elapsed
-print(string.format("\nMoonlift VM: %d iters in %.4fs = %.0f iter/s", ITERS, vm_elapsed, vm_rate))
+print(string.format("\nLalin VM: %d iters in %.4fs = %.0f iter/s", ITERS, vm_elapsed, vm_rate))
 print(string.format("             %.2f ns per LOADK+RETURN", (vm_elapsed / ITERS) * 1e9))
 
 runner:free()

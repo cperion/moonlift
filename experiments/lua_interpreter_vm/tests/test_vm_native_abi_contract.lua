@@ -3,7 +3,7 @@
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
@@ -12,7 +12,7 @@ typedef struct { uint32_t tag; uint32_t aux; uint64_t bits; } Value;
 typedef struct { uint8_t status; int32_t nresults; Value err; uint64_t stack_needed; uint8_t* continuation; } NativeCallResult;
 ]]
 
-local route = moon.func { decode = vm.regions_native.decode_native_result } [[
+local route = lalin.func { decode = vm.regions_native.decode_native_result } [[
 route_native(result: ptr(NativeCallResult)): i32
     return region: i32
     entry start()
@@ -56,7 +56,7 @@ r[0].status = const.NativeResult.INVALID
 check("INVALID routes invalid", route(r) == -600)
 route:free()
 
-local invoke_route = moon.func {
+local invoke_route = lalin.func {
     invoke = vm.regions_native.invoke_native,
     sys_realloc = vm.regions_allocator.sys_realloc,
 } [[

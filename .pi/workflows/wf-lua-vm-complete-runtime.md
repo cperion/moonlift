@@ -1,5 +1,5 @@
-# Complete Moonlift-native Lua 5.5 VM runtime 
-New PLANSEARCH workflow for the remaining work after the VM contract milestone. Goal: one concrete definition of complete — the Moonlift-native runtime can run Lua 5.5 programs with correct VM semantics through its own runtime, while SponJIT remains separate.
+# Complete Lalin-native Lua 5.5 VM runtime
+New PLANSEARCH workflow for the remaining work after the VM contract milestone. Goal: one concrete definition of complete — the Lalin-native runtime can run Lua 5.5 programs with correct VM semantics through its own runtime, while SponJIT remains separate.
 **Workflow ID**: wf-lua-vm-complete-runtime
 **Started**: 2026-05-29 18:34:36
 ---
@@ -308,7 +308,7 @@ Verified behavior includes:
 - **Runtime object economy**: allocation, strings, tables, closures, upvalues, protected frames, threads, userdata, and GC are one coupled substrate.
 - **Control re-entry correctness**: calls, metamethods, errors, protected calls, TBC, yields, and coroutines all share the same continuation/resume machinery.
 - **Safety at the trust boundary**: handlers dereference raw pointers and assume validated operands; incomplete validation is a memory-safety issue, not only a semantic gap.
-- **Compatibility boundaries**: Moonlift-native runtime must not rely on SponJIT or PUC execution, but it still needs a precise oracle and a clear boundary for native libraries/API support.
+- **Compatibility boundaries**: Lalin-native runtime must not rely on SponJIT or PUC execution, but it still needs a precise oracle and a clear boundary for native libraries/API support.
 - **Verification boundaries**: tests must stop proving only scaffolding contracts and start proving externally observable Lua behavior against Lua 5.5.
 
 ## Non-Obvious Observations
@@ -350,7 +350,7 @@ This causes non-obvious semantic mismatches:
 - `SELF` should use `K[C]:shortstring`; current `op_self` reads `R[C]`.
 - `SETTABLE` appears operand-swapped relative to PUC: PUC is `R[A][R[B]] := RK(C)`, current code uses `R[B][R[C]] := R[A]`.
 
-This is not just “some opcodes missing.” It means existing tests and compiler output may be validating a Moonlift-local bytecode dialect rather than Lua 5.5 bytecode.
+This is not just “some opcodes missing.” It means existing tests and compiler output may be validating a Lalin-local bytecode dialect rather than Lua 5.5 bytecode.
 
 ### 3. The validator is part of memory safety, not just correctness
 
@@ -362,7 +362,7 @@ Many handlers directly index raw arrays:
 - `L.stack[base + operand]`
 - `p.code[pc + 1]`
 
-The validator currently catches some malformed bytecode, but not the full trust boundary. Missing checks are dangerous because Moonlift-native code has no Lua table bounds safety at runtime.
+The validator currently catches some malformed bytecode, but not the full trust boundary. Missing checks are dangerous because Lalin-native code has no Lua table bounds safety at runtime.
 
 Examples of hidden safety dependencies:
 
@@ -503,7 +503,7 @@ Examples:
 - if `JMP`, `TEST`, `SELF`, `SETTABLE`, immediate operands, or `EXTRAARG` are encoded incorrectly on both sides, source tests will not catch the mismatch;
 - manually built Proto tests bypass binary chunk loading and allocator/GC invariants.
 
-Completion verification needs an oracle boundary independent of the Moonlift compiler’s current encoding assumptions.
+Completion verification needs an oracle boundary independent of the Lalin compiler’s current encoding assumptions.
 
 ### 11. Numeric semantics are a dense hidden-risk area
 
@@ -598,7 +598,7 @@ Without freezing the oracle revision, “correct Lua 5.5” can drift underneath
 - Whether full PUC standard libraries are in scope, and if not, which library/API subset defines compatibility.
 - Whether GC-observable semantics such as weak tables, finalizers, and userdata `__gc` are required for completion.
 - Whether the vendored `.vendor/Lua` revision is the fixed Lua 5.5 oracle.
-- Whether binary chunk loading/dumping must match PUC, or whether Moonlift Proto construction may be VM-private.
+- Whether binary chunk loading/dumping must match PUC, or whether Lalin Proto construction may be VM-private.
 - Exact intended boundary between the VM native ABI and any Lua C API compatibility layer.
 
 ## Approach-proposer Output — 2026-05-29 23:20:46
@@ -611,7 +611,7 @@ Without freezing the oracle revision, “correct Lua 5.5” can drift underneath
   - Expand `src/validate.lua` into the complete memory-safety boundary for binary chunks.
   - Implement allocator-backed strings, tables, closures, upvalues, varargs, protected frames, native calls, and GC inside the existing `regions_*` structure.
   - Extend source compiler only after bytecode semantics are fixed.
-  - Add conformance harness comparing Moonlift VM results against vendored Lua 5.5.
+  - Add conformance harness comparing Lalin VM results against vendored Lua 5.5.
 - **Tradeoff**: Optimizes for preserving current work and making steady measurable progress; sacrifices architectural cleanup and may accumulate complexity in existing regions.
 - **Risk**: Existing bytecode dialect assumptions may be deeply embedded in tests, compiler, and handlers, making “incremental” correction more disruptive than expected.
 - **Done means**:
@@ -664,18 +664,18 @@ Without freezing the oracle revision, “correct Lua 5.5” can drift underneath
 
 ### Approach C: PUC-Derived Compatibility Port
 
-- **Core idea**: Use the vendored Lua 5.5 implementation as the structural source of truth, deriving VM metadata, bytecode validation rules, compiler behavior, and library semantics from PUC wherever possible while still executing on the Moonlift-native VM.
+- **Core idea**: Use the vendored Lua 5.5 implementation as the structural source of truth, deriving VM metadata, bytecode validation rules, compiler behavior, and library semantics from PUC wherever possible while still executing on the Lalin-native VM.
 - **Key changes**:
   - Generate opcode tables, modes, operand validation metadata, and disassembler/validator facts from `.vendor/Lua` headers.
-  - Align Moonlift `Proto`, chunk loader, and compiler output with PUC’s bytecode/proto model.
+  - Align Lalin `Proto`, chunk loader, and compiler output with PUC’s bytecode/proto model.
   - Port or mirror PUC runtime algorithms for tables, strings, closures, upvalues, GC, weak tables, userdata/finalizers, and standard-library subset.
   - Build LuaJIT-style FFI as a VM-native library layered beside, not inside, SponJIT.
   - Use PUC Lua as test oracle only, never as runtime execution fallback.
-- **Tradeoff**: Optimizes for compatibility and reducing interpretation drift; sacrifices Moonlift-native design freedom and may produce code that feels less idiomatic to the current region architecture.
-- **Risk**: Mechanical alignment with PUC C structures may conflict with existing `products.lua` layout and Moonlift control-region style.
+- **Tradeoff**: Optimizes for compatibility and reducing interpretation drift; sacrifices Lalin-native design freedom and may produce code that feels less idiomatic to the current region architecture.
+- **Risk**: Mechanical alignment with PUC C structures may conflict with existing `products.lua` layout and Lalin control-region style.
 - **Done means**:
   - Opcode definitions, instruction modes, binary chunk parsing, validator checks, and compiler emission are traceably derived from the vendored Lua 5.5 source.
-  - Moonlift VM accepts PUC-compatible binary chunks and produces matching observable behavior.
+  - Lalin VM accepts PUC-compatible binary chunks and produces matching observable behavior.
   - Source compiler behavior matches the vendored parser/codegen for in-scope Lua 5.5.
   - Required libraries, weak tables, finalizers, userdata `__gc`, and LuaJIT-style FFI match the declared compatibility surface.
   - A conformance harness can explain mismatches in terms of either accepted compatibility exclusions or bugs.
@@ -706,14 +706,14 @@ Scoring note: for **compatibility, cohesion, fit, verification, bytecode safety,
 | **Coupling** | 3/5 | Keeps existing `regions_*` structure; moderate risk of semantic fixes spreading across opcode/compiler/validator/runtime. |
 | **Cohesion** | 3/5 | Existing subsystems remain recognizable, but object economy + control semantics may become patched across many regions. |
 | **Migration cost** | 3/5 | Less disruptive than a rewrite, but opcode format correction may invalidate tests, compiler emission, and handlers. |
-| **Moonlift explicit-programming fit** | 4/5 | Fits fail-loud boundaries, explicit validator, explicit regions, and incremental conformance gates. |
+| **Lalin explicit-programming fit** | 4/5 | Fits fail-loud boundaries, explicit validator, explicit regions, and incremental conformance gates. |
 | **Performance risk** | 3/5 | Incremental object/runtime work may become correct but not well-shaped; fewer rewrite risks than B/C. |
 | **Verification strength** | 5/5 | Best explicit emphasis on oracle tests, validator completion, and measurable conformance progress. |
 | **Bytecode safety** | 5/5 | Treats validator as the trust boundary before arbitrary chunks. |
 | **Source/binary coverage** | 4/5 | Explicitly includes both, but source compiler is intentionally delayed and current dialect drift is a concern. |
 | **Risk** | 3/5 | Manageable, but hidden coupling from the current bytecode dialect is the major unknown. |
 
-**Verdict**: **Yes with caveats**  
+**Verdict**: **Yes with caveats**
 **Key concern**: The opcode/bytecode audit must happen before growing the compiler or libraries, otherwise source tests may reinforce a non-PUC dialect.
 
 ---
@@ -726,14 +726,14 @@ Scoring note: for **compatibility, cohesion, fit, verification, bytecode safety,
 | **Coupling** | 4/5 | A centralized kernel risks binding allocator, GC, calls, errors, coroutines, metamethods, and native ABI too tightly. |
 | **Cohesion** | 4/5 | If successful, the control substrate becomes conceptually coherent; if not, it becomes a god-kernel. |
 | **Migration cost** | 5/5 | Deep refactor of call/error/coroutine/stack/metamethod paths and many opcode handlers. |
-| **Moonlift explicit-programming fit** | 3/5 | Explicit invariants fit Moonlift well, but a large abstraction layer may become less grep-shaped and less region-local. |
+| **Lalin explicit-programming fit** | 3/5 | Explicit invariants fit Lalin well, but a large abstraction layer may become less grep-shaped and less region-local. |
 | **Performance risk** | 4/5 | New generalized continuation/kernel machinery could introduce overhead or awkward control lowering. |
 | **Verification strength** | 3/5 | Needs conformance tests early; otherwise the kernel can become internally elegant but externally wrong. |
 | **Bytecode safety** | 4/5 | Includes complete validator in done criteria, but not as the central sequencing principle. |
 | **Source/binary coverage** | 3/5 | Eventually covers both, but opcode/chunk/source compatibility are secondary to runtime refactor. |
 | **Risk** | 5/5 | Highest unknowns: rewrite scope, abstraction risk, and delayed compatibility feedback. |
 
-**Verdict**: **Significant concerns**  
+**Verdict**: **Significant concerns**
 **Key concern**: Without PUC-oracle pressure from the start, the new kernel could solve the wrong abstraction problem while compatibility debt grows.
 
 ---
@@ -743,18 +743,18 @@ Scoring note: for **compatibility, cohesion, fit, verification, bytecode safety,
 | Dimension | Score | Rationale |
 |---|---:|---|
 | **Compatibility** | 5/5 | Best match for clarified scope: vendored latest Lua 5.5 is the semantic and bytecode oracle. |
-| **Coupling** | 4/5 | Intentionally couples metadata and algorithms to PUC; good for compatibility, risky for Moonlift-native independence. |
+| **Coupling** | 4/5 | Intentionally couples metadata and algorithms to PUC; good for compatibility, risky for Lalin-native independence. |
 | **Cohesion** | 4/5 | Generated opcode facts, validator rules, chunk/proto invariants, and mirrored runtime algorithms give clear responsibilities. |
 | **Migration cost** | 4/5 | Likely forces changes to `products.lua`, validator, compiler, chunk model, table/string/GC semantics, and tests. |
-| **Moonlift explicit-programming fit** | 3/5 | Generated facts and explicit validator fit well; mechanically mirroring PUC C algorithms may feel less idiomatic in regions. |
-| **Performance risk** | 3/5 | PUC algorithms are proven, but layout/control mismatches with Moonlift may create performance cliffs or awkward translations. |
+| **Lalin explicit-programming fit** | 3/5 | Generated facts and explicit validator fit well; mechanically mirroring PUC C algorithms may feel less idiomatic in regions. |
+| **Performance risk** | 3/5 | PUC algorithms are proven, but layout/control mismatches with Lalin may create performance cliffs or awkward translations. |
 | **Verification strength** | 5/5 | Strongest traceability from vendored headers/source to metadata, validator, compiler, and conformance harness. |
 | **Bytecode safety** | 5/5 | Generated instruction-mode facts are the strongest foundation for complete validator coverage. |
 | **Source/binary coverage** | 5/5 | Best aligned with source programs plus PUC-compatible binary chunks. |
-| **Risk** | 4/5 | Main risk is structural conflict between PUC-derived behavior and existing Moonlift product/region architecture. |
+| **Risk** | 4/5 | Main risk is structural conflict between PUC-derived behavior and existing Lalin product/region architecture. |
 
-**Verdict**: **Strong yes, with architectural discipline**  
-**Key concern**: Keep PUC derivation as semantic/metadata authority without blindly importing C-shaped structure that fights Moonlift’s explicit region model.
+**Verdict**: **Strong yes, with architectural discipline**
+**Key concern**: Keep PUC derivation as semantic/metadata authority without blindly importing C-shaped structure that fights Lalin’s explicit region model.
 
 ---
 
@@ -771,15 +771,15 @@ Scoring note: for **compatibility, cohesion, fit, verification, bytecode safety,
 ## Approach-proposer Output — 2026-05-29 23:26:47
 
 ### Approach A: Contract-Ladder Region Completion
-- **Core idea**: Preserve the existing Moonlift-native region architecture and finish Lua 5.5 by adding explicit completion gates, each oracle-checked against vendored `.vendor/Lua`.
+- **Core idea**: Preserve the existing Lalin-native region architecture and finish Lua 5.5 by adding explicit completion gates, each oracle-checked against vendored `.vendor/Lua`.
 - **Key changes**:
   - Extend `experiments/lua_interpreter_vm/src/contract.lua` with runtime-completion gates.
   - Fix opcode decoding/metadata in `src/constants.lua`, `src/opcodes.lua`, `src/validate.lua` using vendored Lua 5.5 as bytecode oracle.
   - Complete existing `regions_*` modules in place: allocator/GC, strings, tables, closures/upvalues, varargs, metamethods, protected calls, coroutines, native ABI.
   - Grow `regions_compiler.lua` only after bytecode compatibility is fixed.
   - Add oracle conformance tests for source and binary chunks.
-- **Tradeoff**: Optimizes for preserving current work and Moonlift’s explicit contracts; sacrifices some architectural cleanup because fixes remain spread across existing regions.
-- **Risk**: Existing tests/compiler/handlers may encode a Moonlift-local bytecode dialect, so compatibility fixes may be more invasive than expected.
+- **Tradeoff**: Optimizes for preserving current work and Lalin’s explicit contracts; sacrifices some architectural cleanup because fixes remain spread across existing regions.
+- **Risk**: Existing tests/compiler/handlers may encode a Lalin-local bytecode dialect, so compatibility fixes may be more invasive than expected.
 - **Done criteria**:
   - Source programs and binary chunks for the vendored Lua 5.5 dialect validate and execute.
   - Validator is the complete unsafe-bytecode boundary.
@@ -796,7 +796,7 @@ Scoring note: for **compatibility, cohesion, fit, verification, bytecode safety,
 ---
 
 ### Approach B: Explicit Runtime Protocol Spine
-- **Core idea**: Keep Moonlift-native regions, but introduce a small set of explicit runtime protocols for heap, stack/top, call/re-entry, error/unwind, and coroutine state, then make opcode handlers clients of those protocols.
+- **Core idea**: Keep Lalin-native regions, but introduce a small set of explicit runtime protocols for heap, stack/top, call/re-entry, error/unwind, and coroutine state, then make opcode handlers clients of those protocols.
 - **Key changes**:
   - Add documented protocol contracts for:
     - heap allocation/GC/barriers,
@@ -841,7 +841,7 @@ Scoring note: for **compatibility, cohesion, fit, verification, bytecode safety,
     - stdlib/userdata/FFI slice,
     - GC-observable semantics slice.
   - For each slice, update `validate.lua`, relevant `regions_*`, `src/op/*.lua`, compiler, and tests together.
-  - Keep all implementation Moonlift-native and region-shaped.
+  - Keep all implementation Lalin-native and region-shaped.
   - Use vendored Lua as oracle for expected bytecode and observable behavior.
 - **Tradeoff**: Optimizes for externally visible progress and avoids building unused infrastructure; sacrifices some global uniformity because cross-cutting invariants must be maintained slice-by-slice.
 - **Risk**: Shared concerns like GC barriers, `top` discipline, and validator completeness can be under-designed if slices are too narrow.
@@ -853,7 +853,7 @@ Scoring note: for **compatibility, cohesion, fit, verification, bytecode safety,
   - Remaining unsupported surfaces, such as full C API compatibility, are explicit non-completion items.
 - **Rough sketch**:
   - Start with bytecode/chunk safety so all later slices target the correct dialect.
-  - Add a conformance harness that can run the same source/chunk against vendored Lua and Moonlift VM.
+  - Add a conformance harness that can run the same source/chunk against vendored Lua and Lalin VM.
   - Implement slices in dependency order, but require each to be usable from real Lua programs before moving on.
   - Maintain per-slice contracts in `contract.lua` or companion metadata.
   - Finish with stress suites: GC, weak/finalizers, coroutine/protected-call interactions, and FFI/library integration.

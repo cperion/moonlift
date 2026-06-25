@@ -4,11 +4,11 @@
 -- Places every layout node into border+content rects by walking the
 -- scene buffer and computing positions from parent constraints.
 
-local H = moon.require("mlui_types")
+local H = lalin.require("mlui_types")
 local T = H.T
 local R = H.R
 local F = H.F
-local Mem = moon.require("mlui_memory")
+local Mem = lalin.require("mlui_memory")
 
 local SOLVE_FLOW = 1
 local SOLVE_FLEX = 2

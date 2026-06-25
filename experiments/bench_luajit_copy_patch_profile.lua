@@ -1,7 +1,7 @@
 -- EXPERIMENTAL BINARY BACKEND PROFILE ONLY.
 --
 -- Canonical path tested here:
---   MoonCode -> Llisle stencil selection -> BinaryStencilBank extraction
+--   LalinCode -> Llisle stencil selection -> BinaryStencilBank extraction
 --     -> copy + patch + install -> luajit_emit wrapper
 --
 -- No shared-object realization path is used here.
@@ -10,17 +10,17 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 
 local ffi = require("ffi")
 local bit = require("bit")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
-local Measure = require("moonlift.luajit_measure")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
+local Measure = require("lalin.luajit_measure")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local Stencil = T.MoonStencil
-local Backend = require("moonlift.luajit_backend")(T)
+local Core = T.LalinCore
+local Code = T.LalinCode
+local Stencil = T.LalinStencil
+local Backend = require("lalin.luajit_backend")(T)
 
 local origin = Code.CodeOriginGenerated("bench_luajit_copy_patch_profile")
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)

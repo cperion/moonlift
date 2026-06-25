@@ -4,11 +4,11 @@
 -- Expands compose nouns (panel, scroll_panel, hsplit, vsplit, workbench)
 -- into canonical auth ops (box, scroll, fragment, etc.).
 
-local H = moon.require("mlui_types")
+local H = lalin.require("mlui_types")
 local T = H.T
 local R = H.R
 local F = H.F
-local Mem = moon.require("mlui_memory")
+local Mem = lalin.require("mlui_memory")
 
 local COMPOSE_PANEL = 1
 local COMPOSE_SCROLL_PANEL = 2

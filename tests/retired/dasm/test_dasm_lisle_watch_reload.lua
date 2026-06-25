@@ -1,7 +1,7 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A2 = require("moonlift.schema_projection")
+local pvm = require("lalin.pvm")
+local A2 = require("lalin.schema_projection")
 local dasm_init = require("back.dasm")
 
 local T = pvm.context()

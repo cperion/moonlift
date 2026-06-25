@@ -1,14 +1,14 @@
 -- Lua Interpreter VM — Upvalue regions
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 
 local I = {}
-for k, v in pairs(const.Tag) do I["TAG_" .. k] = moon.int(v) end
-I.SIZE_UPVAL = moon.int(56)
-I.SIZE_LCLOSURE = moon.int(48)
-I.SIZE_PTR = moon.int(8)
+for k, v in pairs(const.Tag) do I["TAG_" .. k] = lalin.int(v) end
+I.SIZE_UPVAL = lalin.int(56)
+I.SIZE_LCLOSURE = lalin.int(48)
+I.SIZE_PTR = lalin.int(8)
 
 local alloc_open_upvalue = host.region { TAG_NIL = I.TAG_NIL, SIZE_UPVAL = I.SIZE_UPVAL } [[
 region alloc_open_upvalue(L: ptr(LuaThread), stack_index: index, prev: ptr(UpVal), next_uv: ptr(UpVal);
@@ -106,7 +106,7 @@ end
 ]]
 
 -- make_lclosure: create a Lua closure from a Proto and capture its upvalues.
--- Upvalue descriptors are Moonlift-native Proto facts: instack captures from
+-- Upvalue descriptors are Lalin-native Proto facts: instack captures from
 -- the current frame stack, otherwise the parent closure's upvalue object is
 -- shared.
 local make_lclosure = host.region { TAG_LCLOSURE = I.TAG_LCLOSURE, TAG_NIL = I.TAG_NIL, SIZE_LCLOSURE = I.SIZE_LCLOSURE, SIZE_PTR = I.SIZE_PTR } [[

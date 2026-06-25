@@ -230,7 +230,7 @@ function M.tape_items(t) return fragment("llpvm_tape_item", t) end
 M._ = llb.spread
 M.spread = llb.spread
 M.llpvm = llb.zone_head {
-    family = "moonlift",
+    family = "lalin",
     member = "llpvm.dsl",
     name = "llpvm",
     role = "programs",
@@ -544,7 +544,7 @@ function MachineLanguage:use(opts)
         override = opts.override ~= false,
         auto_names = opts.auto_names ~= false,
         mode = opts.mode,
-        requires = opts.requires or { "moonlift.types" },
+        requires = opts.requires or { "lalin.types" },
         provides = opts.provides or { "llpvm.language." .. self.name },
     })
 end
@@ -552,7 +552,7 @@ end
 function MachineLanguage:loadstring(src, name, opts)
     opts = opts or {}
     local target = opts.env or {}
-    if opts.env == nil then require("moonlift").use { scope = "env", target = target, global = false, searcher = false } end
+    if opts.env == nil then require("lalin").use { scope = "env", target = target, global = false, searcher = false } end
     local session = self:use { scope = "env", target = target, global = false, strict = opts.strict, auto_names = opts.auto_names, base = opts.base, mode = opts.mode }
     local fn, err = (loadstring or load)(src, name or ("=(" .. self.name .. ".llpvm)"))
     if not fn then error(err, 2) end
@@ -577,10 +577,10 @@ local scalar_names = {
 }
 
 local scalar_type_names = {
-    ["MoonCore.ScalarVoid"] = "void", ["MoonCore.ScalarBool"] = "bool",
-    ["MoonCore.ScalarI8"] = "i8", ["MoonCore.ScalarI16"] = "i16", ["MoonCore.ScalarI32"] = "i32", ["MoonCore.ScalarI64"] = "i64",
-    ["MoonCore.ScalarU8"] = "u8", ["MoonCore.ScalarU16"] = "u16", ["MoonCore.ScalarU32"] = "u32", ["MoonCore.ScalarU64"] = "u64",
-    ["MoonCore.ScalarF32"] = "f32", ["MoonCore.ScalarF64"] = "f64", ["MoonCore.ScalarIndex"] = "index",
+    ["LalinCore.ScalarVoid"] = "void", ["LalinCore.ScalarBool"] = "bool",
+    ["LalinCore.ScalarI8"] = "i8", ["LalinCore.ScalarI16"] = "i16", ["LalinCore.ScalarI32"] = "i32", ["LalinCore.ScalarI64"] = "i64",
+    ["LalinCore.ScalarU8"] = "u8", ["LalinCore.ScalarU16"] = "u16", ["LalinCore.ScalarU32"] = "u32", ["LalinCore.ScalarU64"] = "u64",
+    ["LalinCore.ScalarF32"] = "f32", ["LalinCore.ScalarF64"] = "f64", ["LalinCore.ScalarIndex"] = "index",
 }
 
 local integer_scalar = { i8 = true, i16 = true, i32 = true, i64 = true, u8 = true, u16 = true, u32 = true, u64 = true, index = true }
@@ -621,11 +621,11 @@ function Lower:handle_type(name)
     return { kind = "handle", name = name, id = self.builder:handle(name) }
 end
 
-local function moonlift_type_value(v)
+local function lalin_type_value(v)
     if type(v) ~= "table" then return nil end
-    local as_type = v.as_type_value or v.as_moonlift_type
+    local as_type = v.as_type_value or v.as_lalin_type
     if type(as_type) ~= "function" then return nil end
-    return v.as_moonlift_type and v:as_moonlift_type() or v:as_type_value():as_moonlift_type()
+    return v.as_lalin_type and v:as_lalin_type() or v:as_type_value():as_lalin_type()
 end
 
 function Lower:resolve_type(ref, current_lang)
@@ -643,21 +643,21 @@ function Lower:resolve_type(ref, current_lang)
     end
     local ty = ref
     if type(ref) == "table" then
-        local ok, c = pcall(function() return tostring(require("moonlift.pvm").classof(ref)) end)
-        if not ok or not c or not c:match("^Class%(MoonType%.") then ty = moonlift_type_value(ref) end
+        local ok, c = pcall(function() return tostring(require("lalin.pvm").classof(ref)) end)
+        if not ok or not c or not c:match("^Class%(LalinType%.") then ty = lalin_type_value(ref) end
     else
-        ty = moonlift_type_value(ref)
+        ty = lalin_type_value(ref)
     end
     if ty then
         if type(ty) == "table" and ty.scalar ~= nil then
             return self:scalar_type(assert(scalar_type_names[tostring(ty.scalar)], "unsupported scalar"))
         end
-        local pvm = require("moonlift.pvm")
+        local pvm = require("lalin.pvm")
         local cls = tostring(pvm.classof(ty))
-        if cls == "Class(MoonType.TScalar)" then return self:scalar_type(assert(scalar_type_names[tostring(ty.scalar)], "unsupported scalar")) end
-        if cls == "Class(MoonType.TPtr)" then local elem = self:resolve_type(ty.elem, current_lang); return { kind = "ptr", id = self.builder:pointer(elem.id), elem = elem } end
-        if cls == "Class(MoonType.TView)" then local elem = self:resolve_type(ty.elem, current_lang); return { kind = "view", id = self.builder:view(elem.id), elem = elem } end
-        if cls == "Class(MoonType.TNamed)" or cls == "Class(MoonType.THandle)" then return self:handle_type(tostring(ref.name or ref.type_name or ref)) end
+        if cls == "Class(LalinType.TScalar)" then return self:scalar_type(assert(scalar_type_names[tostring(ty.scalar)], "unsupported scalar")) end
+        if cls == "Class(LalinType.TPtr)" then local elem = self:resolve_type(ty.elem, current_lang); return { kind = "ptr", id = self.builder:pointer(elem.id), elem = elem } end
+        if cls == "Class(LalinType.TView)" then local elem = self:resolve_type(ty.elem, current_lang); return { kind = "view", id = self.builder:view(elem.id), elem = elem } end
+        if cls == "Class(LalinType.TNamed)" or cls == "Class(LalinType.THandle)" then return self:handle_type(tostring(ref.name or ref.type_name or ref)) end
     end
     die("LLPVM type expected", llb.origin_of(ref))
 end
@@ -977,19 +977,19 @@ local function process_type_asdl(ref)
     local T = asdl_mod.T.LlPvm
     local ty = ref
     if type(ref) == "table" then
-        local ok, c = pcall(function() return tostring(require("moonlift.pvm").classof(ref)) end)
-        if not ok or not c or not c:match("^Class%(MoonType%.") then ty = moonlift_type_value(ref) end
+        local ok, c = pcall(function() return tostring(require("lalin.pvm").classof(ref)) end)
+        if not ok or not c or not c:match("^Class%(LalinType%.") then ty = lalin_type_value(ref) end
     else
-        ty = moonlift_type_value(ref)
+        ty = lalin_type_value(ref)
     end
     if ty then
         if type(ty) == "table" and ty.scalar ~= nil then
             local scalar_name = assert(scalar_type_names[tostring(ty.scalar)], "unsupported process scalar type")
             return T.Scalar(T[assert(scalar_names[scalar_name])])
         end
-        local pvm = require("moonlift.pvm")
+        local pvm = require("lalin.pvm")
         local cls = tostring(pvm.classof(ty))
-        if cls == "Class(MoonType.TScalar)" then
+        if cls == "Class(LalinType.TScalar)" then
             local scalar_name = assert(scalar_type_names[tostring(ty.scalar)], "unsupported process scalar type")
             return T.Scalar(T[assert(scalar_names[scalar_name])])
         end
@@ -1030,8 +1030,8 @@ local function fmt_type_ref(v)
         return v.text
     end
     if type(v) == "table" then
-        local ok, c = pcall(function() return tostring(require("moonlift.pvm").classof(v)) end)
-        if ok and c == "Class(MoonType.TScalar)" then return assert(scalar_type_names[tostring(v.scalar)], "unsupported scalar") end
+        local ok, c = pcall(function() return tostring(require("lalin.pvm").classof(v)) end)
+        if ok and c == "Class(LalinType.TScalar)" then return assert(scalar_type_names[tostring(v.scalar)], "unsupported scalar") end
     end
     local text = tostring(v)
     for fq, scalar_name in pairs(scalar_type_names) do
@@ -1046,8 +1046,8 @@ local function fmt_value(v, f)
     if llb.is(v, "Name") or llb.is(v, "Symbol") then return doc.text(v.text) end
     if llb.is(v, "Head") and v.spec and v.spec.name then return doc.text(v.spec.name) end
     if type(v) == "table" then
-        local ok, c = pcall(function() return tostring(require("moonlift.pvm").classof(v)) end)
-        if ok and c and c:match("^Class%(MoonType%.") then return doc.text(fmt_type_ref(v)) end
+        local ok, c = pcall(function() return tostring(require("lalin.pvm").classof(v)) end)
+        if ok and c and c:match("^Class%(LalinType%.") then return doc.text(fmt_type_ref(v)) end
     end
     if type(v) == "table" then
         f.seen = f.seen or {}
@@ -1143,7 +1143,7 @@ function M.namespace(opts)
     local exports = {}
     for _, name in ipairs(LLPVM_NAMESPACE_KEYS) do exports[name] = env[name] end
     return llb.namespace {
-        family = "moonlift",
+        family = "lalin",
         member = "llpvm.dsl",
         name = "llpvm",
         exports = exports,
@@ -1157,12 +1157,12 @@ end
 
 function M.use(opts)
     opts = opts or {}; local exports = M.make_env(opts)
-    return llb.use(LL, { scope = opts.scope or (opts.global == false and "env" or "permanent"), target = opts.target or _G, base = exports, exports = exports, lang_exports = false, helpers = false, strict = opts.strict, strict_message = "unknown LLPVM DSL global ", override = opts.override ~= false, auto_names = opts.auto_names ~= false, mode = opts.mode, requires = opts.requires or { "moonlift.types" }, provides = opts.provides or { "llpvm.dsl" } })
+    return llb.use(LL, { scope = opts.scope or (opts.global == false and "env" or "permanent"), target = opts.target or _G, base = exports, exports = exports, lang_exports = false, helpers = false, strict = opts.strict, strict_message = "unknown LLPVM DSL global ", override = opts.override ~= false, auto_names = opts.auto_names ~= false, mode = opts.mode, requires = opts.requires or { "lalin.types" }, provides = opts.provides or { "llpvm.dsl" } })
 end
 function M.loadstring(src, name, opts)
     opts = opts or {}
     local target = opts.env or {}
-    if opts.env == nil then require("moonlift").use { scope = "env", target = target, global = false, searcher = false } end
+    if opts.env == nil then require("lalin").use { scope = "env", target = target, global = false, searcher = false } end
     local session = M.use { scope = "env", target = target, global = false, strict = opts.strict, auto_names = opts.auto_names, base = opts.base, mode = opts.mode }
     local fn, err = (loadstring or load)(src, name or "=(llpvm.dsl)"); if not fn then error(err, 2) end; if setfenv then setfenv(fn, session.env) end; return fn
 end

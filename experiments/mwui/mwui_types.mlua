@@ -1,7 +1,7 @@
--- mwui_types.mlua -- Moonlift WebUI checked design header.
+-- mwui_types.mlua -- Lalin WebUI checked design header.
 --
 -- This file is the WebUI type forest plus protocol tree, transcribed from
--- moonlift_webui_blueprint.md using the discipline in THE_MOONLIFT_DESIGN_BIBLE:
+-- lalin_webui_blueprint.md using the discipline in THE_LALIN_DESIGN_BIBLE:
 -- products first, protocols as region signatures, ABI boundaries as funcs.
 --
 -- Stored choices (`kind`, `state`, `op`, ids) are encoded facts.  The comment

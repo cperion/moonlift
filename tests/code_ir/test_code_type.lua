@@ -1,23 +1,23 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-assert(package.loaded["moonlift.type_to_c"] == nil)
-assert(package.loaded["moonlift.tree_to_c"] == nil)
+assert(package.loaded["lalin.type_to_c"] == nil)
+assert(package.loaded["lalin.tree_to_c"] == nil)
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 local T = pvm.context()
 Schema(T)
 
-local CodeType = require("moonlift.code_type")(T)
-assert(package.loaded["moonlift.type_to_c"] == nil)
-assert(package.loaded["moonlift.tree_to_c"] == nil)
+local CodeType = require("lalin.code_type")(T)
+assert(package.loaded["lalin.type_to_c"] == nil)
+assert(package.loaded["lalin.tree_to_c"] == nil)
 
-local Core = T.MoonCore
-local Ty = T.MoonType
-local Code = T.MoonCode
-local C = T.MoonC
-local Open = T.MoonOpen
-local Tree = T.MoonTree
+local Core = T.LalinCore
+local Ty = T.LalinType
+local Code = T.LalinCode
+local C = T.LalinC
+local Open = T.LalinOpen
+local Tree = T.LalinTree
 
 local i32 = Ty.TScalar(Core.ScalarI32)
 local u8 = Ty.TScalar(Core.ScalarU8)
@@ -70,14 +70,14 @@ assert(pvm.classof(named) == Code.CodeTyNamed)
 assert(CodeType.code_type_to_c(named, {}) == C.CBackendNamed(C.CTypeId("m", "Pair")))
 
 local path_named_ctx = { module_name = "Demo" }
-local path_named = CodeType.type_to_code(Ty.TNamed(Ty.TypeRefPath(Core.Path({ Core.Name("__moon_region_call_demo_result") }))), path_named_ctx)
+local path_named = CodeType.type_to_code(Ty.TNamed(Ty.TypeRefPath(Core.Path({ Core.Name("__lalin_region_call_demo_result") }))), path_named_ctx)
 assert(pvm.classof(path_named) == Code.CodeTyNamed)
 assert(path_named.module_name == "Demo")
-assert(path_named.type_name == "__moon_region_call_demo_result")
+assert(path_named.type_name == "__lalin_region_call_demo_result")
 assert(pvm.classof(path_named.source_ty.ref) == Ty.TypeRefGlobal)
 assert(path_named.source_ty.ref.module_name == "Demo")
-assert(path_named.source_ty.ref.type_name == "__moon_region_call_demo_result")
-assert(CodeType.code_type_to_c(path_named, {}) == C.CBackendNamed(C.CTypeId("Demo", "__moon_region_call_demo_result")))
+assert(path_named.source_ty.ref.type_name == "__lalin_region_call_demo_result")
+assert(CodeType.code_type_to_c(path_named, {}) == C.CBackendNamed(C.CTypeId("Demo", "__lalin_region_call_demo_result")))
 
 local arr = CodeType.type_to_code(Ty.TArray(Ty.ArrayLenConst(4), i32), {})
 assert(CodeType.code_type_to_c(arr, {}) == C.CBackendArray(C.CBackendScalar(Core.ScalarI32), 4))
@@ -102,4 +102,4 @@ local ok_slot, err_slot = pcall(function()
 end)
 assert(not ok_slot and tostring(err_slot):match("open type slot"))
 
-io.write("moonlift code_type ok\n")
+io.write("lalin code_type ok\n")

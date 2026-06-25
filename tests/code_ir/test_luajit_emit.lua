@@ -2,22 +2,22 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 
 local ffi = require("ffi")
 local bit = require("bit")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
-local Measure = require("moonlift.luajit_measure")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
+local Measure = require("lalin.luajit_measure")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local Back = T.MoonBack
-local Flow = T.MoonFlow
-local LJ = T.MoonLuaJIT
-local Value = T.MoonValue
-local CType = require("moonlift.luajit_ctype")(T)
-local Emit = require("moonlift.luajit_emit")(T)
-local StencilArtifactPlan = require("moonlift.stencil_artifact_plan")(T)
+local Core = T.LalinCore
+local Code = T.LalinCode
+local Back = T.LalinBack
+local Flow = T.LalinFlow
+local LJ = T.LalinLuaJIT
+local Value = T.LalinValue
+local CType = require("lalin.luajit_ctype")(T)
+local Emit = require("lalin.luajit_emit")(T)
+local StencilArtifactPlan = require("lalin.stencil_artifact_plan")(T)
 local StencilBinary = require("tests.code_ir.stencil_binary_helper")
 
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)
@@ -188,4 +188,4 @@ assert(max_compiled ~= nil, tostring(max_err) .. "\n" .. tostring(max_src))
 assert(max_compiled.max_i32(3, 9) == 9)
 assert(max_compiled.max_i32(12, 4) == 12)
 
-io.write("moonlift luajit_emit ok\n")
+io.write("lalin luajit_emit ok\n")

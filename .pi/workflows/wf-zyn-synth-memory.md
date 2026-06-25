@@ -1,4 +1,4 @@
-# Investigate Moonlift synth compile memory 
+# Investigate Lalin synth compile memory
 Find why compiling examples/synth F.synth_render_block consumes ~1.1GB RSS. Gather facts only: pipeline phases, PVM caches, bundle sizes, command counts, memory measurements, likely retention points. Do not propose fixes yet.
 **Workflow ID**: wf-zyn-synth-memory
 **Started**: 2026-06-13 22:53:32
@@ -8,14 +8,14 @@ Find why compiling examples/synth F.synth_render_block consumes ~1.1GB RSS. Gath
 
 ## Files Retrieved
 
-1. `lua/moonlift/host_module_values.lua` (lines 47-91, 305-369) — bundle dependency packing, `_lower_program`, `compile`.
-2. `lua/moonlift/frontend_pipeline.lua` (lines 55-123) — hosted lower pipeline phase order.
-3. `lua/moonlift/pvm.lua` (lines 350-631, 843-887) — PVM cache/pending tables, phase method attachment, drain behavior.
-4. `lua/moonlift/chain.lua` (lines 95-139) — `_dep_values` records only actually used splices.
-5. `lua/moonlift/region_normal_form.lua` (lines 430-500, 622-645) — `emit @{region}` imports/hoists region CFG blocks.
-6. `lua/moonlift/tree_to_back.lua` (lines 2171-2243, 3117-3155) — statement-if phi generation and module lowering.
-7. `examples/synth/zyn_moonlift_synth_impl.mlua` (lines 3195-4060) — render/effects/voice orchestration and `F.synth_render_block`.
-8. `tests/test_zyn_moonlift_synth_impl.lua` (lines 1-83) — compile coverage deliberately split into child processes.
+1. `lua/lalin/host_module_values.lua` (lines 47-91, 305-369) — bundle dependency packing, `_lower_program`, `compile`.
+2. `lua/lalin/frontend_pipeline.lua` (lines 55-123) — hosted lower pipeline phase order.
+3. `lua/lalin/pvm.lua` (lines 350-631, 843-887) — PVM cache/pending tables, phase method attachment, drain behavior.
+4. `lua/lalin/chain.lua` (lines 95-139) — `_dep_values` records only actually used splices.
+5. `lua/lalin/region_normal_form.lua` (lines 430-500, 622-645) — `emit @{region}` imports/hoists region CFG blocks.
+6. `lua/lalin/tree_to_back.lua` (lines 2171-2243, 3117-3155) — statement-if phi generation and module lowering.
+7. `examples/synth/zyn_lalin_synth_impl.mlua` (lines 3195-4060) — render/effects/voice orchestration and `F.synth_render_block`.
+8. `tests/test_zyn_lalin_synth_impl.lua` (lines 1-83) — compile coverage deliberately split into child processes.
 
 ## Key Code
 
@@ -32,14 +32,14 @@ local artifact = b:jit(opts)
 `BundleValue:_lower_program()`:
 
 ```lua
-local Pipeline = require("moonlift.frontend_pipeline").Define(self.session.T)
+local Pipeline = require("lalin.frontend_pipeline").Define(self.session.T)
 local lower_opts = {
     site = "host module",
     layout_env = self:layout_env(),
 }
 ...
 if #region_frags > 0 then
-    local O = T.MoonOpen
+    local O = T.LalinOpen
     lower_opts.expand_env = O.ExpandEnv(region_frags, {}, O.FillSet({}), {}, {}, "")
 end
 return Pipeline.lower_module(self:to_asdl(), lower_opts).program
@@ -114,7 +114,7 @@ Commands run locally, no code edits.
 ### Whole ABI compile suite
 
 ```sh
-/usr/bin/time -v env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_moonlift_synth_impl.lua
+/usr/bin/time -v env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_lalin_synth_impl.lua
 ```
 
 Result:
@@ -139,8 +139,8 @@ Key marks:
 
 | Phase | Lua heap KB | RSS KB |
 |---|---:|---:|
-| after `require moonlift` | 48,867 | 57,500 |
-| after `moon.dofile impl` | 101,312 | 114,256 |
+| after `require lalin` | 48,867 | 57,500 |
+| after `lalin.dofile impl` | 101,312 | 114,256 |
 | post-load GC | 48,595 | 114,256 |
 | bundle pack | 48,607 | 114,256 |
 | layout_env | 50,103 | 114,532 |
@@ -298,4 +298,4 @@ synth_panic              317
 - PVM phase caches are reachable via ASDL class methods installed by `pvm.phase`; after `v:free()` most Lua heap remains retained.
 - The command stream is unusually dominated by `CmdAppendBlockParam`.
 - The top append-param blocks form a doubling/geometric pattern on synthetic `ctl.if.join*` blocks.
-- Test suite already avoids compiling too much in one process; `tests/test_zyn_moonlift_synth_impl.lua` splits compile phases into subprocesses and notes render wrapper duplication is avoided for memory reasons.
+- Test suite already avoids compiling too much in one process; `tests/test_zyn_lalin_synth_impl.lua` splits compile phases into subprocesses and notes render wrapper duplication is avoided for memory reasons.

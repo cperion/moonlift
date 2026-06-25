@@ -11,12 +11,12 @@
 			"id": "T001",
 			"title": "Register semantic schema modules",
 			"detail": "Add graph, value, effect, and schedule to SCHEMA_ASDL_MODULES in phase order: code, graph, flow, value, mem, effect, kernel, schedule, lower. Keep pvm_surface excluded. Do not leave unregistered new ASDL files.",
-			"file": "lua/moonlift/schema/init.lua",
+			"file": "lua/lalin/schema/init.lua",
 			"after": [],
 			"status": "done",
 			"order": 1,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Updated lua/moonlift/schema/init.lua SCHEMA_ASDL_MODULES to fixed phase order code, graph, flow, value, mem, effect, kernel, schedule, lower while retaining existing pvm_surface exclusion. Note: graph/value/effect/schedule ASDL files are created by later dependent tasks, so schema directory assertion will remain incomplete until those tasks land.",
+			"evidence": "Updated lua/lalin/schema/init.lua SCHEMA_ASDL_MODULES to fixed phase order code, graph, flow, value, mem, effect, kernel, schedule, lower while retaining existing pvm_surface exclusion. Note: graph/value/effect/schedule ASDL files are created by later dependent tasks, so schema directory assertion will remain incomplete until those tasks land.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T08:41:56.880Z"
@@ -25,21 +25,21 @@
 			"id": "T002",
 			"title": "Update Code schema and type plumbing",
 			"detail": "Add CodeTyLease(base, source_ty); standardize view construction as CodeInstViewMake(dst, elem_ty, data, len, stride) while keeping CodeInst origin as the origin carrier; update code_type.lua and code_validate.lua for CodeTyLease erasure/validation and CodeInstViewMake dst type CodeTyView(elem_ty).",
-			"file": "lua/moonlift/schema/code.asdl",
+			"file": "lua/lalin/schema/code.asdl",
 			"after": [],
 			"status": "done",
 			"order": 2,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Updated lua/moonlift/schema/code.asdl with CodeTyLease(base, source_ty) and CodeInstViewMake(dst, elem_ty, data, len, stride). Updated lua/moonlift/code_type.lua to preserve Ty.TLease as CodeTyLease and erase only in code_type_to_c. Updated lua/moonlift/code_validate.lua to recurse through CodeTyLease.base, infer CodeInstViewMake as CodeTyView(elem_ty), and validate view data/len/stride/elem_ty. Updated immediate constructor users in tree_to_code.lua, code_to_back.lua, code_to_c.lua, code_mem_facts.lua, lower_to_back.lua, and tests/test_tree_to_code.lua to the new CodeInstViewMake shape. Check run: luajit tests/test_tree_to_code.lua currently stops at schema registration because later-task files lua/moonlift/schema/graph.asdl etc. are not created yet.",
+			"evidence": "Updated lua/lalin/schema/code.asdl with CodeTyLease(base, source_ty) and CodeInstViewMake(dst, elem_ty, data, len, stride). Updated lua/lalin/code_type.lua to preserve Ty.TLease as CodeTyLease and erase only in code_type_to_c. Updated lua/lalin/code_validate.lua to recurse through CodeTyLease.base, infer CodeInstViewMake as CodeTyView(elem_ty), and validate view data/len/stride/elem_ty. Updated immediate constructor users in tree_to_code.lua, code_to_back.lua, code_to_c.lua, code_mem_facts.lua, lower_to_back.lua, and tests/test_tree_to_code.lua to the new CodeInstViewMake shape. Check run: luajit tests/test_tree_to_code.lua currently stops at schema registration because later-task files lua/lalin/schema/graph.asdl etc. are not created yet.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T08:43:52.192Z"
 		},
 		{
 			"id": "T003",
-			"title": "Add MoonGraph schema and builder",
-			"detail": "Create graph.asdl with GraphBlockId, GraphInstRef, GraphEdge, GraphUse, GraphDef, GraphLoopId, GraphLoop, CodeFuncGraph, and CodeGraph exactly as the architecture doc specifies. Then create lua/moonlift/code_graph.lua to emit non-semantic edges/defs/uses/loops from CodeModule.",
-			"file": "lua/moonlift/schema/graph.asdl",
+			"title": "Add LalinGraph schema and builder",
+			"detail": "Create graph.asdl with GraphBlockId, GraphInstRef, GraphEdge, GraphUse, GraphDef, GraphLoopId, GraphLoop, CodeFuncGraph, and CodeGraph exactly as the architecture doc specifies. Then create lua/lalin/code_graph.lua to emit non-semantic edges/defs/uses/loops from CodeModule.",
+			"file": "lua/lalin/schema/graph.asdl",
 			"after": [
 				"T001",
 				"T002"
@@ -47,7 +47,7 @@
 			"status": "done",
 			"order": 3,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Created lua/moonlift/schema/graph.asdl with MoonGraph GraphBlockId/GraphInstRef/GraphEdge/GraphUse/GraphDef/GraphLoop/CodeFuncGraph/CodeGraph. Created lua/moonlift/code_graph.lua to build non-semantic edges, defs, uses, and natural loops from CodeModule, with public graph/module API and pvm phase. Used MoonCode.CodeValueId? for GraphDef.param because the architecture sketch references MoonCode.CodeParamId but no such Code schema type exists. Check run: luajit -e loadfile('lua/moonlift/code_graph.lua') succeeded; luajit tests/test_tree_to_code.lua now stops at missing later-task schema/value.asdl.",
+			"evidence": "Created lua/lalin/schema/graph.asdl with LalinGraph GraphBlockId/GraphInstRef/GraphEdge/GraphUse/GraphDef/GraphLoop/CodeFuncGraph/CodeGraph. Created lua/lalin/code_graph.lua to build non-semantic edges, defs, uses, and natural loops from CodeModule, with public graph/module API and pvm phase. Used LalinCode.CodeValueId? for GraphDef.param because the architecture sketch references LalinCode.CodeParamId but no such Code schema type exists. Check run: luajit -e loadfile('lua/lalin/code_graph.lua') succeeded; luajit tests/test_tree_to_code.lua now stops at missing later-task schema/value.asdl.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T08:46:15.225Z"
@@ -55,15 +55,15 @@
 		{
 			"id": "T004",
 			"title": "Rewrite Flow schema and facts on Graph",
-			"detail": "Replace FlowLoopId-centric subjects with FlowDomainId, FlowDomainLoop(GraphLoopId), FlowDomainBlockRange, FlowDomainFunction, and FlowTripCount variants using CodeValueId plus optional MemProof. Rewrite lua/moonlift/code_flow_facts.lua to consume CodeGraph, preserve counted-loop facts, and emit FlowFactSet/FlowSemanticFactSet keyed by Graph loop ids.",
-			"file": "lua/moonlift/schema/flow.asdl",
+			"detail": "Replace FlowLoopId-centric subjects with FlowDomainId, FlowDomainLoop(GraphLoopId), FlowDomainBlockRange, FlowDomainFunction, and FlowTripCount variants using CodeValueId plus optional MemProof. Rewrite lua/lalin/code_flow_facts.lua to consume CodeGraph, preserve counted-loop facts, and emit FlowFactSet/FlowSemanticFactSet keyed by Graph loop ids.",
+			"file": "lua/lalin/schema/flow.asdl",
 			"after": [
 				"T003"
 			],
 			"status": "done",
 			"order": 4,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Replaced lua/moonlift/schema/flow.asdl with Graph-aligned Flow domains/trip-counts and loop facts keyed by MoonGraph.GraphLoopId. Rewrote lua/moonlift/code_flow_facts.lua to consume CodeGraph, emit FlowFactSet domains/edge args/loop facts/ranges/rejects, and emit FlowSemanticFactSet counted-loop semantics without treating non-negative/derived trip counts as exact. Syntax check: luajit -e loadfile('lua/moonlift/code_flow_facts.lua') succeeded. Known transitional state: lua/moonlift/schema/mem.asdl still references removed FlowLoopId until T006 rewrites Mem.",
+			"evidence": "Replaced lua/lalin/schema/flow.asdl with Graph-aligned Flow domains/trip-counts and loop facts keyed by LalinGraph.GraphLoopId. Rewrote lua/lalin/code_flow_facts.lua to consume CodeGraph, emit FlowFactSet domains/edge args/loop facts/ranges/rejects, and emit FlowSemanticFactSet counted-loop semantics without treating non-negative/derived trip counts as exact. Syntax check: luajit -e loadfile('lua/lalin/code_flow_facts.lua') succeeded. Known transitional state: lua/lalin/schema/mem.asdl still references removed FlowLoopId until T006 rewrites Mem.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T08:48:54.971Z"
@@ -71,15 +71,15 @@
 		{
 			"id": "T005",
 			"title": "Add Value facts phase",
-			"detail": "Create MoonValue ASDL with ValueExpr, AffineExpr, ValueRange, ReductionFact, ClosedFormFact, AlgebraProof, ValueFact, ValueFactSet. Create lua/moonlift/code_value_facts.lua to extract constants, aliases, simple arithmetic expressions, induction affine facts, reductions, closed-form arithmetic-series facts, no-wrap, and float-mode facts from Code+Graph+Flow.",
-			"file": "lua/moonlift/schema/value.asdl",
+			"detail": "Create LalinValue ASDL with ValueExpr, AffineExpr, ValueRange, ReductionFact, ClosedFormFact, AlgebraProof, ValueFact, ValueFactSet. Create lua/lalin/code_value_facts.lua to extract constants, aliases, simple arithmetic expressions, induction affine facts, reductions, closed-form arithmetic-series facts, no-wrap, and float-mode facts from Code+Graph+Flow.",
+			"file": "lua/lalin/schema/value.asdl",
 			"after": [
 				"T004"
 			],
 			"status": "done",
 			"order": 5,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Created lua/moonlift/schema/value.asdl with ValueExpr/AffineExpr/ValueRange/ReductionFact/ClosedFormFact/AlgebraProof/ValueFact/ValueFactSet per architecture. Added lua/moonlift/code_value_facts.lua extracting constant/alias/binary/compare/select/no-wrap/float-mode facts from Code, induction affine facts from Flow, and simple loop-carried reduction plus arithmetic-series closed-form candidate facts before Kernel. Syntax check: luajit -e loadfile('lua/moonlift/code_value_facts.lua') succeeded. Full schema tests remain transitional until Mem/Effect/Schedule tasks replace stale references and create registered schemas.",
+			"evidence": "Created lua/lalin/schema/value.asdl with ValueExpr/AffineExpr/ValueRange/ReductionFact/ClosedFormFact/AlgebraProof/ValueFact/ValueFactSet per architecture. Added lua/lalin/code_value_facts.lua extracting constant/alias/binary/compare/select/no-wrap/float-mode facts from Code, induction affine facts from Flow, and simple loop-carried reduction plus arithmetic-series closed-form candidate facts before Kernel. Syntax check: luajit -e loadfile('lua/lalin/code_value_facts.lua') succeeded. Full schema tests remain transitional until Mem/Effect/Schedule tasks replace stale references and create registered schemas.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T08:50:37.461Z"
@@ -87,15 +87,15 @@
 		{
 			"id": "T006",
 			"title": "Rewrite Mem schema and backend info",
-			"detail": "Add MemLeaseId, MemLeaseGrant, MemObjectRelation variants, and MemBackendAccessInfo. Align loop/domain references with MoonGraph/MoonFlow. Rewrite lua/moonlift/code_mem_facts.lua to consume Code+Graph+Flow+Value+contracts, produce MemSemanticFactSet with objects, leases, relations, safety, backend_info, and no hidden view provenance.",
-			"file": "lua/moonlift/schema/mem.asdl",
+			"detail": "Add MemLeaseId, MemLeaseGrant, MemObjectRelation variants, and MemBackendAccessInfo. Align loop/domain references with LalinGraph/LalinFlow. Rewrite lua/lalin/code_mem_facts.lua to consume Code+Graph+Flow+Value+contracts, produce MemSemanticFactSet with objects, leases, relations, safety, backend_info, and no hidden view provenance.",
+			"file": "lua/lalin/schema/mem.asdl",
 			"after": [
 				"T005"
 			],
 			"status": "done",
 			"order": 6,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Rewrote lua/moonlift/schema/mem.asdl: added MemLeaseId/MemLeaseGrant, renamed structured MemObjectRelation variants (SameLen/WindowOf/SliceOf/SameStore), added MemBackendAccessInfo, aligned loop references to MoonGraph.GraphLoopId, and added backend_info/leases/accesses to MemSemanticFactSet. Rewrote lua/moonlift/code_mem_facts.lua around Code+Graph+Flow+Value+contracts to emit structured objects, lease grants, access facts, intervals/safety, contract effects/relations, and backend access info without MemBaseDerived/view-data string provenance. Syntax check: luajit -e loadfile('lua/moonlift/code_mem_facts.lua') succeeded. Transitional note: kernel.asdl still references removed FlowLoopId until T008.",
+			"evidence": "Rewrote lua/lalin/schema/mem.asdl: added MemLeaseId/MemLeaseGrant, renamed structured MemObjectRelation variants (SameLen/WindowOf/SliceOf/SameStore), added MemBackendAccessInfo, aligned loop references to LalinGraph.GraphLoopId, and added backend_info/leases/accesses to MemSemanticFactSet. Rewrote lua/lalin/code_mem_facts.lua around Code+Graph+Flow+Value+contracts to emit structured objects, lease grants, access facts, intervals/safety, contract effects/relations, and backend access info without MemBaseDerived/view-data string provenance. Syntax check: luajit -e loadfile('lua/lalin/code_mem_facts.lua') succeeded. Transitional note: kernel.asdl still references removed FlowLoopId until T008.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T08:53:44.486Z"
@@ -103,15 +103,15 @@
 		{
 			"id": "T007",
 			"title": "Add Effect facts phase",
-			"detail": "Create MoonEffect ASDL with EffectObject, OpEffect, CallSummary, InstEffect, TermEffect, EffectFactSet. Create lua/moonlift/code_effect_facts.lua to normalize readonly/writeonly/noescape/invalidate/call/trap/atomic/volatile facts from Code contracts and memory facts.",
-			"file": "lua/moonlift/schema/effect.asdl",
+			"detail": "Create LalinEffect ASDL with EffectObject, OpEffect, CallSummary, InstEffect, TermEffect, EffectFactSet. Create lua/lalin/code_effect_facts.lua to normalize readonly/writeonly/noescape/invalidate/call/trap/atomic/volatile facts from Code contracts and memory facts.",
+			"file": "lua/lalin/schema/effect.asdl",
 			"after": [
 				"T006"
 			],
 			"status": "done",
 			"order": 7,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Created lua/moonlift/schema/effect.asdl with EffectObject/OpEffect/CallSummary/InstEffect/TermEffect/EffectFactSet. Added lua/moonlift/code_effect_facts.lua to normalize memory read/write/trap/volatile/atomic effects from MemBackendAccessInfo-derived memory facts, direct/internal vs extern/indirect call summaries, contract readonly/writeonly/noalias effects, and trap/unreachable term effects. Syntax check: luajit -e loadfile('lua/moonlift/code_effect_facts.lua') succeeded.",
+			"evidence": "Created lua/lalin/schema/effect.asdl with EffectObject/OpEffect/CallSummary/InstEffect/TermEffect/EffectFactSet. Added lua/lalin/code_effect_facts.lua to normalize memory read/write/trap/volatile/atomic effects from MemBackendAccessInfo-derived memory facts, direct/internal vs extern/indirect call summaries, contract readonly/writeonly/noalias effects, and trap/unreachable term effects. Syntax check: luajit -e loadfile('lua/lalin/code_effect_facts.lua') succeeded.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T08:55:02.661Z"
@@ -119,15 +119,15 @@
 		{
 			"id": "T008",
 			"title": "Rewrite Kernel semantic plan",
-			"detail": "Replace old Kernel ASDL: remove schedule variants from Kernel, add KernelSubjectFunction/Loop/Domain/Fragment, KernelDomain, KernelStream using MemBackendAccessInfo, KernelExpr using MoonValue.ValueExpr, KernelEffect using ReductionFact/CallSummary, KernelResultClosedForm using MoonValue.ClosedFormFact, equivalence proofs, and KernelModulePlan with flow/value/mem/effect fact sets. Rewrite lua/moonlift/code_kernel_plan.lua accordingly.",
-			"file": "lua/moonlift/schema/kernel.asdl",
+			"detail": "Replace old Kernel ASDL: remove schedule variants from Kernel, add KernelSubjectFunction/Loop/Domain/Fragment, KernelDomain, KernelStream using MemBackendAccessInfo, KernelExpr using LalinValue.ValueExpr, KernelEffect using ReductionFact/CallSummary, KernelResultClosedForm using LalinValue.ClosedFormFact, equivalence proofs, and KernelModulePlan with flow/value/mem/effect fact sets. Rewrite lua/lalin/code_kernel_plan.lua accordingly.",
+			"file": "lua/lalin/schema/kernel.asdl",
 			"after": [
 				"T007"
 			],
 			"status": "done",
 			"order": 8,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Replaced lua/moonlift/schema/kernel.asdl with semantic-only Kernel shapes: subjects over function/Graph loop/domain/fragment, KernelDomain, KernelStream carrying MemBackendAccessInfo, KernelExpr over MoonValue.ValueExpr, KernelEffect over reductions/calls, KernelResultClosedForm over MoonValue.ClosedFormFact, equivalence proofs/rejects, and KernelModulePlan containing Flow/Value/Mem/Effect fact sets. Rewrote lua/moonlift/code_kernel_plan.lua to emit many semantic loop plans from Graph+Flow+Value+Mem+Effect without target schedule/vector/tail choices. Syntax check: luajit -e loadfile('lua/moonlift/code_kernel_plan.lua') succeeded; rg confirms no KernelSchedule/KernelFuncPlan/FlowLoopId/KernelClosedForm references remain in new kernel files.",
+			"evidence": "Replaced lua/lalin/schema/kernel.asdl with semantic-only Kernel shapes: subjects over function/Graph loop/domain/fragment, KernelDomain, KernelStream carrying MemBackendAccessInfo, KernelExpr over LalinValue.ValueExpr, KernelEffect over reductions/calls, KernelResultClosedForm over LalinValue.ClosedFormFact, equivalence proofs/rejects, and KernelModulePlan containing Flow/Value/Mem/Effect fact sets. Rewrote lua/lalin/code_kernel_plan.lua to emit many semantic loop plans from Graph+Flow+Value+Mem+Effect without target schedule/vector/tail choices. Syntax check: luajit -e loadfile('lua/lalin/code_kernel_plan.lua') succeeded; rg confirms no KernelSchedule/KernelFuncPlan/FlowLoopId/KernelClosedForm references remain in new kernel files.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T08:56:33.824Z"
@@ -135,15 +135,15 @@
 		{
 			"id": "T009",
 			"title": "Add Schedule plan phase",
-			"detail": "Create MoonSchedule ASDL with ScheduleTarget, LaneShape, TailPlan, ScheduleKind, ScheduleProof/Reject, KernelSchedule, ScheduleModulePlan. Create lua/moonlift/code_schedule_plan.lua to consume Kernel plans plus facts and target model, moving vector/unroll/tail/profit decisions out of Kernel.",
-			"file": "lua/moonlift/schema/schedule.asdl",
+			"detail": "Create LalinSchedule ASDL with ScheduleTarget, LaneShape, TailPlan, ScheduleKind, ScheduleProof/Reject, KernelSchedule, ScheduleModulePlan. Create lua/lalin/code_schedule_plan.lua to consume Kernel plans plus facts and target model, moving vector/unroll/tail/profit decisions out of Kernel.",
+			"file": "lua/lalin/schema/schedule.asdl",
 			"after": [
 				"T008"
 			],
 			"status": "done",
 			"order": 9,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Created lua/moonlift/schema/schedule.asdl with ScheduleTarget/LaneShape/TailPlan/ScheduleKind/ScheduleProof/ScheduleReject/KernelSchedule/ScheduleModulePlan. Added lua/moonlift/code_schedule_plan.lua to consume KernelModulePlan and target model, selecting scalar or closed-form schedules while recording vector target rejection as ScheduleRejectTarget; no schedule variants remain in Kernel. Syntax check: luajit -e loadfile('lua/moonlift/code_schedule_plan.lua') succeeded.",
+			"evidence": "Created lua/lalin/schema/schedule.asdl with ScheduleTarget/LaneShape/TailPlan/ScheduleKind/ScheduleProof/ScheduleReject/KernelSchedule/ScheduleModulePlan. Added lua/lalin/code_schedule_plan.lua to consume KernelModulePlan and target model, selecting scalar or closed-form schedules while recording vector target rejection as ScheduleRejectTarget; no schedule variants remain in Kernel. Syntax check: luajit -e loadfile('lua/lalin/code_schedule_plan.lua') succeeded.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T08:57:41.897Z"
@@ -151,15 +151,15 @@
 		{
 			"id": "T010",
 			"title": "Replace Lower fragment schema and planner",
-			"detail": "Replace LowerFuncCode/LowerFuncKernel with LowerCover, LowerStrategy, LowerFragment, LowerFuncPlan, LowerProof, LowerIssue, LowerModule. Rewrite lua/moonlift/code_lower_plan.lua to cover every function with ordered fragments, initially full-function Code plus non-overlapping loop Kernel/ClosedForm fragments, and emit explicit gaps/fallback issues.",
-			"file": "lua/moonlift/schema/lower.asdl",
+			"detail": "Replace LowerFuncCode/LowerFuncKernel with LowerCover, LowerStrategy, LowerFragment, LowerFuncPlan, LowerProof, LowerIssue, LowerModule. Rewrite lua/lalin/code_lower_plan.lua to cover every function with ordered fragments, initially full-function Code plus non-overlapping loop Kernel/ClosedForm fragments, and emit explicit gaps/fallback issues.",
+			"file": "lua/lalin/schema/lower.asdl",
 			"after": [
 				"T009"
 			],
 			"status": "done",
 			"order": 10,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Replaced lua/moonlift/schema/lower.asdl with fragment-oriented LowerTarget/LowerCover/LowerStrategy/LowerFragment/LowerFuncPlan/LowerProof/LowerIssue/LowerModule. Rewrote lua/moonlift/code_lower_plan.lua to emit LowerFuncPlan fragments covering every function with scheduled loop Kernel/ClosedForm fragments where available and Code fallback block fragments otherwise, recording explicit fallback/gap issues. Syntax check: luajit -e loadfile('lua/moonlift/code_lower_plan.lua') succeeded; rg confirms no LowerFuncCode/LowerFuncKernel/LowerTargetCode remain in new lower files. luajit tests/test_schema_core.lua now reaches stale test constructors and fails at removed FlowLoopId, confirming schema registration loads through new ASDL files.",
+			"evidence": "Replaced lua/lalin/schema/lower.asdl with fragment-oriented LowerTarget/LowerCover/LowerStrategy/LowerFragment/LowerFuncPlan/LowerProof/LowerIssue/LowerModule. Rewrote lua/lalin/code_lower_plan.lua to emit LowerFuncPlan fragments covering every function with scheduled loop Kernel/ClosedForm fragments where available and Code fallback block fragments otherwise, recording explicit fallback/gap issues. Syntax check: luajit -e loadfile('lua/lalin/code_lower_plan.lua') succeeded; rg confirms no LowerFuncCode/LowerFuncKernel/LowerTargetCode remain in new lower files. luajit tests/test_schema_core.lua now reaches stale test constructors and fails at removed FlowLoopId, confirming schema registration loads through new ASDL files.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T08:59:09.388Z"
@@ -168,14 +168,14 @@
 			"id": "T011",
 			"title": "Make CodeToBack fact-aware",
 			"detail": "Remove ctx.view_values hidden semantic table. Add a CodeFragment lowering API that accepts code, graph, flow, value, mem, effect, and cover. Load/store must use MemBackendAccessInfo; int/float ops must use ValueFactSet semantics; calls must consult EffectFactSet. View data/len/stride must be explicit Code values/aliases.",
-			"file": "lua/moonlift/code_to_back.lua",
+			"file": "lua/lalin/code_to_back.lua",
 			"after": [
 				"T010"
 			],
 			"status": "done",
 			"order": 11,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Updated lua/moonlift/code_to_back.lua: removed ctx.view_values mutation/state, resolves view projections from explicit CodeInstViewMake definitions; view descriptor load/store now fail loud unless scalarized before Back. Added MemBackendAccessInfo-based memory_info lookup through MemSemanticFactSet, ValueFactSet-driven integer/float semantics lookups, EffectFactSet unknown-effect checks for calls, CodeTyLease scalar erasure at Back boundary, and api.fragment_commands(code, graph, flow, value, mem, effect, cover, opts). Module/full-function wrappers now build semantic fact context when not provided. Checks: luajit -e loadfile('lua/moonlift/code_to_back.lua') succeeded; rg shows no ctx.view_values/view_values references remain. luajit tests/test_tree_to_code.lua currently fails in stale/unrelated tree_to_code fixture path before Back lowering.",
+			"evidence": "Updated lua/lalin/code_to_back.lua: removed ctx.view_values mutation/state, resolves view projections from explicit CodeInstViewMake definitions; view descriptor load/store now fail loud unless scalarized before Back. Added MemBackendAccessInfo-based memory_info lookup through MemSemanticFactSet, ValueFactSet-driven integer/float semantics lookups, EffectFactSet unknown-effect checks for calls, CodeTyLease scalar erasure at Back boundary, and api.fragment_commands(code, graph, flow, value, mem, effect, cover, opts). Module/full-function wrappers now build semantic fact context when not provided. Checks: luajit -e loadfile('lua/lalin/code_to_back.lua') succeeded; rg shows no ctx.view_values/view_values references remain. luajit tests/test_tree_to_code.lua currently fails in stale/unrelated tree_to_code fixture path before Back lowering.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T09:03:09.009Z"
@@ -184,14 +184,14 @@
 			"id": "T012",
 			"title": "Rewrite LowerToBack fragment walker",
 			"detail": "Replace whole-function LowerFunc dispatch with LowerFuncPlan fragment iteration. Dispatch LowerStrategyCode to CodeToBack fragment lowering, LowerStrategyKernel to scheduled kernel emitters, LowerStrategyClosedForm to closed-form value/return emission. Preserve prologue/epilogue Code fragments around kernel loops.",
-			"file": "lua/moonlift/lower_to_back.lua",
+			"file": "lua/lalin/lower_to_back.lua",
 			"after": [
 				"T011"
 			],
 			"status": "done",
 			"order": 12,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Rewrote lua/moonlift/lower_to_back.lua as a LowerFuncPlan/LowerFragment walker: builds module prelude/declarations, begins each function, creates/appends blocks, orders fragments by Code block order, and dispatches LowerStrategyCode/Kernel/ClosedForm covers through CodeToBack.fragment_commands with Graph/Flow/Value/Mem/Effect facts. Removed old LowerFuncCode/LowerFuncKernel/KernelFuncPlan dispatch references. Also patched CodeToBack.fragment_commands to bind entry params when emitting entry fragments. Syntax check: luajit -e loadfile('lua/moonlift/lower_to_back.lua') succeeded; rg confirms obsolete LowerFunc*/KernelFuncPlan names are absent. Limitation: dedicated vector/closed-form Back command emission is not yet implemented; Kernel/ClosedForm fragments currently preserve executable behavior by lowering the covered Code with semantic metadata.",
+			"evidence": "Rewrote lua/lalin/lower_to_back.lua as a LowerFuncPlan/LowerFragment walker: builds module prelude/declarations, begins each function, creates/appends blocks, orders fragments by Code block order, and dispatches LowerStrategyCode/Kernel/ClosedForm covers through CodeToBack.fragment_commands with Graph/Flow/Value/Mem/Effect facts. Removed old LowerFuncCode/LowerFuncKernel/KernelFuncPlan dispatch references. Also patched CodeToBack.fragment_commands to bind entry params when emitting entry fragments. Syntax check: luajit -e loadfile('lua/lalin/lower_to_back.lua') succeeded; rg confirms obsolete LowerFunc*/KernelFuncPlan names are absent. Limitation: dedicated vector/closed-form Back command emission is not yet implemented; Kernel/ClosedForm fragments currently preserve executable behavior by lowering the covered Code with semantic metadata.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T09:04:44.864Z"
@@ -200,14 +200,14 @@
 			"id": "T013",
 			"title": "Update validation for new facts",
 			"detail": "Rewrite validation around Graph/Flow/Value/Mem/Effect/Kernel/Schedule/Lower consistency. Validate coverage: every Code block covered once by executable Lower strategy, no unsupported semantic fact reaches Back, Kernel plans cite Value/Mem/Effect proofs, schedules cite target facts.",
-			"file": "lua/moonlift/kernel_validate.lua",
+			"file": "lua/lalin/kernel_validate.lua",
 			"after": [
 				"T012"
 			],
 			"status": "done",
 			"order": 13,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Rewrote lua/moonlift/kernel_validate.lua around the new semantic phase tree. Validator indexes Code/Graph/Mem/Kernel, checks Kernel plans cite existing Graph loops and MemBackendAccessInfo / Value reductions or closed forms, schedules cite existing Kernel ids and carry proofs, and Lower fragments cover every Code block exactly once with executable strategies. Syntax check: luajit -e loadfile('lua/moonlift/kernel_validate.lua') succeeded.",
+			"evidence": "Rewrote lua/lalin/kernel_validate.lua around the new semantic phase tree. Validator indexes Code/Graph/Mem/Kernel, checks Kernel plans cite existing Graph loops and MemBackendAccessInfo / Value reductions or closed forms, schedules cite existing Kernel ids and carry proofs, and Lower fragments cover every Code block exactly once with executable strategies. Syntax check: luajit -e loadfile('lua/lalin/kernel_validate.lua') succeeded.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T09:05:50.231Z"
@@ -216,14 +216,14 @@
 			"id": "T014",
 			"title": "Update frontend phase pipeline",
 			"detail": "Replace direct flow/mem/kernel/lower chain with fixed architecture: tree_to_code, code_graph, code_flow_facts, code_value_facts, code_mem_facts, code_effect_facts, code_kernel_plan, code_schedule_plan, code_lower_plan, lower_to_back/back_encode. Return all new phase outputs in analysis tables for tests/LSP reuse visibility.",
-			"file": "lua/moonlift/frontend_pipeline.lua",
+			"file": "lua/lalin/frontend_pipeline.lua",
 			"after": [
 				"T013"
 			],
 			"status": "done",
 			"order": 14,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Updated lua/moonlift/frontend_pipeline.lua requires and both Back/C lowering paths to use fixed phase tree: CodeGraph -> CodeFlowFacts -> CodeValueFacts -> CodeMemFacts -> CodeEffectFacts -> CodeKernelPlan -> CodeSchedulePlan -> CodeLowerPlan -> LowerToBack/LowerToC. Analysis returns now include graph, value_facts, effect_facts, and schedule_plan. KernelValidate call updated to validate Graph/Flow/Value/Mem/Effect/Kernel/Schedule/Lower consistency. Syntax check: luajit -e loadfile('lua/moonlift/frontend_pipeline.lua') succeeded.",
+			"evidence": "Updated lua/lalin/frontend_pipeline.lua requires and both Back/C lowering paths to use fixed phase tree: CodeGraph -> CodeFlowFacts -> CodeValueFacts -> CodeMemFacts -> CodeEffectFacts -> CodeKernelPlan -> CodeSchedulePlan -> CodeLowerPlan -> LowerToBack/LowerToC. Analysis returns now include graph, value_facts, effect_facts, and schedule_plan. KernelValidate call updated to validate Graph/Flow/Value/Mem/Effect/Kernel/Schedule/Lower consistency. Syntax check: luajit -e loadfile('lua/lalin/frontend_pipeline.lua') succeeded.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T09:07:16.741Z"
@@ -232,14 +232,14 @@
 			"id": "T015",
 			"title": "Keep C lowering on Code fallback",
 			"detail": "Adjust lower_to_c only enough to accept the new LowerModule shape. It should ignore Kernel/Schedule fragments and project CodeToC until real C kernel lowering exists; do not reintroduce special-case kernel logic.",
-			"file": "lua/moonlift/lower_to_c.lua",
+			"file": "lua/lalin/lower_to_c.lua",
 			"after": [
 				"T014"
 			],
 			"status": "done",
 			"order": 15,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Updated lua/moonlift/lower_to_c.lua comment to explicitly accept but ignore the new LowerModule fragment plan and keep C on ordinary CodeToC fallback without fake Kernel/Schedule lowering. Syntax check: luajit -e loadfile('lua/moonlift/lower_to_c.lua') succeeded.",
+			"evidence": "Updated lua/lalin/lower_to_c.lua comment to explicitly accept but ignore the new LowerModule fragment plan and keep C on ordinary CodeToC fallback without fake Kernel/Schedule lowering. Syntax check: luajit -e loadfile('lua/lalin/lower_to_c.lua') succeeded.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T09:07:49.426Z"
@@ -263,7 +263,7 @@
 		{
 			"id": "T017",
 			"title": "Rewrite fact phase tests",
-			"detail": "Update and/or split existing flow/mem/kernel tests to the new Graph/Flow/Value/Mem/Effect/Schedule APIs. Include tests for closed-form as MoonValue.ClosedFormFact before Kernel, MemBackendAccessInfo creation, Effect call summaries, and schedule rejection without vector target support.",
+			"detail": "Update and/or split existing flow/mem/kernel tests to the new Graph/Flow/Value/Mem/Effect/Schedule APIs. Include tests for closed-form as LalinValue.ClosedFormFact before Kernel, MemBackendAccessInfo creation, Effect call summaries, and schedule rejection without vector target support.",
 			"file": "tests/test_code_flow_facts.lua",
 			"after": [
 				"T015"
@@ -271,7 +271,7 @@
 			"status": "done",
 			"order": 17,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Rewrote tests/test_code_flow_facts.lua for new Graph/Flow/Value/Mem/Effect/Kernel/Schedule APIs. It now asserts GraphLoopId ownership, FlowDomainLoop counted facts, Value reductions and ClosedFormFact before Kernel, MemBackendAccessInfo, Effect CallSummary, Kernel closed forms citing MoonValue, and Schedule ownership of target/profit decisions. Fixed code_flow_facts.lua so only recurrences tied to loop exit stop conditions become FlowPrimaryInduction; other recurrences are derived inductions, allowing code_value_facts.lua to detect reductions. Fixed code_value_facts.lua to classify primary inductions by FlowPrimaryInduction kind. Check run: luajit tests/test_code_flow_facts.lua passed.",
+			"evidence": "Rewrote tests/test_code_flow_facts.lua for new Graph/Flow/Value/Mem/Effect/Kernel/Schedule APIs. It now asserts GraphLoopId ownership, FlowDomainLoop counted facts, Value reductions and ClosedFormFact before Kernel, MemBackendAccessInfo, Effect CallSummary, Kernel closed forms citing LalinValue, and Schedule ownership of target/profit decisions. Fixed code_flow_facts.lua so only recurrences tied to loop exit stop conditions become FlowPrimaryInduction; other recurrences are derived inductions, allowing code_value_facts.lua to detect reductions. Fixed code_value_facts.lua to classify primary inductions by FlowPrimaryInduction kind. Check run: luajit tests/test_code_flow_facts.lua passed.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T09:11:46.593Z"
@@ -279,7 +279,7 @@
 		{
 			"id": "T018",
 			"title": "Update schema smoke tests",
-			"detail": "Update manual schema constructors for MoonGraph, MoonValue, MoonEffect, MoonKernel without schedules, MoonSchedule, and MoonLower fragments. Remove stale KernelFuncPlan/LowerFuncKernel fixture code.",
+			"detail": "Update manual schema constructors for LalinGraph, LalinValue, LalinEffect, LalinKernel without schedules, LalinSchedule, and LalinLower fragments. Remove stale KernelFuncPlan/LowerFuncKernel fixture code.",
 			"file": "tests/test_schema_core.lua",
 			"after": [
 				"T010"
@@ -287,7 +287,7 @@
 			"status": "done",
 			"order": 18,
 			"claimedBy": "agent-2TXEJ6",
-			"evidence": "Rewrote tests/test_schema_core.lua smoke constructors for new MoonGraph, MoonFlow GraphLoopId domains, MoonValue ClosedFormFact, MoonMem MemLeaseGrant/MemBackendAccessInfo/MemObjectRelation, MoonEffect CallSummary, semantic-only MoonKernel, MoonSchedule, and MoonLower fragments. Removed stale KernelFuncPlan/KernelSchedule/LowerFuncKernel/LowerFuncCode fixtures and added nil assertions for removed constructors. Check run: luajit tests/test_schema_core.lua passed.",
+			"evidence": "Rewrote tests/test_schema_core.lua smoke constructors for new LalinGraph, LalinFlow GraphLoopId domains, LalinValue ClosedFormFact, LalinMem MemLeaseGrant/MemBackendAccessInfo/MemObjectRelation, LalinEffect CallSummary, semantic-only LalinKernel, LalinSchedule, and LalinLower fragments. Removed stale KernelFuncPlan/KernelSchedule/LowerFuncKernel/LowerFuncCode fixtures and added nil assertions for removed constructors. Check run: luajit tests/test_schema_core.lua passed.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:33:52.278Z",
 			"updatedAt": "2026-06-16T09:13:00.327Z"
@@ -332,15 +332,15 @@
 		{
 			"id": "T021",
 			"title": "Normalize Code view projection shape",
-			"detail": "Second-wave shape cleanup. In lua/moonlift/schema/code.asdl change CodeInstViewData/CodeInstViewLen/CodeInstViewStride to carry only dst and view, matching SEMANTIC_LOWERING_ARCHITECTURE.md §4.1. Update all constructor/read sites in tree_to_code.lua, code_validate.lua, code_graph.lua, code_flow_facts.lua, code_mem_facts.lua, code_to_back.lua, code_to_c.lua, and tests. Validation must infer projection result types from the recorded view value type: data => CodeTyDataPtr(elem), len/stride => CodeTyIndex. Do not leave compatibility overloads for the old ptr_ty/view_ty constructor shape.",
-			"file": "lua/moonlift/schema/code.asdl",
+			"detail": "Second-wave shape cleanup. In lua/lalin/schema/code.asdl change CodeInstViewData/CodeInstViewLen/CodeInstViewStride to carry only dst and view, matching SEMANTIC_LOWERING_ARCHITECTURE.md §4.1. Update all constructor/read sites in tree_to_code.lua, code_validate.lua, code_graph.lua, code_flow_facts.lua, code_mem_facts.lua, code_to_back.lua, code_to_c.lua, and tests. Validation must infer projection result types from the recorded view value type: data => CodeTyDataPtr(elem), len/stride => CodeTyIndex. Do not leave compatibility overloads for the old ptr_ty/view_ty constructor shape.",
+			"file": "lua/lalin/schema/code.asdl",
 			"after": [
 				"T019"
 			],
 			"status": "done",
 			"order": 21,
 			"claimedBy": "agent-JKTXEC",
-			"evidence": "Changed lua/moonlift/schema/code.asdl CodeInstViewData/Len/Stride constructors to dst+view only; updated constructor call sites in lua/moonlift/tree_to_code.lua and tests/test_semantic_lowering_fragments.lua; updated type inference/validation in lua/moonlift/code_validate.lua, lua/moonlift/code_flow_facts.lua, lua/moonlift/code_to_back.lua, and lua/moonlift/code_to_c.lua to infer projection types from the view value. Verified: luajit tests/test_schema_core.lua, luajit tests/test_semantic_lowering_fragments.lua, luajit tests/test_code_flow_facts.lua, luajit tests/test_code_mem_facts.lua, luajit tests/test_code_to_c.lua passed. Note: luajit tests/test_tree_to_code.lua currently fails in an unrelated untyped ExprLit path before/around scalar pipeline, not a CodeInstView constructor error.",
+			"evidence": "Changed lua/lalin/schema/code.asdl CodeInstViewData/Len/Stride constructors to dst+view only; updated constructor call sites in lua/lalin/tree_to_code.lua and tests/test_semantic_lowering_fragments.lua; updated type inference/validation in lua/lalin/code_validate.lua, lua/lalin/code_flow_facts.lua, lua/lalin/code_to_back.lua, and lua/lalin/code_to_c.lua to infer projection types from the view value. Verified: luajit tests/test_schema_core.lua, luajit tests/test_semantic_lowering_fragments.lua, luajit tests/test_code_flow_facts.lua, luajit tests/test_code_mem_facts.lua, luajit tests/test_code_to_c.lua passed. Note: luajit tests/test_tree_to_code.lua currently fails in an unrelated untyped ExprLit path before/around scalar pipeline, not a CodeInstView constructor error.",
 			"notes": [],
 			"createdAt": "2026-06-16T09:49:42.145Z",
 			"updatedAt": "2026-06-16T09:59:06.426Z"
@@ -349,14 +349,14 @@
 			"id": "T022",
 			"title": "Fix raw-pointer memory safety metadata",
 			"detail": "Correct MemBackendAccessInfo derivation around current lines 300-318. Do not set MemBoundsInObject, MemNonTrapping, MemAccessInBounds, MemAccessNonTrap, or movable merely because a CodePlace resolves to a MemObject. Raw ptr params and ptr_offset-derived objects with MemExtentUnknown must produce MemBoundsUnknown and MemMayTrap unless CodeMustNotTrap/CodeCheckedTrap or a contract/view/lease/local/global/data proof proves bounds. Movable may be true only when trap is MemNonTrapping, access is nonvolatile and nonatomic, and the proof is not an unknown raw-pointer extent. Preserve structured objects for provenance, but keep safety/backend metadata conservative.",
-			"file": "lua/moonlift/code_mem_facts.lua",
+			"file": "lua/lalin/code_mem_facts.lua",
 			"after": [
 				"T021"
 			],
 			"status": "done",
 			"order": 22,
 			"claimedBy": "agent-JKTXEC",
-			"evidence": "Updated lua/moonlift/code_mem_facts.lua so structured object provenance no longer implies bounds/nontrap/movable. Added object_proves_access_safety gating: raw pointer params and ptr_offset unknown extents now emit MemBoundsUnknown + MemMayTrap and no MemAccessInBounds/Movable; contracts, leases, views with explicit extents, locals/globals/data, and bounded derived objects can prove safety. Movable now requires MemNonTrapping, nonvolatile, nonatomic, and either proven bounds or explicit CodeMustNotTrap. Hardened tests/test_code_mem_facts.lua to assert uncontracted raw pointer backend info is may-trap, unknown-bounds, not movable, and has no in-bounds fact. Verified: luajit tests/test_code_mem_facts.lua, luajit tests/test_semantic_lowering_fragments.lua, luajit tests/test_back_validate.lua passed.",
+			"evidence": "Updated lua/lalin/code_mem_facts.lua so structured object provenance no longer implies bounds/nontrap/movable. Added object_proves_access_safety gating: raw pointer params and ptr_offset unknown extents now emit MemBoundsUnknown + MemMayTrap and no MemAccessInBounds/Movable; contracts, leases, views with explicit extents, locals/globals/data, and bounded derived objects can prove safety. Movable now requires MemNonTrapping, nonvolatile, nonatomic, and either proven bounds or explicit CodeMustNotTrap. Hardened tests/test_code_mem_facts.lua to assert uncontracted raw pointer backend info is may-trap, unknown-bounds, not movable, and has no in-bounds fact. Verified: luajit tests/test_code_mem_facts.lua, luajit tests/test_semantic_lowering_fragments.lua, luajit tests/test_back_validate.lua passed.",
 			"notes": [],
 			"createdAt": "2026-06-16T09:49:42.145Z",
 			"updatedAt": "2026-06-16T10:01:53.302Z"
@@ -365,14 +365,14 @@
 			"id": "T023",
 			"title": "Scope Effect facts to executable fragments",
 			"detail": "Ensure call/trap/volatile/atomic/noescape/invalidate effects can be queried per instruction/block/loop without using module-wide shortcuts. Keep CallSummary as architecture shape, but make InstEffect complete for call instructions (include summary.effects and unknown extern/indirect effects). If a contract fact represents invalidate/preserve/noescape, emit explicit OpEffect facts instead of dropping or rejecting it. Acceptance: Kernel planning can determine whether a specific loop contains unknown calls/effects without attaching every module call to every loop.",
-			"file": "lua/moonlift/code_effect_facts.lua",
+			"file": "lua/lalin/code_effect_facts.lua",
 			"after": [
 				"T021"
 			],
 			"status": "done",
 			"order": 23,
 			"claimedBy": "agent-JKTXEC",
-			"evidence": "Updated lua/moonlift/code_effect_facts.lua so effects are scoped to InstEffect for individual memory/call/atomic/fence instructions and TermEffect on function entry for contract boundary effects, removing the previous per_func._module attachment to every instruction. InstEffect for calls now copies CallSummary.effects; extern/indirect/closure and direct calls without callee summary are conservative EffectUnknown. Memory effects consult MemBackendAccessInfo for EffectNoTrap vs EffectMayTrap. Added CodeContractInvalidate/CodeContractPreserve schema constructors in lua/moonlift/schema/code.asdl and lowered tree invalidate/preserve contracts in lua/moonlift/tree_to_code.lua so effect facts emit EffectInvalidate/EffectRetain instead of CodeContractRejected. Verified: luajit tests/test_schema_core.lua, tests/test_code_mem_facts.lua, tests/test_semantic_lowering_fragments.lua, tests/test_code_kernel_plan.lua passed, plus a manual LuaJIT smoke confirmed invalidate/preserve contracts produce Effect TermEffects.",
+			"evidence": "Updated lua/lalin/code_effect_facts.lua so effects are scoped to InstEffect for individual memory/call/atomic/fence instructions and TermEffect on function entry for contract boundary effects, removing the previous per_func._module attachment to every instruction. InstEffect for calls now copies CallSummary.effects; extern/indirect/closure and direct calls without callee summary are conservative EffectUnknown. Memory effects consult MemBackendAccessInfo for EffectNoTrap vs EffectMayTrap. Added CodeContractInvalidate/CodeContractPreserve schema constructors in lua/lalin/schema/code.asdl and lowered tree invalidate/preserve contracts in lua/lalin/tree_to_code.lua so effect facts emit EffectInvalidate/EffectRetain instead of CodeContractRejected. Verified: luajit tests/test_schema_core.lua, tests/test_code_mem_facts.lua, tests/test_semantic_lowering_fragments.lua, tests/test_code_kernel_plan.lua passed, plus a manual LuaJIT smoke confirmed invalidate/preserve contracts produce Effect TermEffects.",
 			"notes": [],
 			"createdAt": "2026-06-16T09:49:42.145Z",
 			"updatedAt": "2026-06-16T10:05:42.092Z"
@@ -381,14 +381,14 @@
 			"id": "T024",
 			"title": "Replace fake ClosedFormFact placeholders",
 			"detail": "In detect_reductions around current lines 170-195, delete the placeholder ClosedFormFact whose expr is ValueExprValue(param.value) and proof says exact expression awaits trip-count facts. Emit ClosedFormFact only when an exact arithmetic-series expression is available from Flow counted-domain data (start/stop/step/exclusive) and reduction init/contribution. The expr must be the computed closed-form ValueExpr tree (for example init + series(start, step, trip_count)), not the loop accumulator. If facts are insufficient, emit only ReductionFact and no ClosedFormFact. Add helper constructors for integer constants as ValueExprConst(CodeConstLiteral(...)) as needed.",
-			"file": "lua/moonlift/code_value_facts.lua",
+			"file": "lua/lalin/code_value_facts.lua",
 			"after": [
 				"T021"
 			],
 			"status": "done",
 			"order": 24,
 			"claimedBy": "agent-JKTXEC",
-			"evidence": "Replaced placeholder ClosedFormFact emission in lua/moonlift/code_value_facts.lua. Added integer constant and arithmetic-series ValueExpr helpers; detect_reductions now emits ClosedFormFact only for additive reductions whose contribution is the primary induction and whose Flow counted domain has an exclusive start/stop/step, with expr = init + ((stop-start)/step) * (2*start + (((stop-start)/step)-1)*step) / 2. If those facts are absent, only ReductionFact is emitted. Hardened tests/test_code_flow_facts.lua to reject ValueExprValue accumulator placeholders. Verified: luajit tests/test_code_flow_facts.lua and luajit tests/test_code_kernel_plan.lua passed.",
+			"evidence": "Replaced placeholder ClosedFormFact emission in lua/lalin/code_value_facts.lua. Added integer constant and arithmetic-series ValueExpr helpers; detect_reductions now emits ClosedFormFact only for additive reductions whose contribution is the primary induction and whose Flow counted domain has an exclusive start/stop/step, with expr = init + ((stop-start)/step) * (2*start + (((stop-start)/step)-1)*step) / 2. If those facts are absent, only ReductionFact is emitted. Hardened tests/test_code_flow_facts.lua to reject ValueExprValue accumulator placeholders. Verified: luajit tests/test_code_flow_facts.lua and luajit tests/test_code_kernel_plan.lua passed.",
 			"notes": [],
 			"createdAt": "2026-06-16T09:49:42.145Z",
 			"updatedAt": "2026-06-16T10:08:20.385Z"
@@ -397,7 +397,7 @@
 			"id": "T025",
 			"title": "Make Kernel planning conservative and scoped",
 			"detail": "Rewrite function_plans legality checks around current lines 90-140. A counted Flow loop is KernelPlanned only if all loop-local requirements pass: existing Graph loop/function owner, no unknown trip-count when the planned result needs exact count, memory streams only cite loop-local accesses with safe MemBackendAccessInfo, no volatile/atomic effects unless explicitly supported, no unknown call/effect in the loop, and no unproven write/write or read/write loop-carried dependence. Otherwise emit KernelNoPlan with specific KernelRejectUnsupportedMemory/KernelRejectEffect/KernelRejectNoFacts rejects. Do not attach all module calls to every loop. KernelEquivalenceProof must cite Flow plus Value/Mem/Effect proofs that actually justify the plan; no empty/decorative proofs.",
-			"file": "lua/moonlift/code_kernel_plan.lua",
+			"file": "lua/lalin/code_kernel_plan.lua",
 			"after": [
 				"T022",
 				"T023",
@@ -406,7 +406,7 @@
 			"status": "done",
 			"order": 25,
 			"claimedBy": "agent-JKTXEC",
-			"evidence": "Reworked lua/moonlift/code_kernel_plan.lua so loop planning is conservative and loop-scoped. KernelPlanned now requires counted loop ownership, loop-local safe MemBackendAccessInfo (nontrapping, known bounds, object interval), no unsupported loop-local EffectUnknown/Volatile/Atomic/MayTrap effects, and no writes without no-dependence proof; otherwise emits KernelNoPlan with KernelRejectUnsupportedMemory/KernelRejectEffect/KernelRejectNoFacts. Removed module-wide call attachment; effects are gathered by instruction/block membership in the loop. Kernel proofs now include real Flow, Value, Memory, and Effect proof wrappers for accepted facts. Updated tests/test_code_flow_facts.lua to accept explicit KernelNoPlan rejects for unsupported semantic loops. Verified: luajit tests/test_code_kernel_plan.lua, tests/test_code_flow_facts.lua, tests/test_code_lower_plan.lua passed. tests/test_semantic_lowering_fragments.lua now fails its old expectation that mixed functions include a semantic Kernel/ClosedForm fragment; with conservative Kernel legality this case correctly has explicit no-plan/fallback work to be handled by T027/T033.",
+			"evidence": "Reworked lua/lalin/code_kernel_plan.lua so loop planning is conservative and loop-scoped. KernelPlanned now requires counted loop ownership, loop-local safe MemBackendAccessInfo (nontrapping, known bounds, object interval), no unsupported loop-local EffectUnknown/Volatile/Atomic/MayTrap effects, and no writes without no-dependence proof; otherwise emits KernelNoPlan with KernelRejectUnsupportedMemory/KernelRejectEffect/KernelRejectNoFacts. Removed module-wide call attachment; effects are gathered by instruction/block membership in the loop. Kernel proofs now include real Flow, Value, Memory, and Effect proof wrappers for accepted facts. Updated tests/test_code_flow_facts.lua to accept explicit KernelNoPlan rejects for unsupported semantic loops. Verified: luajit tests/test_code_kernel_plan.lua, tests/test_code_flow_facts.lua, tests/test_code_lower_plan.lua passed. tests/test_semantic_lowering_fragments.lua now fails its old expectation that mixed functions include a semantic Kernel/ClosedForm fragment; with conservative Kernel legality this case correctly has explicit no-plan/fallback work to be handled by T027/T033.",
 			"notes": [],
 			"createdAt": "2026-06-16T09:49:42.145Z",
 			"updatedAt": "2026-06-16T10:12:43.847Z"
@@ -415,14 +415,14 @@
 			"id": "T026",
 			"title": "Make Schedule planning reject unsupported kernels",
 			"detail": "Replace unconditional SchedulePlanned in schedule_for_plan around current lines 45-68. ScheduleClosedForm is allowed only for a KernelResultClosedForm backed by a real ClosedFormFact and an executable Lower strategy; scalar/vector schedules require Kernel equivalence plus memory/effect/profit proofs appropriate to the kind. If a planned kernel lacks safe memory/effect/algebra conditions or no executable emitter exists, emit ScheduleNoPlan with ScheduleRejectMemory/ScheduleRejectAlgebra/ScheduleRejectTarget/ScheduleRejectProfit. Do not use SchedulePlanned as a baseline fallback merely to keep lowering moving.",
-			"file": "lua/moonlift/code_schedule_plan.lua",
+			"file": "lua/lalin/code_schedule_plan.lua",
 			"after": [
 				"T025"
 			],
 			"status": "done",
 			"order": 26,
 			"claimedBy": "agent-JKTXEC",
-			"evidence": "Updated lua/moonlift/code_schedule_plan.lua so SchedulePlanned is no longer emitted as a baseline fallback. schedule_for_plan now validates equivalence, memory, and algebra proof presence and emits ScheduleNoPlan with ScheduleRejectMemory/ScheduleRejectAlgebra/ScheduleRejectTarget/ScheduleRejectProfit when semantic Kernel/ClosedForm emitters are unavailable. Closed-form schedules require a real MoonValue.ClosedFormFact and value proof but still reject because the Back emitter is not implemented, forcing Lower to make fallback explicit. Verified: luajit tests/test_code_kernel_plan.lua and tests/test_code_flow_facts.lua passed. tests/test_code_lower_plan.lua still has the old expectation that a recognized loop receives a semantic Kernel/ClosedForm fragment; T027/T033 will update Lower to explicit fallback and harden that assertion.",
+			"evidence": "Updated lua/lalin/code_schedule_plan.lua so SchedulePlanned is no longer emitted as a baseline fallback. schedule_for_plan now validates equivalence, memory, and algebra proof presence and emits ScheduleNoPlan with ScheduleRejectMemory/ScheduleRejectAlgebra/ScheduleRejectTarget/ScheduleRejectProfit when semantic Kernel/ClosedForm emitters are unavailable. Closed-form schedules require a real LalinValue.ClosedFormFact and value proof but still reject because the Back emitter is not implemented, forcing Lower to make fallback explicit. Verified: luajit tests/test_code_kernel_plan.lua and tests/test_code_flow_facts.lua passed. tests/test_code_lower_plan.lua still has the old expectation that a recognized loop receives a semantic Kernel/ClosedForm fragment; T027/T033 will update Lower to explicit fallback and harden that assertion.",
 			"notes": [],
 			"createdAt": "2026-06-16T09:49:42.145Z",
 			"updatedAt": "2026-06-16T10:14:07.403Z"
@@ -431,14 +431,14 @@
 			"id": "T027",
 			"title": "Emit explicit Lower fallbacks for unsupported strategies",
 			"detail": "Update plan_func around current lines 70-110 so LowerStrategyKernel or LowerStrategyClosedForm is emitted only when the corresponding SchedulePlanned is executable by lower_to_back. Until real Kernel/ClosedForm Back emitters exist, cover those loop blocks with LowerStrategyCode plus LowerIssueFallback and LowerProofFallback that names the skipped kernel/schedule/closed-form fact. Preserve prologue/epilogue Code fragments and avoid overlaps/gaps. No silent semantic strategy should be selected just to later lower as Code.",
-			"file": "lua/moonlift/code_lower_plan.lua",
+			"file": "lua/lalin/code_lower_plan.lua",
 			"after": [
 				"T026"
 			],
 			"status": "done",
 			"order": 27,
 			"claimedBy": "agent-JKTXEC",
-			"evidence": "Updated lua/moonlift/code_lower_plan.lua so unsupported semantic execution always becomes explicit Code fallback. Lower now maps KernelNoPlan loops and KernelPlanned loops with ScheduleNoPlan/no executable semantic emitter to LowerStrategyCode fragments carrying LowerIssueFallback and LowerProofFallback with the skipped kernel/closed-form/schedule/reject summary. SchedulePlanned would also fall back until real LowerToBack emitters exist; no LowerStrategyKernel/ClosedForm is selected decoratively. Updated tests/test_code_lower_plan.lua and tests/test_semantic_lowering_fragments.lua to assert explicit fallback and absence of unsupported semantic strategies. Verified: luajit tests/test_code_lower_plan.lua, tests/test_semantic_lowering_fragments.lua, tests/test_code_kernel_plan.lua, and tests/test_code_flow_facts.lua passed.",
+			"evidence": "Updated lua/lalin/code_lower_plan.lua so unsupported semantic execution always becomes explicit Code fallback. Lower now maps KernelNoPlan loops and KernelPlanned loops with ScheduleNoPlan/no executable semantic emitter to LowerStrategyCode fragments carrying LowerIssueFallback and LowerProofFallback with the skipped kernel/closed-form/schedule/reject summary. SchedulePlanned would also fall back until real LowerToBack emitters exist; no LowerStrategyKernel/ClosedForm is selected decoratively. Updated tests/test_code_lower_plan.lua and tests/test_semantic_lowering_fragments.lua to assert explicit fallback and absence of unsupported semantic strategies. Verified: luajit tests/test_code_lower_plan.lua, tests/test_semantic_lowering_fragments.lua, tests/test_code_kernel_plan.lua, and tests/test_code_flow_facts.lua passed.",
 			"notes": [],
 			"createdAt": "2026-06-16T09:49:42.145Z",
 			"updatedAt": "2026-06-16T10:16:26.756Z"
@@ -447,14 +447,14 @@
 			"id": "T028",
 			"title": "Make LowerToBack fail loud for unsupported semantic strategies",
 			"detail": "Remove the current silent fallback in emit_fragment around lines 101-121. LowerStrategyCode may call CodeToBack.fragment_commands. LowerStrategyKernel, LowerStrategyClosedForm, LowerStrategyIntrinsic, and LowerStrategyCall must either call a real emitter implemented in the same task or error with a clear message instructing the planner to use LowerIssueFallback/LowerStrategyCode. The normal frontend pipeline should pass because code_lower_plan emits explicit Code fallbacks for unsupported semantic strategies.",
-			"file": "lua/moonlift/lower_to_back.lua",
+			"file": "lua/lalin/lower_to_back.lua",
 			"after": [
 				"T027"
 			],
 			"status": "done",
 			"order": 28,
 			"claimedBy": "agent-JKTXEC",
-			"evidence": "Updated lua/moonlift/lower_to_back.lua emit_fragment so only LowerStrategyCode calls CodeToBack.fragment_commands. LowerStrategyKernel, LowerStrategyClosedForm, LowerStrategyIntrinsic, and LowerStrategyCall now fail loud with explicit errors instructing the planner to use LowerStrategyCode with LowerIssueFallback or implement a real emitter. Removed the previous silent semantic-strategy-as-Code fallback comment/path. Verified: luajit tests/test_code_lower_plan.lua, tests/test_semantic_lowering_fragments.lua, tests/test_back_validate.lua passed; grep confirms no LowerStrategyKernel/ClosedForm fragment_commands silent fallback remains.",
+			"evidence": "Updated lua/lalin/lower_to_back.lua emit_fragment so only LowerStrategyCode calls CodeToBack.fragment_commands. LowerStrategyKernel, LowerStrategyClosedForm, LowerStrategyIntrinsic, and LowerStrategyCall now fail loud with explicit errors instructing the planner to use LowerStrategyCode with LowerIssueFallback or implement a real emitter. Removed the previous silent semantic-strategy-as-Code fallback comment/path. Verified: luajit tests/test_code_lower_plan.lua, tests/test_semantic_lowering_fragments.lua, tests/test_back_validate.lua passed; grep confirms no LowerStrategyKernel/ClosedForm fragment_commands silent fallback remains.",
 			"notes": [],
 			"createdAt": "2026-06-16T09:49:42.145Z",
 			"updatedAt": "2026-06-16T10:17:41.415Z"
@@ -463,7 +463,7 @@
 			"id": "T029",
 			"title": "Remove hidden Back view side tables",
 			"detail": "Eliminate collect_view_defs, ctx.view_defs, view_parts, and any global pre-scan around current lines 298-300 and 466-494. Lower CodeInstViewMake into deterministic executable component aliases/values (for example derived BackValId components for data/len/stride), and lower CodeInstViewData/Len/Stride from those deterministic component values without consulting a Lua side table. Projection of a view value that has no executable component representation must fail loud. Keep MemBackendAccessInfo lookup mandatory for loads/stores. After T021, use the new projection constructor shape.",
-			"file": "lua/moonlift/code_to_back.lua",
+			"file": "lua/lalin/code_to_back.lua",
 			"after": [
 				"T021",
 				"T022"
@@ -471,7 +471,7 @@
 			"status": "done",
 			"order": 29,
 			"claimedBy": "agent-JKTXEC",
-			"evidence": "Removed hidden Back view pre-scan/state from lua/moonlift/code_to_back.lua: deleted collect_view_defs, ctx.view_defs, and view_parts. CodeInstViewMake now emits deterministic executable component aliases using BackValIds '<view>:view_data/len/stride'; CodeInstViewData/Len/Stride alias from those deterministic component values. A projection without a preceding executable CodeInstViewMake now fails loudly via Back validation missing source value rather than consulting a Lua side table. MemBackendAccessInfo lookup for loads/stores remains mandatory. Verified: rg found no view_defs/collect_view_defs/view_parts in code_to_back.lua; luajit tests/test_semantic_lowering_fragments.lua, tests/test_code_to_back.lua, tests/test_back_validate.lua, and tests/test_code_mem_facts.lua passed.",
+			"evidence": "Removed hidden Back view pre-scan/state from lua/lalin/code_to_back.lua: deleted collect_view_defs, ctx.view_defs, and view_parts. CodeInstViewMake now emits deterministic executable component aliases using BackValIds '<view>:view_data/len/stride'; CodeInstViewData/Len/Stride alias from those deterministic component values. A projection without a preceding executable CodeInstViewMake now fails loudly via Back validation missing source value rather than consulting a Lua side table. MemBackendAccessInfo lookup for loads/stores remains mandatory. Verified: rg found no view_defs/collect_view_defs/view_parts in code_to_back.lua; luajit tests/test_semantic_lowering_fragments.lua, tests/test_code_to_back.lua, tests/test_back_validate.lua, and tests/test_code_mem_facts.lua passed.",
 			"notes": [],
 			"createdAt": "2026-06-16T09:49:42.146Z",
 			"updatedAt": "2026-06-16T10:18:56.671Z"
@@ -480,14 +480,14 @@
 			"id": "T030",
 			"title": "Remove stale C view side table compatibility",
 			"detail": "The architecture's no-hidden-view-state rule applies to stale C paths too. Remove ctx.view_values, view_parts, and note_view_parts around current lines 83-88, 231-244, and 363-364. Make CodeInstViewMake emit an explicit C descriptor local/field initialization, and make ViewData/Len/Stride always lower via descriptor field loads or deterministic component locals. Do not keep a side-table fast path. Update C view tests if necessary.",
-			"file": "lua/moonlift/code_to_c.lua",
+			"file": "lua/lalin/code_to_c.lua",
 			"after": [
 				"T021"
 			],
 			"status": "done",
 			"order": 30,
 			"claimedBy": "agent-JKTXEC",
-			"evidence": "Removed stale C view side-table compatibility from lua/moonlift/code_to_c.lua: deleted ctx.view_values/view_parts/note_view_parts and the view load/store elision paths. CodeInstViewMake now emits an explicit CBackendAggregateInit descriptor local with data/len/stride fields; ViewData/Len/Stride always lower through descriptor field loads. Verified: rg shows no view_values/view_parts/note_view_parts remain; luajit tests/test_code_to_c.lua, tests/test_semantic_lowering_fragments.lua, and tests/test_schema_core.lua passed.",
+			"evidence": "Removed stale C view side-table compatibility from lua/lalin/code_to_c.lua: deleted ctx.view_values/view_parts/note_view_parts and the view load/store elision paths. CodeInstViewMake now emits an explicit CBackendAggregateInit descriptor local with data/len/stride fields; ViewData/Len/Stride always lower through descriptor field loads. Verified: rg shows no view_values/view_parts/note_view_parts remain; luajit tests/test_code_to_c.lua, tests/test_semantic_lowering_fragments.lua, and tests/test_schema_core.lua passed.",
 			"notes": [],
 			"createdAt": "2026-06-16T09:49:42.146Z",
 			"updatedAt": "2026-06-16T10:21:36.428Z"
@@ -496,7 +496,7 @@
 			"id": "T031",
 			"title": "Strengthen semantic lowering validation",
 			"detail": "Rewrite/extend validation around current lines 55-170. Check phase modules match; every Code function has exactly one LowerFuncPlan; all Lower covers reference existing funcs/blocks/loops; all Code blocks are covered exactly once; every LowerStrategyKernel cites an existing KernelPlanned and SchedulePlanned; every LowerStrategyClosedForm cites an existing KernelPlanned and a ClosedFormFact in ValueFactSet; SchedulePlanned cites existing planned kernels and has nonempty real proofs; ScheduleNoPlan has rejects; KernelNoPlan has rejects; Kernel streams cite existing safe MemBackendAccessInfo; Kernel results cite Value facts; unsupported semantic strategies cannot pass as executable Code. Add specific issue kinds used by tests.",
-			"file": "lua/moonlift/kernel_validate.lua",
+			"file": "lua/lalin/kernel_validate.lua",
 			"after": [
 				"T025",
 				"T026",
@@ -506,7 +506,7 @@
 			"status": "done",
 			"order": 31,
 			"claimedBy": "agent-JKTXEC",
-			"evidence": "Rewrote/strengthened lua/moonlift/kernel_validate.lua. Validator now checks phase module-id consistency; KernelNoPlan/ScheduleNoPlan reject presence; planned kernel loop refs, equivalence proofs, safe MemBackendAccessInfo, and Value reduction/closed-form refs; SchedulePlanned refs/proofs; every Code function has exactly one LowerFuncPlan; all covers reference existing funcs/blocks/loops; block coverage has no gaps/overlaps; LowerStrategyKernel/ClosedForm refs existing Kernel/Schedule/Value facts; unsupported strategies fail. Rewrote tests/test_kernel_validate.lua to the new Graph/Flow/Value/Mem/Effect/Kernel/Schedule/Lower API and added assertions for dangling semantic strategies, empty ScheduleNoPlan rejects, missing LowerFuncPlan, and coverage gaps. Verified: luajit tests/test_kernel_validate.lua, tests/test_code_lower_plan.lua, tests/test_semantic_lowering_fragments.lua passed.",
+			"evidence": "Rewrote/strengthened lua/lalin/kernel_validate.lua. Validator now checks phase module-id consistency; KernelNoPlan/ScheduleNoPlan reject presence; planned kernel loop refs, equivalence proofs, safe MemBackendAccessInfo, and Value reduction/closed-form refs; SchedulePlanned refs/proofs; every Code function has exactly one LowerFuncPlan; all covers reference existing funcs/blocks/loops; block coverage has no gaps/overlaps; LowerStrategyKernel/ClosedForm refs existing Kernel/Schedule/Value facts; unsupported strategies fail. Rewrote tests/test_kernel_validate.lua to the new Graph/Flow/Value/Mem/Effect/Kernel/Schedule/Lower API and added assertions for dangling semantic strategies, empty ScheduleNoPlan rejects, missing LowerFuncPlan, and coverage gaps. Verified: luajit tests/test_kernel_validate.lua, tests/test_code_lower_plan.lua, tests/test_semantic_lowering_fragments.lua passed.",
 			"notes": [],
 			"createdAt": "2026-06-16T09:49:42.146Z",
 			"updatedAt": "2026-06-16T10:24:47.881Z"
@@ -554,8 +554,8 @@
 		{
 			"id": "T034",
 			"title": "Grep hard-yank cleanliness",
-			"detail": "Clean up stale compatibility paths and decorative comments. Repository grep acceptance: no ctx.view_values, no ctx.view_defs, no collect_view_defs/view_parts side-table helpers in Back/C lowering; no LowerFuncCode/LowerFuncKernel/KernelFuncPlan/KernelSchedule-in-Kernel old names; no placeholder proof text like 'exact expression awaits trip-count'; no comment stating Kernel/ClosedForm preserves execution by lowering covered Code; no MemBaseDerived-style hidden view provenance. Keep legitimate schema/schedule KernelSchedule type only in MoonSchedule if still named by architecture.",
-			"file": "lua/moonlift",
+			"detail": "Clean up stale compatibility paths and decorative comments. Repository grep acceptance: no ctx.view_values, no ctx.view_defs, no collect_view_defs/view_parts side-table helpers in Back/C lowering; no LowerFuncCode/LowerFuncKernel/KernelFuncPlan/KernelSchedule-in-Kernel old names; no placeholder proof text like 'exact expression awaits trip-count'; no comment stating Kernel/ClosedForm preserves execution by lowering covered Code; no MemBaseDerived-style hidden view provenance. Keep legitimate schema/schedule KernelSchedule type only in LalinSchedule if still named by architecture.",
+			"file": "lua/lalin",
 			"after": [
 				"T029",
 				"T030",
@@ -564,7 +564,7 @@
 			"status": "done",
 			"order": 34,
 			"claimedBy": "agent-JKTXEC",
-			"evidence": "Cleaned stale grep-visible compatibility names/comments in tests while preserving assertions via concatenated names. Verified hard-yank grep acceptance: no ctx.view_values/ctx.view_defs/collect_view_defs/view_parts in lua/tests; no LowerFuncCode/LowerFuncKernel/KernelFuncPlan or KernelSchedule outside lua/moonlift/schema/schedule.asdl; no placeholder 'exact expression awaits trip-count', no 'preserves execution by lowering', no MemBaseDerived. Re-ran impacted tests: luajit tests/test_schema_core.lua, tests/test_code_lower_plan.lua, tests/test_code_mem_facts.lua, tests/test_code_to_back.lua, tests/test_code_to_c.lua, tests/test_semantic_lowering_fragments.lua passed.",
+			"evidence": "Cleaned stale grep-visible compatibility names/comments in tests while preserving assertions via concatenated names. Verified hard-yank grep acceptance: no ctx.view_values/ctx.view_defs/collect_view_defs/view_parts in lua/tests; no LowerFuncCode/LowerFuncKernel/KernelFuncPlan or KernelSchedule outside lua/lalin/schema/schedule.asdl; no placeholder 'exact expression awaits trip-count', no 'preserves execution by lowering', no MemBaseDerived. Re-ran impacted tests: luajit tests/test_schema_core.lua, tests/test_code_lower_plan.lua, tests/test_code_mem_facts.lua, tests/test_code_to_back.lua, tests/test_code_to_c.lua, tests/test_semantic_lowering_fragments.lua passed.",
 			"notes": [],
 			"createdAt": "2026-06-16T09:49:42.146Z",
 			"updatedAt": "2026-06-16T10:34:47.932Z"
@@ -589,14 +589,14 @@
 			"id": "T036",
 			"title": "Add kernel emitter capability classifier",
 			"detail": "Create a shared Lua helper used by code_schedule_plan.lua, code_lower_plan.lua, lower_to_back.lua, and kernel_validate.lua. It must classify KernelPlanned bodies as executable closed_form, scalar_index, scalar_pointer, or vector_contiguous only when the current LowerToBack emitters can really emit them. Include reject constructors/details for unsupported subjects, unknown KernelExpr/ValueExpr forms, missing trip/count data, unsupported stream bases, unsupported effects, unsupported vector shapes, and unimplemented tails. No schedule should claim SchedulePlanned unless this classifier returns executable=true for that schedule kind.",
-			"file": "lua/moonlift/kernel_emit_support.lua",
+			"file": "lua/lalin/kernel_emit_support.lua",
 			"after": [
 				"T035"
 			],
 			"status": "done",
 			"order": 36,
 			"claimedBy": "agent-T321D3",
-			"evidence": "Added lua/moonlift/kernel_emit_support.lua classifier with ValueExpr/KernelExpr/stream/schedule-kind checks and ScheduleReject details; wired code_schedule_plan.lua to use classifier so SchedulePlanned is only emitted when capability.executable=true. Syntax/context load passed; luajit tests/test_code_schedule_plan.lua passed.",
+			"evidence": "Added lua/lalin/kernel_emit_support.lua classifier with ValueExpr/KernelExpr/stream/schedule-kind checks and ScheduleReject details; wired code_schedule_plan.lua to use classifier so SchedulePlanned is only emitted when capability.executable=true. Syntax/context load passed; luajit tests/test_code_schedule_plan.lua passed.",
 			"notes": [],
 			"createdAt": "2026-06-16T11:01:32.676Z",
 			"updatedAt": "2026-06-16T11:11:36.780Z"
@@ -605,14 +605,14 @@
 			"id": "T037",
 			"title": "Implement real Back view descriptor ABI",
 			"detail": "Replace deterministic alias-only view projection with an actual descriptor lowering model. Expand CodeTyView parameters/block params/call args/results-in-scope into component Back values (data ptr, len index, stride index), materialize CodeInstViewMake components, lower ViewData/Len/Stride from components, and lower CodeInstLoad/Store of CodeTyView as three scalar loads/stores from a documented descriptor layout. Keep missing component failures loud. Treat full named aggregate ABI, arbitrary struct/region-call aggregate passing, and multi-result view returns as adjacent ABI work, but do not leave view params/projections in the native path unsupported.",
-			"file": "lua/moonlift/code_to_back.lua",
+			"file": "lua/lalin/code_to_back.lua",
 			"after": [
 				"T035"
 			],
 			"status": "done",
 			"order": 37,
 			"claimedBy": "agent-T321D3",
-			"evidence": "Updated lua/moonlift/code_to_back.lua with executable view descriptor component ABI for native Back params/block params/call args/projections/load/store. CodeTyView now expands to data ptr + len index + stride index for Back signatures, entry param binding, block params, jumps/branches, and call args; CodeInstViewMake materializes components; view alias/projection uses components; CodeInstLoad/Store of CodeTyView emits three scalar component loads/stores from offsets 0/8/16 with component BackAccessIds. View return signatures remain fail-loud as adjacent aggregate/result ABI work. Checks passed: luajit tests/test_code_to_back.lua; luajit tests/test_semantic_lowering_fragments.lua; luajit tests/test_back_validate.lua; luajit tests/test_code_lower_plan.lua.",
+			"evidence": "Updated lua/lalin/code_to_back.lua with executable view descriptor component ABI for native Back params/block params/call args/projections/load/store. CodeTyView now expands to data ptr + len index + stride index for Back signatures, entry param binding, block params, jumps/branches, and call args; CodeInstViewMake materializes components; view alias/projection uses components; CodeInstLoad/Store of CodeTyView emits three scalar component loads/stores from offsets 0/8/16 with component BackAccessIds. View return signatures remain fail-loud as adjacent aggregate/result ABI work. Checks passed: luajit tests/test_code_to_back.lua; luajit tests/test_semantic_lowering_fragments.lua; luajit tests/test_back_validate.lua; luajit tests/test_code_lower_plan.lua.",
 			"notes": [],
 			"createdAt": "2026-06-16T11:01:32.676Z",
 			"updatedAt": "2026-06-16T11:45:06.926Z"
@@ -621,14 +621,14 @@
 			"id": "T038",
 			"title": "Produce loop dependence proofs from Mem facts",
 			"detail": "Use graph loop membership, Flow inductions, MemAccessInterval, contract disjoint/noalias/same-len/readonly/writeonly relations, and object identity to emit MemNoLoopCarriedDependence or MemDependenceDistance for common counted loops. Required common cases: readonly src[i] + writeonly/noalias dst[i] copy/map loops with bounds/disjoint contracts; read-only reduction loops; same-object same-index load-then-store safe per-iteration. Keep raw/unknown alias as MemDependenceUnknown or no proof so Kernel planning still rejects unsupported cases.",
-			"file": "lua/moonlift/code_mem_facts.lua",
+			"file": "lua/lalin/code_mem_facts.lua",
 			"after": [
 				"T035"
 			],
 			"status": "done",
 			"order": 38,
 			"claimedBy": "agent-T321D3",
-			"evidence": "Updated lua/moonlift/code_mem_facts.lua to attach graph loop ids to MemAccessInterval, keep per-function loop-local access records, normalize readonly/writeonly/disjoint/noalias contract object facts, and emit MemReadReadIndependent / MemNoLoopCarriedDependence / MemDependenceUnknown for common loop-local access pairs. Common safe cases include read-read, same-object same-index in-bounds nontrapping pairs, disjoint objects, noalias objects, and readonly/writeonly noalias pairs; unknown aliases remain conservative. Checks passed: luajit tests/test_code_mem_facts.lua; luajit tests/test_code_kernel_plan.lua; luajit tests/test_code_schedule_plan.lua.",
+			"evidence": "Updated lua/lalin/code_mem_facts.lua to attach graph loop ids to MemAccessInterval, keep per-function loop-local access records, normalize readonly/writeonly/disjoint/noalias contract object facts, and emit MemReadReadIndependent / MemNoLoopCarriedDependence / MemDependenceUnknown for common loop-local access pairs. Common safe cases include read-read, same-object same-index in-bounds nontrapping pairs, disjoint objects, noalias objects, and readonly/writeonly noalias pairs; unknown aliases remain conservative. Checks passed: luajit tests/test_code_mem_facts.lua; luajit tests/test_code_kernel_plan.lua; luajit tests/test_code_schedule_plan.lua.",
 			"notes": [],
 			"createdAt": "2026-06-16T11:01:32.676Z",
 			"updatedAt": "2026-06-16T11:21:07.466Z"
@@ -637,14 +637,14 @@
 			"id": "T039",
 			"title": "Produce usable call and noescape effect summaries",
 			"detail": "Deepen Effect facts enough for kernel legality and CodeToBack. Direct internal calls to functions with no memory/call/trap effects should get CallSummary with EffectNoTrap/known read-write effects rather than unconditional EffectUnknown. Contract noescape/preserve/invalidate facts must be queryable by value/object and by loop domain. Extern/indirect calls remain conservative unless a normalized contract summary exists. Acceptance: a loop containing a pure internal helper can be planned if all other facts are legal; unknown extern still rejects.",
-			"file": "lua/moonlift/code_effect_facts.lua",
+			"file": "lua/lalin/code_effect_facts.lua",
 			"after": [
 				"T035"
 			],
 			"status": "done",
 			"order": 39,
 			"claimedBy": "agent-T321D3",
-			"evidence": "Updated lua/moonlift/code_effect_facts.lua with a pure_internal_functions analysis and direct internal call summaries: calls to functions with no memory/call/trap/atomic effects now emit CallSummary with EffectNoTrap instead of unconditional EffectUnknown; extern/indirect/closure calls remain conservative. Existing contract noescape/preserve/invalidate normalization remains explicit in TermEffect entry effects. Checks passed: luajit tests/test_code_effect_facts.lua; luajit tests/test_code_kernel_plan.lua.",
+			"evidence": "Updated lua/lalin/code_effect_facts.lua with a pure_internal_functions analysis and direct internal call summaries: calls to functions with no memory/call/trap/atomic effects now emit CallSummary with EffectNoTrap instead of unconditional EffectUnknown; extern/indirect/closure calls remain conservative. Existing contract noescape/preserve/invalidate normalization remains explicit in TermEffect entry effects. Checks passed: luajit tests/test_code_effect_facts.lua; luajit tests/test_code_kernel_plan.lua.",
 			"notes": [],
 			"createdAt": "2026-06-16T11:01:32.676Z",
 			"updatedAt": "2026-06-16T11:25:50.092Z"
@@ -653,14 +653,14 @@
 			"id": "T040",
 			"title": "Expose exact value expressions for lowering",
 			"detail": "Add reusable lookup/lowering support for ValueExpr facts: constants, Code values, add/sub/mul/div/select/cmp, affine identities, arithmetic-series ClosedFormFact. Record enough proof/detail to distinguish integer division exactness from truncating fallback. ClosedFormFact for sum i over [start, stop) must lower to an executable expression using start/stop/step/init values; insufficient facts produce only ReductionFact. Export helper tables or APIs consumed by CodeToBack/lower_to_back without duplicating expression recognition.",
-			"file": "lua/moonlift/code_value_facts.lua",
+			"file": "lua/lalin/code_value_facts.lua",
 			"after": [
 				"T035"
 			],
 			"status": "done",
 			"order": 40,
 			"claimedBy": "agent-T321D3",
-			"evidence": "Updated lua/moonlift/code_value_facts.lua: arithmetic-series ClosedFormFact now builds executable ValueExpr with explicit exact CodeIntSemantics for divisions; added api.expr_index(value_fact_set) for expression/no-wrap/float lookup maps; added api.lowerable_expr(expr) to distinguish lowerable expressions and reject division without exact semantics. Checks passed: luajit tests/test_code_value_facts.lua; luajit tests/test_code_schedule_plan.lua.",
+			"evidence": "Updated lua/lalin/code_value_facts.lua: arithmetic-series ClosedFormFact now builds executable ValueExpr with explicit exact CodeIntSemantics for divisions; added api.expr_index(value_fact_set) for expression/no-wrap/float lookup maps; added api.lowerable_expr(expr) to distinguish lowerable expressions and reject division without exact semantics. Checks passed: luajit tests/test_code_value_facts.lua; luajit tests/test_code_schedule_plan.lua.",
 			"notes": [],
 			"createdAt": "2026-06-16T11:01:32.676Z",
 			"updatedAt": "2026-06-16T11:14:23.653Z"
@@ -669,7 +669,7 @@
 			"id": "T041",
 			"title": "Populate executable Kernel bodies",
 			"detail": "Stop emitting empty bindings and fold-only effects for planned loops. Build KernelBinding DAGs from loop-local Code instructions using ValueExpr/KernelExprLoad/KernelExprAlgebra, create KernelEffectStore for loop-local stores with stream/index/value, KernelEffectFold for reductions, and KernelResultClosedForm/Reduction/OriginalControl only when the emitter can reconstruct exits. Reject unsupported instructions/effects with specific KernelRejectUnsupportedExpr/Memory/Effect. Planned kernels must contain enough semantic body to emit Back without reading the covered Code instructions as a fallback.",
-			"file": "lua/moonlift/code_kernel_plan.lua",
+			"file": "lua/lalin/code_kernel_plan.lua",
 			"after": [
 				"T038",
 				"T039",
@@ -678,7 +678,7 @@
 			"status": "done",
 			"order": 41,
 			"claimedBy": "agent-T321D3",
-			"evidence": "Updated lua/moonlift/code_kernel_plan.lua to populate KernelBody with executable KernelBinding DAGs and KernelEffectStore entries. streams_for_accesses now returns access->stream mapping; loop-local loads become KernelExprLoad bindings; arithmetic/compare/select/cast/const/alias values become KernelExprAlgebra bindings from ValueFactSet expr_index; stores become KernelEffectStore with stream/index/value; unsupported side-effecting instructions reject explicitly. KernelBody now receives body_bindings instead of an empty list. Checks passed: luajit tests/test_code_kernel_plan.lua; luajit tests/test_code_schedule_plan.lua.",
+			"evidence": "Updated lua/lalin/code_kernel_plan.lua to populate KernelBody with executable KernelBinding DAGs and KernelEffectStore entries. streams_for_accesses now returns access->stream mapping; loop-local loads become KernelExprLoad bindings; arithmetic/compare/select/cast/const/alias values become KernelExprAlgebra bindings from ValueFactSet expr_index; stores become KernelEffectStore with stream/index/value; unsupported side-effecting instructions reject explicitly. KernelBody now receives body_bindings instead of an empty list. Checks passed: luajit tests/test_code_kernel_plan.lua; luajit tests/test_code_schedule_plan.lua.",
 			"notes": [],
 			"createdAt": "2026-06-16T11:01:32.676Z",
 			"updatedAt": "2026-06-16T11:29:06.220Z"
@@ -687,7 +687,7 @@
 			"id": "T042",
 			"title": "Plan schedules only for available emitters",
 			"detail": "Replace current no-emitter ScheduleNoPlan defaults with real SchedulePlanned choices when kernel_emit_support says LowerToBack can emit the kernel. Emit ScheduleClosedForm for KernelResultClosedForm, ScheduleScalarIndex/Pointer for executable scalar kernels, and ScheduleVector for contiguous vectorizable kernels whose lane shape is supported by the target model. Keep ScheduleNoPlan with precise rejects for truly unsupported kernels, e.g. unknown tail, unsupported vector op, unsafe memory, unknown effect, or no emitter for that body shape.",
-			"file": "lua/moonlift/code_schedule_plan.lua",
+			"file": "lua/lalin/code_schedule_plan.lua",
 			"after": [
 				"T036",
 				"T041",
@@ -698,7 +698,7 @@
 			"status": "done",
 			"order": 42,
 			"claimedBy": "agent-ADGJPG",
-			"evidence": "Updated lua/moonlift/code_schedule_plan.lua to select real executable schedules: closed forms use ScheduleClosedForm, normal executable kernels use ScheduleScalarIndex, and contiguous non-reduction stream kernels choose ScheduleVector when the target model advertises a compatible BackShapeVec. ScheduleNoPlan remains for classifier rejects. Fixed lua/moonlift/kernel_emit_support.lua vector target check so BackTargetModel facts are honored. Verification: luajit tests/test_code_kernel_plan.lua passed; manual LuaJIT schedule smoke for bounded noalias i32 copy with BackTargetSupportsShape(i32x4) produced SchedulePlanned/ScheduleVector, while default target produces scalar SchedulePlanned.",
+			"evidence": "Updated lua/lalin/code_schedule_plan.lua to select real executable schedules: closed forms use ScheduleClosedForm, normal executable kernels use ScheduleScalarIndex, and contiguous non-reduction stream kernels choose ScheduleVector when the target model advertises a compatible BackShapeVec. ScheduleNoPlan remains for classifier rejects. Fixed lua/lalin/kernel_emit_support.lua vector target check so BackTargetModel facts are honored. Verification: luajit tests/test_code_kernel_plan.lua passed; manual LuaJIT schedule smoke for bounded noalias i32 copy with BackTargetSupportsShape(i32x4) produced SchedulePlanned/ScheduleVector, while default target produces scalar SchedulePlanned.",
 			"notes": [],
 			"createdAt": "2026-06-16T11:01:32.676Z",
 			"updatedAt": "2026-06-16T12:12:29.360Z"
@@ -707,14 +707,14 @@
 			"id": "T043",
 			"title": "Select real semantic Lower strategies",
 			"detail": "Change plan_func so supported SchedulePlanned kernels become LowerStrategyClosedForm or LowerStrategyKernel with LowerProofKernel/LowerProofSchedule and no LowerIssueFallback. Preserve Code fragments only for blocks outside the semantic cover or for explicit unsupported cases. Ensure supported loop covers do not overlap prologue/epilogue blocks and unsupported loops still use LowerStrategyCode with LowerIssueFallback.",
-			"file": "lua/moonlift/code_lower_plan.lua",
+			"file": "lua/lalin/code_lower_plan.lua",
 			"after": [
 				"T042"
 			],
 			"status": "done",
 			"order": 43,
 			"claimedBy": "agent-ADGJPG",
-			"evidence": "Updated lua/moonlift/code_lower_plan.lua so SchedulePlanned loops now select real semantic strategies: ScheduleClosedForm -> LowerStrategyClosedForm with LowerProofKernel/LowerProofSchedule, scalar/vector schedules -> LowerStrategyKernel, both without LowerIssueFallback. ScheduleNoPlan/KernelNoPlan still produce explicit LowerStrategyCode fallback issues. Verification: manual LuaJIT pipeline for bounded noalias copy produced LowerStrategyKernel and LowerToBack+BackValidate passed; manual arithmetic-series pipeline produced LowerStrategyClosedForm without fallback and BackValidate passed.",
+			"evidence": "Updated lua/lalin/code_lower_plan.lua so SchedulePlanned loops now select real semantic strategies: ScheduleClosedForm -> LowerStrategyClosedForm with LowerProofKernel/LowerProofSchedule, scalar/vector schedules -> LowerStrategyKernel, both without LowerIssueFallback. ScheduleNoPlan/KernelNoPlan still produce explicit LowerStrategyCode fallback issues. Verification: manual LuaJIT pipeline for bounded noalias copy produced LowerStrategyKernel and LowerToBack+BackValidate passed; manual arithmetic-series pipeline produced LowerStrategyClosedForm without fallback and BackValidate passed.",
 			"notes": [],
 			"createdAt": "2026-06-16T11:01:32.676Z",
 			"updatedAt": "2026-06-16T12:14:00.290Z"
@@ -723,7 +723,7 @@
 			"id": "T044",
 			"title": "Emit ClosedForm lower strategies to Back",
 			"detail": "Implement LowerStrategyClosedForm emission for common top-tested counted reduction loops. Resolve the KernelPlanned, ClosedFormFact, Graph loop, Flow exit edge, and exit FlowEdgeFact; switch to the loop header block, lower the ValueExpr to Back commands, and jump to the loop exit with the closed-form value replacing the original accumulator/yield arg. Support start/stop/step/init arithmetic over integer/index scalar types and validate Back output. Keep loud errors for unsupported multi-exit/multi-accumulator forms.",
-			"file": "lua/moonlift/lower_to_back.lua",
+			"file": "lua/lalin/lower_to_back.lua",
 			"after": [
 				"T036",
 				"T040"
@@ -731,7 +731,7 @@
 			"status": "done",
 			"order": 44,
 			"claimedBy": "agent-T321D3",
-			"evidence": "Implemented LowerStrategyClosedForm branch in lua/moonlift/lower_to_back.lua for common single-exit counted reduction loops. Added kernel/loop/edge lookup helpers and closed-form ValueExpr lowering to Back integer commands; emitter switches to the loop header, computes the ClosedFormFact expr, and jumps to the loop exit replacing the reduction accumulator edge arg. Unsupported multi-exit/missing edge/unsupported expr cases fail loudly. Checks passed: lower_to_back module load smoke; luajit tests/test_code_lower_plan.lua; luajit tests/test_semantic_lowering_fragments.lua; luajit tests/test_back_validate.lua.",
+			"evidence": "Implemented LowerStrategyClosedForm branch in lua/lalin/lower_to_back.lua for common single-exit counted reduction loops. Added kernel/loop/edge lookup helpers and closed-form ValueExpr lowering to Back integer commands; emitter switches to the loop header, computes the ClosedFormFact expr, and jumps to the loop exit replacing the reduction accumulator edge arg. Unsupported multi-exit/missing edge/unsupported expr cases fail loudly. Checks passed: lower_to_back module load smoke; luajit tests/test_code_lower_plan.lua; luajit tests/test_semantic_lowering_fragments.lua; luajit tests/test_back_validate.lua.",
 			"notes": [],
 			"createdAt": "2026-06-16T11:01:32.676Z",
 			"updatedAt": "2026-06-16T11:36:55.881Z"
@@ -740,7 +740,7 @@
 			"id": "T045",
 			"title": "Emit scalar Kernel strategies to Back",
 			"detail": "Implement LowerStrategyKernel for ScheduleScalarIndex/ScalarPointer using KernelBody, not covered Code fallback. Emit scheduled loop blocks, scalar loads/stores from KernelStream MemBackendAccessInfo, KernelBinding arithmetic/select/compare, KernelEffectStore, and reduction accumulators. Rejoin original exit blocks with correct FlowEdgeFact args. Supported common shapes: bounded noalias copy/map loop and read-only sum reduction. Unsupported instructions must fail before scheduling via T036/T042, not at normal frontend runtime.",
-			"file": "lua/moonlift/lower_to_back.lua",
+			"file": "lua/lalin/lower_to_back.lua",
 			"after": [
 				"T036",
 				"T041",
@@ -749,7 +749,7 @@
 			"status": "done",
 			"order": 45,
 			"claimedBy": "agent-ADGJPG",
-			"evidence": "Implemented scalar LowerStrategyKernel emission in lua/moonlift/lower_to_back.lua using KernelBody rather than covered Code fallback: scalar schedules now resolve KernelPlanned/SchedulePlanned, emit header branch from KernelBinding condition, emit loop-body KernelBindings, KernelExprLoad with MemBackendAccessInfo, KernelEffectStore, reduction recurrence via latch FlowEdgeFact args, and rejoin exit blocks through FlowEdgeFact. Added semantic memory/value helpers and function-wide Code value/KV placement maps. Fixed lua/moonlift/code_kernel_plan.lua multiple-return bug so KernelEffectStore entries are actually retained in KernelBody. Adjusted lua/moonlift/kernel_emit_support.lua so scalar kernels do not require exact trip-count facts when original loop control is preserved. Verification: manual LuaJIT pipeline for bounded noalias copy forced LowerStrategyKernel and BackValidate passed with emitted CmdStoreInfo; luajit tests/test_code_kernel_plan.lua passed. tests/test_code_schedule_plan.lua now fails its expected second-wave no-emitter assertion, to be updated by T049 after T042/T043.",
+			"evidence": "Implemented scalar LowerStrategyKernel emission in lua/lalin/lower_to_back.lua using KernelBody rather than covered Code fallback: scalar schedules now resolve KernelPlanned/SchedulePlanned, emit header branch from KernelBinding condition, emit loop-body KernelBindings, KernelExprLoad with MemBackendAccessInfo, KernelEffectStore, reduction recurrence via latch FlowEdgeFact args, and rejoin exit blocks through FlowEdgeFact. Added semantic memory/value helpers and function-wide Code value/KV placement maps. Fixed lua/lalin/code_kernel_plan.lua multiple-return bug so KernelEffectStore entries are actually retained in KernelBody. Adjusted lua/lalin/kernel_emit_support.lua so scalar kernels do not require exact trip-count facts when original loop control is preserved. Verification: manual LuaJIT pipeline for bounded noalias copy forced LowerStrategyKernel and BackValidate passed with emitted CmdStoreInfo; luajit tests/test_code_kernel_plan.lua passed. tests/test_code_schedule_plan.lua now fails its expected second-wave no-emitter assertion, to be updated by T049 after T042/T043.",
 			"notes": [],
 			"createdAt": "2026-06-16T11:01:32.676Z",
 			"updatedAt": "2026-06-16T12:02:44.688Z"
@@ -758,14 +758,14 @@
 			"id": "T046",
 			"title": "Emit vector Kernel strategies to Back",
 			"detail": "Add ScheduleVector emission for contiguous i32/u32/i64/u64 streams supported by back_target_model/default_native. Generate vector main loop with CmdVecLoad/CmdVecBinary/CmdVecStore and scalar tail according to TailPlan (initially TailScalar; TailNone only for proven multiples). Use MemBackendAccessInfo metadata on vector/scalar memory ops. Keep reductions vectorized only if a horizontal reduction emitter is implemented; otherwise closed-form or scalar schedule. Acceptance requires actual CmdVec* commands in Back output and JIT-correct results.",
-			"file": "lua/moonlift/lower_to_back.lua",
+			"file": "lua/lalin/lower_to_back.lua",
 			"after": [
 				"T045"
 			],
 			"status": "done",
 			"order": 46,
 			"claimedBy": "agent-ADGJPG",
-			"evidence": "Implemented ScheduleVector LowerStrategyKernel emission in lua/moonlift/lower_to_back.lua. The vector emitter creates vector dispatch/tail blocks, emits vector main loop for contiguous store kernels using Back vector-shaped CmdLoadInfo/CmdStoreInfo plus CmdVecBinary/Splat support, advances the original loop counter by lane count, and falls through to scalar tail using existing KernelBody scalar bindings/effects and FlowEdgeFact latch/exit args. Vector reductions remain loud errors. Verification: manual LuaJIT pipeline forced ScheduleVector for bounded noalias i32 copy with TailScalar; BackValidate passed with vector-shaped load/store commands; back_jit compiled and ran n=7 correctly, exercising vector main plus scalar tail.",
+			"evidence": "Implemented ScheduleVector LowerStrategyKernel emission in lua/lalin/lower_to_back.lua. The vector emitter creates vector dispatch/tail blocks, emits vector main loop for contiguous store kernels using Back vector-shaped CmdLoadInfo/CmdStoreInfo plus CmdVecBinary/Splat support, advances the original loop counter by lane count, and falls through to scalar tail using existing KernelBody scalar bindings/effects and FlowEdgeFact latch/exit args. Vector reductions remain loud errors. Verification: manual LuaJIT pipeline forced ScheduleVector for bounded noalias i32 copy with TailScalar; BackValidate passed with vector-shaped load/store commands; back_jit compiled and ran n=7 correctly, exercising vector main plus scalar tail.",
 			"notes": [],
 			"createdAt": "2026-06-16T11:01:32.676Z",
 			"updatedAt": "2026-06-16T12:09:08.092Z"
@@ -774,7 +774,7 @@
 			"id": "T047",
 			"title": "Consume Mem/Value/Effect facts in CodeToBack",
 			"detail": "Make ordinary Code lowering visibly fact-aware beyond mandatory MemBackendAccessInfo lookup. Map readonly object/effect facts to BackAccessReadonly for loads where legal; propagate Mem bounds/provenance into CmdPtrOffset/BackAddress bounds instead of always BackPtrBoundsUnknown for indexed proven accesses; use ValueNoWrap/ValueFloatMode/ValueExprFact helper APIs for BackIntSemantics/BackFloatSemantics and simple constant/alias simplifications; preserve conservative behavior for unknown effects. Add inspection-test hooks only if they reflect executable Back metadata.",
-			"file": "lua/moonlift/code_to_back.lua",
+			"file": "lua/lalin/code_to_back.lua",
 			"after": [
 				"T037",
 				"T038",
@@ -784,7 +784,7 @@
 			"status": "done",
 			"order": 47,
 			"claimedBy": "agent-T321D3",
-			"evidence": "Updated lua/moonlift/code_to_back.lua to consume semantic facts more visibly: make_ctx now uses CodeValueFacts.expr_index() for no-wrap/float/value expression maps, indexes Mem intervals/effects to mark readonly load instructions, memory_info/component_memory_info emit BackAccessReadonly for proven readonly loads, and addr_from_place propagates MemBackendAccessInfo bounds into BackAddress/CmdPtrOffset bounds instead of always unknown for proven indexed/deref accesses. Checks passed: luajit tests/test_code_to_back.lua; luajit tests/test_back_validate.lua; luajit tests/test_semantic_lowering_fragments.lua.",
+			"evidence": "Updated lua/lalin/code_to_back.lua to consume semantic facts more visibly: make_ctx now uses CodeValueFacts.expr_index() for no-wrap/float/value expression maps, indexes Mem intervals/effects to mark readonly load instructions, memory_info/component_memory_info emit BackAccessReadonly for proven readonly loads, and addr_from_place propagates MemBackendAccessInfo bounds into BackAddress/CmdPtrOffset bounds instead of always unknown for proven indexed/deref accesses. Checks passed: luajit tests/test_code_to_back.lua; luajit tests/test_back_validate.lua; luajit tests/test_semantic_lowering_fragments.lua.",
 			"notes": [],
 			"createdAt": "2026-06-16T11:01:32.676Z",
 			"updatedAt": "2026-06-16T11:48:36.317Z"
@@ -793,7 +793,7 @@
 			"id": "T048",
 			"title": "Validate executable semantic plans",
 			"detail": "Strengthen validation for the third wave: SchedulePlanned must match an executable capability from kernel_emit_support; LowerStrategyKernel/ClosedForm must reference planned schedules/facts and must be executable by LowerToBack; supported common kernels must not carry LowerIssueFallback; KernelBody streams/bindings/effects must be internally closed; vector schedules must cite supported target facts; closed-form strategies must cite a real ClosedFormFact and compatible exit edge. Keep ScheduleNoPlan/LowerIssueFallback valid only for unsupported cases with specific rejects/issues.",
-			"file": "lua/moonlift/kernel_validate.lua",
+			"file": "lua/lalin/kernel_validate.lua",
 			"after": [
 				"T043",
 				"T044",
@@ -804,7 +804,7 @@
 			"status": "done",
 			"order": 48,
 			"claimedBy": "agent-ADGJPG",
-			"evidence": "Strengthened lua/moonlift/kernel_validate.lua for executable semantic plans. SchedulePlanned is reclassified with kernel_emit_support against ScheduleTarget and rejected if not executable; KernelBody bindings/effects are checked for dangling KernelValueId refs; LowerStrategyKernel verifies planned kernel/schedule linkage; LowerStrategyClosedForm verifies the strategy fact matches KernelResultClosedForm and ValueFactSet. Existing coverage/gap/no-plan checks preserved. Verification: luajit tests/test_kernel_validate.lua passed; manual bounded-copy semantic pipeline with LowerStrategyKernel passed KernelValidate with zero issues.",
+			"evidence": "Strengthened lua/lalin/kernel_validate.lua for executable semantic plans. SchedulePlanned is reclassified with kernel_emit_support against ScheduleTarget and rejected if not executable; KernelBody bindings/effects are checked for dangling KernelValueId refs; LowerStrategyKernel verifies planned kernel/schedule linkage; LowerStrategyClosedForm verifies the strategy fact matches KernelResultClosedForm and ValueFactSet. Existing coverage/gap/no-plan checks preserved. Verification: luajit tests/test_kernel_validate.lua passed; manual bounded-copy semantic pipeline with LowerStrategyKernel passed KernelValidate with zero issues.",
 			"notes": [],
 			"createdAt": "2026-06-16T11:01:32.676Z",
 			"updatedAt": "2026-06-16T12:15:57.775Z"
@@ -838,7 +838,7 @@
 			"status": "done",
 			"order": 50,
 			"claimedBy": "agent-ADGJPG",
-			"evidence": "Added tests/test_lower_to_back_closed_form.lua JIT-backed closed-form test. It asserts ClosedFormFact, ScheduleClosedForm, LowerStrategyClosedForm without fallback, KernelValidate/BackValidate success, absence of original latch backedge, and native results n=0/1/5/10. While making it pass, fixed lua/moonlift/lower_to_back.lua closed-form emission to jump through the loop-exit forwarding edge (e.g. if_then -> region exit) with the computed closed-form replacing the accumulator, rather than jumping only to the loop's immediate exit block. Verification: luajit tests/test_lower_to_back_closed_form.lua passed.",
+			"evidence": "Added tests/test_lower_to_back_closed_form.lua JIT-backed closed-form test. It asserts ClosedFormFact, ScheduleClosedForm, LowerStrategyClosedForm without fallback, KernelValidate/BackValidate success, absence of original latch backedge, and native results n=0/1/5/10. While making it pass, fixed lua/lalin/lower_to_back.lua closed-form emission to jump through the loop-exit forwarding edge (e.g. if_then -> region exit) with the computed closed-form replacing the accumulator, rather than jumping only to the loop's immediate exit block. Verification: luajit tests/test_lower_to_back_closed_form.lua passed.",
 			"notes": [],
 			"createdAt": "2026-06-16T11:01:32.676Z",
 			"updatedAt": "2026-06-16T12:18:29.412Z"
@@ -873,7 +873,7 @@
 			"status": "done",
 			"order": 52,
 			"claimedBy": "agent-ADGJPG",
-			"evidence": "Added tests/test_lower_to_back_kernel_vector.lua JIT-backed vector Kernel test. It asserts no vector schedule without target vector shape facts, ScheduleVector with BackTargetSupportsShape(i32x4), LowerStrategyKernel without fallback, KernelValidate/BackValidate success, vector-shaped Back load/store plus CmdVecBinary output, and native correctness for n=9 (vector main + scalar tail). Fixed lua/moonlift/lower_to_back.lua vector expression lowering so ValueExprValue references to load/binary Code values resolve through KernelBinding -> vector values instead of missing scalar values. Verification: luajit tests/test_lower_to_back_kernel_vector.lua passed.",
+			"evidence": "Added tests/test_lower_to_back_kernel_vector.lua JIT-backed vector Kernel test. It asserts no vector schedule without target vector shape facts, ScheduleVector with BackTargetSupportsShape(i32x4), LowerStrategyKernel without fallback, KernelValidate/BackValidate success, vector-shaped Back load/store plus CmdVecBinary output, and native correctness for n=9 (vector main + scalar tail). Fixed lua/lalin/lower_to_back.lua vector expression lowering so ValueExprValue references to load/binary Code values resolve through KernelBinding -> vector values instead of missing scalar values. Verification: luajit tests/test_lower_to_back_kernel_vector.lua passed.",
 			"notes": [],
 			"createdAt": "2026-06-16T11:01:32.676Z",
 			"updatedAt": "2026-06-16T12:21:49.932Z"
@@ -900,7 +900,7 @@
 		{
 			"id": "T054",
 			"title": "Add Back vector/wire smoke coverage",
-			"detail": "Create or extend low-level Back tests to manually emit CmdVecSplat/CmdVecLoad/CmdVecBinary/CmdVecStore through back_command_binary and Rust decode, then JIT-run a small vector operation. Fix lua/moonlift/back_command_binary.lua or src/decode.rs only if this real kernel output exposes encoder/decoder bugs. This protects LowerToBack vector work from being blamed on semantic phases.",
+			"detail": "Create or extend low-level Back tests to manually emit CmdVecSplat/CmdVecLoad/CmdVecBinary/CmdVecStore through back_command_binary and Rust decode, then JIT-run a small vector operation. Fix lua/lalin/back_command_binary.lua or src/decode.rs only if this real kernel output exposes encoder/decoder bugs. This protects LowerToBack vector work from being blamed on semantic phases.",
 			"file": "tests/test_back_vector_jit.lua",
 			"after": [
 				"T046"
@@ -939,11 +939,11 @@
 			"id": "T056",
 			"title": "Fix closed-form trip-count correctness",
 			"detail": "Post-review fix: make arithmetic-series ClosedFormFact preserve zero-trip behavior and ceil positive trip counts instead of raw truncating (stop-start)/step.",
-			"file": "lua/moonlift/code_value_facts.lua",
+			"file": "lua/lalin/code_value_facts.lua",
 			"after": [],
 			"status": "done",
 			"order": 56,
-			"evidence": "Updated lua/moonlift/code_value_facts.lua arithmetic_series_expr to compute trip = select((stop-start) <= 0, 0, ceil((stop-start)/step)) and use that in the series expression. Added negative input runtime assertion in tests/test_lower_to_back_closed_form.lua. Verified lower_to_back_closed_form and full third-wave Lua suite.",
+			"evidence": "Updated lua/lalin/code_value_facts.lua arithmetic_series_expr to compute trip = select((stop-start) <= 0, 0, ceil((stop-start)/step)) and use that in the series expression. Added negative input runtime assertion in tests/test_lower_to_back_closed_form.lua. Verified lower_to_back_closed_form and full third-wave Lua suite.",
 			"notes": [],
 			"createdAt": "2026-06-16T12:49:03.959Z",
 			"updatedAt": "2026-06-16T12:49:03.959Z"
@@ -952,11 +952,11 @@
 			"id": "T057",
 			"title": "Tighten write dependence legality",
 			"detail": "Post-review fix: require pairwise no-dependence proof for every loop-local pair involving writes; do not let one safe pair mask unknown pairs; avoid same-object same-index write/read planning with reordering emitter.",
-			"file": "lua/moonlift/code_kernel_plan.lua",
+			"file": "lua/lalin/code_kernel_plan.lua",
 			"after": [],
 			"status": "done",
 			"order": 57,
-			"evidence": "Updated lua/moonlift/code_mem_facts.lua so same-object same-index write/read pairs are not treated as no-loop-carried safe; updated lua/moonlift/code_kernel_plan.lua to require pairwise no-dependence proof for every loop-local pair involving a write. Added store_then_load same-object rejection test in tests/test_lower_to_back_kernel_scalar.lua. Verified scalar/kernel/mem tests and full suite.",
+			"evidence": "Updated lua/lalin/code_mem_facts.lua so same-object same-index write/read pairs are not treated as no-loop-carried safe; updated lua/lalin/code_kernel_plan.lua to require pairwise no-dependence proof for every loop-local pair involving a write. Added store_then_load same-object rejection test in tests/test_lower_to_back_kernel_scalar.lua. Verified scalar/kernel/mem tests and full suite.",
 			"notes": [],
 			"createdAt": "2026-06-16T12:49:03.959Z",
 			"updatedAt": "2026-06-16T12:49:03.959Z"
@@ -965,11 +965,11 @@
 			"id": "T058",
 			"title": "Restrict vector capability to implemented expressions",
 			"detail": "Post-review fix: vector SchedulePlanned must only be emitted for vector expressions the current emitter implements, not select/cmp/div/affine or unsupported carried values.",
-			"file": "lua/moonlift/kernel_emit_support.lua",
+			"file": "lua/lalin/kernel_emit_support.lua",
 			"after": [],
 			"status": "done",
 			"order": 58,
-			"evidence": "Updated lua/moonlift/kernel_emit_support.lua with vector-specific expression capability checks: vector schedules only allow store values reducible to KernelExprLoad plus vector add/sub/mul/const chains through known KernelBindings. Select/cmp/div/affine/non-vector loop values reject before ScheduleVector. Added vector clamp/select no-vector assertion in tests/test_lower_to_back_kernel_vector.lua.",
+			"evidence": "Updated lua/lalin/kernel_emit_support.lua with vector-specific expression capability checks: vector schedules only allow store values reducible to KernelExprLoad plus vector add/sub/mul/const chains through known KernelBindings. Select/cmp/div/affine/non-vector loop values reject before ScheduleVector. Added vector clamp/select no-vector assertion in tests/test_lower_to_back_kernel_vector.lua.",
 			"notes": [],
 			"createdAt": "2026-06-16T12:49:03.959Z",
 			"updatedAt": "2026-06-16T12:49:03.959Z"
@@ -982,7 +982,7 @@
 			"after": [],
 			"status": "done",
 			"order": 59,
-			"evidence": "Updated lua/moonlift/kernel_validate.lua so LowerStrategyClosedForm requires an owning SchedulePlanned(ScheduleClosedForm). Added adversarial tests for negative closed-form trip count, same-object store/load kernel rejection, and vector select/compare schedule rejection. Full third-wave Lua verification passed plus cargo build --release passed with warnings only.",
+			"evidence": "Updated lua/lalin/kernel_validate.lua so LowerStrategyClosedForm requires an owning SchedulePlanned(ScheduleClosedForm). Added adversarial tests for negative closed-form trip count, same-object store/load kernel rejection, and vector select/compare schedule rejection. Full third-wave Lua verification passed plus cargo build --release passed with warnings only.",
 			"notes": [],
 			"createdAt": "2026-06-16T12:49:03.959Z",
 			"updatedAt": "2026-06-16T12:49:03.959Z"
@@ -991,13 +991,13 @@
 			"id": "T060",
 			"title": "Hard-yank C semantic lowering bypass",
 			"detail": "Delete the pure CodeToC projection and every comment/branch that says C ignores LowerModule, Kernel, Schedule, v1, first slice, fallback, or MVP. lower_to_c.module must consume LowerModule.funcs/fragments as the executable plan. It must build one CBackendUnit by reusing CodeToC only for LowerStrategyCode fragments and by emitting semantic C for every LowerStrategyClosedForm and LowerStrategyKernel fragment that CodeLowerPlan can select. No whole-function CodeToC shortcut is allowed when lower_plan contains semantic fragments.",
-			"file": "lua/moonlift/lower_to_c.lua",
+			"file": "lua/lalin/lower_to_c.lua",
 			"after": [
 				"T059"
 			],
 			"status": "done",
 			"order": 60,
-			"evidence": "Rewrote lua/moonlift/lower_to_c.lua to consume LowerModule/LowerFuncPlan fragments and removed the pure CodeToC C-lowering bypass. LowerStrategyCode reuses CodeToC baseline blocks only for Code fragments; semantic functions are rebuilt from fragment order.",
+			"evidence": "Rewrote lua/lalin/lower_to_c.lua to consume LowerModule/LowerFuncPlan fragments and removed the pure CodeToC C-lowering bypass. LowerStrategyCode reuses CodeToC baseline blocks only for Code fragments; semantic functions are rebuilt from fragment order.",
 			"notes": [
 				"Follow-up: lower_to_c now prefers structured semantic C for whole-function closed-form/kernel cases via CBackendRawBlock, instead of emitting temp-heavy CBackend CFG for those hot semantic fragments.",
 				"Follow-up for C11/max compatibility: structured semantic C now emits portable C11 loops, ML_RESTRICT macro, typed readable stream pointers (dst/src), const for readonly streams, restrict when noalias/disjoint proof is present, ML_I32_* wrapping arithmetic macros, and simplified arithmetic-series closed-form C.",
@@ -1010,7 +1010,7 @@
 			"id": "T061",
 			"title": "Expose CodeToC fragment primitives",
 			"detail": "Refactor CodeToC so lower_to_c can request module prelude/type/extern/global/helper context, function declarations, block declarations, and per-LowerCover Code fragment statements without lowering an entire function. The extracted API must preserve current C output for pure Code functions and must not create side tables or hidden semantic state. Required exports: make_ctx/module_prelude or equivalent, function_declare, code_fragment_blocks/emit_code_fragment, finish_unit.",
-			"file": "lua/moonlift/code_to_c.lua",
+			"file": "lua/lalin/code_to_c.lua",
 			"after": [
 				"T060"
 			],
@@ -1027,7 +1027,7 @@
 			"id": "T062",
 			"title": "Implement C semantic value and address emitter",
 			"detail": "Add the C equivalents of LowerToBack semantic helpers: ValueExpr -> CBackend rval/assignments for const/value/add/sub/mul/div/cmp/select/affine, KernelExpr -> CBackend rval including KernelExprLoad through KernelStream/MemBackendAccessInfo, and KernelEffectStore -> CBackend place store. The emitter must use C helpers for integer semantics exactly as CodeToC does, preserve Code value/block param transfer variables, and generate stable locals for semantic temporaries.",
-			"file": "lua/moonlift/lower_to_c.lua",
+			"file": "lua/lalin/lower_to_c.lua",
 			"after": [
 				"T061"
 			],
@@ -1042,7 +1042,7 @@
 			"id": "T063",
 			"title": "Emit ClosedForm fragments as semantic C",
 			"detail": "LowerStrategyClosedForm must emit C that computes ClosedFormFact.expr and jumps directly to the loop exit/region exit with the accumulator result replaced. The emitted C for a covered closed-form loop must not contain the original latch/backedge for that loop. It must preserve zero-trip and negative-trip behavior established in T056.",
-			"file": "lua/moonlift/lower_to_c.lua",
+			"file": "lua/lalin/lower_to_c.lua",
 			"after": [
 				"T062"
 			],
@@ -1057,7 +1057,7 @@
 			"id": "T064",
 			"title": "Emit scalar Kernel fragments as semantic C",
 			"detail": "LowerStrategyKernel with ScheduleScalarIndex or ScheduleScalarPointer must emit a C loop from KernelBody, not covered Code. It must emit KernelBindings, KernelExprLoad, KernelEffectStore, reductions through latch args, and exit edge args using FlowEdgeFact. It must preserve memory ordering constraints accepted by Kernel planning and use MemBackendAccessInfo for C access annotations/comments when C has no direct metadata field.",
-			"file": "lua/moonlift/lower_to_c.lua",
+			"file": "lua/lalin/lower_to_c.lua",
 			"after": [
 				"T062"
 			],
@@ -1072,7 +1072,7 @@
 			"id": "T065",
 			"title": "Emit vector Kernel fragments as semantic C",
 			"detail": "LowerStrategyKernel with ScheduleVector must emit semantic vector C for the same capability set as the Back vector emitter. Use portable C vector typedefs or explicit lane temporaries, but the emitted C must visibly contain a vector main loop plus scalar tail and must be runtime-correct for the existing vector kernel tests. ScheduleVector must never be lowered by re-emitting covered scalar Code.",
-			"file": "lua/moonlift/lower_to_c.lua",
+			"file": "lua/lalin/lower_to_c.lua",
 			"after": [
 				"T064"
 			],
@@ -1087,7 +1087,7 @@
 			"id": "T066",
 			"title": "Make C scheduling capability explicit",
 			"detail": "Generalize capability classification so SchedulePlanned means executable for the selected LowerTarget, including C. CodeSchedulePlan/CodeLowerPlan/frontend C path must pass enough target/backend information that C does not inherit Back-only capability by accident. Back and C capability sets must both include closed-form, scalar kernel, and the implemented vector subset; disagreement must produce validation failure, not fallback.",
-			"file": "lua/moonlift/kernel_emit_support.lua",
+			"file": "lua/lalin/kernel_emit_support.lua",
 			"after": [
 				"T063",
 				"T064",
@@ -1106,7 +1106,7 @@
 			"id": "T067",
 			"title": "Validate C semantic lower ownership",
 			"detail": "Extend semantic validation so LowerTargetC requires every LowerStrategyClosedForm/Kernel selected in the lower plan to be executable by lower_to_c, not just LowerToBack. Validate that C semantic fragments cite matching SchedulePlanned and KernelBody/facts and that Code fallback is used only for non-semantic Code fragments outside semantic covers. No LowerIssueFallback is allowed on a supported C semantic fragment.",
-			"file": "lua/moonlift/kernel_validate.lua",
+			"file": "lua/lalin/kernel_validate.lua",
 			"after": [
 				"T066"
 			],
@@ -1175,14 +1175,14 @@
 			"id": "T071",
 			"title": "Replace special-case raw structured C with real semantic C lowering",
 			"detail": "Build the actual C semantic lowering layer rather than whole-function hot-path shortcuts: no CBackendRawBlock validation bypass as the primary mechanism; no map_add1/arithmetic-series recognizers as claimed completeness. Structured C must be driven by LowerFragment/KernelBody/Flow facts generally, including arbitrary counted start/stop/step, multiple streams/effects, return/control edge reconstruction, stream bases beyond pointer args where facts permit, and the same KernelExpr capability set as scheduling. Unsupported planned cases must fail validation before lowering, not silently fall back to temp CFG or pretend completeness.",
-			"file": "lua/moonlift/lower_to_c.lua",
+			"file": "lua/lalin/lower_to_c.lua",
 			"after": [
 				"T070"
 			],
 			"status": "done",
 			"order": 71,
 			"claimedBy": "agent-T321D3",
-			"evidence": "Removed the raw structured whole-function semantic fast path from lua/moonlift/lower_to_c.lua; semantic C now lowers LowerStrategyClosedForm/Kernel through CBackend blocks/statements only. Removed CBackendRawBlock from lua/moonlift/c/c_type.lua and lua/moonlift/c_emit.lua. Removed raw C expression/string helpers and the special map_add1/series structured emitters. Verified no RawBlock references remain and tests/test_lower_to_c_semantic.lua plus tests/test_code_to_c.lua pass.",
+			"evidence": "Removed the raw structured whole-function semantic fast path from lua/lalin/lower_to_c.lua; semantic C now lowers LowerStrategyClosedForm/Kernel through CBackend blocks/statements only. Removed CBackendRawBlock from lua/lalin/c/c_type.lua and lua/lalin/c_emit.lua. Removed raw C expression/string helpers and the special map_add1/series structured emitters. Verified no RawBlock references remain and tests/test_lower_to_c_semantic.lua plus tests/test_code_to_c.lua pass.",
 			"notes": [
 				"Follow-up correction: removed the unused/demonstration C11 ML_RESTRICT/ML_I32_* macro emission too, because the real semantic C path now uses validated CBackend helpers/statements rather than raw string expressions."
 			],
@@ -1209,14 +1209,14 @@
 			"id": "T073",
 			"title": "Generalize closed-form C expression simplification",
 			"detail": "Replace arithmetic-series recognizer with a general ValueExpr simplifier/printer: constant folding, identity elimination, common subexpression naming when needed, signed wrap-safe macro use, division semantics, select/cmp rendering, and no benchmark-specific pattern. Add tests for several closed forms and ordinary non-series reductions.",
-			"file": "lua/moonlift/lower_to_c.lua",
+			"file": "lua/lalin/lower_to_c.lua",
 			"after": [
 				"T071"
 			],
 			"status": "done",
 			"order": 73,
 			"claimedBy": "agent-T321D3",
-			"evidence": "Added general simplify_value_expr in lua/moonlift/lower_to_c.lua and wired it into semantic ValueExpr lowering: constant folding for integer add/sub/mul/div, identity elimination, select constant folding, cmp constant folding, affine single-term simplification, and no arithmetic-series-specific raw printer remains. Closed forms now lower through CBackend helpers/temps with exact division/wrap semantics. tests/test_lower_to_c_semantic.lua covers closed-form runtime plus ordinary non-closed-form reductions/loops; full semantic suite and cargo build --release pass.",
+			"evidence": "Added general simplify_value_expr in lua/lalin/lower_to_c.lua and wired it into semantic ValueExpr lowering: constant folding for integer add/sub/mul/div, identity elimination, select constant folding, cmp constant folding, affine single-term simplification, and no arithmetic-series-specific raw printer remains. Closed forms now lower through CBackend helpers/temps with exact division/wrap semantics. tests/test_lower_to_c_semantic.lua covers closed-form runtime plus ordinary non-closed-form reductions/loops; full semantic suite and cargo build --release pass.",
 			"notes": [
 				"Reverified after removing unused macro emission: semantic Lua suite passed and cargo build --release passed with existing warnings."
 			],
@@ -1227,7 +1227,7 @@
 			"id": "T074",
 			"title": "Restore Back closed-form correctness for direct-return loop exits",
 			"detail": "Fix LowerStrategyClosedForm emission when the loop exit goes directly to a CodeTermReturn block returning the accumulator. The emitter must return the computed closed-form result directly instead of jumping to the old return block that returns the initial accumulator value.",
-			"file": "lua/moonlift/lower_to_back.lua",
+			"file": "lua/lalin/lower_to_back.lua",
 			"after": [
 				"T073"
 			],
@@ -1243,14 +1243,14 @@
 			"id": "T075",
 			"title": "Implement ordinary Back ABI for named aggregate results and parameters",
 			"detail": "Remove CodeTyNamed unsupported path in Back lowering by implementing ordinary aggregate ABI below Code (not region-call-specific): signatures, calls, returns, block args, params, aggregate construction, field projection/payload/tag as needed by named structs/unions. Must preserve frontend/backend separation.",
-			"file": "lua/moonlift/code_to_back.lua",
+			"file": "lua/lalin/code_to_back.lua",
 			"after": [
 				"T074"
 			],
 			"status": "done",
 			"order": 75,
 			"claimedBy": "agent-T321D3",
-			"evidence": "Implemented ordinary Back named aggregate ABI support in lua/moonlift/code_to_back.lua: CodeTyNamed projects as by-reference Back pointer for params; named aggregate results use hidden sret pointer in Back signatures; aggregate returns copy to sret via CmdMemcpy; aggregate-return calls allocate destination storage and pass sret; named aggregate params/locals are materialized as addresses; CodeInstAggregate constructs stack-backed aggregate values; CodeInstVariantCtor/Tag/Payload lower through layout-backed tag/payload offsets. Host layout env module names are fixed in lua/moonlift/host_module_values.lua. Added tests/test_code_to_back.lua sret ABI assertion and tests/test_aggregate_param_abi.lua passes. Verified suite including parse_typecheck, region call structural/runtime smoke, c coverage matrix, semantic lowering suite, and cargo build --release.",
+			"evidence": "Implemented ordinary Back named aggregate ABI support in lua/lalin/code_to_back.lua: CodeTyNamed projects as by-reference Back pointer for params; named aggregate results use hidden sret pointer in Back signatures; aggregate returns copy to sret via CmdMemcpy; aggregate-return calls allocate destination storage and pass sret; named aggregate params/locals are materialized as addresses; CodeInstAggregate constructs stack-backed aggregate values; CodeInstVariantCtor/Tag/Payload lower through layout-backed tag/payload offsets. Host layout env module names are fixed in lua/lalin/host_module_values.lua. Added tests/test_code_to_back.lua sret ABI assertion and tests/test_aggregate_param_abi.lua passes. Verified suite including parse_typecheck, region call structural/runtime smoke, c coverage matrix, semantic lowering suite, and cargo build --release.",
 			"notes": [
 				"Partial progress only, not complete: CodeTyNamed no longer crashes in Back param signatures for by-address aggregate parameters; named aggregate parameter field load path is working in tests/test_aggregate_param_abi.lua. This does not yet complete named aggregate result/sret ABI or tagged-union result ABI.",
 				"Follow-up: hosted region-call runtime probe (`call @{scan}` hit=17/miss=-1) now passes. Fixes included merging generated module layouts into native frontend layout_env, accepting CmdTrap as a real Back terminator instead of an unsupported-lowering sentinel, and adding hidden sret entry binding in CodeToBack.fragment_commands for LowerToBack Code fragments."
@@ -1262,7 +1262,7 @@
 			"id": "T076",
 			"title": "Unblock aggregate param field access after layout resolve",
 			"detail": "Fix tests/test_aggregate_param_abi.lua failure in tree_to_code.lua field access before sem_layout_resolve. Field places on named aggregate parameters must lower using resolved layout rather than pre-layout rejection.",
-			"file": "lua/moonlift/tree_to_code.lua",
+			"file": "lua/lalin/tree_to_code.lua",
 			"after": [
 				"T074"
 			],
@@ -1277,15 +1277,15 @@
 		{
 			"id": "T077",
 			"title": "Classify C backend coverage handle/lease gaps",
-			"detail": "Fix tests/test_c_backend_coverage_matrix.lua missing classifications for current type variants such as MoonType.Type.TLease and handle declarations. Coverage matrix must classify every schema variant intentionally.",
-			"file": "lua/moonlift/c_coverage.lua",
+			"detail": "Fix tests/test_c_backend_coverage_matrix.lua missing classifications for current type variants such as LalinType.Type.TLease and handle declarations. Coverage matrix must classify every schema variant intentionally.",
+			"file": "lua/lalin/c_coverage.lua",
 			"after": [
 				"T074"
 			],
 			"status": "done",
 			"order": 77,
 			"claimedBy": "agent-T321D3",
-			"evidence": "Added supported C backend coverage classifications for MoonType.Type.THandle, MoonType.Type.TLease, and MoonTree.TypeDecl.TypeDeclHandle. No rejected/unsupported classification was added. `luajit tests/test_c_backend_coverage_matrix.lua` passes.",
+			"evidence": "Added supported C backend coverage classifications for LalinType.Type.THandle, LalinType.Type.TLease, and LalinTree.TypeDecl.TypeDeclHandle. No rejected/unsupported classification was added. `luajit tests/test_c_backend_coverage_matrix.lua` passes.",
 			"notes": [],
 			"createdAt": "2026-06-16T18:00:00.969Z",
 			"updatedAt": "2026-06-16T18:14:10.819Z"

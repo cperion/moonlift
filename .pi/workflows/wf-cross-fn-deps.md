@@ -1,4 +1,4 @@
-# Cross-function dependency resolution for moon.func callables 
+# Cross-function dependency resolution for lalin.func callables
 **Started**: 2026-05-19 11:35:46
 ---
 
@@ -10,17 +10,17 @@ Now I have a thorough understanding of all the relevant code. Here's the compreh
 
 ## Files Retrieved
 
-1. **`lua/moonlift/host_module_values.lua`** (lines 1-252) — ModuleValue, CompiledModule, CompiledFunction types with :compile(), :get(), :__call(), :add_func(), :add_region(), :add_type(), layout_env, to_asdl, C ABI helpers
-2. **`lua/moonlift/host_func_values.lua`** (lines 1-433) — FuncValue, FuncBuilder, ParamValue; make_func() for local/export/extern, builder methods (emit, return_, jump, if_, let, var, etc.), api._module_func/export/extern, api.stmts dispatch
-3. **`lua/moonlift/host_region_values.lua`** (lines 1-290) — RegionFragValue, BlockValue, ContValue, RegionBuilder, BlockBuilder; region_frag creation, block building, emit within regions, return_region
-4. **`lua/moonlift/host_struct_values.lua`** (lines 1-177) — StructValue, DraftStructValue, TypeDeclValue, FieldValue; struct/union/enum/tagged_union creation, draft/seal pattern, type value construction
-5. **`lua/moonlift/frontend_pipeline.lua`** (lines 1-66) — Pipeline.Define(T) with parse_and_lower() and lower_module(): parse → open_expand → open_validate → closure_convert → typecheck → layout_resolve → tree_to_back → back_validate
-6. **`lua/moonlift/host.lua`** (lines 1-282) — Unified moon.XXX API: CallableFunc with lazy compile-on-first-call, scalar types, compound types, quotes (type/expr/func/region/struct/union/extern), module builder
-7. **`lua/moonlift/mlua_run.lua`** (lines 1-1030) — The .mlua runtime: FuncValue:compile() (standalone), FuncValue:__call(), Runtime:eval_island(), loadstring carrier generation, CompiledFunction
-8. **`lua/moonlift/back_jit.lua`** (lines 1-186) — Rust Cranelift JIT FFI: Jit:compile() encodes via flatline v4 binary wire format, calls libmoonlift
-9. **`lua/moonlift/init.lua`** (lines 1-185) — Public facade: loadstring/loadfile/dofile/eval (hosted), native_loadstring/loadfile/dofile (MOM), emit_object/emit_shared, moon.XXX quote re-export
-10. **`lua/moonlift/host_session.lua`** (lines 1-80+) — Session creation, api() registry (installs all host_*_values modules), symbol_key, id, host value management
-11. **`lua/moonlift/pvm_surface_cache_values.lua`** (lines 1-102) — add_one_result_cache: generates cache-checking export functions from PVM phase definitions
+1. **`lua/lalin/host_module_values.lua`** (lines 1-252) — ModuleValue, CompiledModule, CompiledFunction types with :compile(), :get(), :__call(), :add_func(), :add_region(), :add_type(), layout_env, to_asdl, C ABI helpers
+2. **`lua/lalin/host_func_values.lua`** (lines 1-433) — FuncValue, FuncBuilder, ParamValue; make_func() for local/export/extern, builder methods (emit, return_, jump, if_, let, var, etc.), api._module_func/export/extern, api.stmts dispatch
+3. **`lua/lalin/host_region_values.lua`** (lines 1-290) — RegionFragValue, BlockValue, ContValue, RegionBuilder, BlockBuilder; region_frag creation, block building, emit within regions, return_region
+4. **`lua/lalin/host_struct_values.lua`** (lines 1-177) — StructValue, DraftStructValue, TypeDeclValue, FieldValue; struct/union/enum/tagged_union creation, draft/seal pattern, type value construction
+5. **`lua/lalin/frontend_pipeline.lua`** (lines 1-66) — Pipeline.Define(T) with parse_and_lower() and lower_module(): parse → open_expand → open_validate → closure_convert → typecheck → layout_resolve → tree_to_back → back_validate
+6. **`lua/lalin/host.lua`** (lines 1-282) — Unified lalin.XXX API: CallableFunc with lazy compile-on-first-call, scalar types, compound types, quotes (type/expr/func/region/struct/union/extern), module builder
+7. **`lua/lalin/mlua_run.lua`** (lines 1-1030) — The .mlua runtime: FuncValue:compile() (standalone), FuncValue:__call(), Runtime:eval_island(), loadstring carrier generation, CompiledFunction
+8. **`lua/lalin/back_jit.lua`** (lines 1-186) — Rust Cranelift JIT FFI: Jit:compile() encodes via flatline v4 binary wire format, calls liblalin
+9. **`lua/lalin/init.lua`** (lines 1-185) — Public facade: loadstring/loadfile/dofile/eval (hosted), native_loadstring/loadfile/dofile (MOM), emit_object/emit_shared, lalin.XXX quote re-export
+10. **`lua/lalin/host_session.lua`** (lines 1-80+) — Session creation, api() registry (installs all host_*_values modules), symbol_key, id, host value management
+11. **`lua/lalin/pvm_surface_cache_values.lua`** (lines 1-102) — add_one_result_cache: generates cache-checking export functions from PVM phase definitions
 
 ---
 
@@ -47,7 +47,7 @@ Key: FuncValue wraps the ASDL `func` node and an `item` (ItemFunc). It is **not 
 ```lua
 function ModuleValue:compile(opts)
     local program = self:_lower_program(opts)  -- MODULE-level lowering
-    local Jit = require("moonlift.back_jit")
+    local Jit = require("lalin.back_jit")
     local jit = jit_api.jit()
     for name, ptr in pairs(self.extern_symbols or {}) do jit:symbol(name, ptr) end
     for name, ptr in pairs(opts.symbols or {}) do jit:symbol(name, ptr) end
@@ -68,7 +68,7 @@ function ModuleValue:to_asdl()
 end
 ```
 
-This produces a **single MoonTree Module** containing every function, type, and extern that was added to the module. Cross-references resolve within this single ASDL module.
+This produces a **single LalinTree Module** containing every function, type, and extern that was added to the module. Cross-references resolve within this single ASDL module.
 
 ### ModuleValue:add_func / :add_region / :add_type (host_module_values.lua)
 
@@ -90,7 +90,7 @@ function ModuleValue:add_type(value) return append_item(self, value) end
 
 ### ModuleValue:func / :export_func / :extern_func (host_module_values.lua:66-90)
 
-These call `api._module_func/_module_export_func/_module_extern_func` which call `make_func` with the module as the first argument. The builder captures the module_value for context, but the builder API uses `api.expr_ref` and `api.as_moonlift_expr` which are **session-global**, not module-scoped.
+These call `api._module_func/_module_export_func/_module_extern_func` which call `make_func` with the module as the first argument. The builder captures the module_value for context, but the builder API uses `api.expr_ref` and `api.as_lalin_expr` which are **session-global**, not module-scoped.
 
 ### CallableFunc:__call — The "lazy compile" path (host.lua:101-111)
 
@@ -108,7 +108,7 @@ function CallableFunc:__call(...)
 end
 ```
 
-This is the `moon.func[[]](args)` path. It:
+This is the `lalin.func[[]](args)` path. It:
 1. Creates a brand new module named `"<name>_auto"`
 2. Adds `self` (the func value) to that module via `m:add_func(self)`
 3. Calls `m:compile()` (full ModuleValue:compile path)
@@ -121,8 +121,8 @@ The key point: the function is the **only item** in the auto-generated module. C
 
 ```lua
 function FuncValue:compile()
-    local Pipeline = require("moonlift.frontend_pipeline").Define(T)
-    local Tr = T.MoonTree
+    local Pipeline = require("lalin.frontend_pipeline").Define(T)
+    local Tr = T.LalinTree
     -- Collect ALL sibling func items from runtime
     local items = {}
     if runtime and runtime.func_values then
@@ -212,12 +212,12 @@ PATH B: mlua_run FuncValue:compile (mlua_run.lua:316)
 
 ### The CallableFunc gap (host.lua:101-111)
 
-`moon.func[[]](args)` creates a `CallableFunc` which, on first call:
+`lalin.func[[]](args)` creates a `CallableFunc` which, on first call:
 1. Makes a fresh module `"name_auto"`
 2. Adds **only itself** via `m:add_func(self)`
 3. Compiles that module
 
-The `self` FuncValue carries the parsed function ASDL, but has **no module context** — no type declarations, no region fragments, no extern imports. If the function references a type `Foo` that was defined in a prior `moon.struct[[]]` call, the compile will fail because that type is not in the auto-generated module's item list.
+The `self` FuncValue carries the parsed function ASDL, but has **no module context** — no type declarations, no region fragments, no extern imports. If the function references a type `Foo` that was defined in a prior `lalin.struct[[]]` call, the compile will fail because that type is not in the auto-generated module's item list.
 
 ### The mlua_run FuncValue escapes this (mlua_run.lua:316)
 
@@ -230,9 +230,9 @@ When any function compiles, it collects **all** of these into the module. So cro
 
 ### The host_api module path
 
-When using the explicit builder API (`moon.module()`):
+When using the explicit builder API (`lalin.module()`):
 ```lua
-local m = moon.module("mymod")
+local m = lalin.module("mymod")
 local f = m:func("add", {...}, ..., function(b) ... end)
 local c = m:compile()
 c:get("add")(3, 4)
@@ -255,7 +255,7 @@ The mlua_run FuncValue:compile collects siblings, so cross-refs among functions 
 
 ### Object file emission (init.lua:114-134)
 
-`moon.emit_object` uses `Pipeline.Define(T).parse_and_lower(src)` — a fresh parse that doesn't involve any host module. This is a one-shot source-to-object path for isolated snippets.
+`lalin.emit_object` uses `Pipeline.Define(T).parse_and_lower(src)` — a fresh parse that doesn't involve any host module. This is a one-shot source-to-object path for isolated snippets.
 
 ---
 
@@ -263,7 +263,7 @@ The mlua_run FuncValue:compile collects siblings, so cross-refs among functions 
 
 1. **Three distinct compile paths exist with different cross-reference capabilities**: ModuleValue:compile (richest — module context with all items), mlua_run FuncValue:compile (medium — sibling funcs + deps from runtime), CallableFunc:__call (poorest — single function, no context).
 
-2. **The CallableFunc lazy compile path (host.lua:101) has a cross-reference blind spot**: If `moon.func[[]]` references types or regions defined by other `moon.XXX[[]]` calls, the auto-generated module contains only the single function. The host API has no mechanism to provide module context to `CallableFunc`.
+2. **The CallableFunc lazy compile path (host.lua:101) has a cross-reference blind spot**: If `lalin.func[[]]` references types or regions defined by other `lalin.XXX[[]]` calls, the auto-generated module contains only the single function. The host API has no mechanism to provide module context to `CallableFunc`.
 
 3. **The `_lower_program` on ModuleValue injects region_frags into expand_env**: In `ModuleValue:_lower_program` (host_module_values.lua:193-200), region_frags from `self.region_frags` are wrapped in an `O.ExpandEnv` for open expansion. But the `ModuleValue:func` builder path doesn't have a way to associate region fragments with functions during building — regions are added separately via `module:add_region()`.
 

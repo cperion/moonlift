@@ -4,26 +4,26 @@
 -- ABI functions may return i32 or T.UiStatus.
 -- They translate typed region exits to status codes exactly once.
 
-local H = moon.require("mlui_types")
+local H = lalin.require("mlui_types")
 local T = H.T
 local R = H.R
 local F = H.F
 
-local Mem = moon.require("mlui_memory")
-local Validate = moon.require("mlui_program_validate")
-local Import = moon.require("mlui_program_import")
-local Lower = moon.require("mlui_scene_lower")
-local Solve = moon.require("mlui_solve")
-local Render = moon.require("mlui_render_ops")
-local Report = moon.require("mlui_runtime_report")
-local Interact = moon.require("mlui_interact")
-local Resource = moon.require("mlui_resource_store")
+local Mem = lalin.require("mlui_memory")
+local Validate = lalin.require("mlui_program_validate")
+local Import = lalin.require("mlui_program_import")
+local Lower = lalin.require("mlui_scene_lower")
+local Solve = lalin.require("mlui_solve")
+local Render = lalin.require("mlui_render_ops")
+local Report = lalin.require("mlui_runtime_report")
+local Interact = lalin.require("mlui_interact")
+local Resource = lalin.require("mlui_resource_store")
 
 -- mlui_kernel_init, mlui_kernel_init_ex, mlui_kernel_close, mlui_kernel_reset_frame
 -- are implemented in mlui_kernel_store.mlua.
 -- Load them from there.
 
-local KS = moon.require("mlui_kernel_store")
+local KS = lalin.require("mlui_kernel_store")
 
 --------------------------------------------------------------------------------
 -- F.mlui_lower_solve_render: compose lower + measure + solve + render.

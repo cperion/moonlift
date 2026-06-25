@@ -1,10 +1,10 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 local llb = require("llb")
 local llisle = require("llisle")
 
-local env = moon.family.env { scope = "env", base = {} }
+local env = lalin.family.env { scope = "env", base = {} }
 llisle.use { scope = "env", target = env, base = env, global = false }
 local chunk = assert(loadstring([[
 return llisle {
@@ -172,7 +172,7 @@ local classified = assert(engine:run("classify_expr", {
 assert(classified.output.class.kind == "map_class", "bind before guard enables recursive Llisle classification")
 assert(classified.output.class.lane == "xs" and classified.output.class.index == "i", "classifier preserves child output fields")
 
-local formatted = moon.family.format(zone, { width = 100 })
+local formatted = lalin.family.format(zone, { width = 100 })
 assert(formatted:match("ret%s*{") and formatted:match("value%s*="), "formatter preserves ret record payload")
 
 io.write("llisle engine ok\n")

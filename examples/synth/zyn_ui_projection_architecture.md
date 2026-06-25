@@ -16,7 +16,7 @@ The synth exposes native control and ABI types, but not enough truthful UI facts
 - UI IDs, `ProgramRef.generation`, `Synth.generation`, and native handle lifetimes have different stability rules.
 - UI state must not retain native pointers or `view(...)` handles.
 
-The UI must preserve Moonlift's compiler-shaped UI contract:
+The UI must preserve Lalin's compiler-shaped UI contract:
 
 ```text
 Auth.Node
@@ -35,7 +35,7 @@ Widget constructors, style code, paint code, and event routers must not hide dir
 A small hand-authored performance panel would be fast, but establishes the wrong source of truth:
 
 - UI labels/widget hints live in Lua-only tables.
-- Parameter mutation lives in Moonlift synth code.
+- Parameter mutation lives in Lalin synth code.
 - Command lowering lives in separate handwritten routing.
 - Tests have to prove consistency after drift is possible.
 
@@ -49,7 +49,7 @@ The canonical source is a shared typed Zyn control/projection schema, conceptual
 examples/synth/zyn_control_surface.lua
 ```
 
-or a Moonlift-shaped schema source. The file format is subordinate to the architectural role: one typed source of projection/control facts.
+or a Lalin-shaped schema source. The file format is subordinate to the architectural role: one typed source of projection/control facts.
 
 The schema owns UI-visible control facts:
 

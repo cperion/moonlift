@@ -1,12 +1,12 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Rules = require("moonlift.code_schedule_plan_rules")(T)
+local Rules = require("lalin.code_schedule_plan_rules")(T)
 
 local function cap(executable, rejects)
     return { executable = executable, kind = executable and "ok" or "reject", rejects = rejects or {} }
@@ -84,4 +84,4 @@ do
     assert(selection.rejects[1] == "closed-reject", "scalar rejects must be preserved")
 end
 
-io.write("moonlift code_schedule_plan_rules ok\n")
+io.write("lalin code_schedule_plan_rules ok\n")

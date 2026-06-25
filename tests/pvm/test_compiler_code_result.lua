@@ -1,11 +1,11 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local moon = require("moonlift")
-local Machines = require("moonlift.compiler_machines")
-local Abi = require("moonlift.compiler_abi")
+local pvm = require("lalin.pvm")
+local lalin = require("lalin")
+local Machines = require("lalin.compiler_machines")
+local Abi = require("lalin.compiler_abi")
 
-local session = moon.use { scope = "env" }
+local session = lalin.use { scope = "env" }
 
 local src = [[
 return unit. CodeResultSmoke {
@@ -21,7 +21,7 @@ return unit. CodeResultSmoke {
 local decl = session:loadstring(src, "compiler_code_result_test.lua")()
 local module_ast = decl:ast()
 local T = rawget(pvm.classof(module_ast), "__context")
-local C = T.MoonCompiler
+local C = T.LalinCompiler
 
 local checked = Machines.typecheck_module(module_ast, nil, { opts = { context = T, site = "test_compiler_code_result" } })
 
@@ -33,10 +33,10 @@ local c_report = abi.validate_code_result(c_code)
 assert(#c_report.issues == 0)
 
 local c_unit = Machines.code_to_c(c_code, nil, { opts = { context = T, site = "test_compiler_code_result_c" } })
-assert(tostring(pvm.classof(c_unit)):match("MoonC%.CBackendUnit"))
+assert(tostring(pvm.classof(c_unit)):match("LalinC%.CBackendUnit"))
 
 local bad_report = abi.validate_code_result(c_code.module)
 assert(#bad_report.issues == 1)
 assert(pvm.classof(bad_report.issues[1]) == C.CodeResultIssueWrongClass)
 
-io.write("moonlift compiler_code_result ok\n")
+io.write("lalin compiler_code_result ok\n")

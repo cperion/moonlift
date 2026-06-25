@@ -5,7 +5,7 @@
 -- current lowerer supports only the existing fixed/open value-sequence slice.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local RT = T.LuaRT
 

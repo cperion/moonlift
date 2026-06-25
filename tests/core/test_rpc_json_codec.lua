@@ -1,14 +1,14 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local DecodeMod = require("moonlift.rpc_json_decode")
-local EncodeMod = require("moonlift.rpc_json_encode")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local DecodeMod = require("lalin.rpc_json_decode")
+local EncodeMod = require("lalin.rpc_json_encode")
 
 local T = pvm.context()
 A(T)
-local R = T.MoonRpc
-local E = T.MoonEditor
+local R = T.LalinRpc
+local E = T.LalinEditor
 local Decode = DecodeMod(T)
 local Encode = EncodeMod(T)
 
@@ -32,4 +32,4 @@ assert(encoded == [[{"a":[1,"x",null],"b":true}]])
 local round = Decode.decode_lua(encoded)
 assert(round.a[1] == 1 and round.a[2] == "x" and round.a[3] == Decode.JSON_NULL and round.b == true)
 
-print("moonlift rpc json codec ok")
+print("lalin rpc json codec ok")

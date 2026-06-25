@@ -1,9 +1,9 @@
 -- llpvm_args.mlua -- Interned argument vectors.
 
-local H = moon.require("llpvm_header")
+local H = lalin.require("llpvm_header")
 local T = H.T
 local R = H.R
-local Mem = moon.require("llpvm_memory")
+local Mem = lalin.require("llpvm_memory")
 
 local llpvm_args_index = func(ref: T.LlArgsRef): index
     return as(index, repr(ref) - 1)

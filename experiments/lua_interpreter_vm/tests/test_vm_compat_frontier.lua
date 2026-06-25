@@ -3,7 +3,7 @@
 
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 
 local pass, fail = 0, 0
@@ -18,7 +18,7 @@ check("compat exposes source frontier", vm.compat.source_frontier ~= nil)
 check("compat exposes binary chunk frontier", vm.compat.binary_chunk_frontier ~= nil)
 check("PUC remains oracle only", vm.compat.puc_oracle_only == true)
 
-local route_chunk = moon.func { load_chunk = vm.regions_chunk.load_lua55_binary_chunk } [[
+local route_chunk = lalin.func { load_chunk = vm.regions_chunk.load_lua55_binary_chunk } [[
 route_chunk(bytes: ptr(u8), len: index): i32
     return region: i32
     entry start()

@@ -8,7 +8,7 @@ assert(ui.build, "ui facade exposes builders")
 assert(ui.tw, "ui facade exposes Tailwind-style tokens")
 assert(ui.paint, "ui facade exposes paint builders")
 assert(ui.theme, "ui facade exposes default theme/env helpers")
-assert(require("pvm") == require("moonlift.pvm"), "top-level pvm compatibility shim")
+assert(require("pvm") == require("lalin.pvm"), "top-level pvm compatibility shim")
 
 local b = ui.build
 local tw = ui.tw
@@ -21,7 +21,7 @@ local root = b.box {
     tw.w_px(640),
     tw.h_px(360),
     tw.bg.slate[950],
-    b.text { tw.text_xl, tw.fg.white, "Moonlift synth" },
+    b.text { tw.text_xl, tw.fg.white, "Lalin synth" },
     b.paint {
         b.id("scope"),
         tw.w_px(256),

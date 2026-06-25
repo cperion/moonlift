@@ -5,7 +5,7 @@
 -- to fully contracted fixed-shape direct Lua-closure call-frame transfer.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local RT, Exec = T.LuaRT, T.LuaExec
 local LuaFact = T.LuaFact

@@ -1,21 +1,21 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local Graph = T.MoonGraph
-local Flow = T.MoonFlow
-local Value = T.MoonValue
-local Mem = T.MoonMem
-local Effect = T.MoonEffect
-local Kernel = T.MoonKernel
-local Schedule = T.MoonSchedule
-local Lower = T.MoonLower
-local Back = T.MoonBack
+local Core = T.LalinCore
+local Code = T.LalinCode
+local Graph = T.LalinGraph
+local Flow = T.LalinFlow
+local Value = T.LalinValue
+local Mem = T.LalinMem
+local Effect = T.LalinEffect
+local Kernel = T.LalinKernel
+local Schedule = T.LalinSchedule
+local Lower = T.LalinLower
+local Back = T.LalinBack
 
 local origin = Code.CodeOriginGenerated("schema smoke")
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)
@@ -27,7 +27,7 @@ local inst_id = Code.CodeInstId("inst:load")
 local ptr = Code.CodeValueId("v:ptr")
 local n = Code.CodeValueId("v:n")
 local loaded = Code.CodeValueId("v:loaded")
-local lease_ty = Code.CodeTyLease(ptr_i32, T.MoonType.TScalar(Core.ScalarI32))
+local lease_ty = Code.CodeTyLease(ptr_i32, T.LalinType.TScalar(Core.ScalarI32))
 assert(lease_ty.base == ptr_i32, "CodeTyLease should preserve source lease boundary")
 local view = Code.CodeValueId("v:view")
 local view_make = Code.CodeInstViewMake(view, i32, ptr, n, Code.CodeValueId("v:stride"))
@@ -106,4 +106,4 @@ local lower = Lower.LowerModule(module.id, Lower.LowerTargetBack, kmod, smod, { 
 assert(lower.funcs[1].fragments[1].strategy.kernel == kplan.id)
 assert(Lower["LowerFunc" .. "Kernel"] == nil and Lower["LowerFunc" .. "Code"] == nil, "old LowerFunc constructors must be removed")
 
-io.write("moonlift schema_core ok\n")
+io.write("lalin schema_core ok\n")

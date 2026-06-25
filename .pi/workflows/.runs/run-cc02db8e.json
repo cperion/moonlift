@@ -3,14 +3,14 @@
   "workflowId": "wf-lua-vm-compiler-complete",
   "agent": "scout",
   "task": "Find everything relevant to completing the source compiler in experiments/lua_interpreter_vm. Ground the investigation in explicit_programming.md, LANGUAGE_REFERENCE.md as needed, the current VM/compiler working tree, and Lua 5.5 oracle facts. Gather first-order facts about lexer, parser, AST/products, codegen, compiler entry points, emitted bytecode, runtime dependencies, tests, current source language coverage, missing Lua 5.5 grammar/features, and blockers in VM runtime semantics that prevent compiled source from executing. Do not propose solutions; gather facts for planning compiler completion.",
-  "cwd": "/home/cedric/dev/moonlift",
-  "sessionFile": "/home/cedric/dev/moonlift/.pi/workflows/.sessions/run-cc02db8e.jsonl",
+  "cwd": "/home/cedric/dev/lalin",
+  "sessionFile": "/home/cedric/dev/lalin/.pi/workflows/.sessions/run-cc02db8e.jsonl",
   "status": "completed",
   "created": "2026-05-30T13:21:44.842Z",
   "updated": "2026-05-30T13:37:32.419Z",
   "exitCode": 0,
   "stopReason": "stop",
-  "lastOutputPreview": "## Files Retrieved\n\n1. `explicit_programming.md` (lines 1-240) — explicit-programming doctrine: all meaningful distinctions should be typed/named/visible; relevant to compiler/VM architecture expectations.\n2. `LANGUAGE_REFERENCE.md` (lines 1-220) — Moonlift layers, hosted declarations, explicit ASDL/control rules.\n3. `experiments/lua_interpreter_vm/README.md` (lines 1-102) — experiment status; interpreter VM and SpongeJIT are separate; source/compiler pieces exist but are experimental.\n4. `exper",
+  "lastOutputPreview": "## Files Retrieved\n\n1. `explicit_programming.md` (lines 1-240) — explicit-programming doctrine: all meaningful distinctions should be typed/named/visible; relevant to compiler/VM architecture expectations.\n2. `LANGUAGE_REFERENCE.md` (lines 1-220) — Lalin layers, hosted declarations, explicit ASDL/control rules.\n3. `experiments/lua_interpreter_vm/README.md` (lines 1-102) — experiment status; interpreter VM and SpongeJIT are separate; source/compiler pieces exist but are experimental.\n4. `exper",
   "sessionEntriesBefore": 0,
   "sessionEntriesAfter": 128
 }

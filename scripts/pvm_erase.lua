@@ -2,7 +2,7 @@
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local Erase = require("moonlift.pvm_erase")
+local Erase = require("lalin.pvm_erase")
 
 local in_path = arg[1]
 local out_path = arg[2]

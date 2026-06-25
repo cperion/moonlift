@@ -1,11 +1,11 @@
 -- lua_rt_value_model.lua -- explicit LuaRT TValue runtime representation.
 --
 -- This module centralizes the mapping from ASDL-visible LuaRT value tag
--- constructors to the Moonlift runtime value struct used by MoonCFG emission.
+-- constructors to the Lalin runtime value struct used by LalinCFG emission.
 -- It is representation metadata only: no helper calls, interpreter dispatch, or
 -- semantic fallback live here.
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local B = require("lua_compile.builders")
 local T = B.T
 local RT = T.LuaRT

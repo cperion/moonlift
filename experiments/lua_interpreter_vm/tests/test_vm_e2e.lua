@@ -1,10 +1,10 @@
--- VM end-to-end test (Lua 5.5): memory via ffi.load(libmoonlift) scratch, construct Proto, run vm_resume
+-- VM end-to-end test (Lua 5.5): memory via ffi.load(liblalin) scratch, construct Proto, run vm_resume
 
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
 local bit = require("bit")
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
@@ -22,28 +22,28 @@ local function set_ABx(i, op, a, bx) i.word = pack_ABx(op, a, bx) end
 local function set_AsBx(i, op, a, sbx) i.word = pack_AsBx(op, a, sbx) end
 local function op_of(i) return bit.band(i.word, 127) end
 
--- Load the moonlift shared library for scratch allocator
-local libmoon
+-- Load the lalin shared library for scratch allocator
+local liblalin
 local ok, err = pcall(function()
-    libmoon = ffi.load("libmoonlift")
+    liblalin = ffi.load("liblalin")
 end)
 if not ok then
-    local paths = {"./target/release/libmoonlift.so", "./target/debug/libmoonlift.so"}
+    local paths = {"./target/release/liblalin.so", "./target/debug/liblalin.so"}
     for _, p in ipairs(paths) do
-        local ok2 = pcall(function() libmoon = ffi.load(p) end)
+        local ok2 = pcall(function() liblalin = ffi.load(p) end)
         if ok2 then break end
     end
 end
 
-if not libmoon then
-    print("FAIL: Could not load libmoonlift.so. Build with 'cargo build --release' first.")
+if not liblalin then
+    print("FAIL: Could not load liblalin.so. Build with 'cargo build --release' first.")
     os.exit(1)
 end
 
 ffi.cdef [[
-    void* moonlift_scratch_raw(int slot, int elem_size, int count);
+    void* lalin_scratch_raw(int slot, int elem_size, int count);
 ]]
-local scratch_raw = libmoon.moonlift_scratch_raw
+local scratch_raw = liblalin.lalin_scratch_raw
 
 -- Struct layouts matching products.lua (Lua 5.5)
 -- Instr: op(2)+a(2)+b(2)+c(2)+k(1)+pad(3)+bx(4)+sbx(4) = 20 bytes
@@ -182,7 +182,7 @@ print()
 -- Compile wrapper that calls vm_resume
 local vr = vm.vm_loop.vm_resume
 print("Compiling vm_resume wrapper...")
-local runner = moon.func {
+local runner = lalin.func {
     vm_resume = vr,
     sys_realloc = vm.regions_allocator.sys_realloc,
 } [[

@@ -1,5 +1,5 @@
 # Semantic optimization ASDL 
-Find the semantic ASDL facts that make fast lowering emerge automatically for MoonCode/Kernel lowering, using benchmark gaps vs gcc -O3 as evidence rather than ad-hoc loop recognizers.
+Find the semantic ASDL facts that make fast lowering emerge automatically for LalinCode/Kernel lowering, using benchmark gaps vs gcc -O3 as evidence rather than ad-hoc loop recognizers.
 **Workflow ID**: wf-semantic-optimization-asdl
 **Started**: 2026-06-15 18:55:51
 ---
@@ -9,30 +9,30 @@ Find the semantic ASDL facts that make fast lowering emerge automatically for Mo
 ## Files Retrieved
 
 1. `benchmarks/bench_c_vs_cranelift.lua` (lines 1-325) — Benchmark harness and exact `sum_loop`, `ptr_sum`, `view_sum`, `triad_store` source.
-2. `lua/moonlift/schema/code.asdl` (lines 1-218) — `MoonCode` schema: memory access, contracts, integer semantics, CFG/code IR.
-3. `lua/moonlift/schema/flow.asdl` (lines 1-56) — `MoonFlow` schema: edges, loops, counted domains, inductions/ranges.
-4. `lua/moonlift/schema/mem.asdl` (lines 1-68) — `MoonMem` schema: access facts, bases, indices, patterns, alias/dependence facts.
-5. `lua/moonlift/schema/kernel.asdl` (lines 1-109) — `MoonKernel` schema: streams, safety, reductions, schedules, planned/no-plan kernels.
-6. `lua/moonlift/schema/lower.asdl` (lines 1-16) — `MoonLower` schema: function lowering choice, kernel vs code.
-7. `lua/moonlift/schema/back.asdl` (lines 1-288) — `MoonBack` schema: backend commands, memory info, vector ops, target facts, alias facts.
-8. `lua/moonlift/code_flow_facts.lua` (lines 1-337) — Flow fact builder.
-9. `lua/moonlift/code_mem_facts.lua` (lines 1-276) — Memory fact builder.
-10. `lua/moonlift/code_kernel_plan.lua` (lines 1-526) — Kernel planner and rejection logic.
-11. `lua/moonlift/code_lower_plan.lua` (lines 1-42) — Chooses `LowerFuncKernel` only for whole-function kernel plans.
-12. `lua/moonlift/lower_to_back.lua` (lines 1-560) — Kernel and fallback lowering to `MoonBack`.
-13. `lua/moonlift/lower_to_c.lua` (lines 1-24) — C lowering explicitly ignores kernel plans today.
-14. `lua/moonlift/code_to_back.lua` (lines 1-496) — Conservative generic Code→Back lowering.
-15. `lua/moonlift/code_to_c.lua` (lines 1-584) — Generic Code→C lowering.
-16. `lua/moonlift/c_emit.lua` (lines 1-463) — C emitter; emits gotos/block params.
-17. `lua/moonlift/c_helpers.lua` (lines 1-448) — C helpers are `static inline`; integer ops use unsigned wrap.
-18. `lua/moonlift/tree_to_code.lua` (lines 300-344, 470-550, 630-710, 850-910, 1415-1510) — Code memory accesses, view/index lowering, contract lowering.
-19. `lua/moonlift/tree_contract_facts.lua` (lines 1-73) — Converts source `requires` / param modifiers to tree contract facts.
-20. `lua/moonlift/frontend_pipeline.lua` (lines 1-348) — Both Cranelift and C paths build Flow/Mem/Kernel/Lower facts before lowering.
+2. `lua/lalin/schema/code.asdl` (lines 1-218) — `LalinCode` schema: memory access, contracts, integer semantics, CFG/code IR.
+3. `lua/lalin/schema/flow.asdl` (lines 1-56) — `LalinFlow` schema: edges, loops, counted domains, inductions/ranges.
+4. `lua/lalin/schema/mem.asdl` (lines 1-68) — `LalinMem` schema: access facts, bases, indices, patterns, alias/dependence facts.
+5. `lua/lalin/schema/kernel.asdl` (lines 1-109) — `LalinKernel` schema: streams, safety, reductions, schedules, planned/no-plan kernels.
+6. `lua/lalin/schema/lower.asdl` (lines 1-16) — `LalinLower` schema: function lowering choice, kernel vs code.
+7. `lua/lalin/schema/back.asdl` (lines 1-288) — `LalinBack` schema: backend commands, memory info, vector ops, target facts, alias facts.
+8. `lua/lalin/code_flow_facts.lua` (lines 1-337) — Flow fact builder.
+9. `lua/lalin/code_mem_facts.lua` (lines 1-276) — Memory fact builder.
+10. `lua/lalin/code_kernel_plan.lua` (lines 1-526) — Kernel planner and rejection logic.
+11. `lua/lalin/code_lower_plan.lua` (lines 1-42) — Chooses `LowerFuncKernel` only for whole-function kernel plans.
+12. `lua/lalin/lower_to_back.lua` (lines 1-560) — Kernel and fallback lowering to `LalinBack`.
+13. `lua/lalin/lower_to_c.lua` (lines 1-24) — C lowering explicitly ignores kernel plans today.
+14. `lua/lalin/code_to_back.lua` (lines 1-496) — Conservative generic Code→Back lowering.
+15. `lua/lalin/code_to_c.lua` (lines 1-584) — Generic Code→C lowering.
+16. `lua/lalin/c_emit.lua` (lines 1-463) — C emitter; emits gotos/block params.
+17. `lua/lalin/c_helpers.lua` (lines 1-448) — C helpers are `static inline`; integer ops use unsigned wrap.
+18. `lua/lalin/tree_to_code.lua` (lines 300-344, 470-550, 630-710, 850-910, 1415-1510) — Code memory accesses, view/index lowering, contract lowering.
+19. `lua/lalin/tree_contract_facts.lua` (lines 1-73) — Converts source `requires` / param modifiers to tree contract facts.
+20. `lua/lalin/frontend_pipeline.lua` (lines 1-348) — Both Cranelift and C paths build Flow/Mem/Kernel/Lower facts before lowering.
 21. `tests/test_code_kernel_plan.lua` (lines 1-132) — Existing expectations for contracted loops vs unsafe loops.
 22. `tests/test_code_lower_plan.lua` (lines 1-180) — Existing expectations for vector kernel lowering when contracts are present.
 23. `src/lib.rs` (lines 1-260) — Cranelift setup; `opt_level=speed`.
 24. `src/decode.rs` (lines 50-55, 360-712) — Wire decoding into Cranelift IR, memory flags, vector ops.
-25. `lua/moonlift/back_command_binary.lua` (lines 1-520) — BackProgram binary encoder, memory flags, vector load/store emission.
+25. `lua/lalin/back_command_binary.lua` (lines 1-520) — BackProgram binary encoder, memory flags, vector load/store emission.
 
 ## Key Code
 
@@ -69,7 +69,7 @@ No `requires bounds(...)`, `requires disjoint(...)`, `noalias`, `readonly`, or `
 
 ### Tree→Code marks all normal memory as may-trap
 
-`lua/moonlift/tree_to_code.lua` lines 318-319:
+`lua/lalin/tree_to_code.lua` lines 318-319:
 
 ```lua
 local function memory_access(ctx, mode, source_ty, code_type)
@@ -86,7 +86,7 @@ append_inst(ctx, Code.CodeInstStore(place, value, memory_access(ctx, Code.CodeMe
 
 ### Mem facts are conservative
 
-`lua/moonlift/code_mem_facts.lua`:
+`lua/lalin/code_mem_facts.lua`:
 
 ```lua
 elseif cls == Code.CodePlaceDeref then
@@ -106,7 +106,7 @@ out[#out + 1] = Mem.MemDependenceUnknown(accesses[i].id, accesses[j].id, "depend
 
 ### Kernel planner rejects unknown bounds/traps/alias/dependence
 
-`lua/moonlift/code_kernel_plan.lua`:
+`lua/lalin/code_kernel_plan.lua`:
 
 ```lua
 if pvm.classof(access.bounds) == Mem.MemBoundsUnknown then
@@ -174,11 +174,11 @@ Back.BackMemoryInfo(..., Back.BackAlignUnknown, Back.BackDerefBytes(...), Back.B
 
 ### C path computes facts but ignores kernel lowering
 
-`lua/moonlift/lower_to_c.lua`:
+`lua/lalin/lower_to_c.lua`:
 
 ```lua
 -- C lowering is intentionally a pure CodeToC projection for now.
--- MoonLower/MoonKernel are accepted so the frontend can use the same
+-- LalinLower/LalinKernel are accepted so the frontend can use the same
 -- pipeline shape as Back, but this path must not install partial
 -- point optimizations.
 return CodeToC.module(code_module, opts)
@@ -304,7 +304,7 @@ Actual benchmark fact outcomes from inspection:
 - **Semantic safety invariants**: bounds, non-trapping memory, aliasing, dependence, and integer range/no-wrap facts must be sound before vector/closed-form lowering.
 - **Fact placement and propagation**: facts should not be planner-local if generic lowering, C lowering, Back lowering, and future passes need them.
 - **Contract vs automatic inference boundary**: bare `ptr + n` cannot automatically imply validity/disjointness unless the language semantics say so.
-- **Benchmark attribution**: distinguish gaps caused by missing Moonlift semantics from gaps caused by Cranelift lacking GCC-style loop/vector optimizations.
+- **Benchmark attribution**: distinguish gaps caused by missing Lalin semantics from gaps caused by Cranelift lacking GCC-style loop/vector optimizations.
 - **Preserving observable behavior**: trap behavior, overflow behavior, and alias-dependent store/load ordering are the constraints that make “fast lowering” nontrivial.
 
 ---
@@ -352,11 +352,11 @@ Right now, the planner’s “bounds contract exists” shortcut skips most of t
 
 #### 3. `view_sum` exposes a semantic loss that `ptr_sum` does not
 
-For `ptr_sum(p, n)`, the compiler genuinely cannot infer that `p` is valid for `n` elements from a bare pointer unless Moonlift defines that as a function precondition.
+For `ptr_sum(p, n)`, the compiler genuinely cannot infer that `p` is valid for `n` elements from a bare pointer unless Lalin defines that as a function precondition.
 
 For `view_sum`, however, the source constructs:
 
-```moonlift
+```lalin
 let v: view(i32) = view(p, n)
 ...
 v[i]
@@ -429,7 +429,7 @@ That is a hidden blocker because automatic lowering needs machine-readable disti
 - derived pointer preserving object bounds,
 - derived pointer that may leave object.
 
-As strings, these cannot reliably drive bounds, alias, or provenance reasoning. This conflicts with Moonlift’s own ASDL philosophy: semantic state should not hide in strings.
+As strings, these cannot reliably drive bounds, alias, or provenance reasoning. This conflicts with Lalin’s own ASDL philosophy: semantic state should not hide in strings.
 
 #### 7. Trap semantics are modeled three times but not consistently propagated
 
@@ -502,7 +502,7 @@ This matters for both:
 sum_{i=0}^{n-1} i = n * (n - 1) / 2
 ```
 
-Moonlift currently recognizes it only as a scalar reduction. To safely lower to closed form, the compiler needs facts about:
+Lalin currently recognizes it only as a scalar reduction. To safely lower to closed form, the compiler needs facts about:
 
 - loop trip count,
 - induction exact range,
@@ -511,7 +511,7 @@ Moonlift currently recognizes it only as a scalar reduction. To safely lower to 
 - signedness of `n`,
 - behavior for `n <= 0`.
 
-Because Moonlift integer ops use explicit wrap semantics, this is not the same as C signed-overflow UB. The semantic fact needed is not just “reduction over induction”; it is “this reduction has a closed-form value under Moonlift’s integer semantics.”
+Because Lalin integer ops use explicit wrap semantics, this is not the same as C signed-overflow UB. The semantic fact needed is not just “reduction over induction”; it is “this reduction has a closed-form value under Lalin’s integer semantics.”
 
 So the `sum_loop` gap is mostly a missing high-level algebra/range fact plus Cranelift not doing this idiom itself.
 
@@ -544,7 +544,7 @@ Without an explicit contract, view semantics, or language-level pointer extent r
 
 The loads `a` and `b` do not need to be mutually noalias. The write stream `out` needs stronger reasoning relative to reads/writes.
 
-GCC may optimize this with runtime alias checks or conservative vectorization strategies. MoonKernel currently has no notion of guarded/versioned facts such as:
+GCC may optimize this with runtime alias checks or conservative vectorization strategies. LalinKernel currently has no notion of guarded/versioned facts such as:
 
 ```text
 if runtime disjointness check succeeds, vector path is safe;
@@ -553,7 +553,7 @@ else scalar path preserves semantics.
 
 So part of the `triad_store` gap is missing semantics/facts, and part is lack of GCC-style runtime versioning/vectorization machinery.
 
-#### 13. C/gcc-O3 is not using MoonKernel facts, so it is an imperfect semantic oracle
+#### 13. C/gcc-O3 is not using LalinKernel facts, so it is an imperfect semantic oracle
 
 The C path computes Flow/Mem/Kernel/Lower facts but ignores them. GCC optimizes generic emitted C.
 
@@ -561,7 +561,7 @@ Therefore benchmark gaps mean:
 
 ```text
 GCC can recover or assume enough semantics from C + UB/model + optimizer heuristics.
-Cranelift path cannot, unless Moonlift makes those semantics explicit.
+Cranelift path cannot, unless Lalin makes those semantics explicit.
 ```
 
 But not every GCC win maps to a missing ASDL fact. Some map to backend optimizer capabilities:
@@ -574,7 +574,7 @@ But not every GCC win maps to a missing ASDL fact. Some map to backend optimizer
 - unrolling/interleaving,
 - target-specific vector width selection.
 
-The ASDL direction should separate “semantic facts Moonlift must know” from “backend optimizations Cranelift will not invent.”
+The ASDL direction should separate “semantic facts Lalin must know” from “backend optimizations Cranelift will not invent.”
 
 #### 14. Kernel scheduling currently ignores target facts
 
@@ -604,7 +604,7 @@ The current benchmarks use bare pointers without contracts, so expecting automat
 - **`ptr_sum`**
   - Missing semantics: pointer extent / bounds / nontrap facts.
   - Existing shape recognition is already sufficient.
-  - Backend limitation: Cranelift will not autovectorize scalar loop anyway, but MoonKernel is blocked before scheduling.
+  - Backend limitation: Cranelift will not autovectorize scalar loop anyway, but LalinKernel is blocked before scheduling.
 
 - **`view_sum`**
   - Missing semantics: structural view provenance, view length/stride, loop-domain-to-view-bounds relation.
@@ -619,7 +619,7 @@ The current benchmarks use bare pointers without contracts, so expecting automat
 
 ### Knowledge Gaps
 
-- Exact Moonlift language semantics for `ptr(T)` validity and `view(T)` construction: does a view assert dereferenceability or only carry a descriptor?
+- Exact Lalin language semantics for `ptr(T)` validity and `view(T)` construction: does a view assert dereferenceability or only carry a descriptor?
 - Whether traps are observable enough to forbid any reordering, or whether failed contracts make behavior undefined.
 - What GCC actually emits for `sum_loop` under current C helper lowering: formula, vector loop, or something else.
 
@@ -635,7 +635,7 @@ The current benchmarks use bare pointers without contracts, so expecting automat
   - Convert contracts into reusable facts, not planner-local assumptions.
   - Lowering consumes resolved facts for `notrap`, `can_move`, alignment, no-dependence, vector streams, and closed-form reductions.
 
-- **Tradeoff**: Optimizes for incremental integration with existing MoonFlow/MoonMem/MoonKernel architecture; sacrifices some simplicity because facts must be carefully composed across layers.
+- **Tradeoff**: Optimizes for incremental integration with existing LalinFlow/LalinMem/LalinKernel architecture; sacrifices some simplicity because facts must be carefully composed across layers.
 
 - **Risk**: If the proof layer becomes too permissive, it may bless unsafe memory/vector transformations; if too conservative, benchmark gaps remain.
 
@@ -666,7 +666,7 @@ The current benchmarks use bare pointers without contracts, so expecting automat
   - Add an algebra pass for `sum_loop`:
     - recognize induction fold `acc += i`
     - require exact trip count and integer semantics proof
-    - emit closed-form arithmetic under Moonlift wrap semantics.
+    - emit closed-form arithmetic under Lalin wrap semantics.
 
 - **Benchmark handling**:
   - `sum_loop`: uses `AlgebraClosedFormReduction`.
@@ -771,7 +771,7 @@ The current benchmarks use bare pointers without contracts, so expecting automat
 
 - **Benchmark handling**:
   - `sum_loop`: emits closed-form reduction when range/integer facts prove it.
-  - `ptr_sum`: can fast-lower with a bounds/nontrap guard if Moonlift has a way to validate pointer extent at runtime; otherwise still needs contract.
+  - `ptr_sum`: can fast-lower with a bounds/nontrap guard if Lalin has a way to validate pointer extent at runtime; otherwise still needs contract.
   - `view_sum`: view extent gives unconditional bounds; no guard needed unless alias/movement facts are conditional.
   - `triad_store`: emits vector fast path under disjointness guards such as:
     - `out[0:n]` disjoint from `a[0:n]`
@@ -783,7 +783,7 @@ The current benchmarks use bare pointers without contracts, so expecting automat
 ### Comparison
 
 - Pick **Approach A** if the goal is to make the current ASDL pipeline coherent with the least architectural disruption: facts become reusable compiler currency, and lowering consumes them consistently.
-- Pick **Approach B** if the goal is to make Moonlift’s semantic model explicit and durable: views, bounded memory, provenance, and access effects become first-class, with raw pointers remaining conservative.
+- Pick **Approach B** if the goal is to make Lalin’s semantic model explicit and durable: views, bounded memory, provenance, and access effects become first-class, with raw pointers remaining conservative.
 - Pick **Approach C** if the goal is to close GCC-style benchmark gaps for bare-pointer code: runtime guards let the compiler create fast paths even when static contracts are absent.
 
 ## Critique Output — 2026-06-15 19:04:20
@@ -811,7 +811,7 @@ The current benchmarks use bare pointers without contracts, so expecting automat
 | **Coupling** | 2/5 | Long-term coupling is low because memory meaning becomes owned by explicit objects/capabilities instead of inferred ad hoc across passes. Short-term, it touches many layers. |
 | **Cohesion** | 5/5 | Very cohesive. Provenance, extent, stride, readonly/writeonly, uniqueness, and access intervals all belong together semantically. This directly addresses the current stringly provenance problem. |
 | **Migration cost** | 5/5 | Highest migration cost. Requires frontend/type-system changes, ASDL changes, memory fact rewrites, and likely source-level idiom changes for pointer-heavy code. |
-| **Philosophy fit** | 5/5 | Excellent fit with Moonlift’s rule that ASDL is the architecture and semantics must not hide in strings. This is the most semantically durable approach. |
+| **Philosophy fit** | 5/5 | Excellent fit with Lalin’s rule that ASDL is the architecture and semantics must not hide in strings. This is the most semantically durable approach. |
 | **Risk** | 4/5 | Risk is scope and adoption: raw pointer benchmarks may not improve unless code uses views/contracts. It may be architecturally right but slower to produce visible wins. |
 | **Testability** | 4/5 | Testable around views, slices, locals, and object capabilities, but broad migration makes incremental validation more expensive than Approach A. |
 
@@ -827,12 +827,12 @@ The current benchmarks use bare pointers without contracts, so expecting automat
 | **Coupling** | 5/5 | Strongly couples semantic facts, runtime guards, kernel planning, lowering, CFG generation, and fallback preservation. Versioned lowering would affect the whole backend path. |
 | **Cohesion** | 3/5 | Conditional facts are a coherent idea, but guard generation, semantic validation, and optimized lowering become entangled. It risks mixing proof representation with performance strategy. |
 | **Migration cost** | 5/5 | Deep refactor. Requires guarded facts, `LowerFuncVersioned`-style lowering, guard CFG emission, fallback preservation, and precise runtime range/disjointness semantics. |
-| **Philosophy fit** | 3/5 | Partially fits if guards are represented as ASDL facts, but it is the most benchmark-driven option. It can feel like chasing GCC behavior rather than making Moonlift semantics explicit first. |
+| **Philosophy fit** | 3/5 | Partially fits if guards are represented as ASDL facts, but it is the most benchmark-driven option. It can feel like chasing GCC behavior rather than making Lalin semantics explicit first. |
 | **Risk** | 5/5 | Highest soundness risk. Runtime guards must exactly imply nontrap, bounds, alias, and dependence facts. Bare pointer bounds guards may not even be meaningful without runtime extent metadata. |
 | **Testability** | 3/5 | Individual guards can be tested, but validating equivalence between fast path and fallback across alias/trap cases is hard. Many bugs would be miscompilations, not simple rejects. |
 
 **Verdict**: Significant concerns  
-**Key concern**: Guard predicates must be semantically real in Moonlift’s runtime model. Without actual pointer extent/provenance validation, guarded bounds for raw pointers are not sound.
+**Key concern**: Guard predicates must be semantically real in Lalin’s runtime model. Without actual pointer extent/provenance validation, guarded bounds for raw pointers are not sound.
 
 ---
 
@@ -852,7 +852,7 @@ Workflow: `wf-semantic-optimization-asdl`
 
 ## Goal
 
-Enable Moonlift’s compiler to derive, normalize, and reuse sound semantic facts—flow ranges, memory object/provenance facts, bounds/nontrap facts, dependence facts, and algebraic reduction facts—so MoonCode → MoonKernel/MoonBack lowering can emit fast scalar, vector, and closed-form code when the program semantics prove it safe, while preserving conservative fallback behavior for raw pointers and unknown facts.
+Enable Lalin’s compiler to derive, normalize, and reuse sound semantic facts—flow ranges, memory object/provenance facts, bounds/nontrap facts, dependence facts, and algebraic reduction facts—so LalinCode → LalinKernel/LalinBack lowering can emit fast scalar, vector, and closed-form code when the program semantics prove it safe, while preserving conservative fallback behavior for raw pointers and unknown facts.
 
 ## Incentives
 
@@ -884,26 +884,26 @@ source
 → C: lower_to_c
 ```
 
-Both Cranelift and C paths compute Flow/Mem/Kernel/Lower facts. The Cranelift path consumes `MoonLower` through `lower_to_back.lua`; the C path currently ignores kernel plans and emits generic C through `CodeToC`.
+Both Cranelift and C paths compute Flow/Mem/Kernel/Lower facts. The Cranelift path consumes `LalinLower` through `lower_to_back.lua`; the C path currently ignores kernel plans and emits generic C through `CodeToC`.
 
 Relevant files and roles:
 
 | File | Role |
 |---|---|
-| `lua/moonlift/schema/code.asdl` | MoonCode IR, memory access metadata, contracts, integer semantics |
-| `lua/moonlift/schema/flow.asdl` | MoonFlow facts: edges, counted loops, inductions, ranges |
-| `lua/moonlift/schema/mem.asdl` | MoonMem facts: accesses, bases, indices, bounds, alias/dependence |
-| `lua/moonlift/schema/kernel.asdl` | MoonKernel plans, streams, safety, schedules |
-| `lua/moonlift/schema/lower.asdl` | Function lowering decision: kernel vs code |
-| `lua/moonlift/schema/back.asdl` | MoonBack commands, memory info, vector ops, target facts |
-| `lua/moonlift/tree_to_code.lua` | Lowers typed tree to MoonCode |
-| `lua/moonlift/code_flow_facts.lua` | Derives flow/counting/induction facts |
-| `lua/moonlift/code_mem_facts.lua` | Derives memory access facts |
-| `lua/moonlift/code_kernel_plan.lua` | Plans/rejects kernels |
-| `lua/moonlift/code_lower_plan.lua` | Chooses whole-function kernel lowering or fallback |
-| `lua/moonlift/lower_to_back.lua` | Emits Back from kernel or generic code |
-| `lua/moonlift/code_to_back.lua` | Generic conservative Code → Back lowering |
-| `lua/moonlift/lower_to_c.lua` | C lowering; intentionally ignores kernel plans |
+| `lua/lalin/schema/code.asdl` | LalinCode IR, memory access metadata, contracts, integer semantics |
+| `lua/lalin/schema/flow.asdl` | LalinFlow facts: edges, counted loops, inductions, ranges |
+| `lua/lalin/schema/mem.asdl` | LalinMem facts: accesses, bases, indices, bounds, alias/dependence |
+| `lua/lalin/schema/kernel.asdl` | LalinKernel plans, streams, safety, schedules |
+| `lua/lalin/schema/lower.asdl` | Function lowering decision: kernel vs code |
+| `lua/lalin/schema/back.asdl` | LalinBack commands, memory info, vector ops, target facts |
+| `lua/lalin/tree_to_code.lua` | Lowers typed tree to LalinCode |
+| `lua/lalin/code_flow_facts.lua` | Derives flow/counting/induction facts |
+| `lua/lalin/code_mem_facts.lua` | Derives memory access facts |
+| `lua/lalin/code_kernel_plan.lua` | Plans/rejects kernels |
+| `lua/lalin/code_lower_plan.lua` | Chooses whole-function kernel lowering or fallback |
+| `lua/lalin/lower_to_back.lua` | Emits Back from kernel or generic code |
+| `lua/lalin/code_to_back.lua` | Generic conservative Code → Back lowering |
+| `lua/lalin/lower_to_c.lua` | C lowering; intentionally ignores kernel plans |
 | `src/decode.rs` | Rust Cranelift decoder; consumes simple memory flags |
 
 Today, `tree_to_code.lua` creates normal memory accesses as potentially trapping:
@@ -949,7 +949,7 @@ Benchmark attribution in the current state:
 - `sum_loop`
   - Recognized as a whole-function scalar reduction kernel.
   - Lowered as scalar loop, not closed form.
-  - Missing exact trip-count/range and algebraic closed-form facts under Moonlift integer semantics.
+  - Missing exact trip-count/range and algebraic closed-form facts under Lalin integer semantics.
 
 - `ptr_sum`
   - Counted loop and contiguous induction-indexed load are recognized.
@@ -975,13 +975,13 @@ The chosen direction is **Approach A as the implementation spine**, with **Appro
 The compiler will keep the existing broad pipeline shape:
 
 ```text
-MoonCode
-→ MoonFlow facts
-→ MoonMem facts
+LalinCode
+→ LalinFlow facts
+→ LalinMem facts
 → normalized semantic facts
-→ MoonKernel planning
-→ MoonLower decision
-→ MoonBack lowering
+→ LalinKernel planning
+→ LalinLower decision
+→ LalinBack lowering
 ```
 
 The central change is that contracts, flow ranges, memory access shape, view provenance, alias/dependence reasoning, and algebraic reductions become reusable normalized ASDL facts before planning and lowering consume them.
@@ -1012,11 +1012,11 @@ The intended semantic tower is:
 ```text
 Source syntax / typed tree
   ↓
-MoonCode + CodeContractFact + CodeMemoryAccess
+LalinCode + CodeContractFact + CodeMemoryAccess
   ↓
-MoonFlow: loop domains, inductions, ranges, trip counts
+LalinFlow: loop domains, inductions, ranges, trip counts
   ↓
-MoonMem: access shape, base/provenance, index pattern, raw bounds/trap/alias facts
+LalinMem: access shape, base/provenance, index pattern, raw bounds/trap/alias facts
   ↓
 Normalized semantic facts:
     - flow proofs
@@ -1025,12 +1025,12 @@ Normalized semantic facts:
     - dependence proofs
     - algebraic reduction proofs
   ↓
-MoonKernel / MoonLower:
+LalinKernel / LalinLower:
     - safe stream plans
     - scalar/vector schedule selection
     - closed-form lowering eligibility
   ↓
-MoonBack:
+LalinBack:
     - explicit optimized commands
     - accurate BackMemoryInfo
     - backend-visible flags where supported
@@ -1142,7 +1142,7 @@ AlgebraClosedFormReduction
 AlgebraReductionUnderWrapSemantics
 ```
 
-This must be tied to exact trip-count/range facts and Moonlift integer semantics. It is not enough to detect `acc += i`; the closed form must be valid under the language’s wrapping behavior and behavior for `n <= 0`.
+This must be tied to exact trip-count/range facts and Lalin integer semantics. It is not enough to detect `acc += i`; the closed form must be valid under the language’s wrapping behavior and behavior for `n <= 0`.
 
 ### Contracts vs Automatic Inference
 
@@ -1196,7 +1196,7 @@ Kernel lowering must not emit conservative `BackMayTrap` for accesses whose safe
 
 #### C lowering
 
-`lower_to_c.lua` currently ignores kernel plans. This decision does not require C lowering to become the optimization path. GCC benchmark results remain useful evidence, but the Moonlift optimization path is semantic fact normalization feeding MoonKernel/MoonBack.
+`lower_to_c.lua` currently ignores kernel plans. This decision does not require C lowering to become the optimization path. GCC benchmark results remain useful evidence, but the Lalin optimization path is semantic fact normalization feeding LalinKernel/LalinBack.
 
 #### Cranelift backend
 
@@ -1214,14 +1214,14 @@ The initial value comes from using semantic facts before/during Back emission to
 
 | Benchmark | Expected semantic treatment |
 |---|---|
-| `sum_loop` | Use exact trip count, induction range, and algebraic reduction facts to emit closed-form code when valid under Moonlift integer semantics. |
+| `sum_loop` | Use exact trip count, induction range, and algebraic reduction facts to emit closed-form code when valid under Lalin integer semantics. |
 | `ptr_sum` | Shape is already recognized. Fast lowering requires explicit bounds/nontrap contract or future pointer extent semantics. Bare pointer remains conservative. |
 | `view_sum` | Should become an automatic fast case through structured view object/provenance, extent, stride, and loop-domain-to-bounds composition. |
 | `triad_store` | Requires bounds/nontrap for all streams and write-related no-dependence facts. Read/read aliasing must not block planning. Disjoint/noalias contracts or structured object facts provide stronger write safety. |
 
 ### Tradeoffs Acknowledged
 
-This decision preserves the existing pipeline rather than replacing it with a full memory-object type-system rewrite. That reduces migration cost and lets existing MoonFlow/MoonMem/MoonKernel work evolve incrementally.
+This decision preserves the existing pipeline rather than replacing it with a full memory-object type-system rewrite. That reduces migration cost and lets existing LalinFlow/LalinMem/LalinKernel work evolve incrementally.
 
 It also folds in structured memory/provenance semantics only where they are required for correctness and useful automatic inference, especially views. This avoids leaving important semantics hidden in strings while not forcing every raw pointer path to become a new object-capability system immediately.
 
@@ -1237,7 +1237,7 @@ Specific risks:
 - induction updates may wrap unless no-wrap/range facts prove otherwise;
 - trap behavior must remain observable unless nontrap facts are established;
 - vectorization must distinguish harmless aliasing from unsafe loop-carried dependence;
-- closed-form reductions must respect Moonlift integer semantics, not C signed-overflow assumptions;
+- closed-form reductions must respect Lalin integer semantics, not C signed-overflow assumptions;
 - backend flags must not claim `notrap` or `can_move` unless the normalized facts prove them.
 
 Guarded specialization is intentionally deferred because runtime guards would require exact semantic correspondence between guard predicates and the facts they imply. Without first having precise unconditional facts, guarded vector paths would carry high miscompilation risk.
@@ -1291,7 +1291,7 @@ Guarded specialization is intentionally deferred because runtime guards would re
 Implemented T002: normalized semantic loop fact derivation for counted loops.
 
 ## Files Changed
-- `lua/moonlift/code_flow_facts.lua` - added `semantic_facts` / `semantics`, deriving normalized counted-loop facts, conservative trip counts, induction ranges, and no-wrap only from existing no-overflow semantics.
+- `lua/lalin/code_flow_facts.lua` - added `semantic_facts` / `semantics`, deriving normalized counted-loop facts, conservative trip counts, induction ranges, and no-wrap only from existing no-overflow semantics.
 - `tests/test_code_flow_facts.lua` - added focused coverage for `0 <= i < n` loop facts, no invented no-wrap, and conservative inclusive-stop handling.
 
 ## Notes
@@ -1315,18 +1315,18 @@ Implemented and marked done:
 Stopped at T008 due a real semantic/spec blocker.
 
 ## Files Changed
-- `lua/moonlift/code_mem_facts.lua`
+- `lua/lalin/code_mem_facts.lua`
   - Added `semantic_facts` / `semantics`.
   - Emits generic `MemObjectFact`s for params, contracts, locals, globals, data, views, projections.
   - Builds access intervals and safety facts from bounded objects + flow ranges.
   - Keeps raw pointer params conservative.
   - Partially normalizes contract bounds/disjoint/noalias.
-- `lua/moonlift/code_kernel_plan.lua`
+- `lua/lalin/code_kernel_plan.lua`
   - Accepts optional normalized memory semantics.
   - Requires normalized in-bounds/nontrap proofs when supplied.
   - Relaxes read/read aliasing.
   - Uses semantic no-dependence for write-related streams.
-- `lua/moonlift/lower_to_back.lua`
+- `lua/lalin/lower_to_back.lua`
   - Accepts `opts.mem_semantics`.
   - Emits `BackNonTrapping`, `BackCanMove`, known alignment/deref info when normalized facts prove them.
   - Resolves view descriptor data through local descriptor aliases for kernel lowering.
@@ -1364,13 +1364,13 @@ Highlights:
 - Expanded benchmark cases with semantic attribution notes.
 
 ## Files Changed
-- `lua/moonlift/schema/kernel.asdl` - ASDL-carried semantics, closed-form result/proof types.
-- `lua/moonlift/schema/mem.asdl` - typed projection kinds, relation facts, semantic fact-set relations.
-- `lua/moonlift/code_kernel_plan.lua` - normalized-fact-only planning, closed-form result creation, target-aware scheduling.
-- `lua/moonlift/code_mem_facts.lua` - contract relations, typed projections, stride-aware safety.
-- `lua/moonlift/lower_to_back.lua` - reads semantics from `LowerModule.kernels`, lowers closed-form results.
-- `lua/moonlift/frontend_pipeline.lua` - public path carries semantics through kernel plan; passes target model.
-- `lua/moonlift/kernel_validate.lua` - validates ASDL-carried semantic nontrap proofs.
+- `lua/lalin/schema/kernel.asdl` - ASDL-carried semantics, closed-form result/proof types.
+- `lua/lalin/schema/mem.asdl` - typed projection kinds, relation facts, semantic fact-set relations.
+- `lua/lalin/code_kernel_plan.lua` - normalized-fact-only planning, closed-form result creation, target-aware scheduling.
+- `lua/lalin/code_mem_facts.lua` - contract relations, typed projections, stride-aware safety.
+- `lua/lalin/lower_to_back.lua` - reads semantics from `LowerModule.kernels`, lowers closed-form results.
+- `lua/lalin/frontend_pipeline.lua` - public path carries semantics through kernel plan; passes target model.
+- `lua/lalin/kernel_validate.lua` - validates ASDL-carried semantic nontrap proofs.
 - `benchmarks/bench_c_vs_cranelift.lua` - added semantic benchmark variants and attribution notes.
 - Tests updated:
   - `tests/test_schema_core.lua`

@@ -25,14 +25,14 @@ Updated both `open_facts.lua` and `open_expand.lua` to align with the Phase 1 AS
 5. **`expand_value_ref`** — Replaced 4 slot variants with `[B.ValueRefHole]`
 
 ## Files Changed
-- `lua/moonlift/open_facts.lua` — 5 surgical edits (removed stale type references, added new compressed variants)
-- `lua/moonlift/open_expand.lua` — 4 surgical edits (removed stale type references, renamed variants, updated fallback)
+- `lua/lalin/open_facts.lua` — 5 surgical edits (removed stale type references, added new compressed variants)
+- `lua/lalin/open_expand.lua` — 4 surgical edits (removed stale type references, renamed variants, updated fallback)
 
 ## Notes
 - `Sem.CallUnresolved` handling in `expand_expr` (`ExprCall` block) was left untouched — `CallUnresolved` is not part of the Phase 1 schema changes and remains actively used throughout the codebase.
 - `SwitchKey` references in `spread_slot_from_switch_key` and `expand_switch_key` were left untouched — these produce Lua table values from `parse.lua` that still work correctly.
 - `ModuleSem`/`ModuleCode` in both files were left untouched — these are not part of the schema changes.
-- `BindingClassOpenSlot` uses `self.slot` directly (a `MoonOpen.Slot`), instead of the old approach of wrapping in `O.SlotValue(self.slot)` etc., because the schema now stores a general `Slot` reference rather than specific slot variant types.
+- `BindingClassOpenSlot` uses `self.slot` directly (a `LalinOpen.Slot`), instead of the old approach of wrapping in `O.SlotValue(self.slot)` etc., because the schema now stores a general `Slot` reference rather than specific slot variant types.
 
 ## Worker Output — 2026-05-18 17:37:09
 
@@ -44,21 +44,21 @@ Updated all three Sem-group consumer files for ASDL schema changes (Approach B m
 
 ## Files Changed
 
-- **`lua/moonlift/sem_call_decide.lua`** — 5 changes:
-  - Added `local C = T.MoonCore` for `SymKind` dispatch
+- **`lua/lalin/sem_call_decide.lua`** — 5 changes:
+  - Added `local C = T.LalinCore` for `SymKind` dispatch
   - `closure_or_indirect`: `Sem.CallIndirect(...)` → `{ kind = "indirect", callee, fn_ty }` Lua table
   - `binding_class_call_target`: `[B.BindingClassFuncSym]` + `[B.BindingClassExternSym]` → single `[B.BindingClassOpenSym]` with inner dispatch on `pvm.classof(self.sym.kind) == C.SymKindFunc`/`C.SymKindExtern`
   - `binding_class_call_target`: `[B.BindingClassFuncSlot]`, `[B.BindingClassConstSlot]`, `[B.BindingClassStaticSlot]`, `[B.BindingClassValueSlot]` → single `[B.BindingClassOpenSlot]` with inner dispatch on `pvm.classof(self.slot) == O.SlotFunc`
   - `value_ref_call_target`: 4 slot variants → `[B.ValueRefHole]`; all `Sem.CallUnresolved(...)` → `{ kind = "unresolved", callee }` throughout
 
-- **`lua/moonlift/sem_const_eval.lua`** — 6 groups of changes:
+- **`lua/lalin/sem_const_eval.lua`** — 6 groups of changes:
   - Removed `ConstClassYes`/`ConstClassNo` wrapper: `const_value` simplified to identity; `no()`/`yes()` helpers removed
   - All ~60+ `pvm.once(no())` → `pvm.once(nil)` and `pvm.once(yes(X))` → `pvm.once(X)` across all phases
   - Removed `[Tr.ExprSem]` and `[Tr.ExprCode]` entries from `expr_type` phase
   - Replaced `[B.ValueRefSlot]`, `[B.ValueRefFuncSlot]`, `[B.ValueRefConstSlot]`, `[B.ValueRefStaticSlot]` → `[B.ValueRefHole]` in `value_ref_const`
   - `switch_key_value()`: changed from `pvm.classof(key) == Sem.SwitchKeyConst/Raw` to `key.kind == "const"/"raw"`
 
-- **`lua/moonlift/sem_switch_decide.lua`** — 3 restructurings:
+- **`lua/lalin/sem_switch_decide.lua`** — 3 restructurings:
   - `key_kind`: PVM phase → plain function checking `key.kind` (SwitchKey types no longer exist in schema)
   - `decide_keys`: PVM phase dispatching on `Sem.SwitchKeySet` → plain function taking `keys[]` array, returning plain `{ kind = "const_keys"|"expr_keys"|"compare_fallback", ... }` Lua tables
   - `decide_stmt_switch`/`decide_expr_switch`: removed `Sem.SwitchKeySet(...)` wrapper; export `keys()` returns `decide_keys(keys)` directly
@@ -85,11 +85,11 @@ All the schema migration changes for `tree_to_back.lua` have been applied:
 
 4. **Replaced `ValueRefConstSlot`/`ValueRefStaticSlot`/`ValueRefFuncSlot` with `ValueRefHole` + inner slot dispatch** — All three locations (in `ExprRef` handler, `PlaceRef` handler in `place_addr_to_back`, and `PlaceRef` handler in `place_store_to_back`) now check for `Bn.ValueRefHole` and dispatch on the inner slot's class (`O.SlotConst`/`O.SlotStatic`/`O.SlotFunc`).
 
-5. **Added `O = T.MoonOpen` namespace alias** — Required for the new `O.SlotConst`/`O.SlotStatic`/`O.SlotFunc` references.
+5. **Added `O = T.LalinOpen` namespace alias** — Required for the new `O.SlotConst`/`O.SlotStatic`/`O.SlotFunc` references.
 
 ## Files Changed
 
-- `lua/moonlift/tree_to_back.lua` — 6 edit blocks across 5 locations + 1 namespace alias addition
+- `lua/lalin/tree_to_back.lua` — 6 edit blocks across 5 locations + 1 namespace alias addition
 
 ## Notes
 
@@ -109,26 +109,26 @@ Also converted PVM phases that dispatched on these removed ASDL variants into re
 ## Files Changed
 
 **Listed in task (11 files):**
-- `lua/moonlift/parse.lua` — `CallUnresolved` → Lua table (line 961); `SwitchKeyRaw`/`SwitchKeyExpr` → Lua tables (switch_key_from_expr); spread arm key removed from `Tr.SwitchStmtArm`/`Tr.SwitchExprArm`
-- `lua/moonlift/ast.lua` — `CallUnresolved` → Lua table in `api.call()`
-- `lua/moonlift/pvm_surface_region_values.lua` — `CallUnresolved` → Lua table
-- `lua/moonlift/pvm_surface_cache_values.lua` — `CallUnresolved` → Lua table
-- `lua/moonlift/host_expr_values.lua` — `CallUnresolved` → Lua table
-- `lua/moonlift/host_func_values.lua` — `SwitchKeyRaw`/`SwitchKeyExpr` → Lua tables in `switch_key()` helper
-- `lua/moonlift/host_region_values.lua` — Same for `switch_key()` helper
-- `lua/moonlift/region_normal_form.lua` — `CallUnresolved`/`CallIndirect` pattern matching → `kind` field checks
-- `lua/moonlift/closure_convert.lua` — 5 locations: classof → `kind` checks, constructors → Lua tables, `CallDirect` → Lua table
-- `lua/moonlift/c/lower_c.lua` — `CallUnresolved` → Lua table; `SwitchKeyExpr` → Lua table in arm
-- `lua/moonlift/mom/verify/parser_native_ast.lua` — `CallUnresolved` → Lua table
-- `lua/moonlift/tree_control_to_back.lua` — SwitchKey phase converted from PVM phase to regular function; call site updated
+- `lua/lalin/parse.lua` — `CallUnresolved` → Lua table (line 961); `SwitchKeyRaw`/`SwitchKeyExpr` → Lua tables (switch_key_from_expr); spread arm key removed from `Tr.SwitchStmtArm`/`Tr.SwitchExprArm`
+- `lua/lalin/ast.lua` — `CallUnresolved` → Lua table in `api.call()`
+- `lua/lalin/pvm_surface_region_values.lua` — `CallUnresolved` → Lua table
+- `lua/lalin/pvm_surface_cache_values.lua` — `CallUnresolved` → Lua table
+- `lua/lalin/host_expr_values.lua` — `CallUnresolved` → Lua table
+- `lua/lalin/host_func_values.lua` — `SwitchKeyRaw`/`SwitchKeyExpr` → Lua tables in `switch_key()` helper
+- `lua/lalin/host_region_values.lua` — Same for `switch_key()` helper
+- `lua/lalin/region_normal_form.lua` — `CallUnresolved`/`CallIndirect` pattern matching → `kind` field checks
+- `lua/lalin/closure_convert.lua` — 5 locations: classof → `kind` checks, constructors → Lua tables, `CallDirect` → Lua table
+- `lua/lalin/c/lower_c.lua` — `CallUnresolved` → Lua table; `SwitchKeyExpr` → Lua table in arm
+- `lua/lalin/mom/verify/parser_native_ast.lua` — `CallUnresolved` → Lua table
+- `lua/lalin/tree_control_to_back.lua` — SwitchKey phase converted from PVM phase to regular function; call site updated
 
 **Additional files updated (discovered during migration):**
-- `lua/moonlift/tree_expr_type.lua` — `call_target_type` PVM phase → regular function
-- `lua/moonlift/sem_call_decide.lua` — 7 `CallClosure`/`CallDirect`/`CallExtern` constructors → Lua tables
-- `lua/moonlift/sem_switch_decide.lua` — `key_kind` PVM phase → regular function; `decide_keys` PVM phase → regular function; SwitchKeySet/SwitchDecision ASDL → Lua tables
-- `lua/moonlift/tree_typecheck.lua` — `ExprCall` typecheck: classof checks → `kind` checks, constructors → Lua tables; `type_switch_key`: classof checks → `kind` checks
-- `lua/moonlift/tree_to_back.lua` — `call_target` PVM phase → regular function with `kind` dispatch; `CallClosure` classof checks → `kind == "closure"`; call sites updated from `:one_uncached()` to direct function calls
-- `lua/moonlift/open_expand.lua` — `SwitchKeyRaw`/`SwitchKeyExpr` classof→kind; `CallUnresolved` classof→kind + Lua table
+- `lua/lalin/tree_expr_type.lua` — `call_target_type` PVM phase → regular function
+- `lua/lalin/sem_call_decide.lua` — 7 `CallClosure`/`CallDirect`/`CallExtern` constructors → Lua tables
+- `lua/lalin/sem_switch_decide.lua` — `key_kind` PVM phase → regular function; `decide_keys` PVM phase → regular function; SwitchKeySet/SwitchDecision ASDL → Lua tables
+- `lua/lalin/tree_typecheck.lua` — `ExprCall` typecheck: classof checks → `kind` checks, constructors → Lua tables; `type_switch_key`: classof checks → `kind` checks
+- `lua/lalin/tree_to_back.lua` — `call_target` PVM phase → regular function with `kind` dispatch; `CallClosure` classof checks → `kind == "closure"`; call sites updated from `:one_uncached()` to direct function calls
+- `lua/lalin/open_expand.lua` — `SwitchKeyRaw`/`SwitchKeyExpr` classof→kind; `CallUnresolved` classof→kind + Lua table
 
 ## Notes
 
@@ -142,7 +142,7 @@ The diff confirms all changes are correct and complete. Let me do one final summ
 
 ## Completed
 
-Updated `lua/moonlift/tree_typecheck.lua` for all ASDL schema changes that were applied in Phase 1. All references to removed types have been replaced with their new equivalents.
+Updated `lua/lalin/tree_typecheck.lua` for all ASDL schema changes that were applied in Phase 1. All references to removed types have been replaced with their new equivalents.
 
 ## Changes Made
 
@@ -202,7 +202,7 @@ Fixed all four test files for ASDL schema changes (Phase 2 migration).
 ### 4. `tests/test_tree_to_back_control_multiblock.lua`
 - `Tr.SwitchStmtArm(Sem.SwitchKeyRaw("0"), { ... })` → `Tr.SwitchStmtArm({ ... })` (key removed per schema)
 
-### Additional fix: `lua/moonlift/tree_control_to_back.lua`
+### Additional fix: `lua/lalin/tree_control_to_back.lua`
 - Updated `lower_switch` to handle `arm.key == nil` (new schema) by falling back to arm index as case value. This was required because the consumer reads `arm.key` which no longer exists.
 
 ## Files Changed
@@ -210,7 +210,7 @@ Fixed all four test files for ASDL schema changes (Phase 2 migration).
 - `tests/test_bind_residence_coverage.lua`
 - `tests/test_sem_switch_call.lua`
 - `tests/test_tree_to_back_control_multiblock.lua`
-- `lua/moonlift/tree_control_to_back.lua`
+- `lua/lalin/tree_control_to_back.lua`
 
 ## Notes
 - 3/4 tests pass cleanly. `test_tree_to_back_control_multiblock.lua` has a pre-existing Cranelift backend crash (`value 1 rebound`) that is identical before and after our changes.

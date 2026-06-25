@@ -1,9 +1,9 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local Erase = require("moonlift.pvm_erase")
+local Erase = require("lalin.pvm_erase")
 
 local fixture = [[
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 
 local A = { kind = "A" }
 local B = { kind = "B" }
@@ -61,10 +61,10 @@ local phase_source, report = Erase.transform_source(fixture, { path = "fixture.l
 assert(report.erased_count == 3, Erase.report_string(report))
 assert(report.rewritten_one_calls == 2, "expected pvm.one call rewrites")
 assert(report.rewritten_method_calls == 2, "expected uncached method rewrites")
-assert(not phase_source:match("moonlift%.pvm"), "phase fixture should not require moonlift.pvm")
+assert(not phase_source:match("lalin%.pvm"), "phase fixture should not require lalin.pvm")
 assert(not phase_source:match("pvm%."), "phase fixture should not reference pvm")
-assert(not phase_source:match("moonlift%.phase_"), "phase fixture should not use a runtime shim")
-assert(phase_source:match("local schema = require%(\"moonlift%.schema_runtime\"%)"), "phase fixture should use schema runtime")
+assert(not phase_source:match("lalin%.phase_"), "phase fixture should not use a runtime shim")
+assert(phase_source:match("local schema = require%(\"lalin%.schema_runtime\"%)"), "phase fixture should use schema runtime")
 assert(phase_source:match("local function single%(value%)"), "phase fixture should use local output helpers")
 assert(phase_source:match("local function scalar_phase%(node%)"), "scalar phase should become a direct function")
 assert(phase_source:match("local function dispatch_phase%(node, %.%.%.%)"), "dispatch phase should become a direct dispatcher")
@@ -83,9 +83,9 @@ assert(mod.dispatch_one(a) == "ok")
 local many = mod.dispatch_many(a)
 assert(#many == 1 and many[1] == "ok")
 
-local moonlift_phase_refs = assert(io.popen("rg -n 'pvm\\.phase\\(' lua/moonlift --glob '!pvm.lua' --glob '!pvm_erase.lua'", "r"))
-local leaked = moonlift_phase_refs:read("*a") or ""
-moonlift_phase_refs:close()
-assert(leaked == "", "moonlift production modules should be switched away from pvm.phase:\n" .. leaked)
+local lalin_phase_refs = assert(io.popen("rg -n 'pvm\\.phase\\(' lua/lalin --glob '!pvm.lua' --glob '!pvm_erase.lua'", "r"))
+local leaked = lalin_phase_refs:read("*a") or ""
+lalin_phase_refs:close()
+assert(leaked == "", "lalin production modules should be switched away from pvm.phase:\n" .. leaked)
 
 io.write("pvm erase ok\n")

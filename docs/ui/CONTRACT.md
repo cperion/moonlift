@@ -1,4 +1,4 @@
-# Moonlift UI Kernel Contract
+# Lalin UI Kernel Contract
 
 This document is the product contract for `lua/ui` as a general-purpose UI kit.
 It is intentionally contract-first: widgets, examples, and backend behavior are

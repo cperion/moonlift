@@ -5,10 +5,10 @@
 **Status:** ✅ ALL 3 BLOCKERS RESOLVED
 
 **Files:**
-- **Implementation:** `/home/cedric/dev/moonlift/lua/moonlift/mom/back/back_lower.mlua` (393 lines, compiles)
-- **Report:** `/home/cedric/dev/moonlift/BLOCKER_RESOLUTION_REPORT.md` (comprehensive analysis)
-- **Guide:** `/home/cedric/dev/moonlift/lua/moonlift/mom/back/BACK_LOWER_GUIDE.md` (implementation guide)
-- **Example:** `/home/cedric/dev/moonlift/lua/moonlift/mom/back/IMPLEMENTATION_EXAMPLE.md` (step-by-step)
+- **Implementation:** `/home/cedric/dev/lalin/lua/lalin/mom/back/back_lower.mlua` (393 lines, compiles)
+- **Report:** `/home/cedric/dev/lalin/BLOCKER_RESOLUTION_REPORT.md` (comprehensive analysis)
+- **Guide:** `/home/cedric/dev/lalin/lua/lalin/mom/back/BACK_LOWER_GUIDE.md` (implementation guide)
+- **Example:** `/home/cedric/dev/lalin/lua/lalin/mom/back/IMPLEMENTATION_EXAMPLE.md` (step-by-step)
 
 ---
 
@@ -154,7 +154,7 @@ make
 
 ### Region Pattern
 
-All lowering uses **regions** (Moonlift control-flow constructs):
+All lowering uses **regions** (Lalin control-flow constructs):
 
 ```mlua
 region name(params; continuations)
@@ -199,7 +199,7 @@ end
 
 ### Simple Test Case
 
-```moonlift
+```lalin
 fn add_one() -> i32 {
     return 1 + 1
 }

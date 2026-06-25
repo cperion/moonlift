@@ -1,18 +1,18 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local Layout = require("moonlift.sem_layout_resolve")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local Layout = require("lalin.sem_layout_resolve")
 
 local T = pvm.context()
 A(T)
 local L = Layout(T)
-local C = T.MoonCore
-local Ty = T.MoonType
-local B = T.MoonBind
-local Sem = T.MoonSem
-local Tr = T.MoonTree
-local H = T.MoonHost
+local C = T.LalinCore
+local Ty = T.LalinType
+local B = T.LalinBind
+local Sem = T.LalinSem
+local Tr = T.LalinTree
+local H = T.LalinHost
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local i32_rep = H.HostRepScalar(C.ScalarI32)
@@ -46,4 +46,4 @@ local module = Tr.Module(Tr.ModuleTyped("Demo"), {
 local resolved = L.module(module, env)
 assert(resolved.items[1].func.body[1].value.field == Sem.FieldByOffset("right", 4, i32, i32_rep))
 
-print("moonlift sem_layout_resolve ok")
+print("lalin sem_layout_resolve ok")

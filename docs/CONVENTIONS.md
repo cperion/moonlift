@@ -1,6 +1,6 @@
-# Moonlift Conventions
+# Lalin Conventions
 
-Moonlift code should be flat, explicit, and grep-shaped.  The language core is
+Lalin code should be flat, explicit, and grep-shaped.  The language core is
 small; conventions should make the semantic structure easier to see, not hide
 it behind framework names or folder depth.
 
@@ -65,10 +65,10 @@ Depth must buy ownership or build isolation, not aesthetic grouping.
 ## Header Files
 
 `*_header.lua` is the system contract. It is ordinary Lua and calls
-`require("moonlift").family.use()` before authoring DSL declarations:
+`require("lalin").family.use()` before authoring DSL declarations:
 
 ```lua
-require("moonlift").family.use()
+require("lalin").family.use()
 return unit. Header {
   struct. Foo { x [i32] },
   union. Bar { ok { v [i32] }, err },
@@ -88,7 +88,7 @@ The usual header shape is a `.lua` file returning public declarations plus the
 compiled unit:
 
 ```lua
-require("moonlift").family.use()
+require("lalin").family.use()
 
 local unit_value = unit. MwuiHeader {
     -- declarations
@@ -109,7 +109,7 @@ stages via the same DSL:
 
 ```lua
 local header = require("mwui_header")
-require("moonlift").family.use()
+require("lalin").family.use()
 
 -- implement: add entry/block/jump bodies to region declarations
 local impl = require("mwui_component_store")
@@ -157,7 +157,7 @@ machine or a small family of adjacent machines.
 
 ```lua
 local header = require("mwui_header")
-require("moonlift").family.use()
+require("lalin").family.use()
 
 return unit. Impl {
   -- full region/fn with bodies go here
@@ -261,11 +261,11 @@ constructing a typed IR value.
 Good LLPVM style:
 
 ```lua
-local moon = require "moonlift"
+local lalin = require "lalin"
 
 local Expr = vm.language "Expr"
 local Node = Expr "Node"
-Node.Int = { value = moon.i64 }
+Node.Int = { value = lalin.i64 }
 Node.Add = { left = Node, right = Node }
 
 local raw = Expr:world()
@@ -286,11 +286,11 @@ The weak form hides the type forest behind an erased helper name. If a subsystem
 is authoring a VM instruction language, use type tables and named constructors
 so `rg 'Node.Add'` finds the semantic operation directly.
 
-## Moonlift DSL Spacing
+## Lalin DSL Spacing
 
-Comparison methods are the default spelling for comparison-shaped Moonlift
+Comparison methods are the default spelling for comparison-shaped Lalin
 expressions. Lua comparison operators (`<`, `<=`, `==`, `>=`, `>`) evaluate to
-booleans, so they cannot carry Moonlift expression trees.
+booleans, so they cannot carry Lalin expression trees.
 
 Use spaced method syntax for comparisons so they read like operators:
 
@@ -342,7 +342,7 @@ Use vague names only when the consumer truly does not distinguish further.
 
 A handle is durable identity.  It never grants memory access by itself.
 
-For C-bound code, distinct handle types must remain distinct in Moonlift even
+For C-bound code, distinct handle types must remain distinct in Lalin even
 when they share the same raw C representation. `FooRef` and `BarRef` may both
 lower to `uint32_t`, but protocols and helper functions must keep their typed
 handle names in source instead of collapsing them to raw integers.
@@ -482,15 +482,15 @@ cancel_*    request task/resource cancellation
 If a verb means something else in a subsystem, write the convention in that
 subsystem's blueprint.
 
-## Lua And Moonlift Boundary
+## Lua And Lalin Boundary
 
-Lua is the authoring language and the metaprogramming layer.  Moonlift is the
+Lua is the authoring language and the metaprogramming layer.  Lalin is the
 monomorphic native artifact.
 
-Authoring uses the Lua-owned DSL (`require("moonlift.dsl")`).  Every declaration
+Authoring uses the Lua-owned DSL (`require("lalin.dsl")`).  Every declaration
 is a Lua value; every type is a Lua value; every statement is a Lua value.
 Lua parses mechanically; LLB hosts declaration/control heads and role
-normalization; Moonlift ASDL carries the meaning.
+normalization; Lalin ASDL carries the meaning.
 
 Use the DSL for:
 
@@ -501,12 +501,12 @@ slice/fragment composition via product/stmts/decls
 named continuations with payload products
 ```
 
-Do not encode Moonlift semantics in Lua strings, callbacks, or side tables when
+Do not encode Lalin semantics in Lua strings, callbacks, or side tables when
 a DSL value can carry the meaning.
 
 ## Grep Shape
 
-Conventions should make these queries complete against Moonlift-authored `.lua`
+Conventions should make these queries complete against Lalin-authored `.lua`
 files:
 
 ```sh

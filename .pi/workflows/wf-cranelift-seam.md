@@ -14,8 +14,8 @@ Now I have a complete picture. Let me compile everything.
 1. **`src/lib.rs`** (lines 1-3245, entire file) — Core Rust backend: Compiler struct, FunctionLowerer, all Cranelift IR lowering, JIT + object emission paths, test suite
 2. **`src/ffi.rs`** (lines 1-1629, entire file) — FFI layer: text tape decoder, binary wire decoder (MLBT v3), C exports for LuaJIT
 3. **`BACK_WIRE_FORMAT.md`** (entire file) — Binary wire format specification
-4. **`lua/moonlift/back_command_binary.lua`** (entire file) — Lua-side binary encoder
-5. **`lua/moonlift/back_jit.lua`** (entire file) — LuaJIT FFI bridge between Lua compiler and Rust backend
+4. **`lua/lalin/back_command_binary.lua`** (entire file) — Lua-side binary encoder
+5. **`lua/lalin/back_jit.lua`** (entire file) — LuaJIT FFI bridge between Lua compiler and Rust backend
 6. **`Cargo.toml`** — Cranelift dependencies (6 crates at v0.131.0)
 
 ---
@@ -24,7 +24,7 @@ Now I have a complete picture. Let me compile everything.
 
 ### 1. Cranelift IR Concepts — What CLIF Actually Needs
 
-The Cranelift IR (CLIF) concepts used by Moonlift are:
+The Cranelift IR (CLIF) concepts used by Lalin are:
 
 **Functions & Signatures:**
 - `Signature` with `params: Vec<AbiParam>` and `returns: Vec<AbiParam>` — each param/return is a `Type`
@@ -48,7 +48,7 @@ The Cranelift IR (CLIF) concepts used by Moonlift are:
 - **Conversion**: `bitcast`, `ireduce`, `sextend`, `uextend`, `fpromote`, `fdemote`, `fcvt_from_sint`, `fcvt_from_uint`, `fcvt_to_sint`, `fcvt_to_uint`
 - **Comparison**: `icmp(IntCC, lhs, rhs)` → returns `b1`, `fcmp(FloatCC, lhs, rhs)` → returns `b1`
 - **Intrinsics**: `popcnt`, `clz`, `ctz`, `bswap`, `iabs`
-- **Memory**: `load(type, MemFlags, addr, offset)`, `store(MemFlags, value, addr, offset)` — load offset is always 0 in Moonlift
+- **Memory**: `load(type, MemFlags, addr, offset)`, `store(MemFlags, value, addr, offset)` — load offset is always 0 in Lalin
 - **Atomics**: `atomic_load(type, MemFlags, addr)`, `atomic_store(MemFlags, value, addr)`, `atomic_rmw(type, MemFlags, op, addr, value)`, `atomic_cas(MemFlags, addr, expected, replacement)`, `fence()`
 - **Address**: `stack_addr(ptr_type, StackSlot, 0)`, `global_value(ptr_type, GlobalValue)`, `func_addr(ptr_type, FuncRef)`
 - **Control**: `jump(block, &[BlockArg])`, `brif(cond, then_block, &[BlockArg], else_block, &[BlockArg])`, `return_(&[Value])`, `trap(TrapCode)`
@@ -60,7 +60,7 @@ The Cranelift IR (CLIF) concepts used by Moonlift are:
 - `Value` is a handle to an SSA value in Cranelift's DataFlowGraph
 - Values are produced by instructions and consumed by subsequent instructions
 - Block parameters are also `Value`s
-- The `FunctionLowerer` maintains `HashMap<BackValId, Value>` to map Moonlift's named values to CLIF values
+- The `FunctionLowerer` maintains `HashMap<BackValId, Value>` to map Lalin's named values to CLIF values
 
 **Types (Cranelift types used):**
 - `types::I8`, `types::I16`, `types::I32`, `types::I64`, `types::F32`, `types::F64`
@@ -165,7 +165,7 @@ Differences are minimal:
 
 ### 7. What BackCmd Variants Carry Extra Data Cranelift Doesn't Use
 
-**`BackIntSemantics` (overflow + exact)** — Cranelift's integer arithmetic instructions (`iadd`, `isub`, `imul`) have no overflow/exact tracking. These semantics are Moonlift-level annotations that map to no CLIF attributes. Currently **discarded** in `lower_int_binary` (all match arms use `_` or ignore the semantics parameter).
+**`BackIntSemantics` (overflow + exact)** — Cranelift's integer arithmetic instructions (`iadd`, `isub`, `imul`) have no overflow/exact tracking. These semantics are Lalin-level annotations that map to no CLIF attributes. Currently **discarded** in `lower_int_binary` (all match arms use `_` or ignore the semantics parameter).
 
 **`BackMemoryInfo`** — carries rich metadata:
 - `BackAccessId` — a name/anchor string — **never used by Cranelift**
@@ -234,7 +234,7 @@ Cranelift **does not have a stable serialization format** for IR. The `Context` 
 
 However, **Cranelift has internal bytecode** — its backend (machinst) works from `VCode` which is a machine-specific intermediate. There's no stable wire format at the CLIF level that we could target directly.
 
-**Implication**: Aligning with Cranelift's internal encoding is not feasible. The wire format must be Moonlift-specific.
+**Implication**: Aligning with Cranelift's internal encoding is not feasible. The wire format must be Lalin-specific.
 
 ---
 
@@ -244,7 +244,7 @@ However, **Cranelift has internal bytecode** — its backend (machinst) works fr
 
 Looking at the data flow from Lua to Cranelift:
 
-1. **Lua lowering** (`tree_to_back`): Moonlift source → `BackProgram` ASDL (flattened command list)
+1. **Lua lowering** (`tree_to_back`): Lalin source → `BackProgram` ASDL (flattened command list)
 2. **Binary encoding** (`back_command_binary.lua`): `BackProgram` → wire bytes
 3. **Binary decoding** (`ffi.rs`): wire bytes → `Vec<BackCmd>` (the Rust ASDL types)
 4. **Partitioning** (`BackProgram::partition`): `Vec<BackCmd>` → `BackProgram` (separated decls + bodies)
@@ -544,7 +544,7 @@ let bytes = build_wire_program(&[
 
 **The readability impact is severe**: currently readers see named fields (`BackCmd::Iadd(dst, ty, semantics, lhs, rhs)`). With wire bytes, it's `WireCmd::Iadd(3, 4, 5, 6)` — opaque integer indices. A test helper that wraps wire construction in a builder API would help, but that builder API *is the BackCmd enum we're trying to eliminate*.
 
-**The Lua-side tests** (like `test_back_add_i32.lua`) construct BackProgram ASDL values through the `MoonBack` API:
+**The Lua-side tests** (like `test_back_add_i32.lua`) construct BackProgram ASDL values through the `LalinBack` API:
 ```lua
 local program = B.BackProgram({
     B.CmdCreateSig(sig, { B.BackI32, B.BackI32 }, { B.BackI32 }),
@@ -690,8 +690,8 @@ Now I have complete understanding. Let me produce the three approaches.
 
 | Layer | What changes |
 |-------|--------------|
-| One source of truth | `/home/cedric/dev/moonlift/schema/commands.yaml` — each entry: `{tag, name, slots: [{name, type: u32|scalar|id|memflags|...}], cranelift_op: "iadd"}` |
-| Build system | `build.rs` generates: `lua/moonlift/mom/tags/mom_tags_gen.mlua` (tag constants), `src/tags_gen.rs` (SCHEDULE: `[(tag, slot_count); N]` + dispatch table), `BACK_WIRE_FORMAT.md` (auto-docs). |
+| One source of truth | `/home/cedric/dev/lalin/schema/commands.yaml` — each entry: `{tag, name, slots: [{name, type: u32|scalar|id|memflags|...}], cranelift_op: "iadd"}` |
+| Build system | `build.rs` generates: `lua/lalin/mom/tags/mom_tags_gen.mlua` (tag constants), `src/tags_gen.rs` (SCHEDULE: `[(tag, slot_count); N]` + dispatch table), `BACK_WIRE_FORMAT.md` (auto-docs). |
 | Tag space | ~45 parametric tags. Sub-tags (like op kinds) are INLINE in the slot array: e.g., `IntBinary=20` has 6 slots: `[dst, op_kind, scalar, lhs, rhs, memflags?]`. The Rust dispatch table maps tag→`fn(&mut Ctx, &[u32])` that reads the op_kind slot and calls the right Cranelift method. |
 | MemFlags | Inline as a slot per flag: `[trap_kind, align_kind, align_bytes, motion_kind]` — 4 slots. MOM fills these directly from its type analysis; the Rust decoder converts to Cranelift `MemFlags`. This means the wire is fatter per memory op, but MOM's encoding is trivial (no bitfield computation). |
 | Rust dispatch table | Static array `[Option<fn(&mut DecoderCtx, &[u32]) -> Result<()>>; 256]`. Generated by build.rs. Each function is a tiny (~5-10 line) closure that reads slots by position and calls Cranelift APIs. |
@@ -721,7 +721,7 @@ Now I have complete understanding. Let me produce the three approaches.
    Plus metadata for Cranelift type/op mappings (e.g., `int_op: {1: iadd, 2: isub, ...}`).
 
 2. **Write `build.rs` generator**: Reads YAML, produces:
-   - Tag constant enum for MOM (`lua/moonlift/mom/tags/mom_tags_gen.mlua`)
+   - Tag constant enum for MOM (`lua/lalin/mom/tags/mom_tags_gen.mlua`)
    - Rust dispatch table + slot count array (`src/tags_gen.rs`)
    - Markdown documentation for `BACK_WIRE_FORMAT.md`
    - Each `mb_cmd_*` helper becomes a simple field-fill identical to the current pattern, but generated.
@@ -769,7 +769,7 @@ Now I have complete understanding. Let me produce the three approaches.
 
 1. **Design the body section format**: Header: `[n_blocks: u32]`. Then for block i: `[n_params: u32, param_types...: u32, n_instrs: u32, instrs...: (opcode, slots...), terminator_tag: u32, terminator_slots...]`.
 
-2. **Write the MOM block scheduler**: A MOM pass that takes the current flat lowering (which emits CreateBlock, SwitchToBlock, instructions, SealBlock) and reorders into block-major order. The scheduler: (a) collects all commands per block by tracking CreateBlock → SwitchToBlock → SwitchToBlock boundaries, (b) assigns block indices in definition order, (c) rewrites value references from ID-based to (block_idx, instr_idx), (d) rewrites block references from ID-based to block_idx. This is ~200-300 lines of MOM Moonlift code.
+2. **Write the MOM block scheduler**: A MOM pass that takes the current flat lowering (which emits CreateBlock, SwitchToBlock, instructions, SealBlock) and reorders into block-major order. The scheduler: (a) collects all commands per block by tracking CreateBlock → SwitchToBlock → SwitchToBlock boundaries, (b) assigns block indices in definition order, (c) rewrites value references from ID-based to (block_idx, instr_idx), (d) rewrites block references from ID-based to block_idx. This is ~200-300 lines of MOM Lalin code.
 
 3. **Write the Rust block VM decoder**: 
    ```rust
@@ -894,7 +894,7 @@ The redesign is motivated by three concrete problems with the current architectu
 
 The current binary wire format uses **parametric commands**: ~61 command tags, ~10 sub-tag tables, ~13 scalar type tags. A command like `CmdIntBinary` carries a sub-tag for the operation kind (`BackIntAdd`, `BackIntSub`, ...) and a scalar type tag (`I32`, `I64`, ...). The decoder must match on the command tag, then again on the sub-tag, then potentially on the scalar tag — three levels of dispatch for a single Cranelift instruction.
 
-The wire format is defined in `BACK_WIRE_FORMAT.md` and encoded by `lua/moonlift/back_command_binary.lua` (the Lua-side encoder) and by MOM's `cmd.mlua` (the MOM-side encoder which writes `CmdEntry` structs into a `MomCmdBuffer`). Command slots are 16 i32 words per command (the `CmdEntry` struct), many of which are zero-filled for simple commands.
+The wire format is defined in `BACK_WIRE_FORMAT.md` and encoded by `lua/lalin/back_command_binary.lua` (the Lua-side encoder) and by MOM's `cmd.mlua` (the MOM-side encoder which writes `CmdEntry` structs into a `MomCmdBuffer`). Command slots are 16 i32 words per command (the `CmdEntry` struct), many of which are zero-filled for simple commands.
 
 The format has an **auxiliary data section** for variable-length data (block arguments, signature parameter lists). Commands reference aux data by offset. This indirection adds decoder complexity.
 
@@ -1163,7 +1163,7 @@ The Lua compiler's encoder (`back_command_binary.lua`) is replaced with a new en
 
 1. **Slot count mismatches** — The tag→slot count table in the Rust decoder must exactly match the encoder. A mismatch (decoder expecting 4 slots when encoder wrote 5) will desynchronize the decoder, causing either garbage interpretation or buffer over-read. Mitigation: the tag table is a single source of truth maintained in one file (`tags.rs`), and the body table's per-function length bounds the damage to a single function.
 
-2. **Cranelift version drift** — If a future Cranelift version removes an instruction or changes its API, the corresponding tag changes meaning. Mitigation: the flat tag space is Moonlift-specific; tags map to Cranelift API calls at decode time, not to Cranelift's internal encoding. A Cranelift upgrade requires updating the match arms in the decoder, but the wire format is stable across Cranelift versions.
+2. **Cranelift version drift** — If a future Cranelift version removes an instruction or changes its API, the corresponding tag changes meaning. Mitigation: the flat tag space is Lalin-specific; tags map to Cranelift API calls at decode time, not to Cranelift's internal encoding. A Cranelift upgrade requires updating the match arms in the decoder, but the wire format is stable across Cranelift versions.
 
 3. **Implicit block sealing requires all predecessors to be known** — Cranelift requires `seal_block()` only after all predecessors have been added. Sealing all blocks at body end works only if the body stream correctly records all jumps to each block before the end. If a jump target references a block that has already been sealed (because it was switched away from and the decoder sealed it early), Cranelift will panic. Mitigation: seal all blocks *after* the entire body stream is processed, not on switch-away. This requires the decoder to defer sealing until body end, which is safe because `FunctionBuilder` supports this deferred sealing.
 
@@ -1182,8 +1182,8 @@ Before any edits begin, verify:
 1. `src/lib.rs` line 20: confirm `pub mod ffi;` is still present; the new `pub mod decode;` and `pub mod wire_tags;` will be added after it.
 2. `src/lib.rs` line 3245: confirm the file ends at `}` (closing the `mod tests` block).
 3. `src/ffi.rs` line 1629: confirm the file ends with a non-whitespace line.
-4. `lua/moonlift/back_command_binary.lua` total length: confirm the `Define` function still starts around line 640.
-5. `lua/moonlift/mom/driver/lower_wire.mlua`: confirm the slot count function `mom_wire_slot_count` is the last major function before the export block (~line 284).
+4. `lua/lalin/back_command_binary.lua` total length: confirm the `Define` function still starts around line 640.
+5. `lua/lalin/mom/driver/lower_wire.mlua`: confirm the slot count function `mom_wire_slot_count` is the last major function before the export block (~line 284).
 6. Cargo.toml does not have `src/decode.rs` or `src/wire_tags.rs` listed — these are auto-discovered as sibling modules of `src/lib.rs`.
 
 ---
@@ -1322,7 +1322,7 @@ pub static TAG_SLOTS: [u8; 256] = {
 **Contents sketch**:
 ```rust
 use crate::wire_tags::WireTag;
-use crate::MoonliftError;
+use crate::LalinError;
 use cranelift_codegen::ir::*;
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::immediates::{Ieee32, Ieee64};
@@ -1340,20 +1340,20 @@ pub fn decode_module<M: Module>(
     buf: &[u8],
     module: &mut M,
     symbols: &HashMap<String, *const u8>,
-) -> Result<DecodeResult, MoonliftError> { ... }
+) -> Result<DecodeResult, LalinError> { ... }
 ```
 
 Internal phases:
 
 **Phase 1 — Header** (read magic, version, counts, section offsets):
 ```rust
-fn read_header(buf: &[u8]) -> Result<Header, MoonliftError>
+fn read_header(buf: &[u8]) -> Result<Header, LalinError>
 // Layout: [magic(4), ver(4), n_funcs(4), decls_off(4), decls_len(4), body_tbl_off(4), body_tbl_len(4)]
 ```
 
 **Phase 2 — Declarations** (read sigs, funcs, datas, externs via fixed-length records):
 ```rust
-fn read_declarations(buf: &[u8], off: usize, len: usize, state: &mut DecodeState, module: &mut M) -> Result<(), MoonliftError>
+fn read_declarations(buf: &[u8], off: usize, len: usize, state: &mut DecodeState, module: &mut M) -> Result<(), LalinError>
 // Reads inline-counted sigs: [sig_id, n_params, params..., n_results, results...]
 // Reads funcs: [func_id, sig_id, visibility, symbol_pool_idx] — pool_idx indexes into trailing name section
 // Reads datas: [data_id, size, align_log2]
@@ -1363,12 +1363,12 @@ fn read_declarations(buf: &[u8], off: usize, len: usize, state: &mut DecodeState
 
 **Phase 3 — Per-function body** (iterate body table, create FunctionBuilder, decode instructions):
 ```rust
-fn decode_body(buf: &[u8], state: &DecodeState, module: &mut M, func_id: u32, sig: &Signature) -> Result<(), MoonliftError>
+fn decode_body(buf: &[u8], state: &DecodeState, module: &mut M, func_id: u32, sig: &Signature) -> Result<(), LalinError>
 ```
 
 The inner instruction loop:
 ```rust
-fn decode_instrs(buf: &[u8], pos: &mut usize, ctx: &mut FuncCtx) -> Result<(), MoonliftError>
+fn decode_instrs(buf: &[u8], pos: &mut usize, ctx: &mut FuncCtx) -> Result<(), LalinError>
 // Reads tag, dispatches via match WireTag:
 //   WireTag::CreateBlock => let id = read_u32(); let block = builder.create_block(); blocks.insert(id, block);
 //   WireTag::IaddI32 => let dst = read_u32(); let lhs = *values.get(&read_u32())?; let rhs = *values.get(&read_u32())?; let v = builder.ins().iadd(lhs, rhs); values.insert(dst, v);
@@ -1404,7 +1404,7 @@ fn decode_memflags(bits: u32) -> MemFlags {
 }
 ```
 
-**Imports required**: `crate::wire_tags::WireTag`, `crate::MoonliftError`, various Cranelift types.
+**Imports required**: `crate::wire_tags::WireTag`, `crate::LalinError`, various Cranelift types.
 
 **Key patterns**:
 - All identifiers are `u32` — no `id_type!` macro usage.
@@ -1461,7 +1461,7 @@ Full estimate: ~900-1100 lines.
 |-------|------|--------|
 | 1–20 | imports (minus BackCmd/BackBodyCmd types) | Remove unused imports; add decode/wire_tags |
 | 21 | empty line | Keep |
-| Varies | MoonliftError struct | Used everywhere |
+| Varies | LalinError struct | Used everywhere |
 | Varies | host_isa(), build_host_isa() | Used by JIT and object paths |
 | Varies | hex_digit, local_symbol_name, local_data_symbol_name | May keep for symbol name generation |
 | Varies | align_to_shift | Used by stack slot creation |
@@ -1470,7 +1470,7 @@ Full estimate: ~900-1100 lines.
 
 ```
 Lines 1-20:   Imports + `pub mod host_arena; pub mod lua_api; pub mod ffi; pub mod wire_tags; pub mod decode;`
-Lines ~22-60: MoonliftError struct + impl
+Lines ~22-60: LalinError struct + impl
 Lines ~62-100: BackScalar enum + impl (clif_type, byte_size — still needed by decoder)
 Lines ~102-112: BackVec enum + impl
 Lines ~114-120: BackAtomicOrdering, BackAtomicRmwOp + impl
@@ -1485,7 +1485,7 @@ Total: ~320 lines (down from 3245). A ~90% reduction.
 
 ### 4. `src/ffi.rs` — Major Rewrite
 
-**Goal**: Delete old binary decoder (SLOT_COUNT, BinaryReader, decode_commands, parse_back_command_binary, all read_* helpers), rewrite `moonlift_jit_compile_binary` and `moonlift_object_compile_binary` to call the new decoder, keep tape decoder and all C API wrappers.
+**Goal**: Delete old binary decoder (SLOT_COUNT, BinaryReader, decode_commands, parse_back_command_binary, all read_* helpers), rewrite `lalin_jit_compile_binary` and `lalin_object_compile_binary` to call the new decoder, keep tape decoder and all C API wrappers.
 
 **Lines to DELETE**:
 
@@ -1500,23 +1500,23 @@ Total: ~320 lines (down from 3245). A ~90% reduction.
 | Lines | Current | New |
 |-------|---------|-----|
 | 1566–1569 | `pub(crate) fn parse_back_command_binary(...)` → `Reader::new()` + `decode_commands()` | **Delete** entirely. |
-| 1576–1590 | `moonlift_jit_compile_binary`: calls `parse_back_command_binary`, then `jit.inner.compile()`, then `BackProgram::partition()` | **Rewrite** to create JITModule, call `decode::decode_module(buf, &mut module, &jit_inner.symbols)`, finalize, build artifact. |
-| 1598–1620 | `moonlift_object_compile_binary`: calls `parse_back_command_binary`, then `compile_object()`, then `BackProgram::partition()` | **Rewrite** to create ObjectModule, call `decode::decode_module()`, finish, emit. |
+| 1576–1590 | `lalin_jit_compile_binary`: calls `parse_back_command_binary`, then `jit.inner.compile()`, then `BackProgram::partition()` | **Rewrite** to create JITModule, call `decode::decode_module(buf, &mut module, &jit_inner.symbols)`, finalize, build artifact. |
+| 1598–1620 | `lalin_object_compile_binary`: calls `parse_back_command_binary`, then `compile_object()`, then `BackProgram::partition()` | **Rewrite** to create ObjectModule, call `decode::decode_module()`, finish, emit. |
 
 **Lines to KEEP**:
 
 | Lines | What |
 |-------|------|
 | 1–20 | Imports (rewritten to remove old types, add decode) |
-| 21–80 | `moonlift_jit_t`, `moonlift_artifact_t`, `moonlift_bytes_t`, `moonlift_host_session_t` structs, error helpers |
+| 21–80 | `lalin_jit_t`, `lalin_artifact_t`, `lalin_bytes_t`, `lalin_host_session_t` structs, error helpers |
 | 327–665 | `parse_back_command_tape()` text decoder (keep for now — only the binary path changes) |
-| 402–665 | All `extern "C"` functions: `moonlift_last_error_message`, `moonlift_jit_new`, `moonlift_jit_free`, `moonlift_artifact_free`, `moonlift_bytes_free`, `moonlift_host_*`, `moonlift_jit_symbol`, `moonlift_jit_compile_tape`, `moonlift_artifact_getpointer`, `moonlift_object_compile_tape` |
+| 402–665 | All `extern "C"` functions: `lalin_last_error_message`, `lalin_jit_new`, `lalin_jit_free`, `lalin_artifact_free`, `lalin_bytes_free`, `lalin_host_*`, `lalin_jit_symbol`, `lalin_jit_compile_tape`, `lalin_artifact_getpointer`, `lalin_object_compile_tape` |
 
 **After rewrite, ffi.rs shape**: ~700 lines (down from 1629).
 
 ---
 
-### 5. `lua/moonlift/back_command_binary.lua` — Rewrite Encoder
+### 5. `lua/lalin/back_command_binary.lua` — Rewrite Encoder
 
 **Goal**: Replace the MLBT v3 parametric encoder with a flat-tag encoder for the new wire format.
 
@@ -1550,7 +1550,7 @@ Total: ~320 lines (down from 3245). A ~90% reduction.
 
 ---
 
-### 6. `lua/moonlift/mom/driver/lower_wire.mlua` — Rewrite MOM Encoder
+### 6. `lua/lalin/mom/driver/lower_wire.mlua` — Rewrite MOM Encoder
 
 **Goal**: Replace column-major parametric encoder with flat-tag encoder for the MOM native path.
 
@@ -1594,7 +1594,7 @@ Total: ~320 lines (down from 3245). A ~90% reduction.
 
 **Minimal change approach**: Each test currently:
 ```lua
-local binary_api = require("moonlift.back_command_binary").Define(T)
+local binary_api = require("lalin.back_command_binary").Define(T)
 local payload = binary_api.encode(program)
 local artifact = jit:compile(payload)
 ```
@@ -1616,7 +1616,7 @@ With the rewrite, `back_command_binary.Define(T).encode(program)` still works �
 
 **Goal**: Update object emission tests to work with new wire format.
 
-These tests call `moonlift_object_compile_binary` with encoded payload. If the encoder is updated to emit flat tags, the test wire bytes change, but the test API surface (`moonlift.Object.Define(T)`) stays the same. **No changes needed** to the Lua test logic — only the encoder output changes.
+These tests call `lalin_object_compile_binary` with encoded payload. If the encoder is updated to emit flat tags, the test wire bytes change, but the test API surface (`lalin.Object.Define(T)`) stays the same. **No changes needed** to the Lua test logic — only the encoder output changes.
 
 ---
 
@@ -1626,13 +1626,13 @@ These tests call `moonlift_object_compile_binary` with encoded payload. If the e
 
 2. **Second**: Create `src/decode.rs` — the streaming decoder. Depends on `wire_tags.rs`. Can be tested with a small hardcoded wire buffer.
 
-3. **Third**: Rewrite `src/lib.rs` — delete old types, add `pub mod wire_tags; pub mod decode;`, rewrite `Jit::compile_binary`, `compile_object_binary`, and the `Artifact` internals. Remove everything between `MoonliftError` and `Jit/Artifact`. Keep `BackScalar` and `host_isa`.
+3. **Third**: Rewrite `src/lib.rs` — delete old types, add `pub mod wire_tags; pub mod decode;`, rewrite `Jit::compile_binary`, `compile_object_binary`, and the `Artifact` internals. Remove everything between `LalinError` and `Jit/Artifact`. Keep `BackScalar` and `host_isa`.
 
-4. **Fourth**: Rewrite `src/ffi.rs` — delete old binary decoder, rewrite `moonlift_jit_compile_binary` and `moonlift_object_compile_binary` to call `decode::decode_module`. Keep all other C exports.
+4. **Fourth**: Rewrite `src/ffi.rs` — delete old binary decoder, rewrite `lalin_jit_compile_binary` and `lalin_object_compile_binary` to call `decode::decode_module`. Keep all other C exports.
 
-5. **Fifth**: Rewrite `lua/moonlift/back_command_binary.lua` — flat-tag encoder.
+5. **Fifth**: Rewrite `lua/lalin/back_command_binary.lua` — flat-tag encoder.
 
-6. **Sixth**: Rewrite `lua/moonlift/mom/driver/lower_wire.mlua` — flat-tag MOM encoder.
+6. **Sixth**: Rewrite `lua/lalin/mom/driver/lower_wire.mlua` — flat-tag MOM encoder.
 
 7. **Seventh**: Rewrite `BACK_WIRE_FORMAT.md` — full spec.
 
@@ -1674,11 +1674,11 @@ These tests call `moonlift_object_compile_binary` with encoded payload. If the e
 
 2. **`lib.rs` line ~1581 (old FunctionLowerer::new)** — Takes `&'b mut FunctionBuilder<'a>` with complex lifetime. The new decoder in `decode.rs` must similarly scope the FunctionBuilder borrow correctly. Use the same pattern: create the builder, call `decode_instrs` with a `&mut FunctionBuilder`, drop the borrow, then `seal_all_blocks` and `finalize`.
 
-3. **`ffi.rs` line ~1587** — The current `moonlift_jit_compile_binary` calls `jit.inner.compile(&BackProgram::partition(cmds)?)`. The new version must call `decode::decode_module(buf, &mut module, &jit_inner.symbols)` where `module` is freshly created. This means the module creation moves into the function — currently `jit.inner` holds a `Jit { symbols }` without a module.
+3. **`ffi.rs` line ~1587** — The current `lalin_jit_compile_binary` calls `jit.inner.compile(&BackProgram::partition(cmds)?)`. The new version must call `decode::decode_module(buf, &mut module, &jit_inner.symbols)` where `module` is freshly created. This means the module creation moves into the function — currently `jit.inner` holds a `Jit { symbols }` without a module.
 
 4. **MemFlags bitfield** — The new format uses `u32 bit 0=notrap, 1=aligned, 2=can_move`. The old `BackMemoryInfo::memflags()` logic computed aligned based on `alignment >= natural_align`. The frontend must now compute this bit before encoding. Ensure the encoder and decoder agree on the bit positions.
 
-5. **Artifact API** — `Artifact` currently uses `HashMap<BackFuncId, *const u8>` for function pointers. `BackFuncId(String)` is deleted. Replace with `HashMap<String, *const u8>` keyed by the wire-provided symbol name (export name for exported functions, hex-encoded for local). The C API `moonlift_artifact_getpointer(artifact, "add1")` continues to work because it takes a C string.
+5. **Artifact API** — `Artifact` currently uses `HashMap<BackFuncId, *const u8>` for function pointers. `BackFuncId(String)` is deleted. Replace with `HashMap<String, *const u8>` keyed by the wire-provided symbol name (export name for exported functions, hex-encoded for local). The C API `lalin_artifact_getpointer(artifact, "add1")` continues to work because it takes a C string.
 
 6. **The `compile_object` pub function** at `lib.rs` line ~1125 takes `&BackProgram`. Since `BackProgram` is deleted, this function signature must change. The new name is `compile_object_binary` (already exists at line 1094) — keep only the `compile_object_binary` variant that takes raw bytes and calls the new decoder.
 

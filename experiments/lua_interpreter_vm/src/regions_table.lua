@@ -1,17 +1,17 @@
 -- Lua Interpreter VM — Table access regions
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 local key_regions = require("experiments.lua_interpreter_vm.src.regions_key")
 
 local I = {}
-for k, v in pairs(const.Tag) do I["TAG_" .. k] = moon.int(v) end
-for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
-for k, v in pairs(const.TM) do I["TM_" .. k] = moon.int(v) end
-I.SIZE_VALUE = moon.int(16)
-I.SIZE_NODE = moon.int(40)
-I.SIZE_TABLE = moon.int(104)
+for k, v in pairs(const.Tag) do I["TAG_" .. k] = lalin.int(v) end
+for k, v in pairs(const.Err) do I["ERR_" .. k] = lalin.int(v) end
+for k, v in pairs(const.TM) do I["TM_" .. k] = lalin.int(v) end
+I.SIZE_VALUE = lalin.int(16)
+I.SIZE_NODE = lalin.int(40)
+I.SIZE_TABLE = lalin.int(104)
 
 -- table_raw_get: direct array or hash lookup through canonical key protocol.
 local table_raw_get = host.region {

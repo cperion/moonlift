@@ -6,8 +6,8 @@
 -- grammar validation, local binding, and expression precedence reduction into
 -- HIR.
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local pconst = require("experiments.lua_interpreter_vm.src.parser_constants")
 local parser = require("experiments.lua_interpreter_vm.src.regions_parser")
 
@@ -15,13 +15,13 @@ local V = {
     source_error_at_span = parser.source_error_at_span,
     source_error_at_current = parser.source_error_at_current,
 }
-for k, v in pairs(pconst.Tok) do V["TOK_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.Kw) do V["KW_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.ParseErr) do V["PERR_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.SourcePhase) do V["SOURCE_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.HirStmtKind) do V["HSTMT_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.HirExprKind) do V["HEXPR_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.SymbolKind) do V["SYM_" .. k] = moon.int(v) end
+for k, v in pairs(pconst.Tok) do V["TOK_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.Kw) do V["KW_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.ParseErr) do V["PERR_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.SourcePhase) do V["SOURCE_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.HirStmtKind) do V["HSTMT_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.HirExprKind) do V["HEXPR_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.SymbolKind) do V["SYM_" .. k] = lalin.int(v) end
 
 local append_scope = host.region(V) [[
 region append_scope(cu: ptr(CompileUnit), scope: ScopeRec;
@@ -1010,7 +1010,7 @@ end
 ]]
 
 -- Small wrapper around build_hir_expr. `cu.semantic_mark` carries the current
--- token slot because Moonlift continuations here do not close over block params.
+-- token slot because Lalin continuations here do not close over block params.
 local build_hir_expr_at = host.region(V) [[
 region build_hir_expr_at(cu: ptr(CompileUnit), start_slot: index;
                          parsed(expr_ref: index, next_slot: index) | semantic_error(err: CompileError) | limit_error(err: CompileError) | oom)

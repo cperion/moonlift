@@ -11,12 +11,12 @@
 			"id": "T001",
 			"title": "Add central reduction algebra module",
 			"detail": "Create a Define(T) module containing the reduction algebra table for add, mul, and, or, xor, min, max. Include type classification, identity literal generation, scalar/vector op selection, min/max compare selection for signed/unsigned integers, float legality decisions, and detection helpers used by fact extraction. Do not change Back ASDL or wire tags.",
-			"file": "lua/moonlift/reduction_algebra.lua",
+			"file": "lua/lalin/reduction_algebra.lua",
 			"after": [],
 			"status": "done",
 			"order": 1,
 			"claimedBy": "worker-68845",
-			"evidence": "Created lua/moonlift/reduction_algebra.lua with Define(T), type classification, central entries for add/mul/and/or/xor/min/max, identities, scalar/vector op selection, min/max compare selection, detection helpers, and vector_support(). Smoke-tested with LuaJIT for add/min i32 entries.",
+			"evidence": "Created lua/lalin/reduction_algebra.lua with Define(T), type classification, central entries for add/mul/and/or/xor/min/max, identities, scalar/vector op selection, min/max compare selection, detection helpers, and vector_support(). Smoke-tested with LuaJIT for add/min i32 entries.",
 			"notes": [],
 			"createdAt": "2026-06-18T10:04:05.518Z",
 			"updatedAt": "2026-06-18T11:40:17.850Z"
@@ -25,14 +25,14 @@
 			"id": "T002",
 			"title": "Use algebra for reduction fact detection",
 			"detail": "Import reduction_algebra. Replace local binary reduction mapping with algebra helpers. Add min/max recurrence detection for CodeInstSelect over CodeInstCompare patterns and optionally record float add/mul facts with float_mode while preserving closed-form add behavior only for integer additive series.",
-			"file": "lua/moonlift/code_value_facts.lua",
+			"file": "lua/lalin/code_value_facts.lua",
 			"after": [
 				"T001"
 			],
 			"status": "done",
 			"order": 2,
 			"claimedBy": "worker-68845",
-			"evidence": "Imported reduction_algebra in lua/moonlift/code_value_facts.lua, replaced local binary reduction mapping with algebra helper, added alias-chasing recurrence resolution, added CodeInstFloatBinary add/mul fact detection, and added CodeInstSelect over CodeInstCompare min/max recurrence detection.",
+			"evidence": "Imported reduction_algebra in lua/lalin/code_value_facts.lua, replaced local binary reduction mapping with algebra helper, added alias-chasing recurrence resolution, added CodeInstFloatBinary add/mul fact detection, and added CodeInstSelect over CodeInstCompare min/max recurrence detection.",
 			"notes": [],
 			"createdAt": "2026-06-18T10:04:05.518Z",
 			"updatedAt": "2026-06-18T11:43:59.988Z"
@@ -41,7 +41,7 @@
 			"id": "T003",
 			"title": "Add value override plumbing",
 			"detail": "Add helpers to map CodeValueId reads through temporary BackValId overrides. Use them in lower_value_expr, lower_kernel_expr, and edge_args so synthetic vector/tail blocks can evaluate expressions using synthetic counter and accumulator params without rebinding original Code value IDs.",
-			"file": "lua/moonlift/lower_to_back.lua",
+			"file": "lua/lalin/lower_to_back.lua",
 			"after": [
 				"T001"
 			],
@@ -57,7 +57,7 @@
 			"id": "T004",
 			"title": "Add reduction emission helpers",
 			"detail": "Import reduction_algebra and add helpers to emit scalar identity constants, vector identity splats, scalar combines, vector combines, horizontal fold via CmdVecExtractLane, and edge-arg substitutions for reductions. Use existing BackCmd primitives only.",
-			"file": "lua/moonlift/lower_to_back.lua",
+			"file": "lua/lalin/lower_to_back.lua",
 			"after": [
 				"T003"
 			],
@@ -73,7 +73,7 @@
 			"id": "T005",
 			"title": "Extend vector expression lowering",
 			"detail": "Extend lower_vector_value_expr and vec op helpers to cover ValueExprCmp and ValueExprSelect with CmdVecCompare/CmdVecSelect, matching reduction_algebra compare selection. Keep unsupported forms loud and do not add float vector ops that Back cannot express.",
-			"file": "lua/moonlift/lower_to_back.lua",
+			"file": "lua/lalin/lower_to_back.lua",
 			"after": [
 				"T004"
 			],
@@ -89,7 +89,7 @@
 			"id": "T006",
 			"title": "Implement forced vector reduction lowering",
 			"detail": "Replace the vector reduction stub with a guarded reduction path. For TailScalar vector reductions, create synthetic vector-loop and tail-check block params, carry vector accumulators initialized to identities, update them with vector contributions, horizontally fold on vector-loop exit, pass combined scalar accumulators into scalar tail/exit args exactly once, and keep KernelResultClosedForm separate.",
-			"file": "lua/moonlift/lower_to_back.lua",
+			"file": "lua/lalin/lower_to_back.lua",
 			"after": [
 				"T004",
 				"T005"
@@ -106,7 +106,7 @@
 			"id": "T007",
 			"title": "Add classifier support for vector reductions",
 			"detail": "Import reduction_algebra. Teach vector expression classifier about cmp/select. Replace the blanket vector reduction rejection with checks that all KernelEffectFold reductions and reduction contributions are supported by the central algebra for the chosen vector lane shape. Continue rejecting closed forms.",
-			"file": "lua/moonlift/kernel_emit_support.lua",
+			"file": "lua/lalin/kernel_emit_support.lua",
 			"after": [
 				"T006"
 			],
@@ -121,7 +121,7 @@
 			"id": "T008",
 			"title": "Relax scheduler reduction guard",
 			"detail": "After forced lowering and classifier support are in place, change vector_candidate_kind to keep rejecting KernelResultClosedForm but allow KernelResultReduction to reach KernelEmitSupport.classify. Do not bypass classifier rejects.",
-			"file": "lua/moonlift/code_schedule_plan.lua",
+			"file": "lua/lalin/code_schedule_plan.lua",
 			"after": [
 				"T007",
 				"T010"

@@ -1,46 +1,46 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local PhaseModel = require("moonlift.phase_model")
-local PhaseDsl = require("moonlift.phase_dsl")
-local Plan = require("moonlift.phase_plan")
+local pvm = require("lalin.pvm")
+local PhaseModel = require("lalin.phase_model")
+local PhaseDsl = require("lalin.phase_dsl")
+local Plan = require("lalin.phase_plan")
 
 local T = pvm.context()
 PhaseModel(T)
 PhaseDsl(T)
-local P = T.MoonPhase
+local P = T.LalinPhase
 
 local pkg = assert(PhaseDsl.loadstring([[
-return package "moonlift.compiler" {
-    world. tree [MoonTree.Module],
-    world. checked [MoonTree.TypecheckResult],
-    world. code [MoonCode.CodeModule],
-    world. back [MoonBack.Program],
-    world. diag [MoonDiag.Report],
+return package "lalin.compiler" {
+    world. tree [LalinTree.Module],
+    world. checked [LalinTree.TypecheckResult],
+    world. code [LalinCode.CodeModule],
+    world. back [LalinBack.Program],
+    world. diag [LalinDiag.Report],
 
-    machine. moon_typecheck {
+    machine. lalin_typecheck {
         from. tree,
         to. checked,
         diagnostics. diag,
         abi. status_returning,
-        impl. lua { module = "moonlift.tree_typecheck", func = "typecheck" },
+        impl. lua { module = "lalin.tree_typecheck", func = "typecheck" },
         capabilities { "diagnostics", "source_index" },
     },
 
-    machine. moon_tree_to_code {
+    machine. lalin_tree_to_code {
         from. checked,
         to. code,
         diagnostics. diag,
         abi. process,
-        impl. moonlift { module = "moonlift.tree_to_code", func = "lower" },
+        impl. lalin { module = "lalin.tree_to_code", func = "lower" },
     },
 
-    machine. moon_lower_to_back {
+    machine. lalin_lower_to_back {
         from. code,
         to. back,
         diagnostics. diag,
         abi. c,
-        impl. c { symbol = "moon_lower_to_back" },
+        impl. c { symbol = "lalin_lower_to_back" },
     },
 
     phase. typecheck {
@@ -49,7 +49,7 @@ return package "moonlift.compiler" {
         diagnostics. diag,
         cache. identity,
         deterministic(true),
-        machine. moon_typecheck,
+        machine. lalin_typecheck,
     },
 
     phase. tree_to_code {
@@ -58,7 +58,7 @@ return package "moonlift.compiler" {
         diagnostics. diag,
         cache. node,
         deterministic(true),
-        machine. moon_tree_to_code,
+        machine. lalin_tree_to_code,
     },
 
     phase. lower_to_back {
@@ -67,7 +67,7 @@ return package "moonlift.compiler" {
         diagnostics. diag,
         cache. full,
         deterministic(true),
-        machine. moon_lower_to_back,
+        machine. lalin_lower_to_back,
     },
 
     root. compile {
@@ -86,14 +86,14 @@ assert(report.input == "tree")
 assert(report.output == "back")
 assert(#report.steps == 3)
 assert(report.steps[1].phase_id == "typecheck")
-assert(report.steps[1].machine_id == "moon_typecheck")
+assert(report.steps[1].machine_id == "lalin_typecheck")
 assert(report.steps[1].input == "tree")
 assert(report.steps[1].output == "checked")
 assert(report.steps[1].diagnostics == "diag")
 assert(report.steps[2].phase_id == "tree_to_code")
-assert(report.steps[2].machine_id == "moon_tree_to_code")
+assert(report.steps[2].machine_id == "lalin_tree_to_code")
 assert(report.steps[3].phase_id == "lower_to_back")
-assert(report.steps[3].machine_id == "moon_lower_to_back")
+assert(report.steps[3].machine_id == "lalin_lower_to_back")
 
 local seen = {}
 local handle = Plan.process:start(pkg, "compile")
@@ -152,4 +152,4 @@ local unknown_root = Plan.plan(pkg, "missing")
 assert(not unknown_root.ok)
 assert(has_code(unknown_root, "E_UNKNOWN_ROOT"))
 
-io.write("moonlift phase_plan ok\n")
+io.write("lalin phase_plan ok\n")

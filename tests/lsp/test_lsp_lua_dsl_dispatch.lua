@@ -1,26 +1,26 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local schema = require("moonlift.schema_projection")
+local pvm = require("lalin.pvm")
+local schema = require("lalin.schema_projection")
 
 local T = pvm.context()
 schema(T)
 
-local S = T.MoonSource
-local E = T.MoonEditor
-local R = T.MoonRpc
-local L = T.MoonLsp
+local S = T.LalinSource
+local E = T.LalinEditor
+local R = T.LalinRpc
+local L = T.LalinLsp
 
-local Dispatch = require("moonlift.lsp_dispatch")(T)
+local Dispatch = require("lalin.lsp_dispatch")(T)
 assert(Dispatch.document_events_process, "LSP exposes document process")
 
 local uri = S.DocUri("file:///lsp_lua_dsl_test.lua")
 local doc = S.DocumentSnapshot(uri, S.DocVersion(1), S.LangLua, [[
-require("moonlift").family.use { scope = "env", target = getfenv(1), global = false, override = true }
+require("lalin").family.use { scope = "env", target = getfenv(1), global = false, override = true }
 
-return moonlift.unit. LspSmoke {
-  moonlift.fn. add { a [moonlift.i32], b [moonlift.i32] } [moonlift.i32] {
-    moonlift.ret (a + b),
+return lalin.unit. LspSmoke {
+  lalin.fn. add { a [lalin.i32], b [lalin.i32] } [lalin.i32] {
+    lalin.ret (a + b),
   },
 }
 ]])
@@ -52,11 +52,11 @@ assert(saw_index and saw_symbol, "LSP document process yields index and symbol e
 
 local bad_uri = S.DocUri("file:///lsp_lua_dsl_bad.lua")
 local bad_doc = S.DocumentSnapshot(bad_uri, S.DocVersion(1), S.LangLua, [[
-require("moonlift").family.use { scope = "env", target = getfenv(1), global = false, override = true }
+require("lalin").family.use { scope = "env", target = getfenv(1), global = false, override = true }
 
-return moonlift.unit. Bad {
-  moonlift.fn. bad {} [moonlift.i32] {
-    moonlift.ret true,
+return lalin.unit. Bad {
+  lalin.fn. bad {} [lalin.i32] {
+    lalin.ret true,
   },
 }
 ]])
@@ -74,4 +74,4 @@ assert(pvm.classof(diag_cmds[1].outgoing) == R.RpcResult, "diagnostic should be 
 assert(pvm.classof(diag_cmds[1].outgoing.payload) == L.PayloadDiagnosticDocumentReport, "diagnostic payload class")
 assert(#diag_cmds[1].outgoing.payload.report.items > 0, "diagnostic should return items")
 
-print("moonlift lsp lua dsl dispatch ok")
+print("lalin lsp lua dsl dispatch ok")

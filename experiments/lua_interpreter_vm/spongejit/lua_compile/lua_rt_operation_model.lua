@@ -2,7 +2,7 @@
 -- Structural validation only; executable arithmetic support remains in lowerer gates.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local RT = T.LuaRT
 local Metatable = require("lua_compile.lua_rt_metatable_model")

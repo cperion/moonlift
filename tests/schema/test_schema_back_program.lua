@@ -1,12 +1,12 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
-local BackProgram = require("moonlift.back_program")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
+local BackProgram = require("lalin.back_program")
 
 local T = pvm.context()
 Schema(T)
-local B = T.MoonBack
+local B = T.LalinBack
 local P = BackProgram(T)
 
 local a = B.CmdFinalizeModule
@@ -32,4 +32,4 @@ local cmds = P.cmds(cat)
 cmds[1] = nil
 assert(#cat.cmds == 3, "cmds returns a copy")
 
-io.write("moonlift schema_back_program ok\n")
+io.write("lalin schema_back_program ok\n")

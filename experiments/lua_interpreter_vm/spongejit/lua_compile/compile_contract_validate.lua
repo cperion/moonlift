@@ -1,6 +1,6 @@
 -- compile_contract_validate.lua -- executable contract structural validation.
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local Schema = require("lua_compile.schema")
 local T = Schema.get()
 local CallModel = require("lua_compile.lua_rt_call_model")

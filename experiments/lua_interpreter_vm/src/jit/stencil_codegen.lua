@@ -1,4 +1,4 @@
--- StateOp -> Moonlift stencil code generation bootstrap.
+-- StateOp -> Lalin stencil code generation bootstrap.
 -- This is the VM/JIT integration shim used by experiments and tests. The richer
 -- harness generator lives in tools/jit_harness/candidate_emit.lua; this module
 -- keeps a compact StateOp API for early stencil experiments.

@@ -1,10 +1,10 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local PhaseModel = require("moonlift.phase_model")
-local PhaseDsl = require("moonlift.phase_dsl")
-local Plan = require("moonlift.phase_plan")
-local Execute = require("moonlift.phase_execute")
+local pvm = require("lalin.pvm")
+local PhaseModel = require("lalin.phase_model")
+local PhaseDsl = require("lalin.phase_dsl")
+local Plan = require("lalin.phase_plan")
+local Execute = require("lalin.phase_execute")
 
 local T = pvm.context()
 PhaseModel(T)
@@ -86,4 +86,4 @@ assert(unbound.diagnostics[1].code == "E_MACHINE_UNBOUND")
 assert(unbound.run.status == "failed")
 assert(unbound.run.steps[1].status == "failed")
 
-io.write("moonlift phase_execute ok\n")
+io.write("lalin phase_execute ok\n")

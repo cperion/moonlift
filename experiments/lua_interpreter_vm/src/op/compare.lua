@@ -1,4 +1,4 @@
--- Moonlift VM — Compare opcode handlers (EQ, LT, LE, EQK, EQI, LTI, LEI, GTI, GEI, TEST, TESTSET)
+-- Lalin VM — Compare opcode handlers (EQ, LT, LE, EQK, EQI, LTI, LEI, GTI, GEI, TEST, TESTSET)
 
 local B = require("experiments.lua_interpreter_vm.src.op._init")
 local R, H = B.R, B.H

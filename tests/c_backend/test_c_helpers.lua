@@ -1,14 +1,14 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 local T = pvm.context(); Schema(T)
 
-local Core = T.MoonCore
-local C = T.MoonC
-local H = require("moonlift.c_helpers")(T)
-local Emit = require("moonlift.c_emit")(T)
-local CodeType = require("moonlift.code_type")(T)
+local Core = T.LalinCore
+local C = T.LalinC
+local H = require("lalin.c_helpers")(T)
+local Emit = require("lalin.c_emit")(T)
+local CodeType = require("lalin.code_type")(T)
 
 local i32 = C.CBackendScalar(Core.ScalarI32)
 local u32 = C.CBackendScalar(Core.ScalarU32)
@@ -121,4 +121,4 @@ local trap_use = C.CBackendHelperUse(H.helper_id(C.CBackendHelperTrap), C.CBacke
 local trap_src = table.concat(H.emit_helper(trap_use), "\n")
 assert(trap_src:match("abort%(%);"), "trap helper aborts")
 
-io.write("moonlift c_helpers ok\n")
+io.write("lalin c_helpers ok\n")

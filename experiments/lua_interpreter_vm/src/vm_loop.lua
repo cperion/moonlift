@@ -2,13 +2,13 @@
 -- Hot state threaded through block params: frame, pc, base, top, code, constants.
 -- code and constants are cached pointers (not reloaded from frame->closure->proto on every op).
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 
 local I = {}
-for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
-for k, v in pairs(const.Status) do I["THREAD_" .. k] = moon.int(v) end
+for k, v in pairs(const.Err) do I["ERR_" .. k] = lalin.int(v) end
+for k, v in pairs(const.Status) do I["THREAD_" .. k] = lalin.int(v) end
 
 local opcodes_mod = require("experiments.lua_interpreter_vm.src.opcodes")
 local dispatch_instruction = opcodes_mod.dispatch_instruction

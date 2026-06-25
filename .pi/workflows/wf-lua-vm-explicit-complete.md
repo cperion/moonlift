@@ -1,5 +1,5 @@
-# Complete Lua 5.5 VM idiomatically in Moonlift 
-Fresh PLANSEARCH workflow. Goal: complete the Moonlift-native Lua 5.5 VM according to explicit_programming.md. Vendored latest Lua 5.5 is semantic/bytecode oracle only; PUC architecture must not be ported. SponJIT remains separate.
+# Complete Lua 5.5 VM idiomatically in Lalin
+Fresh PLANSEARCH workflow. Goal: complete the Lalin-native Lua 5.5 VM according to explicit_programming.md. Vendored latest Lua 5.5 is semantic/bytecode oracle only; PUC architecture must not be ported. SponJIT remains separate.
 **Workflow ID**: wf-lua-vm-explicit-complete
 **Started**: 2026-05-29 23:29:38
 ---
@@ -9,7 +9,7 @@ Fresh PLANSEARCH workflow. Goal: complete the Moonlift-native Lua 5.5 VM accordi
 ## Files Retrieved
 
 1. `explicit_programming.md` (lines 1-3710) — Governing design philosophy: dual data/control tree, continuation protocols, explicit state, emit/forward composition, metaprogramming, anti-patterns.
-2. `LANGUAGE_REFERENCE.md` (lines 53-222, 471-730, 777-966, 1526-2115, 2533-3132, 3305-3414, 3721-3738) — Moonlift language rules, type system, hosted declarations/externs, regions, continuation forwarding, splicing, metaprogramming, ABI/memory boundaries.
+2. `LANGUAGE_REFERENCE.md` (lines 53-222, 471-730, 777-966, 1526-2115, 2533-3132, 3305-3414, 3721-3738) — Lalin language rules, type system, hosted declarations/externs, regions, continuation forwarding, splicing, metaprogramming, ABI/memory boundaries.
 3. `experiments/lua_interpreter_vm/README.md` (lines 1-92) — Status map: interpreter VM separate from SpongeJIT; current test commands; non-goals.
 4. `experiments/lua_interpreter_vm/VM_CONTRACT.md` (lines 1-78) — ABI/semantic contract and SponJIT gate conditions.
 5. `experiments/lua_interpreter_vm/src/constants.lua` (lines 1-191) — Lua 5.5-ish tags, opcodes 0-84, metamethods, resume modes, status/error codes, GC states, ABI versions.
@@ -65,7 +65,7 @@ Fresh PLANSEARCH workflow. Goal: complete the Moonlift-native Lua 5.5 VM accordi
 
 `explicit_programming.md` establishes:
 
-```moonlift
+```lalin
 region authenticate(
     creds: ptr(Credentials),
     store: ptr(SessionStore);
@@ -86,19 +86,19 @@ Key doctrine from the read:
 - hidden state, stringly exits, boolean returns, and premature functions are anti-patterns.
 
 `LANGUAGE_REFERENCE.md` reinforces:
-- Moonlift object code is monomorphic;
+- Lalin object code is monomorphic;
 - no source generics;
 - `emit` splices regions;
 - every block path terminates explicitly;
 - externs are typed declarations;
-- Lua metaprogramming builds typed Moonlift values, not runtime strings.
+- Lua metaprogramming builds typed Lalin values, not runtime strings.
 
 ### VM contract
 
 `experiments/lua_interpreter_vm/VM_CONTRACT.md`:
 
 ```text
-- The VM targets Lua 5.5 semantics in Moonlift-native data/control structures.
+- The VM targets Lua 5.5 semantics in Lalin-native data/control structures.
 - PUC Lua is a semantic reference only. PUC layouts, longjmp, C-stack behavior,
   allocator conventions, and internal bytecode/runtime shapes MUST NOT be treated
   as implementation dependencies.
@@ -155,7 +155,7 @@ Runtime includes `UserData`, `NativeFunc`, `NativeCallResult`, `Allocator`, `Pro
 
 `vm_loop.lua` root regions:
 
-```moonlift
+```lalin
 region vm_resume(L: ptr(LuaThread), nargs: i32;
                  ok: cont(nres: i32),
                  yielded: cont(nres: i32),
@@ -163,7 +163,7 @@ region vm_resume(L: ptr(LuaThread), nargs: i32;
                  oom: cont())
 ```
 
-```moonlift
+```lalin
 region vm_loop(L: ptr(LuaThread);
                finished: cont(nres: i32),
                yielded: cont(nres: i32),
@@ -173,7 +173,7 @@ region vm_loop(L: ptr(LuaThread);
 
 `dispatch_instruction` has 9 explicit exits:
 
-```moonlift
+```lalin
 next(...)
 do_jump(...)
 resume_parent(...)
@@ -192,7 +192,7 @@ This is an idiomatic control protocol for interpreter outcomes.
 
 `vm_loop.lua` explicitly reloads `code`/`constants` when switching frame:
 
-```moonlift
+```lalin
 block cont_resume_parent(parent: ptr(Frame), pc: index, base: index, top: index,
                          code: ptr(Instr), constants: ptr(Value))
     let cl: ptr(LClosure) = as(ptr(LClosure), parent.closure.bits)
@@ -209,7 +209,7 @@ Test coverage: `tests/test_vm_call_frame_contract.lua` verifies child return doe
 
 `regions_call.lua`:
 
-```moonlift
+```lalin
 region call_native(...;
                    returned: cont(nres: i32),
                    yielded: cont(nres: i32),
@@ -230,7 +230,7 @@ So normal/error/yield/OOM exits are typed, but invocation always fails loudly.
 
 `regions_gc.lua`:
 
-```moonlift
+```lalin
 region alloc_object(G: ptr(GlobalState), size: index, tt: u8;
                     ok: cont(obj: ptr(GCHeader)),
                     step_required: cont(),
@@ -249,7 +249,7 @@ GC regions include `gc_check`, `gc_step`, `mark_value`, `mark_object`, `propagat
 
 `regions_compiler.lua` exposes:
 
-```moonlift
+```lalin
 region compile_lua_source_into(...;
     ok: cont(proto: ptr(Proto)),
     syntax_error: cont(err: CompileError),
@@ -302,7 +302,7 @@ run_case("local x = 41 return x + 1", ..., 42)
 
 ## Observations
 
-### Explicit / idiomatic Moonlift facts
+### Explicit / idiomatic Lalin facts
 
 - The VM has a visible data tree in `products.lua` and `parser_products.lua`.
 - The VM has a large visible control tree: 100+ region fragments according to `test_vm_smoke.lua`.
@@ -313,8 +313,8 @@ run_case("local x = 41 return x + 1", ..., 42)
 
 ### Implicit or less-explicit current shapes
 
-- `Value` is a manual `tag/aux/bits` product, not a Moonlift union. This is probably a runtime-language necessity, but the discriminant is integer-tagged.
-- Opcode handler protocols in `op/_init.lua` are string fragments (`TABLE_CONTS`, `CALL_CONTS`, etc.) concatenated into Moonlift source. This is boilerplate generation, but it is less ASDL-shaped than table-builder continuation descriptors.
+- `Value` is a manual `tag/aux/bits` product, not a Lalin union. This is probably a runtime-language necessity, but the discriminant is integer-tagged.
+- Opcode handler protocols in `op/_init.lua` are string fragments (`TABLE_CONTS`, `CALL_CONTS`, etc.) concatenated into Lalin source. This is boilerplate generation, but it is less ASDL-shaped than table-builder continuation descriptors.
 - Many opcode modules still concatenate `region op_name(` .. `H` .. `;` .. cont string, even though `op_factory.lua` says old string substitution violated type-first rules.
 - Metamethod/event identities are raw integer constants and strings in `tmname`; no typed enum/union surface.
 - `Table.flags` comment says metamethod flags cache, but `get_table_metamethod` does not use `flags`.
@@ -365,7 +365,7 @@ run_case("local x = 41 return x + 1", ..., 42)
 
 ### Weak tables/finalizers/userdata facts
 
-Current Moonlift VM:
+Current Lalin VM:
 - `constants.lua` includes `TM.GC`, `TM.MODE`, and `GCState.FINALIZE`.
 - `products.lua` has `UserData gc/metatable/env/len/data`.
 - `GlobalState` has `weak` and `tmudata` fields but not the full vendored set (`ephemeron`, `allweak`, `finobj`, `tobefnz`, etc.).
@@ -388,7 +388,7 @@ Vendored Lua oracle facts:
 - `NativeResult` constants include `OK`, `ERROR`, `YIELD`, `OOM`, `STACK_GROW`.
 - `call_native` exposes typed continuations but does not call `addr`.
 - `api.lua` sealed C-compatible API functions are `func`s, not regions. Full operations that may allocate/call/yield (`lua_gettable_api`, `lua_settable_api`, `lua_call_api`, `lua_pcall_api`) currently mark runtime error/fail loudly.
-- Tests use LuaJIT FFI and `moonlift_scratch_raw` to construct structs. `VM_CONTRACT.md` explicitly says scratch-memory FFI tests are fixtures, not stable host ABI.
+- Tests use LuaJIT FFI and `lalin_scratch_raw` to construct structs. `VM_CONTRACT.md` explicitly says scratch-memory FFI tests are fixtures, not stable host ABI.
 
 ### Tests/conformance gaps
 
@@ -445,7 +445,7 @@ Observed test gaps:
 
 - **Dual-tree completeness**: completion means every Lua 5.5 semantic distinction must appear either as typed data (`Value`, `Frame`, `Proto`, GC objects, ABI records) or typed control (`ok/error/oom/yield/metamethod/finalizer/...` continuations), not as comments, magic integers, stale flags, or side effects.
 - **Trust-boundary fidelity**: bytecode decoding and `validate_proto` must exactly cover the assumptions used by dispatch and handlers before opcode semantics can be trusted.
-- **Semantic vs architectural oracle separation**: vendored Lua can define opcode meanings, numeric rules, weak/finalizer behavior, etc.; it must not define Moonlift layouts, control flow, allocator conventions, C-stack behavior, or longjmp semantics.
+- **Semantic vs architectural oracle separation**: vendored Lua can define opcode meanings, numeric rules, weak/finalizer behavior, etc.; it must not define Lalin layouts, control flow, allocator conventions, C-stack behavior, or longjmp semantics.
 - **Allocation/GC as VM semantics**: allocator, stack growth, table growth, string interning, closure/upvalue creation, protected frames, weak clearing, and finalizers are not infrastructure details; they are observable Lua behavior.
 - **Metamethod/protected/yield sequencing**: many incomplete areas share the same continuation machinery. `__index`, `__newindex`, arithmetic fallback, `__call`, `__close`, `__gc`, native calls, pcall, and coroutine yield all stress the same resume/error protocol.
 - **Compatibility split**: source compatibility, internal `Proto` compatibility, PUC-like bytecode opcode compatibility, and native/FFI ABI compatibility are separate contracts and should not collapse into one vague “Lua compatibility” target.
@@ -461,11 +461,11 @@ Observed test gaps:
 
 - `validate_proto` is named as the trust boundary, but its current checks are only a partial mirror of dispatch assumptions. In Lua 5.5, “next instruction must be jump,” “open top” producer/consumer behavior, `B == 0`/`C == 0`, hidden vararg fields, `RETURN/Tailcall k`, and `EXTRAARG` pair rules are semantic control constraints, not optional validation details.
 
-- Source compatibility and binary compatibility have different failure modes. The toy compiler can generate internally consistent `Proto`s without proving Lua source compatibility; a bytecode loader can accept PUC-shaped chunks without proving source semantics. Completion has to keep those axes separate: source parser/codegen correctness, opcode-level execution correctness, and chunk-to-Moonlift-`Proto` translation correctness.
+- Source compatibility and binary compatibility have different failure modes. The toy compiler can generate internally consistent `Proto`s without proving Lua source compatibility; a bytecode loader can accept PUC-shaped chunks without proving source semantics. Completion has to keep those axes separate: source parser/codegen correctness, opcode-level execution correctness, and chunk-to-Lalin-`Proto` translation correctness.
 
 - The current data tree intentionally avoids PUC layouts, but `Value tag/aux/bits`, `TM` integers, `Resume` integers, and `Err` integers are manual sum encodings. That is probably necessary at the VM/ABI level, but it weakens exhaustiveness. The compensating invariant must be that every consumer has explicit switch/continuation coverage and tests for unknown/default cases.
 
-- Opcode handler metaprogramming is mixed. `opcodes.lua` moved toward typed `moon.stmts`/spliced fragments, while `op/_init.lua` and several op modules still concatenate continuation signatures and shared block strings. That hides part of the control tree from the same structural inspection that explicit programming relies on; continuation protocol drift becomes easier than in first-class typed fragments.
+- Opcode handler metaprogramming is mixed. `opcodes.lua` moved toward typed `lalin.stmts`/spliced fragments, while `op/_init.lua` and several op modules still concatenate continuation signatures and shared block strings. That hides part of the control tree from the same structural inspection that explicit programming relies on; continuation protocol drift becomes easier than in first-class typed fragments.
 
 - The call/return machinery has one of the strongest idiomatic cores: `result_base`, frame-cache reload, and child-owned return metadata are explicit and tested. This makes it a natural spine for completion, but also means every later feature — metamethod calls, native calls, pcall, coroutine resume/yield, finalizers — must preserve that exact ownership model.
 
@@ -479,7 +479,7 @@ Observed test gaps:
 
 - Weak table behavior has subtle oracle-only exceptions that must not be lost in a generic “weak reference” abstraction: strings are never cleared as weak values; non-collectable values are never removed; finalizable objects have special retention behavior. These distinctions belong in explicit GC/table protocols, not comments inside sweeping code.
 
-- Userdata compatibility is especially easy to get wrong because PUC’s `Udata` layout is both semantically informative and architecturally forbidden. The Moonlift `UserData { metatable, env, len, data }` must define its own ownership/alignment/user-value/finalizer contract. Full userdata, light userdata, user values, payload alignment, and FFI access are separate semantic facts.
+- Userdata compatibility is especially easy to get wrong because PUC’s `Udata` layout is both semantically informative and architecturally forbidden. The Lalin `UserData { metatable, env, len, data }` must define its own ownership/alignment/user-value/finalizer contract. Full userdata, light userdata, user values, payload alignment, and FFI access are separate semantic facts.
 
 - Table flags are currently a hidden-implicitness risk. `Table.flags` comments mention metamethod cache, but lookup ignores it. Once used, it must be invalidated by metatable/table mutation and tied to `__mode`, `__gc`, `__index`, etc.; otherwise it becomes an invisible side channel that can silently contradict the data tree.
 
@@ -499,7 +499,7 @@ Observed test gaps:
 
 ### Knowledge Gaps
 
-- The exact intended meaning of “binary compatibility” is not fully established in the scout data: PUC binary chunk loading compatibility, opcode-stream compatibility after translation into Moonlift `Proto`, or a Moonlift-specific binary format with Lua 5.5 bytecode semantics.
+- The exact intended meaning of “binary compatibility” is not fully established in the scout data: PUC binary chunk loading compatibility, opcode-stream compatibility after translation into Lalin `Proto`, or a Lalin-specific binary format with Lua 5.5 bytecode semantics.
 - The desired FFI surface for userdata payload access and native functions is under-specified relative to `__gc`, user values, alignment, ownership, and yield/error behavior.
 - The future test oracle boundary needs clarification: semantic differential tests against vendored Lua are appropriate, but tests must avoid depending on PUC internal layouts or execution architecture.
 
@@ -543,13 +543,13 @@ Observed test gaps:
 
 - **Key changes**:
   - Add explicit product/protocol modules for resumable VM states, numeric coercion outcomes, table access outcomes, GC phases, weak modes, finalizer eligibility, native call results, and protected-call states.
-  - Replace loosely shared string fragments in `op/_init.lua` and opcode modules with named monomorphic Lua builders that emit typed Moonlift fragments.
+  - Replace loosely shared string fragments in `op/_init.lua` and opcode modules with named monomorphic Lua builders that emit typed Lalin fragments.
   - Convert `Frame.resume_mode/resume_a/b/c` into validated suspended-control records or decoded protocol states at every resume boundary.
   - Extend `GlobalState`, `Table`, `UserData`, and GC products for weak values, weak keys, ephemerons, finalizable lists, pending finalizers, finalizer-running state, userdata payload/user-values/alignment.
   - Make metamethod identity, table flags, weak-mode parsing, and native ABI statuses explicit validated encodings.
   - Rebuild opcode handlers as thin bridges into semantic protocols.
 
-- **Tradeoff**: Optimizes for idiomatic Moonlift, auditability, and long-term correctness; sacrifices short-term velocity because significant scaffolding must be reshaped before many features can be completed.
+- **Tradeoff**: Optimizes for idiomatic Lalin, auditability, and long-term correctness; sacrifices short-term velocity because significant scaffolding must be reshaped before many features can be completed.
 
 - **Risk**: The refoundation could over-abstract into a second compiler unless the generated axes remain named, monomorphic, and grep-visible.
 
@@ -571,7 +571,7 @@ Observed test gaps:
 
 ### Approach C: Canonical Semantic-Bytecode Boundary
 
-- **Core idea**: Treat PUC Lua 5.5 source/chunks as compatibility inputs that translate into a Moonlift-native canonical instruction/product format, and make the VM execute only that normalized semantic bytecode.
+- **Core idea**: Treat PUC Lua 5.5 source/chunks as compatibility inputs that translate into a Lalin-native canonical instruction/product format, and make the VM execute only that normalized semantic bytecode.
 
 - **Key changes**:
   - Introduce a canonical `Proto`/instruction layer separate from raw Lua 5.5 bytecode encodings.
@@ -605,7 +605,7 @@ Observed test gaps:
 
 - **Approach A** preserves the current VM shape and completes it directly.
 - **Approach B** prioritizes explicit-programming purity by making hidden semantic state first-class before completion.
-- **Approach C** separates compatibility concerns from runtime execution by normalizing source/chunks into Moonlift-native semantic bytecode.
+- **Approach C** separates compatibility concerns from runtime execution by normalizing source/chunks into Lalin-native semantic bytecode.
 
 ## Critique Output — 2026-05-29 23:58:33
 
@@ -618,11 +618,11 @@ Scoring note: for Coupling/Cohesion/Philosophy fit/Testability, 5 is best. For M
 | **Coupling** | 3/5 | Preserves useful separation from SponJIT, but keeps raw Lua 5.5 bytecode quirks, opcode stubs, string-template protocols, and int-encoded resume modes coupled directly into runtime dispatch. |
 | **Cohesion** | 3/5 | Existing modules have recognizable responsibilities, but `oom`, resume modes, table/metamethod paths, and GC/finalizer state currently mix “not implemented” with real semantic outcomes. |
 | **Migration cost** | 2/5 | Lowest structural migration: continue from current VM spine, tests, dispatch loop, call/return model, and products. Still a large implementation effort because many semantic areas are stubs. |
-| **Philosophy fit** | 3/5 | The outer control tree is idiomatic Moonlift, but inner behavior still risks stringly/intly implicit control and overloaded error paths unless aggressively audited. |
+| **Philosophy fit** | 3/5 | The outer control tree is idiomatic Lalin, but inner behavior still risks stringly/intly implicit control and overloaded error paths unless aggressively audited. |
 | **Risk** | 4/5 | High risk of completing semantics on top of a partially wrong bytecode model or blessing stub behavior as real behavior. Weak tables, finalizers, native calls, protected calls, and coroutine resume would stress existing hidden state. |
 | **Testability** | 4/5 | Incremental validation is strong because the current VM already has tests and explicit contracts. However, tests must distinguish real OOM from unimplemented semantic paths. |
 
-**Verdict**: Yes with caveats  
+**Verdict**: Yes with caveats
 **Key concern**: Fix decoder/validator and eliminate overloaded `oom`/stub paths before treating opcode/runtime behavior as semantically meaningful.
 
 ---
@@ -638,7 +638,7 @@ Scoring note: for Coupling/Cohesion/Philosophy fit/Testability, 5 is best. For M
 | **Risk** | 3/5 | Architecturally safer long-term, but execution risk is real: refoundation can stall, over-abstract, or break working spine invariants unless constrained by current tests and concrete Lua 5.5 semantics. |
 | **Testability** | 4/5 | Very testable if developed as explicit protocol replacements with exhaustive decoders and compatibility tests. Less testable if done as a broad rewrite before preserving current call/return/frame-cache guarantees. |
 
-**Verdict**: Strong yes  
+**Verdict**: Strong yes
 **Key concern**: Keep the refoundation concrete, monomorphic, grep-visible, and anchored to exact Lua 5.5 validator/runtime invariants rather than becoming an abstract VM framework.
 
 ---
@@ -647,21 +647,21 @@ Scoring note: for Coupling/Cohesion/Philosophy fit/Testability, 5 is best. For M
 
 | Dimension | Score (1-5) | Rationale |
 |-----------|-------------|-----------|
-| **Coupling** | 4/5 | Cleanly separates PUC Lua 5.5 source/chunk compatibility from the Moonlift-native VM core. The main coupling risk moves into the translator. |
+| **Coupling** | 4/5 | Cleanly separates PUC Lua 5.5 source/chunk compatibility from the Lalin-native VM core. The main coupling risk moves into the translator. |
 | **Cohesion** | 4/5 | Strong conceptual split: raw frontier validation, canonical VM validation, normalized runtime execution. But it adds another major layer whose responsibility must stay narrow. |
 | **Migration cost** | 4/5 | Requires new canonical instruction/product schema, translator, validator split, and porting current opcode handlers to normalized operations. |
 | **Philosophy fit** | 4/5 | Fits the “PUC as oracle only” rule well and can make runtime dispatch more explicit. Risk: canonical bytecode translation could hide semantic control if not represented as typed products/protocols. |
 | **Risk** | 4/5 | Translation bugs could silently alter Lua semantics. Differential testing must cover raw chunks, source compiler output, canonical validation, and runtime behavior separately. |
 | **Testability** | 3/5 | Boundaries are testable, but there are more of them. It increases verification burden before the VM can be trusted end-to-end. |
 
-**Verdict**: Yes with caveats  
+**Verdict**: Yes with caveats
 **Key concern**: The raw-to-canonical translator must itself be an explicit, validated semantic boundary, not an opaque compatibility shim.
 
 ---
 
 ### Summary
 
-- **Recommended**: **Approach B**. It best matches the stated goal and Moonlift philosophy: complete Lua 5.5 by making semantic state and control explicit, not by accumulating behavior behind integer modes, string templates, or overloaded failure paths.
+- **Recommended**: **Approach B**. It best matches the stated goal and Lalin philosophy: complete Lua 5.5 by making semantic state and control explicit, not by accumulating behavior behind integer modes, string templates, or overloaded failure paths.
 
 - **Dark horse**: **Approach C**. It has high upside for source+binary Lua 5.5 compatibility because it separates raw PUC bytecode quirks from the VM core. Its risk is translator correctness.
 
@@ -675,7 +675,7 @@ For developing **B safely**, the essential constraints are: preserve the proven 
 
 ## Goal
 
-Complete the Moonlift-native Lua 5.5 VM idiomatically according to `explicit_programming.md` by making every Lua 5.5 semantic distinction visible as either typed runtime data or typed control flow, while preserving the existing explicit interpreter spine and keeping PUC Lua only as a semantic/bytecode oracle, not as an implementation architecture.
+Complete the Lalin-native Lua 5.5 VM idiomatically according to `explicit_programming.md` by making every Lua 5.5 semantic distinction visible as either typed runtime data or typed control flow, while preserving the existing explicit interpreter spine and keeping PUC Lua only as a semantic/bytecode oracle, not as an implementation architecture.
 
 ## Incentives
 
@@ -687,18 +687,18 @@ The decision is motivated by several concrete pain points found in the existing 
 - `validate_proto` is only a partial trust boundary; it does not yet mirror all dispatch assumptions.
 - Allocation, stack growth, table growth, string interning, closure creation, upvalue allocation, protected frames, native calls, weak tables, finalizers, varargs, coroutine resume/yield, and many metamethod paths are fail-loud stubs.
 - GC/finalizer/weak-table state lacks explicit data products for the Lua semantics implied by the vendored oracle.
-- Opcode handler generation still uses string fragments in places where explicit Moonlift philosophy prefers typed, grep-visible products and protocols.
+- Opcode handler generation still uses string fragments in places where explicit Lalin philosophy prefers typed, grep-visible products and protocols.
 - SponJIT must not consume VM scaffolding until the interpreter contract is semantically complete and tested.
 
 ## Current State
 
-The Lua interpreter VM lives under `experiments/lua_interpreter_vm/src/`. It is explicitly separate from SpongeJIT/SponJIT and targets Lua 5.5 semantics using Moonlift-native data and control structures.
+The Lua interpreter VM lives under `experiments/lua_interpreter_vm/src/`. It is explicitly separate from SpongeJIT/SponJIT and targets Lua 5.5 semantics using Lalin-native data and control structures.
 
 ### Governing contract
 
 `experiments/lua_interpreter_vm/VM_CONTRACT.md` states that:
 
-- The VM targets Lua 5.5 semantics in Moonlift-native structures.
+- The VM targets Lua 5.5 semantics in Lalin-native structures.
 - PUC Lua is a semantic reference only.
 - PUC layouts, `longjmp`, C-stack behavior, allocator conventions, and internal runtime shapes must not become implementation dependencies.
 
@@ -736,7 +736,7 @@ This contract makes SponJIT explicitly unavailable until the interpreter VM sati
 
 Important current structures include:
 
-```moonlift
+```lalin
 struct Value
     tag: u32
     aux: u32
@@ -744,7 +744,7 @@ struct Value
 end
 ```
 
-```moonlift
+```lalin
 struct Proto
     gc: GCHeader
     code: ptr(Instr)
@@ -759,7 +759,7 @@ struct Proto
 end
 ```
 
-```moonlift
+```lalin
 struct Frame
     closure: Value
     base: index
@@ -782,7 +782,7 @@ struct Frame
 end
 ```
 
-```moonlift
+```lalin
 struct LuaThread
     status: u8
     stack: ptr(Value)
@@ -803,13 +803,13 @@ struct LuaThread
 end
 ```
 
-This data tree is Moonlift-native and does not import PUC runtime layouts. However, many semantic distinctions are still manually encoded as integers, including value tags, metamethod IDs, resume modes, status codes, and error codes.
+This data tree is Lalin-native and does not import PUC runtime layouts. However, many semantic distinctions are still manually encoded as integers, including value tags, metamethod IDs, resume modes, status codes, and error codes.
 
 ### Runtime control tree
 
 `src/vm_loop.lua` defines the main interpreter entry points:
 
-```moonlift
+```lalin
 region vm_resume(
     L: ptr(LuaThread),
     nargs: i32;
@@ -819,7 +819,7 @@ region vm_resume(
     oom: cont())
 ```
 
-```moonlift
+```lalin
 region vm_loop(
     L: ptr(LuaThread);
     finished: cont(nres: i32),
@@ -830,7 +830,7 @@ region vm_loop(
 
 Instruction dispatch uses explicit continuations:
 
-```moonlift
+```lalin
 next(...)
 do_jump(...)
 resume_parent(...)
@@ -847,7 +847,7 @@ This is one of the strongest existing pieces of the VM: completion, yield, runti
 
 The current loop also correctly reloads frame-local cached state when returning to a parent frame:
 
-```moonlift
+```lalin
 let cl: ptr(LClosure) = as(ptr(LClosure), parent.closure.bits)
 let parent_code: ptr(Instr) = cl.proto.code
 let parent_constants: ptr(Value) = cl.proto.constants
@@ -907,7 +907,7 @@ Current gaps include:
 - protected-call allocation and success paths are missing.
 - coroutine resume/yield does not yet preserve enough continuation state for all yieldable contexts.
 - weak tables and finalizers are represented only skeletally.
-- userdata has a Moonlift product but no complete finalizer/user-value/payload contract.
+- userdata has a Lalin product but no complete finalizer/user-value/payload contract.
 - source compilation supports only a small expression/local/return slice.
 - binary chunk compatibility is not yet implemented.
 
@@ -930,7 +930,7 @@ The VM must not port PUC architecture. In particular, the decision preserves the
 
 SponJIT remains separate. The current interpreter VM is not wired to a JIT. Existing SponJIT documents describe an offline path from opcode facts to semantic SSA to stencil/native-fragment descriptors. `contract.lua` explicitly sets `sponjit_allowed = false`.
 
-The interpreter must therefore be completed and tested as an independent Moonlift-native VM. SponJIT may not pressure the interpreter shape through reserved optimization fields or premature native-fragment requirements.
+The interpreter must therefore be completed and tested as an independent Lalin-native VM. SponJIT may not pressure the interpreter shape through reserved optimization fields or premature native-fragment requirements.
 
 ## Chosen Target
 
@@ -938,7 +938,7 @@ The interpreter must therefore be completed and tested as an independent Moonlif
 
 The chosen approach is **Approach B: Explicit Product/Protocol Re-Foundation**.
 
-The VM will be completed by refounding incomplete and implicit semantic areas as first-class typed products and continuation protocols before filling in behavior. The goal is not a rewrite away from the current interpreter spine; it is a re-foundation of the hidden and skeletal inner semantics so that Lua 5.5 behavior is represented in the Moonlift style required by `explicit_programming.md`.
+The VM will be completed by refounding incomplete and implicit semantic areas as first-class typed products and continuation protocols before filling in behavior. The goal is not a rewrite away from the current interpreter spine; it is a re-foundation of the hidden and skeletal inner semantics so that Lua 5.5 behavior is represented in the Lalin style required by `explicit_programming.md`.
 
 This approach was chosen because it best matches the project philosophy:
 
@@ -1003,9 +1003,9 @@ Opcode handlers become thin bridges into these semantic protocols rather than pl
 
 Continuation signatures and shared handler contracts currently appear partly as string fragments in `src/op/_init.lua` and related opcode modules.
 
-The chosen architecture replaces loosely shared string fragments with named, monomorphic Lua builders that emit typed Moonlift fragments. The generated code must remain concrete, grep-visible, and tied to named continuation protocols.
+The chosen architecture replaces loosely shared string fragments with named, monomorphic Lua builders that emit typed Lalin fragments. The generated code must remain concrete, grep-visible, and tied to named continuation protocols.
 
-This does not introduce Moonlift source generics. Lua remains the metaprogramming layer, and Moonlift receives monomorphic generated source.
+This does not introduce Lalin source generics. Lua remains the metaprogramming layer, and Lalin receives monomorphic generated source.
 
 #### Runtime product extensions
 
@@ -1022,7 +1022,7 @@ Areas requiring explicit products include:
 - native ABI result/status records;
 - protected-call frame state.
 
-These products remain Moonlift-native. They do not copy PUC object layouts.
+These products remain Lalin-native. They do not copy PUC object layouts.
 
 #### Validator and decoder boundary
 
@@ -1048,7 +1048,7 @@ A necessary hybrid constraint from Approach C is also retained: compatibility fr
 
 Source compatibility, binary chunk compatibility, internal `Proto` compatibility, and native/FFI ABI compatibility are separate contracts. PUC Lua may define source and bytecode semantics, but raw compatibility handling must be a typed boundary, not an opaque shim.
 
-If raw Lua 5.5 bytecode is accepted, its decoding and translation into Moonlift-native VM products must be explicit and validated. The runtime must not depend on PUC internal chunk or object layouts.
+If raw Lua 5.5 bytecode is accepted, its decoding and translation into Lalin-native VM products must be explicit and validated. The runtime must not depend on PUC internal chunk or object layouts.
 
 #### Allocation, GC, weak tables, and finalizers
 
@@ -1113,7 +1113,7 @@ Arithmetic fallback remains a two-stage control protocol: primitive success skip
 
 ### Scope
 
-The decision covers completion of the Moonlift-native interpreter VM in `experiments/lua_interpreter_vm/src/`, including:
+The decision covers completion of the Lalin-native interpreter VM in `experiments/lua_interpreter_vm/src/`, including:
 
 - runtime products;
 - interpreter control protocols;
@@ -1141,7 +1141,7 @@ The chosen approach has the highest migration cost among the proposed approaches
 - validation;
 - many opcode handlers.
 
-This cost is accepted because the approach gives the best fit with Moonlift’s explicit-programming philosophy and offers the clearest path to auditability and long-term correctness.
+This cost is accepted because the approach gives the best fit with Lalin’s explicit-programming philosophy and offers the clearest path to auditability and long-term correctness.
 
 The decision also sacrifices the lowest-effort incremental path of simply filling existing stubs in place. Existing scaffolding is preserved where it is already explicit, but hidden or overloaded state must be refounded rather than normalized as final architecture.
 
@@ -1169,7 +1169,7 @@ The architecture is complete when:
 - Lua 5.5 bytecode decoding matches the oracle facts used by dispatch.
 - `oom` means real allocation failure only.
 - No fail-loud semantic stubs remain for Lua 5.5 core behavior.
-- Source programs and accepted binary chunks both produce validated Moonlift-native VM products.
+- Source programs and accepted binary chunks both produce validated Lalin-native VM products.
 - Weak tables, finalizers, userdata `__gc`, protected calls, coroutine yield/resume, native calls, allocator/GC progression, table growth, string interning, closure/upvalue creation, varargs, and documented stdlib subset behavior pass conformance tests.
 - PUC Lua remains only a semantic/bytecode oracle.
 - SponJIT remains separate; interpreter gates may be satisfied without enabling JIT integration.
@@ -1266,7 +1266,7 @@ Before edits:
 
 **Patterns to enforce**
 - Existing constants are stable ABI; append only.
-- Keep plain Lua tables, no Moonlift fragments.
+- Keep plain Lua tables, no Lalin fragments.
 
 **Danger zones**
 - Do not alter `Resume.N`; current code assumes `mode < Resume.N`.
@@ -1367,7 +1367,7 @@ return bytecode
 
 **Patterns**
 - This file is oracle-fact only, not runtime policy.
-- No PUC macros imported; encode the semantic bit layout as Moonlift-native constants.
+- No PUC macros imported; encode the semantic bit layout as Lalin-native constants.
 
 ---
 
@@ -1400,7 +1400,7 @@ return bytecode
 3. **Inline `LOADKX` around lines 225-236**:
    - Before: extra arg uses `(extra.word >> 15) & 131071`.
    - After: use Ax:
-     ```moonlift
+     ```lalin
      let extra_ax: u32 = (extra.word >> 7) & 33554431
      let src: ptr(Value) = cur_consts + as(index, extra_ax)
      ```
@@ -1408,18 +1408,18 @@ return bytecode
 4. **Inline immediate arithmetic around lines 286-310**:
    - `ADDI` must use signed `sC`.
    - Replace:
-     ```moonlift
+     ```lalin
      let imm: i32 = as(i32, (word >> 24) & 255)
      ```
      with:
-     ```moonlift
+     ```lalin
      let imm: i32 = as(i32, ((word >> 24) & 255)) - 127
      ```
 
 5. **Inline `JMP` around current line ~410**:
    - Before: 17-bit `sBx`.
    - After:
-     ```moonlift
+     ```lalin
      let new_pc: index = as(index, as(i32, cur_pc) + (as(i32, ((word >> 7) & 33554431)) - 16777215))
      ```
 
@@ -1458,10 +1458,10 @@ return bytecode
    ```lua
    local bytecode = require("experiments.lua_interpreter_vm.src.bytecode")
    ```
-   If not directly used in Moonlift source, still import for Lua-side constants/comments.
+   If not directly used in Lalin source, still import for Lua-side constants/comments.
 
 2. **Lines 38-44 decode block**: Add decoded operands:
-   ```moonlift
+   ```lalin
    let ax: u32 = (word >> 7) & 33554431
    let sj: i32 = as(i32, ax) - 16777215
    let sc: i32 = as(i32, c) - 127
@@ -1542,7 +1542,7 @@ Define regions:
 3. `resume_after_return(...)`
    - Same continuation surface as existing `handle_return_mode`.
    - Parameters:
-     ```moonlift
+     ```lalin
      region resume_after_return(
        L: ptr(LuaThread), parent: ptr(Frame),
        first_result: index, nres: i32, state: SuspendedControl;
@@ -1581,7 +1581,7 @@ Define regions:
 2. **Lines 150-158 in `return_from_lua`**:
    - Before: captures individual `ret_resume_*`.
    - After: construct `SuspendedControl`:
-     ```moonlift
+     ```lalin
      let ret_state: SuspendedControl = {
          mode = frame.resume_mode,
          a = frame.resume_a,
@@ -1598,7 +1598,7 @@ Define regions:
 3. **Lines 164-167 emit**:
    - Replace `emit handle_return_mode(... ret_* ...)`
    - With:
-     ```moonlift
+     ```lalin
      emit resume_after_return(L, parent, first_result, nres, ret_state; ...)
      ```
 
@@ -1660,7 +1660,7 @@ Define regions:
 **Goal**: Define explicit native-result decoding boundary before actual native invocation is implemented.
 
 **Contents sketch**
-```moonlift
+```lalin
 region decode_native_result(result: ptr(NativeCallResult);
     returned: cont(nres: i32),
     yielded: cont(nres: i32),
@@ -1673,7 +1673,7 @@ region decode_native_result(result: ptr(NativeCallResult);
 Switch on `result.status` using `NativeResult` constants.
 
 Also define:
-```moonlift
+```lalin
 region classify_native_boundary(state: NativeBoundaryState; ...)
 ```
 as a lightweight checked protocol if useful.
@@ -1791,7 +1791,7 @@ return P
      ```
    - Keep `TABLE_GET_MM_BLOCKS` and `TABLE_SET_MM_BLOCKS` unchanged for milestone 1, but add TODO comment:
      ```lua
-     -- Milestone 2: replace these shared block strings with moon.stmts builders.
+     -- Milestone 2: replace these shared block strings with lalin.stmts builders.
      ```
 
 3. **Return table lines 143-156**:
@@ -1815,7 +1815,7 @@ return P
 1. **Lines 34-60 `frame_push`**:
    - Do not change signature yet.
    - Add comment before `f.resume_mode = resume_mode`:
-     ```moonlift
+     ```lalin
      -- Stored suspended-control discriminant. Callers must pass a value
      -- accepted by regions_resume.decode_resume_mode; return paths decode it
      -- through SuspendedControl rather than switching on raw fields here.
@@ -1850,7 +1850,7 @@ return P
 1. **Lines 128-137 `do_native`/`native_ret`**:
    - No signature change yet.
    - Add comment before `native_ret`:
-     ```moonlift
+     ```lalin
      -- Milestone 1 keeps native invocation fail-loud; later native_ret must route
      -- through regions_native.decode_native_result and then return_from_lua-style
      -- result_base adjustment.
@@ -2134,7 +2134,7 @@ Before edits begin:
    - Consumers must decode through regions in `regions_value.lua`.
 
 2. **Replace line 17 `Table` struct** with final table product:
-   ```moonlift
+   ```lalin
    struct Table
        gc: GCHeader
        flags: u32
@@ -2154,7 +2154,7 @@ Before edits begin:
    ```
 
 3. **After line 38 `NativeFunc`**: Replace `NativeCallResult` with final ABI records:
-   ```moonlift
+   ```lalin
    struct NativeCallContext
        func_slot: index
        nargs: i32
@@ -2175,7 +2175,7 @@ Before edits begin:
    ```
 
 4. **Replace line 46 `UserData`**:
-   ```moonlift
+   ```lalin
    struct UserData
        gc: GCHeader
        metatable: ptr(Table)
@@ -2191,7 +2191,7 @@ Before edits begin:
    ```
 
 5. **After line 65 `Allocator`**: Add final control-state products:
-   ```moonlift
+   ```lalin
    struct ResumeState
        kind: u16
        a: u16
@@ -2234,7 +2234,7 @@ Before edits begin:
 6. **Replace old `ProtectedFrame` line 68** with the new definition above; remove fields `resume_mode`.
 
 7. **Replace line 70 `Frame`**:
-   ```moonlift
+   ```lalin
    struct Frame
        closure: Value
        base: index
@@ -2254,7 +2254,7 @@ Before edits begin:
 8. **Replace line 76 `GlobalState`**:
    - Preserve allocator, registry, mainthread, string table, tmname, ABI fields.
    - Add final GC/weak/finalizer lists:
-     ```moonlift
+     ```lalin
      allgc: ptr(GCHeader)
      gray: ptr(GCHeader)
      grayagain: ptr(GCHeader)
@@ -2280,7 +2280,7 @@ Before edits begin:
 9. **Replace line 79 `LuaThread`**:
    - Remove raw resume storage from `Frame` only; keep thread fields.
    - Add:
-     ```moonlift
+     ```lalin
      coroutine: CoroutineState
      ```
    - Keep `protected_top`, `tbc_head`, `yieldable`, `nonyieldable`.
@@ -2290,7 +2290,7 @@ Before edits begin:
 **Patterns to enforce**
 - No temporary compatibility fields for `resume_mode/resume_a/...`.
 - Every persisted suspended-control value is stored in `ResumeState`.
-- Products are Moonlift-native; do not copy PUC field names such as `finobj/tobefnz`.
+- Products are Lalin-native; do not copy PUC field names such as `finobj/tobefnz`.
 
 **Danger zones**
 - All FFI tests must be updated for final struct layouts.
@@ -2316,7 +2316,7 @@ Before edits begin:
   - `OFFSET_SBX = 65535`
   - `OFFSET_SJ = 16777215`
   - `OFFSET_SC = 127`
-- Export `exprs(expr)` returning Moonlift expressions:
+- Export `exprs(expr)` returning Lalin expressions:
   - `OP`, `A`, `K`, `B`, `C`, `VB`, `VC`, `BX`, `SBX`, `AX`, `SJ`, `SC`.
 - Export Lua-side encoders/decoders for tests:
   - `decode_word(word)`
@@ -2408,7 +2408,7 @@ return {
    ```
 
 2. **Lines 35-44 decode block**: Replace with full decode:
-   ```moonlift
+   ```lalin
    let op: u16 = as(u16, word & 127)
    let a: u16 = as(u16, (word >> 7) & 255)
    let k: u8 = as(u8, (word >> 15) & 1)
@@ -2603,7 +2603,7 @@ return {
 
 2. **Line 18 `H`**:
    - Replace with `protocols.handler_params()` including final operands:
-     ```moonlift
+     ```lalin
      a,b,c,k,bx,sbx,ax,sj,sc,vb,vc
      ```
 
@@ -2714,8 +2714,8 @@ return {
 
 **Implementation rule**
 - Calls a typed extern shim only, e.g.:
-  ```moonlift
-  extern moonlift_lua_alloc(alloc: ptr(Allocator), old: ptr(u8), old_size: index, new_size: index, align: u32) -> ptr(u8)
+  ```lalin
+  extern lalin_lua_alloc(alloc: ptr(Allocator), old: ptr(u8), old_size: index, new_size: index, align: u32) -> ptr(u8)
   ```
 - No direct libc/malloc assumptions.
 
@@ -2733,7 +2733,7 @@ return {
 
 2. **Lines 33-67 `frame_push`**:
    - Signature becomes:
-     ```moonlift
+     ```lalin
      region frame_push(L, closure, base, top, result_base, call_top,
                        wanted, resume: ResumeState, yieldable; ...)
      ```
@@ -2804,8 +2804,8 @@ return {
 **Final behavior**
 - Validate `NativeFunc.abi_version`.
 - Call typed extern shim:
-  ```moonlift
-  extern moonlift_lua_native_invoke(L: ptr(LuaThread), cl: ptr(CClosure), ctx: ptr(NativeCallContext), out: ptr(NativeCallResult)) -> i32
+  ```lalin
+  extern lalin_lua_native_invoke(L: ptr(LuaThread), cl: ptr(CClosure), ctx: ptr(NativeCallContext), out: ptr(NativeCallResult)) -> i32
   ```
 - Map `NativeResult` to VM continuations.
 - No hidden exceptions, errno, host longjmp, or implicit scheduler behavior.
@@ -3186,7 +3186,7 @@ return {
 
 **Danger zones**
 - Do not use PUC layouts in memory.
-- Binary chunk parsing produces Moonlift-native `Proto`.
+- Binary chunk parsing produces Lalin-native `Proto`.
 
 ---
 
@@ -3237,7 +3237,7 @@ Userdata/lightuserdata protocol.
 Weak table and ephemeron clearing protocol.
 
 ### `src/regions_chunk.lua`
-Lua 5.5 binary chunk reader into Moonlift-native `Proto`.
+Lua 5.5 binary chunk reader into Lalin-native `Proto`.
 
 ### `src/op/protocols.lua`
 Named opcode continuation protocol builder.
@@ -3440,7 +3440,7 @@ luajit experiments/lua_interpreter_vm/tests/test_parser_compile.lua
 ## Notes
 - Full final VM completion is not done: allocator/GC/table/string/upvalue/native invocation/coroutine/protected-call semantics still need deeper implementation.
 - `enter_native` still uses the existing raw continuation shape; `NativeCallContext` exists but the full native call spine migration is not complete.
-- `switch case @{CONST}` could not be used in new protocol switch regions because Moonlift lowering rejects non-raw case keys; numeric case keys are used there as a practical compiler constraint.
+- `switch case @{CONST}` could not be used in new protocol switch regions because Lalin lowering rejects non-raw case keys; numeric case keys are used there as a practical compiler constraint.
 - Running every `test_*.lua` also hits existing SponJIT shadow failure in `test_sponjit_shadow.lua`; interpreter VM tests listed above pass.
 
 ## Worker Output — 2026-05-30 08:58:42
@@ -3600,7 +3600,7 @@ luajit experiments/lua_interpreter_vm/tests/test_parser_compile.lua
 
 ## Notes / Blockers
 
-- Allocator currently calls the typed `__ml_realloc` backend symbol while still requiring the VM allocator record to exist. Calling allocator function pointers directly hit a Moonlift indirect-call backend verifier issue.
+- Allocator currently calls the typed `__ml_realloc` backend symbol while still requiring the VM allocator record to exist. Calling allocator function pointers directly hit a Lalin indirect-call backend verifier issue.
 - Remaining major incomplete areas:
   - protected-call success path
   - full coroutine re-entry

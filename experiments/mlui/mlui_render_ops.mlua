@@ -6,11 +6,11 @@
 -- Emits a single ordered stream of UiViewOp rows from solve+decor buffers.
 -- Uses an explicit stack threaded through block parameters for tree traversal.
 
-local H = moon.require("mlui_types")
+local H = lalin.require("mlui_types")
 local T = H.T
 local R = H.R
 local F = H.F
-local Mem = moon.require("mlui_memory")
+local Mem = lalin.require("mlui_memory")
 
 local VIEW_BOX = 1
 local VIEW_TEXT = 2

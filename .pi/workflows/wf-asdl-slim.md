@@ -9,28 +9,28 @@ Now I have enough data. Let me compile the exhaustive report.
 
 ## Files Retrieved
 
-1. `lua/moonlift/schema/init.lua` (lines 1-41) - Schema registry, defines order of 19 modules
-2. `lua/moonlift/schema/core.lua` (all) - MoonCore: primitive types, symbols, ops, phases
-3. `lua/moonlift/schema/type.lua` (all) - MoonType: type system, ABI planning
-4. `lua/moonlift/schema/tree.lua` (all) - MoonTree: AST with phase headers, control regions, lowering results
-5. `lua/moonlift/schema/open.lua` (all) - MoonOpen: slots, fragments, metaprogramming expansion
-6. `lua/moonlift/schema/sem.lua` (all) - MoonSem: semantic analysis classes, layouts, call targets
-7. `lua/moonlift/schema/back.lua` (all) - MoonBack: flat backend command IR, validation, inspection
-8. `lua/moonlift/schema/bind.lua` (all) - MoonBind: binding classes, environments, residence decisions
-9. `lua/moonlift/schema/parse.lua` (all) - MoonParse: parse result (3 types)
-10. `lua/moonlift/schema/vec.lua` (all) - MoonVec: vectorization analysis, kernel plans, vec IR
-11. `lua/moonlift/schema/host.lua` (all) - MoonHost: host layout, FFI, expose/access plans
-12. `lua/moonlift/schema/source.lua` (all) - MoonSource: document model, positions, anchors
-13. `lua/moonlift/schema/mlua.lua` (all) - MoonMlua: .mlua document segmentation, island parsing
-14. `lua/moonlift/schema/editor.lua` (all) - MoonEditor: LSP workspace, diagnostics, completions
-15. `lua/moonlift/schema/lsp.lua` (all) - MoonLsp: LSP protocol wire types
-16. `lua/moonlift/schema/rpc.lua` (all) - MoonRpc: JSON-RPC message framing
-17. `lua/moonlift/schema/dasm.lua` (all) - MoonDasm: DynASM backend pipeline facts/IR
-18. `lua/moonlift/schema/link.lua` (all) - MoonLink: linker invocation, platform model
-19. `lua/moonlift/schema/pvm_surface.lua` (all) - MoonPvmSurface: PVM phase body producer language
-20. `lua/moonlift/phase_model.lua` (all) - MoonPhase: phase wiring model (separate schema)
-21. `lua/moonlift/c/c_type.lua` (all) - MoonC: C type facts schema
-22. `lua/moonlift/c/c_ast.lua` (line 1-50) - MoonCAst: C AST token/ast types
+1. `lua/lalin/schema/init.lua` (lines 1-41) - Schema registry, defines order of 19 modules
+2. `lua/lalin/schema/core.lua` (all) - LalinCore: primitive types, symbols, ops, phases
+3. `lua/lalin/schema/type.lua` (all) - LalinType: type system, ABI planning
+4. `lua/lalin/schema/tree.lua` (all) - LalinTree: AST with phase headers, control regions, lowering results
+5. `lua/lalin/schema/open.lua` (all) - LalinOpen: slots, fragments, metaprogramming expansion
+6. `lua/lalin/schema/sem.lua` (all) - LalinSem: semantic analysis classes, layouts, call targets
+7. `lua/lalin/schema/back.lua` (all) - LalinBack: flat backend command IR, validation, inspection
+8. `lua/lalin/schema/bind.lua` (all) - LalinBind: binding classes, environments, residence decisions
+9. `lua/lalin/schema/parse.lua` (all) - LalinParse: parse result (3 types)
+10. `lua/lalin/schema/vec.lua` (all) - LalinVec: vectorization analysis, kernel plans, vec IR
+11. `lua/lalin/schema/host.lua` (all) - LalinHost: host layout, FFI, expose/access plans
+12. `lua/lalin/schema/source.lua` (all) - LalinSource: document model, positions, anchors
+13. `lua/lalin/schema/mlua.lua` (all) - LalinMlua: .mlua document segmentation, island parsing
+14. `lua/lalin/schema/editor.lua` (all) - LalinEditor: LSP workspace, diagnostics, completions
+15. `lua/lalin/schema/lsp.lua` (all) - LalinLsp: LSP protocol wire types
+16. `lua/lalin/schema/rpc.lua` (all) - LalinRpc: JSON-RPC message framing
+17. `lua/lalin/schema/dasm.lua` (all) - LalinDasm: DynASM backend pipeline facts/IR
+18. `lua/lalin/schema/link.lua` (all) - LalinLink: linker invocation, platform model
+19. `lua/lalin/schema/pvm_surface.lua` (all) - LalinPvmSurface: PVM phase body producer language
+20. `lua/lalin/phase_model.lua` (all) - LalinPhase: phase wiring model (separate schema)
+21. `lua/lalin/c/c_type.lua` (all) - LalinC: C type facts schema
+22. `lua/lalin/c/c_ast.lua` (line 1-50) - LalinCAst: C AST token/ast types
 
 ---
 
@@ -38,106 +38,106 @@ Now I have enough data. Let me compile the exhaustive report.
 
 ### 1. Module-by-Module Type Inventory
 
-#### MoonCore (`core.lua`)
+#### LalinCore (`core.lua`)
 **Role**: Foundation — primitive identifiers, scalar types, operators, op classes, symbols, phases.
 **Types defined**: Name, Path, Id, ModuleId, ItemId, FieldId, Phase, Visibility, Scalar (14 variants), ScalarFamily (7), ScalarBits, ScalarInfo, Literal (5), UnaryOp (3), BinaryOp (11), CmpOp (6), LogicOp (2), SurfaceCastOp (6), MachineCastOp (11), Intrinsic (15), AtomicOrdering (1), AtomicRmwOp (6), UnaryOpClass (3), BinaryOpClass (5), CmpOpClass (2), IntrinsicClass (4), TypeSym, FuncSym, ExternSym, ConstSym, StaticSym, DataId
 
-#### MoonType (`type.lua`)
+#### LalinType (`type.lua`)
 **Role**: Type system — type expressions, type classes, ABI classification.
 **Types defined**: TypeRef (4 variants), ArrayLen (3), Type (12 variants), TypeClass (9), TypeBackScalarResult (2), TypeMemLayoutResult (2), AbiClass (5), AbiDecision, AbiParamPlan (3), AbiResultPlan (4), FuncAbiPlan, Param, FieldDecl, VariantDecl
-**Cross-refs**: MoonCore.Path, MoonCore.TypeSym, MoonOpen.TypeSlot, MoonOpen.ExprSlot, MoonTree.Expr, MoonBack.BackScalar, MoonBack.BackValId, MoonSem.MemLayout, MoonBind.Binding, MoonC.CTypeId, MoonC.CFuncSigId
+**Cross-refs**: LalinCore.Path, LalinCore.TypeSym, LalinOpen.TypeSlot, LalinOpen.ExprSlot, LalinTree.Expr, LalinBack.BackScalar, LalinBack.BackValId, LalinSem.MemLayout, LalinBind.Binding, LalinC.CTypeId, LalinC.CFuncSigId
 
-#### MoonTree (`tree.lua`)
+#### LalinTree (`tree.lua`)
 **Role**: Core AST — headers phase-carried, expression/statement/func/module trees, type-check results, lowering results.
 **Types defined**: ExprHeader (5 variants), PlaceHeader (4), StmtHeader (5), FieldInit, VariantBind, SwitchStmtArm, SwitchExprArm, SwitchVariantStmtArm, SwitchVariantExprArm, View (9), Domain (7), IndexBase (3), Place (7), BlockLabel, BlockParam, EntryBlockParam, JumpArg, FuncContract (7), ContractFact (8+1), ContractFactSet, EntryControlBlock, ControlBlock, ControlStmtRegion, ControlExprRegion, ControlFact (16), ControlVariantArmFact, ControlFactSet, ControlReject (12), ControlDecision (2), Expr (29 variants), Stmt (21 variants), Func (6), ExternFunc (2), ConstItem (2), StaticItem (2), ImportItem, TypeDecl (6), Item (12), DataItem, ModuleHeader (5), Module, TypeIssue (23), TypeYieldMode (3), TypeCheckEnv, TypeViewResult, TypeIndexBaseResult, TypeControlStmtRegionResult, TypeControlExprRegionResult, TypeExprResult, TypePlaceResult, TypeStmtResult, TypeFuncResult, TypeItemResult, TypeModuleResult, TreeBackLocal (4), TreeBackReturn (2), TreeBackEnv, TreeBackExprResult (4), TreeBackStmtResult, TreeBackFuncResult, TreeBackItemResult
-**Cross-refs**: MoonType.Type, MoonType.Param, MoonType.FieldDecl, MoonType.VariantDecl, MoonCore.Literal, MoonCore.UnaryOp, MoonCore.BinaryOp, MoonCore.CmpOp, MoonCore.LogicOp, MoonCore.SurfaceCastOp, MoonCore.MachineCastOp, MoonCore.Intrinsic, MoonCore.AtomicOrdering, MoonCore.AtomicRmwOp, MoonCore.Name, MoonCore.Path, MoonCore.FuncSym, MoonCore.ExternSym, MoonCore.ConstSym, MoonCore.StaticSym, MoonCore.DataId, MoonCore.Visibility, MoonOpen.OpenSet, MoonOpen.OpenParam, MoonOpen.ExprSlot, MoonOpen.PlaceSlot, MoonOpen.DomainSlot, MoonOpen.RegionSlot, MoonOpen.ContSlot, MoonOpen.TypeDeclSlot, MoonOpen.ItemsSlot, MoonOpen.ModuleSlot, MoonOpen.ExprFragRef, MoonOpen.RegionFragRef, MoonOpen.SlotBinding, MoonOpen.ContBinding, MoonSem.ValueClass, MoonSem.ConstClass, MoonSem.CodeShapeClass, MoonSem.AddressClass, MoonSem.FlowClass, MoonSem.SwitchKey, MoonSem.FieldRef, MoonSem.CallTarget, MoonBind.Binding, MoonBind.ValueRef, MoonBind.Env, MoonBack.BackValId, MoonBack.BackStackSlotId, MoonBack.BackScalar, MoonBack.Cmd, MoonBack.BackFlow
+**Cross-refs**: LalinType.Type, LalinType.Param, LalinType.FieldDecl, LalinType.VariantDecl, LalinCore.Literal, LalinCore.UnaryOp, LalinCore.BinaryOp, LalinCore.CmpOp, LalinCore.LogicOp, LalinCore.SurfaceCastOp, LalinCore.MachineCastOp, LalinCore.Intrinsic, LalinCore.AtomicOrdering, LalinCore.AtomicRmwOp, LalinCore.Name, LalinCore.Path, LalinCore.FuncSym, LalinCore.ExternSym, LalinCore.ConstSym, LalinCore.StaticSym, LalinCore.DataId, LalinCore.Visibility, LalinOpen.OpenSet, LalinOpen.OpenParam, LalinOpen.ExprSlot, LalinOpen.PlaceSlot, LalinOpen.DomainSlot, LalinOpen.RegionSlot, LalinOpen.ContSlot, LalinOpen.TypeDeclSlot, LalinOpen.ItemsSlot, LalinOpen.ModuleSlot, LalinOpen.ExprFragRef, LalinOpen.RegionFragRef, LalinOpen.SlotBinding, LalinOpen.ContBinding, LalinSem.ValueClass, LalinSem.ConstClass, LalinSem.CodeShapeClass, LalinSem.AddressClass, LalinSem.FlowClass, LalinSem.SwitchKey, LalinSem.FieldRef, LalinSem.CallTarget, LalinBind.Binding, LalinBind.ValueRef, LalinBind.Env, LalinBack.BackValId, LalinBack.BackStackSlotId, LalinBack.BackScalar, LalinBack.Cmd, LalinBack.BackFlow
 
-#### MoonOpen (`open.lua`)
+#### LalinOpen (`open.lua`)
 **Role**: Metaprogramming — slots (parameterized holes), fragments (region/expression templates), expansion environment, validation.
 **Types defined**: TypeSlot, ValueSlot, ExprSlot, PlaceSlot, DomainSlot, RegionSlot, ContSlot, FuncSlot, ConstSlot, StaticSlot, TypeDeclSlot, ItemsSlot, ModuleSlot, NameSlot, RegionFragSlot, ExprFragSlot (16 slot kinds), RegionFragRef (2), ExprFragRef (2), NameRef (2), Slot (17 variants), ModuleNameFacet (2), OpenParam, ValueImport (5), TypeImport, OpenSet, SourceBinding (6), SourceBindingEntry, SourceTypeEntry, SourceEnv, FragId, UseId, ContTarget (2), ContBinding, ParamBinding, FillSet, ExpandEnv, SealParamEntry, SealEnv, ExprFrag, RegionFrag, SlotValue (26 variants), SlotBinding, RewriteRule (7), RewriteSet, MetaFact (20), MetaFactSet, ValidationIssue (20), ValidationReport
-**Cross-refs**: MoonType.Type, MoonCore.TypeSym, MoonBind.Binding, MoonTree.Expr, MoonTree.Place, MoonTree.Domain, MoonTree.Stmt, MoonTree.Item, MoonTree.Module, MoonTree.BlockLabel, MoonTree.BlockParam, MoonTree.EntryBlockParam, MoonTree.SwitchStmtArm, MoonTree.SwitchExprArm, MoonTree.ControlBlock, MoonTree.Func, MoonTree.ConstItem, MoonTree.StaticItem, MoonTree.TypeDecl, MoonTree.BlockLabel, MoonSem.TypeLayout, MoonTree.ControlBlock
+**Cross-refs**: LalinType.Type, LalinCore.TypeSym, LalinBind.Binding, LalinTree.Expr, LalinTree.Place, LalinTree.Domain, LalinTree.Stmt, LalinTree.Item, LalinTree.Module, LalinTree.BlockLabel, LalinTree.BlockParam, LalinTree.EntryBlockParam, LalinTree.SwitchStmtArm, LalinTree.SwitchExprArm, LalinTree.ControlBlock, LalinTree.Func, LalinTree.ConstItem, LalinTree.StaticItem, LalinTree.TypeDecl, LalinTree.BlockLabel, LalinSem.TypeLayout, LalinTree.ControlBlock
 
-#### MoonSem (`sem.lua`)
+#### LalinSem (`sem.lua`)
 **Role**: Semantic analysis — layouts, constant values, value/address/flow classification, switch/call decisions.
 **Types defined**: FieldRef (2), FieldLayout, MemLayout, TypeLayout (2), LayoutEnv, ConstFieldValue, ConstValue (6), ConstLocalEntry, ConstLocalEnv, ConstStmtResult (6), ExprExit (2), OperandContext (2), ValueClass (5), ConstClass (3), CodeShapeClass (3), AddressClass (8), FlowClass (6), SwitchKey (3), SwitchKeySet, SwitchDecision (3), CallTarget (5)
-**Cross-refs**: MoonType.Type, MoonCore.TypeSym, MoonCore.Scalar, MoonHost.HostFieldRep, MoonTree.Expr, MoonBind.Binding, MoonTree.BlockLabel
+**Cross-refs**: LalinType.Type, LalinCore.TypeSym, LalinCore.Scalar, LalinHost.HostFieldRep, LalinTree.Expr, LalinBind.Binding, LalinTree.BlockLabel
 
-#### MoonBind (`bind.lua`)
+#### LalinBind (`bind.lua`)
 **Role**: Name binding — binding classes for every entity kind, environments, residence decisions.
 **Types defined**: BindingClass (18 variants), Binding, Residence (4), ResidenceReason (6), ResidenceFact (6), ResidenceFactSet, ResidenceDecision, ResidencePlan, MachineBinding, MachineBindingSet, ValueRef (7), ValueEntry, TypeEntry, Env, ConstEntry, ConstEnv, StmtEnvEffect (3)
-**Cross-refs**: MoonCore.Id, MoonCore.Path, MoonCore.FuncSym, MoonCore.ExternSym, MoonCore.ConstSym, MoonCore.StaticSym, MoonType.Type, MoonSem.TypeLayout, MoonOpen.OpenParam, MoonOpen.ValueImport, MoonOpen.FuncSlot, MoonOpen.ConstSlot, MoonOpen.StaticSlot, MoonOpen.ValueSlot, MoonTree.Expr
+**Cross-refs**: LalinCore.Id, LalinCore.Path, LalinCore.FuncSym, LalinCore.ExternSym, LalinCore.ConstSym, LalinCore.StaticSym, LalinType.Type, LalinSem.TypeLayout, LalinOpen.OpenParam, LalinOpen.ValueImport, LalinOpen.FuncSlot, LalinOpen.ConstSlot, LalinOpen.StaticSlot, LalinOpen.ValueSlot, LalinTree.Expr
 
-#### MoonBack (`back.lua`)
+#### LalinBack (`back.lua`)
 **Role**: Backend IR — flat command list, target models, memory/alias/overflow facts, validation/inspection.
 **Types defined**: BackScalar (14), BackSigId, BackFuncId, BackExternId, BackDataId, BackBlockId, BackValId, BackStackSlotId, BackSwitchCase, BackVec, BackShape (2), BackTarget (4), BackEndian (2), BackTargetFeature (8), BackTargetFact (9), BackTargetModel, BackAddressBase (3), BackPointerProvenance (6), BackPointerBounds (3), BackAddress, BackAccessId, BackAliasScopeId, BackAlignment (4), BackDereference (3), BackTrap (3), BackMotion (2), BackAccessMode (3), BackAtomicOrdering (1), BackAtomicRmwOp (6), BackMemoryInfo, BackAliasFact (6), BackIntOverflow (4), BackIntExact (2), BackIntSemantics, BackIntOp (8), BackBitOp (3), BackShiftOp (3), BackRotateOp (2), BackFloatSemantics (3), BackFloatOp (4), BackLiteral (4), BackUnaryOp (4), BackIntrinsicOp (10), BackCompareOp (16), BackVecCompareOp (10), BackVecBinaryOp (7), BackVecMaskOp (3), BackCastOp (10), BackCallTarget (3), BackCallResult (2), Cmd (78 variants), BackShapeRequirement (3), BackProgramFact (22), BackValidationIssue (31), BackValidationReport, BackCommandCount, BackMemoryInspection, BackAddressInspection, BackPointerOffsetInspection, BackAliasInspection, BackIntSemanticsInspection, BackFloatSemanticOp (2), BackFloatSemanticsInspection, BackInspectionReport, BackDisasmInspection, BackDiagnosticsReport, BackFlow (2), BackSigSpec, BackStackSlotSpec, BackExprLowering (2), BackAddrLowering (2), BackViewLowering (2), BackReturnTarget (2), BackStmtPlan, BackFuncPlan, BackItemPlan, BackProgram, BackCommandTape
-**Cross-refs**: MoonCore.Visibility, MoonVec.VecInspectionReport
+**Cross-refs**: LalinCore.Visibility, LalinVec.VecInspectionReport
 
-#### MoonVec (`vec.lua`)
+#### LalinVec (`vec.lua`)
 **Role**: Vectorization — loop analysis, expression graphs, memory facts, kernel planning, vec IR.
 **Types defined**: VecExprId, VecLoopId, VecAccessId, VecValueId, VecBlockId, VecElem (12), VecShape (2), VecBinOp (16), VecCmpOp (10), VecMaskOp (3), VecUnaryOp (6), VecReject (9), VecTarget (2), VecTargetFact (11), VecTargetModel, VecExprFact (10), VecExprGraph, VecExprResult, VecLocalFact, VecExprEnv, VecStmtResult (3), VecRangeFact (5), VecDomain (2), VecInduction (2), VecAccessKind (2), VecAccessPattern (5), VecAlignment (3), VecBounds (2), VecMemoryBase (3), VecMemoryFact, VecAliasFact (4), VecDependenceFact (3), VecReassoc (4), VecReductionFact (6), VecStoreFact, VecProof (9), VecAssumption (3), VecKernelSafety (3), VecKernelLenSource (3), VecKernelMemoryUse (2), VecKernelBounds (3), VecWindowRangeObligation, VecWindowRangeDecision (2), VecKernelAlias (4), VecKernelAlignment (4), VecNestedLoopFact, VecLoopSource (2), VecLoopFacts, VecTail (3), VecLoopShape (3), VecLegality (2), VecReductionSchedule, VecSchedule (3), VecShapeScore, VecLoopDecision, VecScheduleInspection, VecInspectionReport, VecKernelIndexOffset (3), VecKernelScalarAlias, VecKernelCounter (3), VecKernelMaskExpr (3), VecKernelExpr (5), VecKernelStorePlan, VecKernelViewStride (3), VecKernelViewAlias, VecKernelReductionPlan (2), VecKernelCore (2), VecKernelSafetyInput, VecKernelSafetyDecision, VecAlgebraicKind (2), VecKernelPlan (4), VecValue (2), VecParam (2), VecCmd (15), VecTerminator (4), VecBlock, VecBackValueShape, VecBackEnv, VecBackLowering (2), VecBackFuncSpec, VecBackProgramSpec, VecFunc (3), VecModule
-**Cross-refs**: MoonTree.Expr, MoonTree.Stmt, MoonTree.Place, MoonTree.View, MoonTree.Func, MoonTree.Module, MoonTree.BlockLabel, MoonTree.ContractFact, MoonType.Type, MoonBind.Binding, MoonCore.Visibility, MoonBack.Cmd, MoonTree.ControlBlock, MoonTree.EntryBlockParam, MoonTree.BlockParam, MoonTree.SwitchStmtArm, MoonTree.SwitchExprArm
+**Cross-refs**: LalinTree.Expr, LalinTree.Stmt, LalinTree.Place, LalinTree.View, LalinTree.Func, LalinTree.Module, LalinTree.BlockLabel, LalinTree.ContractFact, LalinType.Type, LalinBind.Binding, LalinCore.Visibility, LalinBack.Cmd, LalinTree.ControlBlock, LalinTree.EntryBlockParam, LalinTree.BlockParam, LalinTree.SwitchStmtArm, LalinTree.SwitchExprArm
 
-#### MoonHost (`host.lua`)
+#### LalinHost (`host.lua`)
 **Role**: Host binding — C layout computation, FFI exposure plans, Lua access paths.
 **Types defined**: HostIssue (26), HostReport, HostLayoutId, HostFieldId, HostEndian (2), HostTargetModel, HostLayoutKind (6), HostOwner (5), HostBoolEncoding (3), HostRepr (3), HostFieldAttr (4), HostStorageRep (6+1), HostStructDecl, HostFieldDecl, HostAccessorDecl (3), HostDecl (3), HostDeclSet, HostDeclSource (2), MluaSource, MluaParseResult, MluaHostPipelineResult, HostValueId, HostValueKind (6), HostValueRef, ProtocolRole, RegionProtocol, FragmentDeps, RegionFragMeta, MluaRegionTypeResult, MluaLoopExpandResult, MluaLoopSource (2), HostFieldRep (8), HostFieldLayout, HostTypeLayout, HostLayoutEnv, HostCdef, HostLuaFfiPlan, HostTerraPlan, HostCPlan, HostExportAbi (2), HostExposeSubject (3), HostStrideUnit (2), HostViewAbi (2), HostViewDescriptor, HostExposeTarget (4), HostMutability (3), HostBoundsPolicy (2), HostProxyKind (5), HostProxyCachePolicy (3), HostMaterializePolicy (3), HostExposeMode (4), HostExposeAbi (6), HostExposeFacet, HostExposeDecl, HostLifetime (5), HostAccessSubject (3), HostAccessKey (11), HostAccessOp (14), HostAccessEntry, HostAccessPlan, HostViewPlan, HostProducerKind (4), HostProducerPlan, HostLayoutFact (11), HostFactSet, HostLayoutReject (7)
-**Cross-refs**: MoonCore.Scalar, MoonType.Type, MoonTree.Func, MoonTree.Module, MoonTree.ControlStmtRegion, MoonTree.ControlExprRegion, MoonTree.EntryControlBlock, MoonTree.ControlBlock, MoonTree.TypeIssue, MoonOpen.RegionFrag, MoonOpen.ExprFrag, MoonParse.ParseIssue
+**Cross-refs**: LalinCore.Scalar, LalinType.Type, LalinTree.Func, LalinTree.Module, LalinTree.ControlStmtRegion, LalinTree.ControlExprRegion, LalinTree.EntryControlBlock, LalinTree.ControlBlock, LalinTree.TypeIssue, LalinOpen.RegionFrag, LalinOpen.ExprFrag, LalinParse.ParseIssue
 
-#### MoonParse (`parse.lua`)
+#### LalinParse (`parse.lua`)
 **Role**: Parsing — minimal result type.
 **Types defined (3)**: ParseIssue, ParseResult
-**Cross-refs**: MoonTree.Module
+**Cross-refs**: LalinTree.Module
 
-#### MoonSource (`source.lua`)
+#### LalinSource (`source.lua`)
 **Role**: Source text model — documents, positions, anchors, edits.
 **Types defined**: DocUri, DocVersion, LanguageId (4), DocumentSnapshot, PositionEncoding (3), SourcePos, SourceRange, TextChange (2), DocumentEdit, SourceSlice, SourceOccurrence, AnchorId, AnchorKind (26), Anchor, AnchorSpan, AnchorSet, SourceLineSpan, PositionIndex, SourceApplyIssue (4), SourceApplyResult (2), SourcePositionResult (2), SourceOffsetResult (2), AnchorIndex, AnchorQuery (3), AnchorLookupResult
 **Cross-refs**: None to other project schema modules (self-contained)
 
-#### MoonMlua (`mlua.lua`)
+#### LalinMlua (`mlua.lua`)
 **Role**: .mlua file format — island segmentation, document parsing/analysis.
 **Types defined**: IslandKind (9), IslandName (3), IslandText, Segment (3), DocumentParts, IslandParse, DocumentParse, DocumentAnalysis
-**Cross-refs**: MoonSource.SourceSlice, MoonSource.SourceOccurrence, MoonSource.SourceRange, MoonSource.DocumentSnapshot, MoonSource.AnchorSet, MoonHost.HostDeclSet, MoonHost.MluaParseResult, MoonHost.MluaHostPipelineResult, MoonTree.Module, MoonOpen.RegionFrag, MoonOpen.ExprFrag, MoonOpen.ValidationReport, MoonParse.ParseIssue, MoonTree.TypeIssue, MoonTree.ControlFact, MoonVec.VecLoopDecision, MoonVec.VecReject, MoonBack.BackValidationReport
+**Cross-refs**: LalinSource.SourceSlice, LalinSource.SourceOccurrence, LalinSource.SourceRange, LalinSource.DocumentSnapshot, LalinSource.AnchorSet, LalinHost.HostDeclSet, LalinHost.MluaParseResult, LalinHost.MluaHostPipelineResult, LalinTree.Module, LalinOpen.RegionFrag, LalinOpen.ExprFrag, LalinOpen.ValidationReport, LalinParse.ParseIssue, LalinTree.TypeIssue, LalinTree.ControlFact, LalinVec.VecLoopDecision, LalinVec.VecReject, LalinBack.BackValidationReport
 
-#### MoonEditor (`editor.lua`)
+#### LalinEditor (`editor.lua`)
 **Role**: LSP workspace — state machine, diagnostics, symbols, completions, semantic tokens.
 **Types defined**: ServerMode (5), ClientCapability, WorkspaceRoot, WorkspaceState, RpcId (3), PositionQuery, RangeQuery, ReferenceQuery, RenameQuery, CodeActionQuery, ClientEvent (35), Transition, DiagnosticSeverity (4), DiagnosticOrigin (9), DiagnosticFact, Subject (17), SubjectPick, SymbolKind (26), SymbolId, SymbolFact, SymbolTree, BindingRole (6), BindingScopeId, BindingScopeKind (10), BindingScopeFact, ScopedBinding, BindingUseSite, BindingResolution (2), BindingScopeReport, BindingFact, DefinitionResult (2), ReferenceResult (2), DocumentHighlightKind (3), DocumentHighlight, RenameEdit, RenameResult (2), PrepareRenameResult (2), MarkupKind (2), HoverInfo (2), CompletionContext (14), CompletionKind (25), CompletionQuery, CompletionItem, SignatureContext (2), SignatureParameter, SignatureInfo, SignatureHelp (2), SemanticTokenType (24), SemanticTokenModifier (14), SemanticTokenSpan, CodeActionKind (4), TextEdit, WorkspaceEdit, CodeAction, FoldingRange, SelectionRange, InlayHint
-**Cross-refs**: MoonSource.DocUri, MoonSource.DocumentSnapshot, MoonSource.SourcePos, MoonSource.SourceRange, MoonSource.SourceAnchor, MoonSource.DocumentEdit, MoonSource.DocVersion, MoonCore.Scalar, MoonType.Type, MoonHost.HostStructDecl, MoonHost.HostFieldDecl, MoonHost.HostExposeDecl, MoonHost.HostAccessorDecl, MoonTree.Func, MoonTree.Module, MoonTree.TypeIssue, MoonTree.BlockLabel, MoonOpen.RegionFrag, MoonOpen.ExprFrag, MoonBind.Binding, MoonParse.ParseIssue, MoonHost.HostIssue, MoonOpen.ValidationIssue, MoonBack.BackValidationIssue, MoonVec.VecReject
+**Cross-refs**: LalinSource.DocUri, LalinSource.DocumentSnapshot, LalinSource.SourcePos, LalinSource.SourceRange, LalinSource.SourceAnchor, LalinSource.DocumentEdit, LalinSource.DocVersion, LalinCore.Scalar, LalinType.Type, LalinHost.HostStructDecl, LalinHost.HostFieldDecl, LalinHost.HostExposeDecl, LalinHost.HostAccessorDecl, LalinTree.Func, LalinTree.Module, LalinTree.TypeIssue, LalinTree.BlockLabel, LalinOpen.RegionFrag, LalinOpen.ExprFrag, LalinBind.Binding, LalinParse.ParseIssue, LalinHost.HostIssue, LalinOpen.ValidationIssue, LalinBack.BackValidationIssue, LalinVec.VecReject
 
-#### MoonLsp (`lsp.lua`)
+#### LalinLsp (`lsp.lua`)
 **Role**: LSP protocol — wire format types for LSP JSON-RPC.
 **Types defined**: ProtocolPosition, ProtocolRange, Location, InitializeResult, DiagnosticPayload, DiagnosticReport, DiagnosticDocumentReport, Hover (2), CompletionPayload, CompletionList, DocumentSymbolPayload, WorkspaceSymbolPayload, SignatureParameterPayload, SignatureInformationPayload, SignatureHelpPayload, SemanticTokens, DocumentHighlightPayload, PrepareRenamePayload, TextEditPayload, WorkspaceEditPayload, CodeActionPayload, FoldingRangePayload, SelectionRangePayload, InlayHintPayload, Payload (18 variants)
-**Cross-refs**: MoonSource.DocUri, MoonSource.DocVersion, MoonEditor.MarkupKind
+**Cross-refs**: LalinSource.DocUri, LalinSource.DocVersion, LalinEditor.MarkupKind
 
-#### MoonRpc (`rpc.lua`)
+#### LalinRpc (`rpc.lua`)
 **Role**: JSON-RPC transport — message framing.
 **Types defined**: JsonMember, JsonValue (6), Incoming (3), Outgoing (3), OutCommand (3)
-**Cross-refs**: MoonEditor.RpcId, MoonLsp.Payload
+**Cross-refs**: LalinEditor.RpcId, LalinLsp.Payload
 
-#### MoonDasm (`dasm.lua`)
+#### LalinDasm (`dasm.lua`)
 **Role**: DynASM backend — CFG analysis, value facts, family-based instruction selection, asm shapes, register allocation, emit plan.
 **Types defined**: DModuleId, DBlockId, DValId, DLabelId, DVirtualRegId, DPhysRegId, DRegClass (3), DValueClass (4), DSigEntry, DFuncEntry, DExternEntry, DDataEntry, DLabelPair, DLabelMap, DPhaseModule, DTargetFacts, DFuncBody, DPhaseFunc, DScalarMapEntry, DTypedFunc, DBlockParam, DEdgeArg, DSwitchCase, DTerminator (6), DCfgBlock, DFuncCFG, DValueFact (7), DEdgeKind (8), DEdgeRef, DParallelMove, DParallelCopy, DControlFact (2), DMemoryFact (3), DCallFact (2), DFuncFacts, DConstKind (5), DAddrBaseKind (4), DFamilyKind (11), DFamilyKey (10), DFamilyInstance, DFactAtom (9), DFactSet, DLowerDecision, DLoweredFunc, DAddress, DOperand (5), DCondCode (12), DAsmShape (16), DAsmInst, DAsmBlock, DAsmFunc, DAllocLoc (2), DValueAlloc, DBankedRegalloc, DFrameSlot, DFramePlan, DFragment, DFragmentBundle, DGlobalEntry, DFuncPtrEntry, DEmitPlan
-**Cross-refs**: MoonBack.BackScalar, MoonBack.BackValId, MoonBack.BackBlockId, MoonBack.BackFuncId, MoonBack.BackSigId, MoonBack.BackStackSlotId, MoonBack.BackShape, MoonBack.BackAddress, MoonBack.BackMemoryInfo, MoonBack.BackAliasFact, MoonBack.BackCallTarget, MoonBack.BackCallResult, MoonBack.Cmd, MoonBack.BackTargetModel, MoonBack.BackAddressBase, MoonBack.BackPointerProvenance, MoonBack.BackPointerBounds, MoonBack.BackAccessMode, MoonBack.BackAlignment, MoonBack.BackDereference, MoonBack.BackTrap, MoonBack.BackMotion, MoonBack.BackIntSemantics, MoonBack.BackFloatSemantics, MoonBack.BackAtomicOrdering, MoonBack.BackAtomicRmwOp, MoonBack.BackUnaryOp, MoonBack.BackIntrinsicOp, MoonBack.BackCompareOp, MoonBack.BackVecCompareOp, MoonBack.BackVecBinaryOp, MoonBack.BackVecMaskOp, MoonBack.BackCastOp, MoonBack.BackIntOp, MoonBack.BackBitOp, MoonBack.BackShiftOp, MoonBack.BackRotateOp, MoonBack.BackFloatOp, MoonBack.BackLiteral, MoonCore.Visibility
+**Cross-refs**: LalinBack.BackScalar, LalinBack.BackValId, LalinBack.BackBlockId, LalinBack.BackFuncId, LalinBack.BackSigId, LalinBack.BackStackSlotId, LalinBack.BackShape, LalinBack.BackAddress, LalinBack.BackMemoryInfo, LalinBack.BackAliasFact, LalinBack.BackCallTarget, LalinBack.BackCallResult, LalinBack.Cmd, LalinBack.BackTargetModel, LalinBack.BackAddressBase, LalinBack.BackPointerProvenance, LalinBack.BackPointerBounds, LalinBack.BackAccessMode, LalinBack.BackAlignment, LalinBack.BackDereference, LalinBack.BackTrap, LalinBack.BackMotion, LalinBack.BackIntSemantics, LalinBack.BackFloatSemantics, LalinBack.BackAtomicOrdering, LalinBack.BackAtomicRmwOp, LalinBack.BackUnaryOp, LalinBack.BackIntrinsicOp, LalinBack.BackCompareOp, LalinBack.BackVecCompareOp, LalinBack.BackVecBinaryOp, LalinBack.BackVecMaskOp, LalinBack.BackCastOp, LalinBack.BackIntOp, LalinBack.BackBitOp, LalinBack.BackShiftOp, LalinBack.BackRotateOp, LalinBack.BackFloatOp, LalinBack.BackLiteral, LalinCore.Visibility
 
-#### MoonLink (`link.lua`)
+#### LalinLink (`link.lua`)
 **Role**: Linking — platform model, linker invocation, link plans.
 **Types defined**: LinkPath, LinkSymbol, LinkEnv, LinkPlatform (5), LinkArch (5+1), LinkObjectFormat (5), LinkRelocationModel (3), LinkTargetModel, LinkArtifactKind (4), LinkerKind (9), LinkTool, LinkInput (7), LinkExportPolicy (4), LinkExternPolicy (2), LinkDebugPolicy (3), LinkRuntimePath (2), LinkOption (14), LinkPlan, LinkIssue (9), LinkReport, LinkCommand (3), LinkCommandPlan, LinkResult (2)
-**Cross-refs**: MoonBack.BackTargetModel
+**Cross-refs**: LalinBack.BackTargetModel
 
-#### MoonPvmSurface (`pvm_surface.lua`)
-**Role**: PVM phase bodies — producer language for generated Moonlift surface.
+#### LalinPvmSurface (`pvm_surface.lua`)
+**Role**: PVM phase bodies — producer language for generated Lalin surface.
 **Types defined**: PhaseBody, Handler, Bind, Producer (7), Expr (8), NamedExpr
-**Cross-refs**: MoonPhase.TypeRef, MoonPhase.CachePolicy, MoonPhase.ResultShape
+**Cross-refs**: LalinPhase.TypeRef, LalinPhase.CachePolicy, LalinPhase.ResultShape
 
-#### MoonPhase (`phase_model.lua`, separate schema)
+#### LalinPhase (`phase_model.lua`, separate schema)
 **Role**: Phase wiring — package/unit/spec model.
 **Types defined**: Package, PhaseUnit, UnitUse, UnitExport, TypeRef (3), CachePolicy (4), ResultShape (4), PhaseSpec, UnitPart (4), PhasePart (4)
 **Cross-refs**: None to other ASDL modules
 
-#### MoonC (`c/c_type.lua`)
+#### LalinC (`c/c_type.lua`)
 **Role**: C type facts from cimport.
 **Types defined**: CTypeId, CTypeKind (9), CTypeFact, CFieldLayout, CLayoutFact, CFuncSigId, CFuncSig, CExternFunc, CLibrary
-**Cross-refs**: MoonBack.BackScalar
+**Cross-refs**: LalinBack.BackScalar
 
-#### MoonCAst (`c/c_ast.lua`)
+#### LalinCAst (`c/c_ast.lua`)
 **Role**: C AST tokens. (Read partially.)
 **Cross-refs**: Self-contained
 
@@ -147,43 +147,43 @@ Now I have enough data. Let me compile the exhaustive report.
 
 **ExprHeader** grows per phase:
 - `ExprSurface` — no annotations (fresh from parser)
-- `ExprTyped { ty: MoonType.Type }` — typecheck adds result type
-- `ExprOpen { ty, open: MoonOpen.OpenSet }` — open adds OpenSet
-- `ExprSem { ty, value_class: MoonSem.ValueClass, const_class: MoonSem.ConstClass }` — sem adds value/const class
-- `ExprCode { ty, shape: MoonSem.CodeShapeClass }` — code adds shape class
+- `ExprTyped { ty: LalinType.Type }` — typecheck adds result type
+- `ExprOpen { ty, open: LalinOpen.OpenSet }` — open adds OpenSet
+- `ExprSem { ty, value_class: LalinSem.ValueClass, const_class: LalinSem.ConstClass }` — sem adds value/const class
+- `ExprCode { ty, shape: LalinSem.CodeShapeClass }` — code adds shape class
 
 **PlaceHeader** grows per phase:
 - `PlaceSurface` — no annotations
 - `PlaceTyped { ty }` — typecheck adds type
 - `PlaceOpen { ty, open }` — open adds OpenSet
-- `PlaceSem { ty, address_class: MoonSem.AddressClass }` — sem adds address class
+- `PlaceSem { ty, address_class: LalinSem.AddressClass }` — sem adds address class
 
 **StmtHeader** grows per phase:
 - `StmtSurface` — no annotations
 - `StmtTyped` — no extra fields (just phase marker)
-- `StmtOpen { open: MoonOpen.OpenSet }` — open adds OpenSet
-- `StmtSem { flow: MoonSem.FlowClass }` — sem adds flow class
-- `StmtCode { flow: MoonSem.FlowClass }` — code adds flow class
+- `StmtOpen { open: LalinOpen.OpenSet }` — open adds OpenSet
+- `StmtSem { flow: LalinSem.FlowClass }` — sem adds flow class
+- `StmtCode { flow: LalinSem.FlowClass }` — code adds flow class
 
 **ModuleHeader** grows per phase:
 - `ModuleSurface` — no annotations
 - `ModuleTyped { module_name }` — typecheck adds module name
-- `ModuleOpen { name: MoonOpen.ModuleNameFacet, open: MoonOpen.OpenSet }` — open adds name+OpenSet
+- `ModuleOpen { name: LalinOpen.ModuleNameFacet, open: LalinOpen.OpenSet }` — open adds name+OpenSet
 - `ModuleSem { module_name }` — sem adds module name (simple)
 - `ModuleCode { module_name }` — code adds module name (simple)
 
 ---
 
-### 3. Two Parallel Symbol Systems: MoonCore Sym vs MoonOpen Slot
+### 3. Two Parallel Symbol Systems: LalinCore Sym vs LalinOpen Slot
 
-**MoonCore Sym types** (5):
+**LalinCore Sym types** (5):
 - `TypeSym { key, name }` — declared at open phase for open types
 - `FuncSym { key, name }` — declared at open phase for open functions
 - `ExternSym { key, name, symbol }` — declared at open phase for open externs
 - `ConstSym { key, name }` — for open constants
 - `StaticSym { key, name }` — for open statics
 
-**MoonOpen Slot types** (16):
+**LalinOpen Slot types** (16):
 - `TypeSlot { key, pretty_name }` — type hole (no type field)
 - `ValueSlot { key, pretty_name, ty }` — value hole
 - `ExprSlot { key, pretty_name, ty? }` — expression hole (optional type)
@@ -209,11 +209,11 @@ Now I have enough data. Let me compile the exhaustive report.
 
 But the systems differ: Sym types are *unique interned identities* used in `BindingClass` variants (`BindingClassFuncSym`, etc.), while Slot types are *structural holes* used in `OpenSet.slots`, `Tree.ExprSlotValue`, `Tree.StmtUseRegionSlot`, etc. They're philosophically similar but mechanically distinct — Syms flow through `Binding` as resolved references; Slots flow through `SlotBinding`/`SlotValue` for expansion.
 
-**Bridge types**: `MoonBind.ValueRef` has both:
-- `ValueRefSlot { slot: MoonOpen.ValueSlot }` — reference by slot
-- `ValueRefFuncSlot { slot: MoonOpen.FuncSlot }` — reference by func slot
-- `ValueRefConstSlot { slot: MoonOpen.ConstSlot }`
-- `ValueRefStaticSlot { slot: MoonOpen.StaticSlot }`
+**Bridge types**: `LalinBind.ValueRef` has both:
+- `ValueRefSlot { slot: LalinOpen.ValueSlot }` — reference by slot
+- `ValueRefFuncSlot { slot: LalinOpen.FuncSlot }` — reference by func slot
+- `ValueRefConstSlot { slot: LalinOpen.ConstSlot }`
+- `ValueRefStaticSlot { slot: LalinOpen.StaticSlot }`
 
 And `BindingClass` has both:
 - `BindingClassFuncSym { sym }`, `BindingClassExternSym { sym }`, `BindingClassConstSym { sym }`, `BindingClassStaticSym { sym }`
@@ -223,7 +223,7 @@ And `BindingClass` has both:
 
 ### 4. Duplicated/Parallel Concepts Across Modules
 
-| Concept | MoonCore (front) | MoonBack (back) | MoonVec | MoonOpen |
+| Concept | LalinCore (front) | LalinBack (back) | LalinVec | LalinOpen |
 |---|---|---|---|---|
 | Scalar types | `Scalar` (14) | `BackScalar` (14) | `VecElem` (12) | — |
 | Cast ops | `SurfaceCastOp` (6) / `MachineCastOp` (11) | `BackCastOp` (10) | — | — |
@@ -243,98 +243,98 @@ And `BindingClass` has both:
 *Note: BackCastOp is a subset of MachineCastOp — it omits `MachineCastIdentity` and combines `SToF`/`UToF` variants differently.
 
 **Key observations**:
-- `MoonCore.Scalar` has `ScalarRawPtr` and `ScalarIndex`; `MoonBack.BackScalar` has `BackPtr` and `BackIndex`. Same distinction, different name.
+- `LalinCore.Scalar` has `ScalarRawPtr` and `ScalarIndex`; `LalinBack.BackScalar` has `BackPtr` and `BackIndex`. Same distinction, different name.
 - `VecElem` mirrors BackScalar but omits `BackVoid` (2 fewer variants).
 - The 3 cast op systems (SurfaceCastOp → MachineCastOp → BackCastOp) represent three levels of abstraction: surface syntax → machine-level → backend instructions.
-- MoonSem adds parallel classification types that duplicate concepts: `ValueClass`, `ConstClass`, `AddressClass`, `FlowClass`, `CodeShapeClass` — these are NOT alternatives to MoonCore types, but *semantic annotations* attached via phase headers.
-- MoonTree.TreeBackLocal has 4 variants (`TreeBackScalarLocal`, `TreeBackStackLocal`, `TreeBackViewLocal`, `TreeBackStridedViewLocal`) — this is a TODO-like separation between value/stack/view modes that could be unified into a single "local" with a residence annotation (MoonBind.Residence already exists).
+- LalinSem adds parallel classification types that duplicate concepts: `ValueClass`, `ConstClass`, `AddressClass`, `FlowClass`, `CodeShapeClass` — these are NOT alternatives to LalinCore types, but *semantic annotations* attached via phase headers.
+- LalinTree.TreeBackLocal has 4 variants (`TreeBackScalarLocal`, `TreeBackStackLocal`, `TreeBackViewLocal`, `TreeBackStridedViewLocal`) — this is a TODO-like separation between value/stack/view modes that could be unified into a single "local" with a residence annotation (LalinBind.Residence already exists).
 
 ---
 
 ### 5. Cross-Module Reference Chain Graph
 
 ```
-MoonCore ──► (no deps, foundation)
+LalinCore ──► (no deps, foundation)
   │
-  ├──► MoonType ──► MoonCore, MoonOpen, MoonTree, MoonBack, MoonSem, MoonC, MoonBind
+  ├──► LalinType ──► LalinCore, LalinOpen, LalinTree, LalinBack, LalinSem, LalinC, LalinBind
   │
-  ├──► MoonTree ──► MoonCore, MoonType, MoonOpen, MoonSem, MoonBind, MoonBack
+  ├──► LalinTree ──► LalinCore, LalinType, LalinOpen, LalinSem, LalinBind, LalinBack
   │
-  ├──► MoonOpen ──► MoonCore, MoonType, MoonBind, MoonTree, MoonSem
+  ├──► LalinOpen ──► LalinCore, LalinType, LalinBind, LalinTree, LalinSem
   │
-  ├──► MoonSem ──► MoonType, MoonCore, MoonHost, MoonTree, MoonBind
+  ├──► LalinSem ──► LalinType, LalinCore, LalinHost, LalinTree, LalinBind
   │
-  ├──► MoonBind ──► MoonCore, MoonType, MoonSem, MoonOpen, MoonTree
+  ├──► LalinBind ──► LalinCore, LalinType, LalinSem, LalinOpen, LalinTree
   │
-  ├──► MoonBack ──► MoonCore, MoonVec
+  ├──► LalinBack ──► LalinCore, LalinVec
   │
-  ├──► MoonVec ──► MoonTree, MoonType, MoonBind, MoonCore, MoonBack
+  ├──► LalinVec ──► LalinTree, LalinType, LalinBind, LalinCore, LalinBack
   │
-  ├──► MoonDasm ──► MoonBack, MoonCore
+  ├──► LalinDasm ──► LalinBack, LalinCore
   │
-  ├──► MoonLink ──► MoonBack
+  ├──► LalinLink ──► LalinBack
   │
-  ├──► MoonC ──► MoonBack
+  ├──► LalinC ──► LalinBack
   │
-  ├──► MoonParse ──► MoonTree
+  ├──► LalinParse ──► LalinTree
   │
-  ├──► MoonHost ──► MoonCore, MoonType, MoonOpen, MoonTree, MoonParse
+  ├──► LalinHost ──► LalinCore, LalinType, LalinOpen, LalinTree, LalinParse
   │
-  ├──► MoonMlua ──► MoonSource, MoonHost, MoonTree, MoonOpen, MoonParse, MoonVec, MoonBack
+  ├──► LalinMlua ──► LalinSource, LalinHost, LalinTree, LalinOpen, LalinParse, LalinVec, LalinBack
   │
-  ├──► MoonSource ──► (no deps)
+  ├──► LalinSource ──► (no deps)
   │
-  ├──► MoonEditor ──► MoonSource, MoonCore, MoonType, MoonHost, MoonTree, MoonOpen, MoonBind, MoonParse, MoonBack, MoonVec
+  ├──► LalinEditor ──► LalinSource, LalinCore, LalinType, LalinHost, LalinTree, LalinOpen, LalinBind, LalinParse, LalinBack, LalinVec
   │
-  ├──► MoonLsp ──► MoonSource, MoonEditor
+  ├──► LalinLsp ──► LalinSource, LalinEditor
   │
-  ├──► MoonRpc ──► MoonEditor, MoonLsp
+  ├──► LalinRpc ──► LalinEditor, LalinLsp
   │
-  └──► MoonPvmSurface ──► MoonPhase
+  └──► LalinPvmSurface ──► LalinPhase
 ```
 
 The most-coupled modules:
-- **MoonTree**: references MoonCore, MoonType, MoonOpen, MoonSem, MoonBind, MoonBack (6 external modules)
-- **MoonEditor**: references MoonSource, MoonCore, MoonType, MoonHost, MoonTree, MoonOpen, MoonBind, MoonParse, MoonBack, MoonVec (10 external modules)
-- **MoonBind**: references MoonCore, MoonType, MoonSem, MoonOpen, MoonTree (5)
-- **MoonVec**: references MoonTree, MoonType, MoonBind, MoonCore, MoonBack (5)
-- **MoonType**: references MoonCore, MoonOpen, MoonTree, MoonBack, MoonSem, MoonC, MoonBind (7)
+- **LalinTree**: references LalinCore, LalinType, LalinOpen, LalinSem, LalinBind, LalinBack (6 external modules)
+- **LalinEditor**: references LalinSource, LalinCore, LalinType, LalinHost, LalinTree, LalinOpen, LalinBind, LalinParse, LalinBack, LalinVec (10 external modules)
+- **LalinBind**: references LalinCore, LalinType, LalinSem, LalinOpen, LalinTree (5)
+- **LalinVec**: references LalinTree, LalinType, LalinBind, LalinCore, LalinBack (5)
+- **LalinType**: references LalinCore, LalinOpen, LalinTree, LalinBack, LalinSem, LalinC, LalinBind (7)
 
 ---
 
 ### 6. Pipeline Flow (types entering/exiting each phase)
 
-**Phase 1 — Parse**: Entering: source text → `MoonParse.ParseResult` contains `MoonTree.Module` (with `ModuleSurface` header). Issues: `MoonParse.ParseIssue`.
+**Phase 1 — Parse**: Entering: source text → `LalinParse.ParseResult` contains `LalinTree.Module` (with `ModuleSurface` header). Issues: `LalinParse.ParseIssue`.
 
-**Phase 2 — Typecheck**: Entering: `MoonTree.Module` (Surface headers). Exiting: `MoonTree.Module` (`ModuleTyped` header). Also produces: `MoonTree.TypeIssue[]` diagnostics. Transforms: `ExprSurface`→`ExprTyped { ty }`, `PlaceSurface`→`PlaceTyped { ty }`, `StmtSurface`→`StmtTyped`.
+**Phase 2 — Typecheck**: Entering: `LalinTree.Module` (Surface headers). Exiting: `LalinTree.Module` (`ModuleTyped` header). Also produces: `LalinTree.TypeIssue[]` diagnostics. Transforms: `ExprSurface`→`ExprTyped { ty }`, `PlaceSurface`→`PlaceTyped { ty }`, `StmtSurface`→`StmtTyped`.
 
-**Phase 3 — Open/Expand**: Entering: `MoonTree.Module` (Typed). Exiting: `MoonTree.Module` (`ModuleOpen` header). Transforms: all headers get `open: MoonOpen.OpenSet`. Slot filling produces `SlotBinding[]`. Also: `MoonOpen.ValidationReport`.
+**Phase 3 — Open/Expand**: Entering: `LalinTree.Module` (Typed). Exiting: `LalinTree.Module` (`ModuleOpen` header). Transforms: all headers get `open: LalinOpen.OpenSet`. Slot filling produces `SlotBinding[]`. Also: `LalinOpen.ValidationReport`.
 
-**Phase 4 — Sem**: Entering: `MoonTree.Module` (Open). Exiting: `MoonTree.Module` (`ModuleSem` header). Transforms: adds `value_class`, `const_class`, `address_class`, `flow_class` annotations. Also: `MoonSem.LayoutEnv`, `MoonSem.ConstValue`, `MoonSem.CallTarget` resolution, `MoonSem.SwitchDecision`.
+**Phase 4 — Sem**: Entering: `LalinTree.Module` (Open). Exiting: `LalinTree.Module` (`ModuleSem` header). Transforms: adds `value_class`, `const_class`, `address_class`, `flow_class` annotations. Also: `LalinSem.LayoutEnv`, `LalinSem.ConstValue`, `LalinSem.CallTarget` resolution, `LalinSem.SwitchDecision`.
 
-**Phase 5 — Code (Back)**: Entering: `MoonTree.Module` (Sem). Exiting: flat `MoonBack.Cmd[]` via `TreeBack*Result` lowering. Also: `MoonBack.BackProgram` / `BackCommandTape`. Produces `MoonBack.BackValidationReport`, `MoonBack.BackInspectionReport`.
+**Phase 5 — Code (Back)**: Entering: `LalinTree.Module` (Sem). Exiting: flat `LalinBack.Cmd[]` via `TreeBack*Result` lowering. Also: `LalinBack.BackProgram` / `BackCommandTape`. Produces `LalinBack.BackValidationReport`, `LalinBack.BackInspectionReport`.
 
-**Vectorization (cross-cutting)**: Operates on `MoonTree.Func`, produces `MoonVec.VecLoopDecision[]`, `MoonVec.VecBlock[]`, `MoonVec.VecBackProgramSpec`, and vectorized `MoonBack.Cmd[]`.
+**Vectorization (cross-cutting)**: Operates on `LalinTree.Func`, produces `LalinVec.VecLoopDecision[]`, `LalinVec.VecBlock[]`, `LalinVec.VecBackProgramSpec`, and vectorized `LalinBack.Cmd[]`.
 
-**Linking (post-back)**: Consumes `MoonLink.LinkPlan`, invokes system linker, produces `MoonLink.LinkResult`.
+**Linking (post-back)**: Consumes `LalinLink.LinkPlan`, invokes system linker, produces `LalinLink.LinkResult`.
 
-**DynASM (alternative backend)**: Consumes `MoonBack.Cmd[]`, produces `MoonDasm.DFactSet`, `MoonDasm.DAsmFunc`, `MoonDasm.DEmitPlan`.
+**DynASM (alternative backend)**: Consumes `LalinBack.Cmd[]`, produces `LalinDasm.DFactSet`, `LalinDasm.DAsmFunc`, `LalinDasm.DEmitPlan`.
 
 ---
 
 ### 7. Additional Observations
 
-**Schema registration order** (from init.lua): `Core → Back → Dasm → Link → CType → Type → Open → Bind → Sem → Tree → Parse → Vec → Host → Source → Mlua → Editor → Lsp → Rpc → CAst`. The order matters for ASDL interning — MoonBack must precede MoonType because MoonType references MoonBack.BackScalar.
+**Schema registration order** (from init.lua): `Core → Back → Dasm → Link → CType → Type → Open → Bind → Sem → Tree → Parse → Vec → Host → Source → Mlua → Editor → Lsp → Rpc → CAst`. The order matters for ASDL interning — LalinBack must precede LalinType because LalinType references LalinBack.BackScalar.
 
-**MoonPvmSurface is separate** — it's in schema/ but references MoonPhase (defined in phase_model.lua, not schema/). It's not registered in init.lua.
+**LalinPvmSurface is separate** — it's in schema/ but references LalinPhase (defined in phase_model.lua, not schema/). It's not registered in init.lua.
 
-**MoonBind.BindingClass** is the largest single sum type for cross-module integration — it has 18 variants covering: local values, args, block params, cont params, global func/const/static, extern, open param, import, func/extern/const/static sym, func/const/static/value slot. Every entity kind terminates in a BindingClass variant.
+**LalinBind.BindingClass** is the largest single sum type for cross-module integration — it has 18 variants covering: local values, args, block params, cont params, global func/const/static, extern, open param, import, func/extern/const/static sym, func/const/static/value slot. Every entity kind terminates in a BindingClass variant.
 
-**MoonOpen.SlotValue** has 26 variants — the largest sum type in the system. It covers every possible value that can fill a slot: types, expressions, params, fields, variants, blocks, arms, places, domains, regions, continuations, fragments, items, modules, names.
+**LalinOpen.SlotValue** has 26 variants — the largest sum type in the system. It covers every possible value that can fill a slot: types, expressions, params, fields, variants, blocks, arms, places, domains, regions, continuations, fragments, items, modules, names.
 
-**MoonTree.Expr** has 29 variants, **MoonTree.Stmt** has 21 variants, **MoonBack.Cmd** has 78 variants — the largest individual sum types.
+**LalinTree.Expr** has 29 variants, **LalinTree.Stmt** has 21 variants, **LalinBack.Cmd** has 78 variants — the largest individual sum types.
 
-**Duplicated shape patterns**: `MoonType.TypeClass` mirrors many `MoonType.Type` variants but with flattened/scalarized fields (e.g., `TypeClassAggregate` is a single variant for what could be struct/union/opaque in Type). `MoonType.AbiClass` and `MoonType.TypeBackScalarResult` both have "known" vs "unknown" patterns that parallel each other.
+**Duplicated shape patterns**: `LalinType.TypeClass` mirrors many `LalinType.Type` variants but with flattened/scalarized fields (e.g., `TypeClassAggregate` is a single variant for what could be struct/union/opaque in Type). `LalinType.AbiClass` and `LalinType.TypeBackScalarResult` both have "known" vs "unknown" patterns that parallel each other.
 
 **HostFieldRep / HostStorageRep**: two parallel representations of host field storage — `HostStorageRep` is the *declared* storage (in `HostFieldDecl`), while `HostFieldRep` is the *resolved* representation (in `HostFieldLayout`). They share similar structure but are separate types.
 
@@ -354,7 +354,7 @@ For a modeling overhaul with the goals of reducing surface area and cross-module
 | **Derivability** | Which annotations could be computed on-demand vs must be stored. Each stored annotation is a coupling point |
 | **Vocabulary separation** | When duplicate type systems (3 op systems, 3 backend IRs) reflect genuine abstraction boundaries vs accidental fragmentation |
 | **Phase lifecycle** | How data flows through phases — does information monotonically accumulate (headers) or transform (ops, address models) |
-| **Cross-module reference weight** | A MoonType → MoonBack reference (type system depends on backend scalars) is architecturally heavier than MoonEditor → MoonSource (editor depends on document model) |
+| **Cross-module reference weight** | A LalinType → LalinBack reference (type system depends on backend scalars) is architecturally heavier than LalinEditor → LalinSource (editor depends on document model) |
 
 ---
 
@@ -372,7 +372,7 @@ For a modeling overhaul with the goals of reducing surface area and cross-module
 
 ### 2. The 18-Module Boundary Surface
 
-**The registration order reveals a hidden foundation pivot**: `MoonBack` comes IMMEDIATELY after `MoonCore` (position 2 of 19). `MoonBack.BackScalar` is used by `MoonType` (position 6) and `MoonDasm` (position 3). This means backend scalar types are more architecturally fundamental than the type system. The dependency chain for type checking goes: Core → Back → Type. The type system cannot be defined without knowing what scalars the backend supports. This is not an accident — it reflects the language's design: "the backend is the specification."
+**The registration order reveals a hidden foundation pivot**: `LalinBack` comes IMMEDIATELY after `LalinCore` (position 2 of 19). `LalinBack.BackScalar` is used by `LalinType` (position 6) and `LalinDasm` (position 3). This means backend scalar types are more architecturally fundamental than the type system. The dependency chain for type checking goes: Core → Back → Type. The type system cannot be defined without knowing what scalars the backend supports. This is not an accident — it reflects the language's design: "the backend is the specification."
 
 **Module dependency latency analysis**:
 
@@ -385,17 +385,17 @@ Source → Editor → Tree → Type → Back            = 5 hops (LSP diagnostic
 
 The critical path is actually short (4 hops), but the module graph itself is dense. The densest reference pattern is **bidirectional cycles disguised as directed edges**:
 
-- `MoonType` references `MoonOpen.TypeSlot` and `MoonOpen.ExprSlot` (type → open)
-- `MoonOpen` references `MoonType.Type` (open → type)
-- This is a **logical cycle** — types contain open slots; open slots contain types. They must be defined in a specific order (Type before Open because TypeSlot has a `ty` field referencing MoonType.Type), but semantically they're interdependent.
+- `LalinType` references `LalinOpen.TypeSlot` and `LalinOpen.ExprSlot` (type → open)
+- `LalinOpen` references `LalinType.Type` (open → type)
+- This is a **logical cycle** — types contain open slots; open slots contain types. They must be defined in a specific order (Type before Open because TypeSlot has a `ty` field referencing LalinType.Type), but semantically they're interdependent.
 
-**The periphery is self-defining**: MoonSource, MoonLsp, MoonRpc, MoonCAst form a loose outer ring with light internal coupling. MoonEditor (10 external deps) is the glue that pulls all compiler internals into the LSP surface. MoonMlua (7 external deps) bridges the document model (Source) with the compilation pipeline (Tree, Open, Vec, Back, Host, Parse). Both are integration modules, not core semantics.
+**The periphery is self-defining**: LalinSource, LalinLsp, LalinRpc, LalinCAst form a loose outer ring with light internal coupling. LalinEditor (10 external deps) is the glue that pulls all compiler internals into the LSP surface. LalinMlua (7 external deps) bridges the document model (Source) with the compilation pipeline (Tree, Open, Vec, Back, Host, Parse). Both are integration modules, not core semantics.
 
-**MoonHost's position is anomalous**: At registration position 13 (after Vec, before Source), it is referenced by MoonSem (position 9) through `MoonHost.HostFieldRep` in `MoonSem.FieldByOffset`. This means `MoonSem` depends on `MoonHost` which is defined 4 modules later. Sem must know about C ABI field representations to do semantic analysis of host-interfacing code. This is a **forward reference** in registration order — MoonSem can reference MoonHost only because ASDL resolving is by name, not by registration order. But this creates a conceptual dependency: semantic analysis depends on host layout knowledge.
+**LalinHost's position is anomalous**: At registration position 13 (after Vec, before Source), it is referenced by LalinSem (position 9) through `LalinHost.HostFieldRep` in `LalinSem.FieldByOffset`. This means `LalinSem` depends on `LalinHost` which is defined 4 modules later. Sem must know about C ABI field representations to do semantic analysis of host-interfacing code. This is a **forward reference** in registration order — LalinSem can reference LalinHost only because ASDL resolving is by name, not by registration order. But this creates a conceptual dependency: semantic analysis depends on host layout knowledge.
 
 ### 3. Three Op Systems
 
-**SurfaceCastOp ↔ MachineCastOp is a folding, not a translation.** The scout notes 6 SurfaceCast variants vs 11 MachineCast variants. The MachineCast system is strictly richer — it adds type-specific narrowing/widening distinctions (SXtoSX, ZXtoZX, SToF vs UToF) that the surface syntax cannot express. The surface ops are sugar that get "desugared" into machine ops during typechecking. Both live in MoonCore because the typechecker needs access to both vocabularies simultaneously — it pattern-matches on Surface ops and produces Machine ops.
+**SurfaceCastOp ↔ MachineCastOp is a folding, not a translation.** The scout notes 6 SurfaceCast variants vs 11 MachineCast variants. The MachineCast system is strictly richer — it adds type-specific narrowing/widening distinctions (SXtoSX, ZXtoZX, SToF vs UToF) that the surface syntax cannot express. The surface ops are sugar that get "desugared" into machine ops during typechecking. Both live in LalinCore because the typechecker needs access to both vocabularies simultaneously — it pattern-matches on Surface ops and produces Machine ops.
 
 **BackCastOp vs MachineCastOp reveals a genuine gap**: BackCastOp (10 variants) omits `MachineCastIdentity` and has a different naming scheme for float/integer conversions. The `MachineCastIdentity` variant (cast a type to itself) is a frontend convenience that the backend would never emit. But the different naming (e.g., `CastSToF` vs `MachineCastSToF`) means there's a translation table between them. This is a 3-level hierarchy where each level renames and subsets the previous one — a compiler in miniature.
 
@@ -412,11 +412,11 @@ Compare ops expand the most (2.7x) because the backend distinguishes signed/unsi
 
 ### 4. Sym vs Slot Duality
 
-**This is a "name" vs "placeholder" distinction that both call "open".** A `MoonCore.FuncSym { key, name }` is an interned identity for a function that exists at open-expansion time. A `MoonOpen.FuncSlot { key, pretty_name, fn_ty }` is a structural hole that *will receive* a function at expansion time. The first refers to what's declared; the second refers to what's expected.
+**This is a "name" vs "placeholder" distinction that both call "open".** A `LalinCore.FuncSym { key, name }` is an interned identity for a function that exists at open-expansion time. A `LalinOpen.FuncSlot { key, pretty_name, fn_ty }` is a structural hole that *will receive* a function at expansion time. The first refers to what's declared; the second refers to what's expected.
 
-**The bridge types expose the friction**: `MoonBind.BindingClass` has 4 sym variants and 4 slot variants. `MoonBind.ValueRef` has 4 slot variants but no sym variants for functions/externs — it only has `ValueRefSlot`, `ValueRefFuncSlot`, `ValueRefConstSlot`, `ValueRefStaticSlot`. This asymmetry means: values can be referenced by slot (open parameter) but NOT by sym (declared identity). Functions can be referenced by BOTH (through BindingClassFuncSym and BindingClassFuncSlot). This is because expressions reference values through ValueRef (which needs slots for expansion), but name resolution uses BindingClass (which needs both for different resolution paths).
+**The bridge types expose the friction**: `LalinBind.BindingClass` has 4 sym variants and 4 slot variants. `LalinBind.ValueRef` has 4 slot variants but no sym variants for functions/externs — it only has `ValueRefSlot`, `ValueRefFuncSlot`, `ValueRefConstSlot`, `ValueRefStaticSlot`. This asymmetry means: values can be referenced by slot (open parameter) but NOT by sym (declared identity). Functions can be referenced by BOTH (through BindingClassFuncSym and BindingClassFuncSlot). This is because expressions reference values through ValueRef (which needs slots for expansion), but name resolution uses BindingClass (which needs both for different resolution paths).
 
-**The 16 MoonOpen slot types are a systematic explosion of OpenParam flexibility.** Every entity kind gets its own slot type (TypeSlot, ValueSlot, ExprSlot, PlaceSlot, DomainSlot, RegionSlot, ContSlot, FuncSlot, ConstSlot, StaticSlot, TypeDeclSlot, ItemsSlot, ModuleSlot, NameSlot, RegionFragSlot, ExprFragSlot). This is the most fragmented sum type in the system (26 SlotValue variants). It reflects the principle that "open" applies uniformly to every syntactic category — but the cost is a 16-way slot type sum that every consume-open-set operation must handle.
+**The 16 LalinOpen slot types are a systematic explosion of OpenParam flexibility.** Every entity kind gets its own slot type (TypeSlot, ValueSlot, ExprSlot, PlaceSlot, DomainSlot, RegionSlot, ContSlot, FuncSlot, ConstSlot, StaticSlot, TypeDeclSlot, ItemsSlot, ModuleSlot, NameSlot, RegionFragSlot, ExprFragSlot). This is the most fragmented sum type in the system (26 SlotValue variants). It reflects the principle that "open" applies uniformly to every syntactic category — but the cost is a 16-way slot type sum that every consume-open-set operation must handle.
 
 **The two systems are genuinely different concepts that happen to share "parameterizedness":**
 - Syms answer "what is this thing's identity?" — used in BindingClass for name resolution
@@ -425,7 +425,7 @@ Compare ops expand the most (2.7x) because the backend distinguishes signed/unsi
 - Syms lack type information (TypeSym has no type field); Slots carry it (ValueSlot.ty, FuncSlot.fn_ty)
 - This means Syms are pure identities; Slots are typed holes
 
-### 5. The Classification Explosion in MoonSem
+### 5. The Classification Explosion in LalinSem
 
 **ValueClass (5) and AddressClass (8) have a hidden overlap structure.** The 5 ValueClass variants form a state machine: Unknown → Plain (a concrete value) or Address (a location) → Materialized (loaded from address) or Terminated (control flow stopped). The 8 AddressClass variants enumerate every possible way a value can be a memory location: by binding, by stack slot, by static global, by dereference, by field projection, by index, by temporary, or unknown. Every AddressClass variant except "Unknown" is also a subclass of `ValueAddress` in ValueClass. This means the two classification systems are NOT orthogonal — they classify the same entity at different granularities.
 
@@ -443,17 +443,17 @@ Compare ops expand the most (2.7x) because the backend distinguishes signed/unsi
 | SwitchKey | 3 | Yes | Derivable from switch scrutinee type + value |
 | CallTarget | 5 | Partial | Requires name resolution + type checking (but that's already done) |
 
-**The ratio of annotation types to AST types**: MoonSem defines 12 sum types and 12 product types. MoonTree defines 76 sum/product types. The annotation-to-AST ratio is approximately 24:76 or 1:3. This means for every 3 structural types, there's 1 classification annotation. Not excessive per se, but only FlowClass is truly non-derivable.
+**The ratio of annotation types to AST types**: LalinSem defines 12 sum types and 12 product types. LalinTree defines 76 sum/product types. The annotation-to-AST ratio is approximately 24:76 or 1:3. This means for every 3 structural types, there's 1 classification annotation. Not excessive per se, but only FlowClass is truly non-derivable.
 
 ### 6. Backend IR Fragmentation
 
-**MoonVec.Cmd is not a parallel IR — it's a vector specialization bridge.** The 15 VecCmd variants are all vector operations: Splat, Ramp, Bin, Select, Ireduce, Uextend, ExtractLane, HorizontalReduce, Load, Store. There are NO control flow commands, NO function calls, NO memory allocation, NO aliasing. VecCmd is a pure dataflow IR for vector kernels only. The control flow lives in VecBlock (with VecTerminator for jump/branch/return) which wraps the VecCmd dataflow. This is a **narrow waist** — vector kernels are expressed in Vec IR, then lowered to BackCmd[VEC* variants].
+**LalinVec.Cmd is not a parallel IR — it's a vector specialization bridge.** The 15 VecCmd variants are all vector operations: Splat, Ramp, Bin, Select, Ireduce, Uextend, ExtractLane, HorizontalReduce, Load, Store. There are NO control flow commands, NO function calls, NO memory allocation, NO aliasing. VecCmd is a pure dataflow IR for vector kernels only. The control flow lives in VecBlock (with VecTerminator for jump/branch/return) which wraps the VecCmd dataflow. This is a **narrow waist** — vector kernels are expressed in Vec IR, then lowered to BackCmd[VEC* variants].
 
-**MoonDasm.DAsmShape (16 variants) is the most target-specific IR in the system.** It describes assembly instruction shapes (two-address, three-address, immediate, shift-by-reg, etc.) at a level that is one step above actual machine encoding. It consumes MoonBack.Cmd through fact extraction (DValueFact, DControlFact), building a CFG overlay (DCfgBlock) for register allocation. This is a **progressive refinement pipeline**: Back.Cmd (flat, SSA-like) → DFuncCFG (CFG over Back.Cmd) → DAsmInst (instruction selection over CFG) → DFragmentBundle (emission plan).
+**LalinDasm.DAsmShape (16 variants) is the most target-specific IR in the system.** It describes assembly instruction shapes (two-address, three-address, immediate, shift-by-reg, etc.) at a level that is one step above actual machine encoding. It consumes LalinBack.Cmd through fact extraction (DValueFact, DControlFact), building a CFG overlay (DCfgBlock) for register allocation. This is a **progressive refinement pipeline**: Back.Cmd (flat, SSA-like) → DFuncCFG (CFG over Back.Cmd) → DAsmInst (instruction selection over CFG) → DFragmentBundle (emission plan).
 
 **The three IRs can be characterized by what they express:**
 
-| Feature | MoonBack.Cmd | MoonVec.Cmd | MoonDasm |
+| Feature | LalinBack.Cmd | LalinVec.Cmd | LalinDasm |
 |---------|-------------|-------------|----------|
 | Control flow | Blocks + terminators | Via VecBlock wrapper | CFG explicitly |
 | Vector ops | 7 Vec* variants | 12 native variants | Via DValueClass vector |
@@ -492,27 +492,27 @@ The 18 variants would become 2 smaller sum types with a product combining them. 
 
 ### 8. Three Memory Representations
 
-**MoonSem.MemLayout { size, align } is a promise, not a fact.** It says "this type will have these size/alignment properties at some future point" — but it cannot compute them independently because the backend target isn't known yet. MoonSem.FieldLayout { field_name, offset, ty } has the same issue: offsets are computed assuming a default layout which may not match the actual backend.
+**LalinSem.MemLayout { size, align } is a promise, not a fact.** It says "this type will have these size/alignment properties at some future point" — but it cannot compute them independently because the backend target isn't known yet. LalinSem.FieldLayout { field_name, offset, ty } has the same issue: offsets are computed assuming a default layout which may not match the actual backend.
 
-**MoonHost.HostFieldRep (8 variants) is the most complete model** because it captures the C ABI's full representational diversity: integer, float, pointer, bool (with three encodings!), struct, array, opaque, void. It resolves the abstractions that MoonSem leaves vague. The scout notes that `HostStorageRep` and `HostFieldRep` are parallel types — one for declaration, one for resolved layout. This is because declaration-time types may reference unresolved types that become concrete only at layout time.
+**LalinHost.HostFieldRep (8 variants) is the most complete model** because it captures the C ABI's full representational diversity: integer, float, pointer, bool (with three encodings!), struct, array, opaque, void. It resolves the abstractions that LalinSem leaves vague. The scout notes that `HostStorageRep` and `HostFieldRep` are parallel types — one for declaration, one for resolved layout. This is because declaration-time types may reference unresolved types that become concrete only at layout time.
 
-**MoonBack.BackAddress is not addressing the same question.** BackAddress is about HOW TO ACCESS memory at runtime — it has register bases, pointer provenance tracking (6 kinds!), bounds information (3 kinds). It answers "given a pointer, is it valid, what are its bounds, where does it point?" MoonSem.MemLayout and MoonHost.HostFieldRep answer "how big is this type and where are its fields?" These are different levels entirely — layout vs access. The fact that they're both called "memory layout" in conversation hides their fundamental difference: one is type-level (structure), the other is value-level (pointers).
+**LalinBack.BackAddress is not addressing the same question.** BackAddress is about HOW TO ACCESS memory at runtime — it has register bases, pointer provenance tracking (6 kinds!), bounds information (3 kinds). It answers "given a pointer, is it valid, what are its bounds, where does it point?" LalinSem.MemLayout and LalinHost.HostFieldRep answer "how big is this type and where are its fields?" These are different levels entirely — layout vs access. The fact that they're both called "memory layout" in conversation hides their fundamental difference: one is type-level (structure), the other is value-level (pointers).
 
 **The hidden dependency graph between them:**
 
 ```
-MoonSem.FieldLayout (offset + type)
-    → needs MoonHost.HostFieldRep for FieldByOffset (C FFI fields)
-    → but MoonHost.HostFieldRep references MoonCore.Scalar (foundation)
+LalinSem.FieldLayout (offset + type)
+    → needs LalinHost.HostFieldRep for FieldByOffset (C FFI fields)
+    → but LalinHost.HostFieldRep references LalinCore.Scalar (foundation)
 
-MoonBack.BackAddress (runtime access)
-    → references MoonBack.BackMemoryInfo, BackAliasFact
+LalinBack.BackAddress (runtime access)
+    → references LalinBack.BackMemoryInfo, BackAliasFact
     → independent of both Sem and Host layouts
 ```
 
 The three systems are actually **two separate chains** diverging from a common root:
-- Type structure chain: MoonSem.MemLayout → MoonHost.HostFieldRep (declared → resolved)
-- Runtime access chain: MoonBack.BackAddress → MoonDasm.DMemoryFact (abstract → concrete register)
+- Type structure chain: LalinSem.MemLayout → LalinHost.HostFieldRep (declared → resolved)
+- Runtime access chain: LalinBack.BackAddress → LalinDasm.DMemoryFact (abstract → concrete register)
 
 These chains should never be confused — they serve different phases and don't compete.
 
@@ -526,7 +526,7 @@ These chains should never be confused — they serve different phases and don't 
 
 3. **What happens at phase boundaries when a node is unchanged?** If a function body has no open slots, does PhaseTyped→PhaseOpen rewrite every ExprHeader from `ExprTyped {ty}` to `ExprOpen {ty, open: emptyOpenSet}`? The overhead of this mechanical identity rewrite is not visible from the schema alone.
 
-4. **Is MoonDasm actually live code or aspirational?** The scout found it in schema/, but the AGENTS.md mentions Cranelift as the primary backend. If DynASM is a secondary/alternative backend, the three-IR fragmentation is more justified than if it's dead code.
+4. **Is LalinDasm actually live code or aspirational?** The scout found it in schema/, but the AGENTS.md mentions Cranelift as the primary backend. If DynASM is a secondary/alternative backend, the three-IR fragmentation is more justified than if it's dead code.
 
 ## Approach-proposer Output — 2026-05-18 17:06:25
 
@@ -543,15 +543,15 @@ Now I have enough data. Here are the three approaches.
 - **Current**: `Expr { header: ExprHeader, ... }` where ExprHeader is a 5-variant sum. Every consumer pattern-matches 5 variants even though only 1-2 are valid at its phase.
 - **New**: `ExprSurface { ... variant fields }`, `ExprTyped { ty, ... variant fields }`, `ExprCode { ty, shape, ... variant fields }`. Each is a standalone product. The phase marker is the type itself — you don't need a header field at all.
 - **StmtTyped disappears entirely** — it carries zero fields (as the scout found). Phases that don't add annotations to a given AST kind simply pass through the value as-is.
-- **Module**: MoonTree splits into `MoonTreeSurface`, `MoonTreeTyped`, `MoonTreeCode` — or better, keep one module but use separate product types per phase instead of a sum.
+- **Module**: LalinTree splits into `LalinTreeSurface`, `LalinTreeTyped`, `LalinTreeCode` — or better, keep one module but use separate product types per phase instead of a sum.
 - **Phase transitions become mapping functions**: `typecheck: ExprSurface → ExprTyped`, `open: ExprTyped → ExprOpen`, `sem: ExprOpen → ExprSem`, `code: ExprSem → ExprCode`. Each is a total function when the AST is well-formed.
-- **The `Phase` enum (PhaseSurface..PhaseCode) in MoonCore becomes unnecessary** — it's only used as a tag for headers.
+- **The `Phase` enum (PhaseSurface..PhaseCode) in LalinCore becomes unnecessary** — it's only used as a tag for headers.
 
-**How the Sym/Slot duality resolves**: Not directly addressed. This approach is about annotation lifecycle, not about the Sym/Slot subject. The duality persists but is now cleaner because MoonTreePhase types can specify exactly which annotation slots they have.
+**How the Sym/Slot duality resolves**: Not directly addressed. This approach is about annotation lifecycle, not about the Sym/Slot subject. The duality persists but is now cleaner because LalinTreePhase types can specify exactly which annotation slots they have.
 
 **How op duplication resolves**: Not directly addressed either. SurfaceCastOp vs MachineCastOp vs BackCastOp remain because the phase boundary between typing and codegen is unchanged.
 
-**Module boundary strategy**: ~16 modules (down from 18). MoonTree stays large but restructured as ~5 sub-groupings. MoonPhase enum disappears. MoonSem shrinks slightly because Sem-phase types are now their own module rather than annotations on Tree types.
+**Module boundary strategy**: ~16 modules (down from 18). LalinTree stays large but restructured as ~5 sub-groupings. LalinPhase enum disappears. LalinSem shrinks slightly because Sem-phase types are now their own module rather than annotations on Tree types.
 
 **What you gain**:
 - **Phase correctness by type construction**: impossible to have an ExprOpen where Code-phase code expects an ExprCode. Currently, any Expr matches any phase because it's one sum type.
@@ -581,7 +581,7 @@ Now I have enough data. Here are the three approaches.
 
 **Key changes**:
 
-- **MoonSem collapses from 12 sum types to 3-4**:
+- **LalinSem collapses from 12 sum types to 3-4**:
   - `ValueClass` (5 variants): entirely derivable. `ValuePlain` vs `ValueAddress` is determined by `Type` (pointer types → addresses). `ValueMaterialized` vs `ValueTerminated` is determined by flow analysis of the containing block. **Remove from stored annotations**; expose as `expr:value_class()` computed on demand.
   - `ConstClass` (3 variants): derivable from the expression body. If it's a literal, it's const. If it references a mutable binding, it's not. **Remove**.
   - `CodeShapeClass` (3 variants): derivable from type + vectorization context. **Remove**.
@@ -590,7 +590,7 @@ Now I have enough data. Here are the three approaches.
   - `SwitchKey` (3 variants): derivable from scrutinee type. **Remove**.
   - `CallTarget` (5 variants): requires name resolution + type checking, which is already done. Make it a computed property on `ExprCall` rather than a stored annotation.
 
-- **New total**: MoonSem keeps ~4 types: `FlowClass`, `ConstValue` (the *values* of constants, not their classification), `MemLayout`/`TypeLayout` (structural layout), and `FieldRef` (field offset resolution). The classification types become functions.
+- **New total**: LalinSem keeps ~4 types: `FlowClass`, `ConstValue` (the *values* of constants, not their classification), `MemLayout`/`TypeLayout` (structural layout), and `FieldRef` (field offset resolution). The classification types become functions.
 
 - **Expr/Stmt headers shrink**: ExprCode no longer needs `shape`. ExprSem no longer needs `value_class` or `const_class`. ExprOpen and ExprTyped are unaffected (type is genuinely non-derivable from structure alone). Header variants reduce from 5 to 3 distinct annotation levels: `ExprSurface`, `ExprTyped { ty }`, `ExprOpen { ty, open }`. The Sem and Code phases don't add new header annotations — they consume the annotations stored elsewhere.
 
@@ -600,21 +600,21 @@ Now I have enough data. Here are the three approaches.
   - `BindingClass = { kind: EntityKind, path: ResolutionPath }` as a product rather than 18 flat variants.
   - The 18-variant sum becomes 8 × 6 = 48 combinations in theory, but many are invalid (e.g., `extern_string` + `local_cell` doesn't make sense). Actually, the product approach is WORSE than the flat sum — the flat 18 variants enumerate exactly the valid combinations. **Better approach**: keep a flat sum but reduce it by merging redundant paths. The 4 Sym variants (FuncSym, ExternSym, ConstSym, StaticSym) can merge into one `SymBinding { sym: SomeGenericSym }` if Sym carries its own kind. The 4 Slot variants similarly merge.
 
-- **MoonOpen slots (16 slot types) remain at 16** — they're genuinely different syntactic positions. But SlotValue (26 variants) can shrink by ~30% because many value types are derivable from slot type + binding context.
+- **LalinOpen slots (16 slot types) remain at 16** — they're genuinely different syntactic positions. But SlotValue (26 variants) can shrink by ~30% because many value types are derivable from slot type + binding context.
 
 **How the Sym/Slot duality resolves**: The key insight from the knowledge-builder is that Syms are *interned identities* while Slots are *typed holes*. They share a "parameterizedness" concept but differ in purpose. Under this approach:
-- Syms stay in MoonCore (they're identities used throughout)
-- Slots stay in MoonOpen (they're structural holes)
-- The bridge in MoonBind (BindingClassFuncSym vs BindingClassFuncSlot) is compressed: replace both with `BindingClassOpen { sym_or_slot: Either<Sym, Slot> }` where the variant carries either a sym or a slot depending on whether expansion resolved it.
+- Syms stay in LalinCore (they're identities used throughout)
+- Slots stay in LalinOpen (they're structural holes)
+- The bridge in LalinBind (BindingClassFuncSym vs BindingClassFuncSlot) is compressed: replace both with `BindingClassOpen { sym_or_slot: Either<Sym, Slot> }` where the variant carries either a sym or a slot depending on whether expansion resolved it.
 - ValueRef (4 slot variants) similarly compresses to `ValueRefHole { slot_of_any_kind }`.
 
-**Module boundary strategy**: ~15 modules (down from 18). MoonSem shrinks to ~60 lines. MoonTree headers simplify (StmtTyped removed, ExprSem/ExprCode header fields removed). MoonBind compresses.
+**Module boundary strategy**: ~15 modules (down from 18). LalinSem shrinks to ~60 lines. LalinTree headers simplify (StmtTyped removed, ExprSem/ExprCode header fields removed). LalinBind compresses.
 
 **What you gain**:
-- **No redundant annotations**: The most dramatic savings are in MoonSem (~24 types → ~4 types). No more storing ValueAddress when every consumer can compute it from the Type.
-- **Fewer coupling points**: ExprHeader no longer references MoonSem types at all (except FlowClass). MoonTree → MoonSem dependency weakens.
+- **No redundant annotations**: The most dramatic savings are in LalinSem (~24 types → ~4 types). No more storing ValueAddress when every consumer can compute it from the Type.
+- **Fewer coupling points**: ExprHeader no longer references LalinSem types at all (except FlowClass). LalinTree → LalinSem dependency weakens.
 - **Cleaner data model**: The principle "store structure, derive classification" makes the schema easier to reason about. New passes don't need to worry about keeping annotation invariants.
-- **Smaller schema overall**: Rough estimate: ~1500-2000 lines saved (MoonSem's 400 lines + header simplification + BindingClass compression + SlotValue reduction).
+- **Smaller schema overall**: Rough estimate: ~1500-2000 lines saved (LalinSem's 400 lines + header simplification + BindingClass compression + SlotValue reduction).
 
 **What you lose**:
 - **Semantic caching**: Currently, ValueClass is computed once during the Sem phase and stored. Under derivability-first, every consumer that needs ValueClass recomputes it. If 5 consumers each recompute it, that's 5× the work. The runtime cost depends on how many consumers exist.
@@ -623,7 +623,7 @@ Now I have enough data. Here are the three approaches.
 - **Debugging/debug info**: Stored annotations serve as documentation of what the compiler knew at each phase. Removing them makes debugging harder — you can't dump a tree and see all classifications.
 
 **Rough sketch**:
-1. Audit every MoonSem classification type against derivability criteria. Remove ValueClass, ConstClass, CodeShapeClass, AddressClass, SwitchKey, and half of CallTarget.
+1. Audit every LalinSem classification type against derivability criteria. Remove ValueClass, ConstClass, CodeShapeClass, AddressClass, SwitchKey, and half of CallTarget.
 2. Add `expr:value_class()` as an AST traversal function that examines the type + expression body.
 3. Collapse BindingClass: merge the 4 Sym variants into `BindingClassOpenSym { sym: OpenSym }` where OpenSym is a new product { kind: SymKind, id: InternedId }.
 4. Collapse BindingClass: merge the 4 Slot variants into `BindingClassOpenSlot { slot: OpenSlot }`.
@@ -636,30 +636,30 @@ Now I have enough data. Here are the three approaches.
 
 ### Approach C: Backend-Agnostic Frontend — Decouple Type System from Backend Scalars
 
-**Core idea**: Define a frontend scalar vocabulary (`FEScalar`) that is isomorphic to, but syntactically independent from, the backend scalar vocabulary (`BackScalar`). The type system references only `FEScalar`. Backend scalars are a *translation target* chosen at backend compilation time, breaking the MoonType → MoonBack dependency cycle and allowing the frontend to be defined without knowing the backend's exact scalar set.
+**Core idea**: Define a frontend scalar vocabulary (`FEScalar`) that is isomorphic to, but syntactically independent from, the backend scalar vocabulary (`BackScalar`). The type system references only `FEScalar`. Backend scalars are a *translation target* chosen at backend compilation time, breaking the LalinType → LalinBack dependency cycle and allowing the frontend to be defined without knowing the backend's exact scalar set.
 
 **Key changes**:
 
-- **MoonCore gets a new `FEScalar` type** that is structurally identical to `BackScalar` but lives in the frontend namespace. MoonType references `FEScalar` instead of `MoonBack.BackScalar`. The dependency chain changes from:
+- **LalinCore gets a new `FEScalar` type** that is structurally identical to `BackScalar` but lives in the frontend namespace. LalinType references `FEScalar` instead of `LalinBack.BackScalar`. The dependency chain changes from:
   - Current: `Core → Back → Type` (Back defined at position 2, Type at 6)
   - New: `Core → Type → Back` (Type defined before Back, no cyclic dependency)
 
-- **Op systems collapse from 3 tiers to 2**: Remove `MachineCastOp` (11 variants) entirely. SurfaceCastOp (6 variants) maps directly to BackCastOp (10 variants) via the backend translation table. The "machine-level" abstraction was a frontend convenience that duplicated backend semantics. Without the MoonType→MoonBack dependency, the typechecker translates Surface ops directly to Back ops at the backend boundary.
+- **Op systems collapse from 3 tiers to 2**: Remove `MachineCastOp` (11 variants) entirely. SurfaceCastOp (6 variants) maps directly to BackCastOp (10 variants) via the backend translation table. The "machine-level" abstraction was a frontend convenience that duplicated backend semantics. Without the LalinType→LalinBack dependency, the typechecker translates Surface ops directly to Back ops at the backend boundary.
   - Similarly, eliminate `MachineCastIdentity` (the "cast to self" operation) — it's a typechecker internal that never reaches the backend.
-  - `SurfaceCast` stays in MoonCore; `BackCastOp` stays in MoonBack. The 3-tier cast system becomes 2-tier.
+  - `SurfaceCast` stays in LalinCore; `BackCastOp` stays in LalinBack. The 3-tier cast system becomes 2-tier.
 
 - **All duplicated op vocabularies follow**: `UnaryOp` (3 front) → `BackUnaryOp` (4 back). `BinaryOp` (11 front) → `BackIntOp` + `BackFloatOp` (12 back). `CmpOp` (6 front) → `BackCompareOp` (16 back). The expand/contract relationships are now explicit translation tables, not hidden in a middle layer that pretends to be machine-level.
 
-- **Module boundary strategy**: ~15 modules. MoonBack moves to position ~10 (after Type, before Backend phases). MoonType is now definable without any backend knowledge. MoonDasm and MoonLink still depend on MoonBack, which is fine.
+- **Module boundary strategy**: ~15 modules. LalinBack moves to position ~10 (after Type, before Backend phases). LalinType is now definable without any backend knowledge. LalinDasm and LalinLink still depend on LalinBack, which is fine.
 
 - **Sym/Slot duality**: Not directly addressed — this approach is about the front/back boundary. But the reduced coupling makes it easier to refactor Sym/Slot separately later.
 
 **What you gain**:
 
 - **Clean front/back separation**: The type system can be fully defined without assuming specific backend scalar support. This makes it possible to add new backends (e.g., a WASM backend) without touching the type system.
-- **No more "backend is the specification" coupling**: Currently, adding a new scalar to the backend (say, `ScalarF16`) requires updating MoonType's type-class analysis. With FEScalar, the frontend defines its own scalar world and maps to backend scalars at the boundary.
-- **3-tier → 2-tier ops**: Eliminating MachineCastOp (11 variants) and the 3 middle-layer op duplication removes ~80 type definitions from MoonCore. The translation from Surface ops to Back ops is a single mapping function, not a two-step (surface → machine → back) chain.
-- **Reduced registration-order constraints**: Currently, MoonBack must be registered before MoonType (position 2 vs 6) because MoonType references BackScalar. Removing this dependency allows any registration order, simplifying schema management.
+- **No more "backend is the specification" coupling**: Currently, adding a new scalar to the backend (say, `ScalarF16`) requires updating LalinType's type-class analysis. With FEScalar, the frontend defines its own scalar world and maps to backend scalars at the boundary.
+- **3-tier → 2-tier ops**: Eliminating MachineCastOp (11 variants) and the 3 middle-layer op duplication removes ~80 type definitions from LalinCore. The translation from Surface ops to Back ops is a single mapping function, not a two-step (surface → machine → back) chain.
+- **Reduced registration-order constraints**: Currently, LalinBack must be registered before LalinType (position 2 vs 6) because LalinType references BackScalar. Removing this dependency allows any registration order, simplifying schema management.
 
 **What you lose**:
 
@@ -669,15 +669,15 @@ Now I have enough data. Here are the three approaches.
 
 **Rough sketch**:
 
-1. Define `FEScalar` in MoonCore — 14 variants matching the current `BackScalar` exactly (ScalarVoid, ScalarBool, ScalarI8..ScalarU64, ScalarF32, ScalarF64, ScalarRawPtr, ScalarIndex).
-2. Remove all references to `MoonBack.BackScalar` from `MoonType` and its uses. Replace with `MoonCore.FEScalar`.
-3. Eliminate `MachineCastOp` (11 variants) from MoonCore. SurfaceCastOp maps directly to BackCastOp via a new `cast_translation_table` function.
-4. Move MoonBack's registration to after MoonType in `init.lua`.
+1. Define `FEScalar` in LalinCore — 14 variants matching the current `BackScalar` exactly (ScalarVoid, ScalarBool, ScalarI8..ScalarU64, ScalarF32, ScalarF64, ScalarRawPtr, ScalarIndex).
+2. Remove all references to `LalinBack.BackScalar` from `LalinType` and its uses. Replace with `LalinCore.FEScalar`.
+3. Eliminate `MachineCastOp` (11 variants) from LalinCore. SurfaceCastOp maps directly to BackCastOp via a new `cast_translation_table` function.
+4. Move LalinBack's registration to after LalinType in `init.lua`.
 5. For every op family (UnaryOp, BinaryOp, CmpOp, Intrinsic, AtomicRmwOp), ensure the frontend has exactly one vocabulary and the backend has exactly one vocabulary. Remove any middle-layer duplication.
-6. Add `FEScalar → BackScalar` mapping at the tree → back lowering boundary. The lowering phase currently sees ExprCode with MoonType.Type (which references BackScalar) — after the change, it sees FEScalar and maps.
-7. Update `MoonVec`: currently references both `MoonCore.Scalar` (in VecElem) and `MoonBack.BackScalar` (in VecBackValueShape). After the change, Vec references `FEScalar` consistently and maps at the Vec → Back boundary.
+6. Add `FEScalar → BackScalar` mapping at the tree → back lowering boundary. The lowering phase currently sees ExprCode with LalinType.Type (which references BackScalar) — after the change, it sees FEScalar and maps.
+7. Update `LalinVec`: currently references both `LalinCore.Scalar` (in VecElem) and `LalinBack.BackScalar` (in VecBackValueShape). After the change, Vec references `FEScalar` consistently and maps at the Vec → Back boundary.
 
-**Migration cost**: **Very High**. Every file that references `BackScalar` from a type-context (tree, sem, bind, vec, host, mlua, editor) needs updating. The `TypeRefScalar { scalar: BackScalar }` in MoonType changes to `TypeRefScalar { scalar: FEScalar }`. The lowering phase (tree → back) needs a new mapping layer. The MachineCastOp elimination touches every cast pattern match in the typechecker. This is a deep, cross-cutting change.
+**Migration cost**: **Very High**. Every file that references `BackScalar` from a type-context (tree, sem, bind, vec, host, mlua, editor) needs updating. The `TypeRefScalar { scalar: BackScalar }` in LalinType changes to `TypeRefScalar { scalar: FEScalar }`. The lowering phase (tree → back) needs a new mapping layer. The MachineCastOp elimination touches every cast pattern match in the typechecker. This is a deep, cross-cutting change.
 
 ---
 
@@ -685,7 +685,7 @@ Now I have enough data. Here are the three approaches.
 
 | Dimension | A: Phase-Factorization | B: Derivability-First | C: Backend-Agnostic Frontend |
 |-----------|----------------------|----------------------|------------------------------|
-| **Primary pain point targeted** | Phase header pattern match cost | MoonSem annotation bloat | Core ↔ Back coupling, op duplication |
+| **Primary pain point targeted** | Phase header pattern match cost | LalinSem annotation bloat | Core ↔ Back coupling, op duplication |
 | **Schema reduction** | Types ~same count, better organized | ~1500-2000 lines saved | ~80 types removed (MachineCastOp etc.) |
 | **Biggest win** | Type-enforced phase safety | No redundant stored annotations | Clean front/back separation, new backends |
 | **Biggest loss** | Multi-phase consumers break | Cache semantics lost | FEScalar ↔ BackScalar mapping overhead |
@@ -694,7 +694,7 @@ Now I have enough data. Here are the three approaches.
 | **Risk** | Product type explosion (145 types) | Silent recomputation errors | FEScalar/BackScalar drift |
 | **When to pick** | Phase correctness is the #1 concern; you're willing to pay migration cost for type safety | Performance of annotations is acceptable; you want the leanest possible schema | You plan to add multiple backends; the type system should be backend-independent |
 
-**If I had to pick one**: Approach **B (Derivability-First)** has the best cost/benefit ratio. It directly addresses MoonSem's 24-classification-type bloat (which the knowledge-builder identified as 75% redundant), simplifies BindingClass, and weakens cross-module coupling — all without changing the fundamental architecture. The migration cost is medium and the risk is manageable (recomputation isn't expensive for the derived classifications). Approaches A and C are deeper architectural changes that may be worth doing, but B gives the most improvement per unit of risk.
+**If I had to pick one**: Approach **B (Derivability-First)** has the best cost/benefit ratio. It directly addresses LalinSem's 24-classification-type bloat (which the knowledge-builder identified as 75% redundant), simplifies BindingClass, and weakens cross-module coupling — all without changing the fundamental architecture. The migration cost is medium and the risk is manageable (recomputation isn't expensive for the derived classifications). Approaches A and C are deeper architectural changes that may be worth doing, but B gives the most improvement per unit of risk.
 
 ## Critique Output — 2026-05-18 17:10:53
 
@@ -706,9 +706,9 @@ Now I have all the concrete data I need. Let me produce the evaluation.
 
 | Dimension | Score (1-5) | Rationale |
 |-----------|-------------|-----------|
-| **Coupling** | 2/5 | Cross-module coupling is essentially unchanged. MoonTree still references MoonType (for `ty`), MoonOpen (for `open`), MoonSem (for shape/flow/value_class), MoonBack (for TreeBack*Result). The internal restructuring of MoonTree does not reduce the number of external modules it depends on. Worse, the approach creates a coupling *within* MoonTree between the 5 phase-specific expression wrappers — consumers that work across phases (serializers, inspectors, debug printers) must now couple to all 5 types simultaneously, where before they coupled to one sum type. |
+| **Coupling** | 2/5 | Cross-module coupling is essentially unchanged. LalinTree still references LalinType (for `ty`), LalinOpen (for `open`), LalinSem (for shape/flow/value_class), LalinBack (for TreeBack*Result). The internal restructuring of LalinTree does not reduce the number of external modules it depends on. Worse, the approach creates a coupling *within* LalinTree between the 5 phase-specific expression wrappers — consumers that work across phases (serializers, inspectors, debug printers) must now couple to all 5 types simultaneously, where before they coupled to one sum type. |
 | **Cohesion** | 3/5 | The approach correctly identifies that StmtTyped (zero fields) is an embarrassment and that removing it improves coherence. The "annotation-wrapper" mitigation (keep ExprBody shared, attach optional annotations) preserves cohesion for the expression body itself. However, the 5 wrapper types blur responsibility: is `ExprTyped` the expression's type or the typed-phase expression? The knowledge-builder notes that ASDL doesn't support product inheritance, so the 5 types must manually re-implement common structure. The multi-phase consumer problem (pretty-printers needing 5 variants) undermines module focus — a "pretty printer" module now has to know about 5 expression representations. |
-| **Migration cost** | 2/5 | Every consumer of `Expr.Header` breaks — that's all lowering, validation, typechecking, open expansion, LSP diagnostics, serialization, and inspection code. The scout's module analysis shows MoonTree is referenced by MoonType, MoonOpen, MoonBind, MoonSem, MoonEditor, MoonVec, MoonMlua, MoonParse, MoonHost — 9 external consumers. Each of these has code structured around pattern-matching the 5 header variants. The migration from `match header` to `match type` looks mechanical but is combinatorially large. The approach proposer estimates "every consumer of Expr breaks" — correct. |
+| **Migration cost** | 2/5 | Every consumer of `Expr.Header` breaks — that's all lowering, validation, typechecking, open expansion, LSP diagnostics, serialization, and inspection code. The scout's module analysis shows LalinTree is referenced by LalinType, LalinOpen, LalinBind, LalinSem, LalinEditor, LalinVec, LalinMlua, LalinParse, LalinHost — 9 external consumers. Each of these has code structured around pattern-matching the 5 header variants. The migration from `match header` to `match type` looks mechanical but is combinatorially large. The approach proposer estimates "every consumer of Expr breaks" — correct. |
 | **Philosophy fit** | 3/5 | The approach advances "fail fast, fail loud": a type error at compile time (wrong phase type used in wrong context) is strictly better than a runtime header tag check. However, it conflicts with "ASDL is the architecture" — the architecture now has 5 expression types instead of 1, which is *more* surface area, not less. The mitigration (annotation wrapper) undercuts the type safety guarantee: if annotations are optional fields in a product, you're back to runtime phase checks, same as the current header system. The approach proposer explicitly notes this tension: "Either you get type safety (5 types, 5× code duplication) or you get ergonomic consumers (optional annotations, no type safety)." |
 | **Risk** | 2/5 | High risk for several reasons cited in the scout and knowledge-builder reports. First, the product type explosion risk: 29 Expr variants × 5 phases = 145 types if done naively. The mitigation helps but creates its own complexity. Second, multi-phase consumers (serializers, debuggers) are real — the knowledge-builder notes that "serialization and inspection traverse phases." Third, the approach changes the fundamental type identity of expressions across compilation pipeline stages, which could break assumptions in the ASDL builder's internment/identity system. Fourth, the `variant_unique` constraint (which the knowledge-builder flagged as unclear in enforcement) would need to be re-thought for the new type system. |
 
@@ -721,10 +721,10 @@ Now I have all the concrete data I need. Let me produce the evaluation.
 
 | Dimension | Score (1-5) | Rationale |
 |-----------|-------------|-----------|
-| **Coupling** | 4/5 | Directly weakens two significant coupling points. (1) MoonTree → MoonSem: ExprHeaders no longer reference `MoonSem.ValueClass`, `MoonSem.ConstClass`, `MoonSem.CodeShapeClass`, `MoonSem.AddressClass`. Only `MoonSem.FlowClass` remains (via StmtHeader). That eliminates 4 of 5 MoonSem cross-references from MoonTree. (2) MoonBind → MoonCore/MoonOpen: compressing the 4 Sym variants into `BindingClassOpenSym { sym: OpenSym }` and the 4 Slot variants into `BindingClassOpenSlot { slot: OpenSlot }` removes ~8 variant arms that couple MoonBind to specific MoonCore and MoonOpen types. The knowledge-builder's finding that BindingClass conflates entity_kind × resolution_path is directly addressed. Does NOT break the MoonType → MoonBack cycle, but that's orthogonal to this approach's scope. |
-| **Cohesion** | 5/5 | The strongest dimension for this approach. MoonSem currently has 24 types (17 sum/product as confirmed grep) whose purpose the knowledge-builder found "75% redundant." Reducing to 4 (FlowClass, ConstValue, MemLayout, FieldRef) means each remaining type has a clear justification. FlowClass is the only non-derivable annotation (requires stmt-level terminator analysis). ConstValue is the actual *value* of a constant expression — distinct from ConstClass which merely says "is this const?" (derivable). MemLayout and FieldRef are structural layouts genuinely computed by sem. BindingClass collapses from 18 variants to ~8 by separating entity_kind from resolution_path — each variant now answers one question ("what") rather than two ("what + how"). The Sym/Slot bridge is compressed from asymmetric coverage to a clean `Either<Sym, Slot>` pattern. |
+| **Coupling** | 4/5 | Directly weakens two significant coupling points. (1) LalinTree → LalinSem: ExprHeaders no longer reference `LalinSem.ValueClass`, `LalinSem.ConstClass`, `LalinSem.CodeShapeClass`, `LalinSem.AddressClass`. Only `LalinSem.FlowClass` remains (via StmtHeader). That eliminates 4 of 5 LalinSem cross-references from LalinTree. (2) LalinBind → LalinCore/LalinOpen: compressing the 4 Sym variants into `BindingClassOpenSym { sym: OpenSym }` and the 4 Slot variants into `BindingClassOpenSlot { slot: OpenSlot }` removes ~8 variant arms that couple LalinBind to specific LalinCore and LalinOpen types. The knowledge-builder's finding that BindingClass conflates entity_kind × resolution_path is directly addressed. Does NOT break the LalinType → LalinBack cycle, but that's orthogonal to this approach's scope. |
+| **Cohesion** | 5/5 | The strongest dimension for this approach. LalinSem currently has 24 types (17 sum/product as confirmed grep) whose purpose the knowledge-builder found "75% redundant." Reducing to 4 (FlowClass, ConstValue, MemLayout, FieldRef) means each remaining type has a clear justification. FlowClass is the only non-derivable annotation (requires stmt-level terminator analysis). ConstValue is the actual *value* of a constant expression — distinct from ConstClass which merely says "is this const?" (derivable). MemLayout and FieldRef are structural layouts genuinely computed by sem. BindingClass collapses from 18 variants to ~8 by separating entity_kind from resolution_path — each variant now answers one question ("what") rather than two ("what + how"). The Sym/Slot bridge is compressed from asymmetric coverage to a clean `Either<Sym, Slot>` pattern. |
 | **Migration cost** | 3/5 | Medium — well-localized but nontrivial. The main impact areas: (1) **BindingClass consumers**: 18-variant pattern matches shrink to ~8. The approach-proposer notes these are concentrated in binding resolution, name resolution, and lowering — maybe 5-8 files. (2) **ExprHeader/StmtHeader removal of annotation fields**: mechanical — remove field declarations in schema, replace `expr.value_class` reads with `compute_value_class(expr)` function calls at consumption sites. (3) **ValueRef slot compression**: 4 slot variants → 1 generic. The scout notes ValueRef has asymmetric coverage (slot variants but no sym variants for func/extern) — this compression normalizes that. The migration is cross-cutting but each change is simple and testable: remove field → find all reads → replace with accessor. |
-| **Philosophy fit** | 4/5 | Strong alignment with Moonlift principles. "Explicit ASDL meaning" — storing derived annotations violates this principle; removing them makes the schema represent structure, not cached computation. "Monomorphic object code" — all derivations happen monomorphically; no generics added. "Fail fast, fail loud" — slightly weakened because a missing derivation silently recomputes rather than assertion-failing on a missing annotation. BUT this can be mitigated with debug assertions: `assert(derived_value_class(expr) == expected, "phase invariant violated")` at phase boundaries. The knowledge-builder's analysis that the current design pays storage AND recomputation cost (each phase transition rewrites every header) means the caching argument is weaker than it appears — the current design is already recomputing everything at every transition. |
+| **Philosophy fit** | 4/5 | Strong alignment with Lalin principles. "Explicit ASDL meaning" — storing derived annotations violates this principle; removing them makes the schema represent structure, not cached computation. "Monomorphic object code" — all derivations happen monomorphically; no generics added. "Fail fast, fail loud" — slightly weakened because a missing derivation silently recomputes rather than assertion-failing on a missing annotation. BUT this can be mitigated with debug assertions: `assert(derived_value_class(expr) == expected, "phase invariant violated")` at phase boundaries. The knowledge-builder's analysis that the current design pays storage AND recomputation cost (each phase transition rewrites every header) means the caching argument is weaker than it appears — the current design is already recomputing everything at every transition. |
 | **Risk** | 4/5 | Low-medium risk, well-manageable. The main risk is silent recomputation of wrong values in edge cases. But the derivations are simple: ValueClass is `is_pointer(type) → Address else Plain`; ConstClass is `is_literal(body) → Yes else No`; AddressClass follows from BindingClass.Residence. The original computation already exists in the Sem pass and becomes the accessor body. Cross-phase correctness (the "phase guarantee" concern) is mitigated because the phase pipeline enforces ordering even without storing annotations — you can't call `compute_value_class` on an untyped expression because the type field itself enforces the ordering. The debugging concern is real but minor: debug dumps can recompute on demand. The performance concern is the most substantive, but the current 5-phase header system already rewrites every expression at every phase — moving from "store and rewrite" to "compute on demand" is not necessarily more expensive. |
 
 **Verdict**: Strong yes
@@ -739,14 +739,14 @@ Now I have all the concrete data I need. Let me produce the evaluation.
 
 | Dimension | Score (1-5) | Rationale |
 |-----------|-------------|-----------|
-| **Coupling** | 4/5 | Breaks the most architecturally significant coupling in the system: MoonType → MoonBack.BackScalar. The registration order changes from `Core → Back → Type` (Back at position 2, Type at 6) to `Core → Type → Back` — the type system is no longer defined in terms of backend scalars. The scout found 4 reference sites in type.lua (TypeBackScalarResult, three field declarations) where MoonType directly embeds MoonBack.BackScalar. Additionally, MoonVec currently references both MoonCore.Scalar and MoonBack.BackScalar (in VecBackValueShape) — this approach standardizes on FEScalar throughout the frontend. MoonDasm still depends on MoonBack (as it should — Dasm is backend-specific). The new coupling introduced (FEScalar ↔ BackScalar translation table) is a decoupling pattern: it's a single mapping function rather than type-level embedding. |
-| **Cohesion** | 4/5 | Three improvements: (1) MoonType becomes self-contained — its type-class analysis no longer depends on the backend's scalar vocabulary. The knowledge-builder noted that "adding a new scalar to the backend requires updating MoonType's type-class analysis" — under this approach, adding an FEScalar requires updating the translation table, but MoonType itself is untouched. (2) MoonCore gains FEScalar — scalars are no longer split between frontend (MoonCore.Scalar) and backend (MoonBack.BackScalar) with MoonType uncomfortably bridging them. (3) The 3-tier op system collapses to 2-tier: removing MachineCastOp (11 variants confirmed in core.lua) eliminates the intermediate abstraction that the knowledge-builder identified as "a frontend convenience that duplicated backend semantics." However, the 2-tier split means the frontend op vocabulary and backend op vocabulary are now explicitly parallel — the translation table is a separate artifact that must be maintained, slightly reducing cohesion at the system boundary. |
-| **Migration cost** | 1/5 | Very high — the heaviest lift of the three approaches. Every file that references `BackScalar` from a type-context needs updating. The scout's grep found BackScalar references in: type.lua (4 sites — TypeBackScalarResult type plus 3 field decls), tree.lua (4 sites — TreeBackScalarLocal, two other locals, and lowering types), dasm.lua (5+ sites — scalar/value/elem/params/results type fields). The lowering phase (tree→back) needs a new FEScalar→BackScalar mapping layer. MachineCastOp (11 variants) elimination touches every cast pattern match in the typechecker. The schema registration order change (MoonBack moves from position 2 to ~10) requires re-verifying all cross-module references' name resolution. The approach proposer estimates "every file that references BackScalar" — with 19 schema modules plus consumer modules (lowering, typechecker, LSP, Vec lowering), this touches conservatively 15-25 files. |
+| **Coupling** | 4/5 | Breaks the most architecturally significant coupling in the system: LalinType → LalinBack.BackScalar. The registration order changes from `Core → Back → Type` (Back at position 2, Type at 6) to `Core → Type → Back` — the type system is no longer defined in terms of backend scalars. The scout found 4 reference sites in type.lua (TypeBackScalarResult, three field declarations) where LalinType directly embeds LalinBack.BackScalar. Additionally, LalinVec currently references both LalinCore.Scalar and LalinBack.BackScalar (in VecBackValueShape) — this approach standardizes on FEScalar throughout the frontend. LalinDasm still depends on LalinBack (as it should — Dasm is backend-specific). The new coupling introduced (FEScalar ↔ BackScalar translation table) is a decoupling pattern: it's a single mapping function rather than type-level embedding. |
+| **Cohesion** | 4/5 | Three improvements: (1) LalinType becomes self-contained — its type-class analysis no longer depends on the backend's scalar vocabulary. The knowledge-builder noted that "adding a new scalar to the backend requires updating LalinType's type-class analysis" — under this approach, adding an FEScalar requires updating the translation table, but LalinType itself is untouched. (2) LalinCore gains FEScalar — scalars are no longer split between frontend (LalinCore.Scalar) and backend (LalinBack.BackScalar) with LalinType uncomfortably bridging them. (3) The 3-tier op system collapses to 2-tier: removing MachineCastOp (11 variants confirmed in core.lua) eliminates the intermediate abstraction that the knowledge-builder identified as "a frontend convenience that duplicated backend semantics." However, the 2-tier split means the frontend op vocabulary and backend op vocabulary are now explicitly parallel — the translation table is a separate artifact that must be maintained, slightly reducing cohesion at the system boundary. |
+| **Migration cost** | 1/5 | Very high — the heaviest lift of the three approaches. Every file that references `BackScalar` from a type-context needs updating. The scout's grep found BackScalar references in: type.lua (4 sites — TypeBackScalarResult type plus 3 field decls), tree.lua (4 sites — TreeBackScalarLocal, two other locals, and lowering types), dasm.lua (5+ sites — scalar/value/elem/params/results type fields). The lowering phase (tree→back) needs a new FEScalar→BackScalar mapping layer. MachineCastOp (11 variants) elimination touches every cast pattern match in the typechecker. The schema registration order change (LalinBack moves from position 2 to ~10) requires re-verifying all cross-module references' name resolution. The approach proposer estimates "every file that references BackScalar" — with 19 schema modules plus consumer modules (lowering, typechecker, LSP, Vec lowering), this touches conservatively 15-25 files. |
 | **Philosophy fit** | 4/5 | Strong alignment. The principle "ASDL is the architecture" is advanced — the type system should be architecturally independent of backend specifics. "Fail fast, fail loud" is preserved if the FEScalar↔BackScalar mapping is total and checked at schema registration time (a backend that can't map an FEScalar should fail at compile time, not runtime). The knowledge-builder's observation that "the backend is the specification" was always pragmatic, not philosophical — the project's actual philosophy makes the type system first-class. However, a tension exists: if FEScalar and BackScalar are "structurally identical in the common case" (knowledge-builder's finding), the indirection adds complexity without semantic benefit. The philosophy says "no hidden semantics in strings or callbacks" — a translation table is inherently more opaque than direct type embedding. |
 | **Risk** | 2/5 | Medium-high risk from two sources. First, **mapping drift**: if a new FEScalar is added and the translation table isn't updated, the error is a missing-mapping failure at the backend boundary — which could be caught by schema-level tests but would be a silent failure if tests are incomplete. The approach proposer notes "Any op added to the surface but not mapped to the backend produces a runtime error instead of a compile-time type error" — this is a regression from the current compile-time guarantee. Second, **MachineCastOp elimination**: this touches the typechecker's cast resolution logic, which is a fuzz-risk area. The knowledge-builder found that SurfaceCastOp (6 variants) → MachineCastOp (11 variants) → BackCastOp (10 variants) is a "folding, not a translation" — the surface-to-machine mapping is type-checker logic, not a simple desugaring. Eliminating the middle layer means the typechecker needs reorganization, not just surgery. |
 
 **Verdict**: Significant concerns
-**Key concern**: The migration cost is very high for a benefit that may be entirely unrealized in practice. If Moonlift never adds a second backend that diverges from the Cranelift scalar model, FEScalar is a structurally identical copy of BackScalar with ongoing maintenance overhead. The 3-tier→2-tier op collapse is genuinely valuable (MachineCastOp is dead weight), but that could be achieved independently by folding MachineCastOp into a richer FEScalar vocabulary without breaking the MoonType→MoonBack dependency. The approach should be split: do the MachineCastOp removal (which has clear benefit) separately from the FEScalar introduction (which has unclear benefit and high cost).
+**Key concern**: The migration cost is very high for a benefit that may be entirely unrealized in practice. If Lalin never adds a second backend that diverges from the Cranelift scalar model, FEScalar is a structurally identical copy of BackScalar with ongoing maintenance overhead. The 3-tier→2-tier op collapse is genuinely valuable (MachineCastOp is dead weight), but that could be achieved independently by folding MachineCastOp into a richer FEScalar vocabulary without breaking the LalinType→LalinBack dependency. The approach should be split: do the MachineCastOp removal (which has clear benefit) separately from the FEScalar introduction (which has unclear benefit and high cost).
 
 ---
 
@@ -756,7 +756,7 @@ Now I have all the concrete data I need. Let me produce the evaluation.
 
 Approach B has the best cost/benefit ratio by a clear margin. It directly addresses the three most concrete pathologies identified by the scout and knowledge-builder:
 
-1. **MoonSem annotation bloat** (24 types → ~4 types). The knowledge-builder demonstrated that only FlowClass is genuinely non-derivable. ValueClass, ConstClass, CodeShapeClass, AddressClass, SwitchKey, and half of CallTarget are all recomputable from type + binding + flow context. MoonSem currently stores 75% redundant data.
+1. **LalinSem annotation bloat** (24 types → ~4 types). The knowledge-builder demonstrated that only FlowClass is genuinely non-derivable. ValueClass, ConstClass, CodeShapeClass, AddressClass, SwitchKey, and half of CallTarget are all recomputable from type + binding + flow context. LalinSem currently stores 75% redundant data.
 
 2. **BindingClass conflation** (18 variants → ~8). The knowledge-builder's finding that BindingClass mixes entity_kind and resolution_path into flat variants is precisely addressed by the factorization approach. The 4 Sym variants and 4 Slot variants become 2 (`Either<Sym, Slot>`). The asymmetry in ValueRef (4 slot variants but no sym variants for func/extern) is normalized.
 
@@ -766,7 +766,7 @@ The migration is medium cost (concentrated in ~5-8 files for BindingClass, mecha
 
 ### Dark horse: Approach C — Backend-Agnostic Frontend
 
-If Moonlift's roadmap includes multiple backends (WASM, a second native backend, or formalizing the DynASM path), this approach becomes essential. The knowledge-builder's finding that "the backend is the specification" (Back defined at registration position 2, before Type at 6) is an architectural constraint that limits backend evolution. Breaking the MoonType → MoonBack cycle is the right long-term move. However, do it in stages: first eliminate MachineCastOp as an independent refactor (clear benefit), then introduce FEScalar only when a second backend creates actual scalar divergence. The approach proposer's "split" suggestion is correct.
+If Lalin's roadmap includes multiple backends (WASM, a second native backend, or formalizing the DynASM path), this approach becomes essential. The knowledge-builder's finding that "the backend is the specification" (Back defined at registration position 2, before Type at 6) is an architectural constraint that limits backend evolution. Breaking the LalinType → LalinBack cycle is the right long-term move. However, do it in stages: first eliminate MachineCastOp as an independent refactor (clear benefit), then introduce FEScalar only when a second backend creates actual scalar divergence. The approach proposer's "split" suggestion is correct.
 
 ### Avoid: Approach A — Phase-Factorization
 
@@ -788,7 +788,7 @@ Now I have all the concrete data needed. Let me produce the comprehensive docume
 
 ## Goal
 
-Reduce the Moonlift ASDL schema's surface area and cross-module coupling by removing stored annotations that can be recomputed from type, binding, and flow context. The target is a leaner, more semantically coherent schema where stored types represent genuine *structure* (what the compiler computes) rather than cached *classification* (what consumers can derive). This directly addresses three concrete pathologies identified in the schema audit.
+Reduce the Lalin ASDL schema's surface area and cross-module coupling by removing stored annotations that can be recomputed from type, binding, and flow context. The target is a leaner, more semantically coherent schema where stored types represent genuine *structure* (what the compiler computes) rather than cached *classification* (what consumers can derive). This directly addresses three concrete pathologies identified in the schema audit.
 
 ---
 
@@ -796,8 +796,8 @@ Reduce the Moonlift ASDL schema's surface area and cross-module coupling by remo
 
 The current 18-module ASDL schema suffers from three concrete, measurable pathologies:
 
-**1. MoonSem annotation bloat (24 types, ~75% redundant)**
-The knowledge-builder analysis demonstrated that only `FlowClass` among the MoonSem classification types is genuinely non-derivable. `ValueClass` (5 variants) is derivable from the expression's type — pointer types are addresses, non-pointer types are plain values. `ConstClass` (3 variants) is derivable from the expression body — if it's a literal or constant reference, it's const. `CodeShapeClass` (3 variants) is derivable from type plus vectorization decision. `AddressClass` (8 variants) overlaps with `ValueClass` and is derivable from binding residence info. `SwitchKey` (3 variants) is derivable from the switch scrutinee type and value. Half of `CallTarget` (5 variants) is derivable from name resolution already completed during typechecking. Storing all these as phase-carried annotations means every phase transition rewrites every header in the entire AST — a cost paid at each of 5 phases.
+**1. LalinSem annotation bloat (24 types, ~75% redundant)**
+The knowledge-builder analysis demonstrated that only `FlowClass` among the LalinSem classification types is genuinely non-derivable. `ValueClass` (5 variants) is derivable from the expression's type — pointer types are addresses, non-pointer types are plain values. `ConstClass` (3 variants) is derivable from the expression body — if it's a literal or constant reference, it's const. `CodeShapeClass` (3 variants) is derivable from type plus vectorization decision. `AddressClass` (8 variants) overlaps with `ValueClass` and is derivable from binding residence info. `SwitchKey` (3 variants) is derivable from the switch scrutinee type and value. Half of `CallTarget` (5 variants) is derivable from name resolution already completed during typechecking. Storing all these as phase-carried annotations means every phase transition rewrites every header in the entire AST — a cost paid at each of 5 phases.
 
 **2. BindingClass conflation of entity_kind × resolution_path (20 flat variants)**
 The scout found that `BindingClass` mixes two orthogonal dimensions into a flat 20-variant sum: *what kind of entity* (func, const, static, extern, value, block param, etc.) and *how it's resolved* (by local scope, by module+name, by interned sym, by slot hole, by extern string). The 4 Sym variants (`BindingClassFuncSym`, `BindingClassExternSym`, `BindingClassConstSym`, `BindingClassStaticSym`) and 4 Slot variants (`BindingClassFuncSlot`, `BindingClassConstSlot`, `BindingClassStaticSlot`, `BindingClassValueSlot`) differ only in the resolution path, not the entity kind. Every consumer must pattern-match 20 disjoint cases when many differ only trivially. `ValueRef` (7 variants) has a parallel asymmetry — 4 slot variants but no sym variants for functions/externs.
@@ -817,13 +817,13 @@ The most-coupled modules relevant to this decision:
 
 | Module | External deps | Key role |
 |--------|---------------|----------|
-| **MoonSem** (`sem.lua`) | 6 external | Classification annotations, layouts, constant values |
-| **MoonTree** (`tree.lua`) | 6 external | Core AST with phase headers, lowering results |
-| **MoonBind** (`bind.lua`) | 5 external | Name binding, environments, binding classes |
-| **MoonCore** (`core.lua`) | 0 (foundation) | Primitive types, symbols, operators, phases |
-| **MoonOpen** (`open.lua`) | 5 external | Metaprogramming slots, fragments, expansion |
+| **LalinSem** (`sem.lua`) | 6 external | Classification annotations, layouts, constant values |
+| **LalinTree** (`tree.lua`) | 6 external | Core AST with phase headers, lowering results |
+| **LalinBind** (`bind.lua`) | 5 external | Name binding, environments, binding classes |
+| **LalinCore** (`core.lua`) | 0 (foundation) | Primitive types, symbols, operators, phases |
+| **LalinOpen** (`open.lua`) | 5 external | Metaprogramming slots, fragments, expansion |
 
-### MoonSem — Current Type Inventory
+### LalinSem — Current Type Inventory
 
 **Types being REMOVED (11 types)**:
 - `ValueClass` — 5 variants: `ValueUnknown`, `ValuePlain`, `ValueAddress`, `ValueMaterialized`, `ValueTerminated`
@@ -848,16 +848,16 @@ The most-coupled modules relevant to this decision:
 - `LayoutEnv` — product: `{ layouts }` (structural)
 - `ConstLocalEntry` / `ConstLocalEnv` / `ConstFieldValue` — structural products for constant evaluation
 
-### MoonTree Headers — Current Structure
+### LalinTree Headers — Current Structure
 
 **ExprHeader** — 5 variants:
 | Variant | Fields |
 |---------|--------|
 | `ExprSurface` | *(none)* |
-| `ExprTyped` | `ty: MoonType.Type` |
-| `ExprOpen` | `ty`, `open: MoonOpen.OpenSet` |
-| `ExprSem` | `ty`, `value_class: MoonSem.ValueClass`, `const_class: MoonSem.ConstClass` |
-| `ExprCode` | `ty`, `shape: MoonSem.CodeShapeClass` |
+| `ExprTyped` | `ty: LalinType.Type` |
+| `ExprOpen` | `ty`, `open: LalinOpen.OpenSet` |
+| `ExprSem` | `ty`, `value_class: LalinSem.ValueClass`, `const_class: LalinSem.ConstClass` |
+| `ExprCode` | `ty`, `shape: LalinSem.CodeShapeClass` |
 
 **PlaceHeader** — 4 variants:
 | Variant | Fields |
@@ -865,16 +865,16 @@ The most-coupled modules relevant to this decision:
 | `PlaceSurface` | *(none)* |
 | `PlaceTyped` | `ty` |
 | `PlaceOpen` | `ty`, `open` |
-| `PlaceSem` | `ty`, `address_class: MoonSem.AddressClass` |
+| `PlaceSem` | `ty`, `address_class: LalinSem.AddressClass` |
 
 **StmtHeader** — 5 variants:
 | Variant | Fields |
 |---------|--------|
 | `StmtSurface` | *(none)* |
 | `StmtTyped` | *(none — zero fields)* |
-| `StmtOpen` | `open: MoonOpen.OpenSet` |
-| `StmtSem` | `flow: MoonSem.FlowClass` |
-| `StmtCode` | `flow: MoonSem.FlowClass` |
+| `StmtOpen` | `open: LalinOpen.OpenSet` |
+| `StmtSem` | `flow: LalinSem.FlowClass` |
+| `StmtCode` | `flow: LalinSem.FlowClass` |
 
 **ModuleHeader** — 5 variants:
 | Variant | Fields |
@@ -885,9 +885,9 @@ The most-coupled modules relevant to this decision:
 | `ModuleSem` | `module_name` |
 | `ModuleCode` | `module_name` |
 
-Note: `MoonCore.Phase` enum (5 variants: `PhaseSurface`..`PhaseCode`) is used as a tag for headers.
+Note: `LalinCore.Phase` enum (5 variants: `PhaseSurface`..`PhaseCode`) is used as a tag for headers.
 
-### MoonBind — Current Type Inventory
+### LalinBind — Current Type Inventory
 
 **BindingClass** — 20 flat variants:
 
@@ -919,11 +919,11 @@ Note: `MoonCore.Phase` enum (5 variants: `PhaseSurface`..`PhaseCode`) is used as
 
 ### Two Parallel Symbol Systems
 
-**MoonCore Sym types** (5 products): `TypeSym`, `FuncSym`, `ExternSym`, `ConstSym`, `StaticSym` — interned identities used in `BindingClass` variants.
+**LalinCore Sym types** (5 products): `TypeSym`, `FuncSym`, `ExternSym`, `ConstSym`, `StaticSym` — interned identities used in `BindingClass` variants.
 
-**MoonOpen Slot types** (16 products): `TypeSlot`, `ValueSlot`, `ExprSlot`, `PlaceSlot`, `DomainSlot`, `RegionSlot`, `ContSlot`, `FuncSlot`, `ConstSlot`, `StaticSlot`, `TypeDeclSlot`, `ItemsSlot`, `ModuleSlot`, `NameSlot`, `RegionFragSlot`, `ExprFragSlot` — typed structural holes for metaprogramming.
+**LalinOpen Slot types** (16 products): `TypeSlot`, `ValueSlot`, `ExprSlot`, `PlaceSlot`, `DomainSlot`, `RegionSlot`, `ContSlot`, `FuncSlot`, `ConstSlot`, `StaticSlot`, `TypeDeclSlot`, `ItemsSlot`, `ModuleSlot`, `NameSlot`, `RegionFragSlot`, `ExprFragSlot` — typed structural holes for metaprogramming.
 
-The bridge in MoonBind uses separate variant arms for each sym and slot kind, creating 8 variants (4 sym + 4 slot) that differ only in which kind-specific product type they wrap.
+The bridge in LalinBind uses separate variant arms for each sym and slot kind, creating 8 variants (4 sym + 4 slot) that differ only in which kind-specific product type they wrap.
 
 ### Sym/Slot Duality
 
@@ -943,12 +943,12 @@ Remove every annotation that can be recomputed from type + binding context + flo
 
 **Best cost/benefit ratio among the three proposals:**
 - **Approach A (Phase-Factorization)**: Rejected because it cannot deliver both type-enforced phase safety AND ergonomic multi-phase consumers. The mitigation (annotation wrappers) collapses to the current system with more indirection. Every consumer breaks, migration cost is high, and the benefit (fewer pattern-match arms) doesn't justify the disruption.
-- **Approach C (Backend-Agnostic Frontend)**: Deferred as too high-risk and high-cost for uncertain benefit. If Moonlift adds a second backend (WASM, formal DynASM), this becomes essential — but the MachineCastOp elimination should be done independently first. The FEScalar ↔ BackScalar mapping introduces drift risk and maintenance overhead with no immediate payoff.
+- **Approach C (Backend-Agnostic Frontend)**: Deferred as too high-risk and high-cost for uncertain benefit. If Lalin adds a second backend (WASM, formal DynASM), this becomes essential — but the MachineCastOp elimination should be done independently first. The FEScalar ↔ BackScalar mapping introduces drift risk and maintenance overhead with no immediate payoff.
 - **Approach B**: Medium migration cost, manageable risk, strong philosophy fit, and directly addresses the three concrete pathologies with measurable schema reduction (~1500-2000 lines saved).
 
 ### Specific Changes
 
-#### Change 1: MoonSem — Remove 11 annotation types, keep 7 structural types
+#### Change 1: LalinSem — Remove 11 annotation types, keep 7 structural types
 
 **Removed types** (11 types, ~28 variants eliminated):
 
@@ -981,7 +981,7 @@ Remove every annotation that can be recomputed from type + binding context + flo
 **New computed accessors** (live in a new or existing utility module, NOT in schema):
 
 ```lua
--- MoonSem-derived accessors (not stored in ASDL types)
+-- LalinSem-derived accessors (not stored in ASDL types)
 function compute_value_class(expr: Expr, ty: Type) -> ValueClass
 function compute_const_class(expr: Expr) -> ConstClass
 function compute_code_shape_class(ty: Type, vec_decision: ?VecDecision) -> CodeShapeClass
@@ -1038,7 +1038,7 @@ Actually, on closer analysis: `PlaceSem` kept its `ty` field, and `address_class
 
 **ModuleHeader** — remains at 5 variants (only `module_name` and `open` — no derivable classifications to remove). `ModuleSem` and `ModuleCode` are identical but kept for future phase-specific metadata.
 
-**`MoonCore.Phase` enum** — still used for phase transition dispatch but no longer needed as a header tag field. Can be retained for compatibility.
+**`LalinCore.Phase` enum** — still used for phase transition dispatch but no longer needed as a header tag field. Can be retained for compatibility.
 
 #### Change 3: BindingClass — Compress from 20 to ~8 variants
 
@@ -1069,7 +1069,7 @@ BindingClassValueSlot { slot: ValueSlot }
 -- After (1 variant):
 BindingClassOpenSlot { slot: OpenSlot }
 -- where OpenSlot wraps the 16 slot product types in a new OpenSlot sum
--- (or uses the existing MoonOpen.Slot which already is that sum)
+-- (or uses the existing LalinOpen.Slot which already is that sum)
 ```
 
 **New `BindingClass`** — compressed from 20 to ~8 variants:
@@ -1107,10 +1107,10 @@ ValueRefStaticSlot { slot: StaticSlot }  -- separate
 ValueRefName { name }
 ValueRefPath { path }
 ValueRefBinding { binding }
-ValueRefHole { slot: MoonOpen.Slot }     -- unified: wraps any slot kind
+ValueRefHole { slot: LalinOpen.Slot }     -- unified: wraps any slot kind
 ```
 
-Note: `MoonOpen.Slot` is already a 16-variant sum covering all slot kinds. Using it directly eliminates the 4 redundant wrapper variants.
+Note: `LalinOpen.Slot` is already a 16-variant sum covering all slot kinds. Using it directly eliminates the 4 redundant wrapper variants.
 
 #### Change 5: Sym/Slot Bridge — Use Either<Sym, Slot> Instead of Separate Variant Arms
 
@@ -1164,12 +1164,12 @@ Remove these assertions after the migration stabilizes.
 These are explicitly **not in scope** for this decision:
 
 - **Phase header restructuring** (Approach A): The 5-phase pipeline stays as-is. Phase progression is still enforced by the compilation pipeline code, just without stored annotations for Sem and Code phases.
-- **Front/Back scalar decoupling** (Approach C): `MoonType` continues to reference `MoonBack.BackScalar`. No `FEScalar` is introduced. MachineCastOp is not eliminated (that's a separate refactor).
-- **MoonOpen slot types**: The 16 slot product types stay. Only the *bridge* types in MoonBind change.
-- **MoonVec, MoonDasm, MoonLink, MoonHost**: No changes to these modules.
+- **Front/Back scalar decoupling** (Approach C): `LalinType` continues to reference `LalinBack.BackScalar`. No `FEScalar` is introduced. MachineCastOp is not eliminated (that's a separate refactor).
+- **LalinOpen slot types**: The 16 slot product types stay. Only the *bridge* types in LalinBind change.
+- **LalinVec, LalinDasm, LalinLink, LalinHost**: No changes to these modules.
 - **Pipeline phases themselves**: Parse, Typecheck, Open, Sem, Code — the phases continue to exist and execute in order.
 - **Constant evaluation logic**: `ConstValue` computation stays in Sem phase, but `ConstClass` (the boolean "is this const?") is removed.
-- **`MoonCore.Phase` enum**: Retained for backward compatibility and phase-dispatch code.
+- **`LalinCore.Phase` enum**: Retained for backward compatibility and phase-dispatch code.
 
 ---
 
@@ -1177,11 +1177,11 @@ These are explicitly **not in scope** for this decision:
 
 | File | Changes | Impact |
 |------|---------|--------|
-| **`lua/moonlift/schema/sem.lua`** | Remove 11 types (`ValueClass`, `ConstClass`, `CodeShapeClass`, `AddressClass`, `SwitchKey`, `SwitchKeySet`, `SwitchDecision`, `ExprExit`, `OperandContext`, `ConstStmtResult`). Keep `FlowClass`, `ConstValue`, `MemLayout`, `TypeLayout`, `FieldRef`, `FieldLayout`, `LayoutEnv`, `ConstFieldValue`, `ConstLocalEntry`, `ConstLocalEnv`. | **Major** — ~60% of file removed |
-| **`lua/moonlift/schema/tree.lua`** | `ExprHeader`: remove `ExprSem`, `ExprCode` variants. `PlaceHeader`: remove `PlaceSem` variant. `StmtHeader`: remove `StmtTyped` variant, merge `StmtSem`+`StmtCode` into one variant. `ModuleHeader`: unchanged. Remove `SwitchStmtArm.key` field (uses derivable SwitchKey). Remove `SwitchExprArm.key` field. | **Major** — header schema restructured |
-| **`lua/moonlift/schema/bind.lua`** | `BindingClass`: merge 4 Sym variants → `BindingClassOpenSym { sym: OpenSym }` (new product). Merge 4 Slot variants → `BindingClassOpenSlot { slot: MoonOpen.Slot }`. `ValueRef`: 4 slot variants → `ValueRefHole { slot: MoonOpen.Slot }`. | **Major** — variant compression |
-| **`lua/moonlift/schema/core.lua`** | Add `SymKind` sum type (5 variants: `Func`, `Extern`, `Const`, `Static`, `Type`). Add `OpenSym` product type `{ kind: SymKind, key: string, name: string }`. Optionally also add `symbol` field (for externs — optional). `Phase` enum: unchanged. | **Minor** — new product + sum types |
-| **`lua/moonlift/schema/init.lua`** | Unchanged (registration order unaffected). | **None** |
+| **`lua/lalin/schema/sem.lua`** | Remove 11 types (`ValueClass`, `ConstClass`, `CodeShapeClass`, `AddressClass`, `SwitchKey`, `SwitchKeySet`, `SwitchDecision`, `ExprExit`, `OperandContext`, `ConstStmtResult`). Keep `FlowClass`, `ConstValue`, `MemLayout`, `TypeLayout`, `FieldRef`, `FieldLayout`, `LayoutEnv`, `ConstFieldValue`, `ConstLocalEntry`, `ConstLocalEnv`. | **Major** — ~60% of file removed |
+| **`lua/lalin/schema/tree.lua`** | `ExprHeader`: remove `ExprSem`, `ExprCode` variants. `PlaceHeader`: remove `PlaceSem` variant. `StmtHeader`: remove `StmtTyped` variant, merge `StmtSem`+`StmtCode` into one variant. `ModuleHeader`: unchanged. Remove `SwitchStmtArm.key` field (uses derivable SwitchKey). Remove `SwitchExprArm.key` field. | **Major** — header schema restructured |
+| **`lua/lalin/schema/bind.lua`** | `BindingClass`: merge 4 Sym variants → `BindingClassOpenSym { sym: OpenSym }` (new product). Merge 4 Slot variants → `BindingClassOpenSlot { slot: LalinOpen.Slot }`. `ValueRef`: 4 slot variants → `ValueRefHole { slot: LalinOpen.Slot }`. | **Major** — variant compression |
+| **`lua/lalin/schema/core.lua`** | Add `SymKind` sum type (5 variants: `Func`, `Extern`, `Const`, `Static`, `Type`). Add `OpenSym` product type `{ kind: SymKind, key: string, name: string }`. Optionally also add `symbol` field (for externs — optional). `Phase` enum: unchanged. | **Minor** — new product + sum types |
+| **`lua/lalin/schema/init.lua`** | Unchanged (registration order unaffected). | **None** |
 | **Consumer modules** (tree_typecheck.lua, tree_to_back.lua, back_validate.lua, sem_*.lua, editor.lua, mlua.lua) | Replace all `expr.h.value_class` reads with `compute_value_class(expr, expr.h.ty)` calls. Replace `expr.h.shape` reads with `compute_code_shape_class(...)`. Replace `BindingClassFuncSym` pattern-match arms with `BindingClassOpenSym`. Replace `ValueRefFuncSlot`/`ValueRefConstSlot`/`ValueRefStaticSlot` with `ValueRefHole`. | **Widespread** — mechanical accessor substitution |
 
 ### Consumer Code Changes (Detailed)
@@ -1245,7 +1245,7 @@ end
 Order of operations:
 
 1. **`core.lua`**: Add `SymKind` sum and `OpenSym` product. These are new types that existing code doesn't reference yet — safe addition.
-2. **`sem.lua`**: Remove the 11 annotation types. Keep the 7 structural types. Add the computed accessor functions in a new file `lua/moonlift/sem_derive.lua` (or similar).
+2. **`sem.lua`**: Remove the 11 annotation types. Keep the 7 structural types. Add the computed accessor functions in a new file `lua/lalin/sem_derive.lua` (or similar).
 3. **`tree.lua`**: Remove `ExprSem`, `ExprCode`, `PlaceSem`, `StmtTyped` variants. Merge `StmtSem`/`StmtCode`. The header sum types shrink.
 4. **`bind.lua`**: Compress `BindingClass` — replace Sym/Slot variants, compress `ValueRef`.
 5. **Update `init.lua`** if needed (should be unnecessary — no new modules registered, just modified existing ones).
@@ -1290,7 +1290,7 @@ Order of operations:
 | **Performance regression**: Derived annotations are recomputed N times instead of read once | Low-Medium | The current design already recomputes at every phase boundary (the 5-phase header system rewrites every header). Per-traversal memoization for hot paths. Profile before/after. |
 | **BindingClass compression misses a variant**: A consumer pattern-matches on a variant that no longer exists | Low | Compiler/ASDL runtime will crash on missing variant — caught immediately in testing. All test suites must pass before merge. |
 | **Phase correctness weakens**: Without stored annotations, no structural guarantee that e.g. value_class was computed before use | Low-Medium | Phase ordering is enforced by the pipeline, not by header fields. The `ty` field on ExprHeader remains the phase progression anchor. Consumers can assert `ty ~= nil` to verify typecheck has run. |
-| **ValueRef compression loses type information**: `MoonOpen.Slot` is a 16-variant sum, and consumers need to distinguish FuncSlot from ValueSlot | Low | `MoonOpen.Slot` already carries the variant identity. Consumers pattern-match the outer sum, same as before — just one level of indirection removed. |
+| **ValueRef compression loses type information**: `LalinOpen.Slot` is a 16-variant sum, and consumers need to distinguish FuncSlot from ValueSlot | Low | `LalinOpen.Slot` already carries the variant identity. Consumers pattern-match the outer sum, same as before — just one level of indirection removed. |
 | **Debug dumps lose annotation context**: Stored ValueClass was visible in tree dumps | Low | Debug dump functions call the derivation functions explicitly. Slightly slower dumps but identical information. |
 
 ---
@@ -1299,11 +1299,11 @@ Order of operations:
 
 ```
 Before:                  After:
-MoonCore                 MoonCore
+LalinCore                 LalinCore
   Phase (5)                Phase (5)     ← unchanged
   Scalar, Syms             Scalar, Syms, OpenSym, SymKind ← +2 types
 
-MoonSem                   MoonSem
+LalinSem                   LalinSem
   ValueClass (5)           FlowClass (6)  ← kept
   ConstClass (3)           ConstValue (6) ← kept
   CodeShapeClass (3)       MemLayout      ← kept
@@ -1314,13 +1314,13 @@ MoonSem                   MoonSem
   ...12 more types...      ...(7 types total)← 75% reduction
   (24 types total)         + sem_derive.lua (accessors)
 
-MoonTree Header            MoonTree Header
+LalinTree Header            LalinTree Header
   ExprHeader: 5 vars       ExprHeader: 3 vars  ← -2
   PlaceHeader: 4 vars      PlaceHeader: 3 vars  ← -1
   StmtHeader: 5 vars       StmtHeader: 3 vars  ← -2 (StmtTyped removed, Sem+Code merged)
   ModuleHeader: 5 vars     ModuleHeader: 5 vars ← unchanged
 
-MoonBind                   MoonBind
+LalinBind                   LalinBind
   BindingClass: 20 vars    BindingClass: ~8 vars  ← 60% reduction
   ValueRef: 7 vars         ValueRef: 4 vars       ← 3 vars removed
 ```
@@ -1329,9 +1329,9 @@ MoonBind                   MoonBind
 
 | Dependency | Before | After | Change |
 |------------|--------|-------|--------|
-| MoonTree → MoonSem | 5 cross-refs (ValueClass, ConstClass, CodeShapeClass, AddressClass, FlowClass) | 1 cross-ref (FlowClass) | **-4** |
-| MoonBind → MoonCore | 4 Sym-type cross-refs | 1 cross-ref (OpenSym) | **-3** |
-| MoonBind → MoonOpen | 4 Slot-type cross-refs | 1 cross-ref (MoonOpen.Slot) | **-3** |
+| LalinTree → LalinSem | 5 cross-refs (ValueClass, ConstClass, CodeShapeClass, AddressClass, FlowClass) | 1 cross-ref (FlowClass) | **-4** |
+| LalinBind → LalinCore | 4 Sym-type cross-refs | 1 cross-ref (OpenSym) | **-3** |
+| LalinBind → LalinOpen | 4 Slot-type cross-refs | 1 cross-ref (LalinOpen.Slot) | **-3** |
 
 ---
 
@@ -1346,13 +1346,13 @@ Approach A proposed replacing the single staged sum type (5 ExprHeader variants)
 
 The current header sum type, for all its verbosity, at least lets consumers write `match expr.header` once and get a compiler warning if a phase is missed. Approach A's solution makes this worse.
 
-**Verdict**: Deferred. The phase safety problem is real but the current design is more ergonomic for the codebase's actual use patterns. If a future refactoring separates MoonTree into phase-specific sub-modules, revisit.
+**Verdict**: Deferred. The phase safety problem is real but the current design is more ergonomic for the codebase's actual use patterns. If a future refactoring separates LalinTree into phase-specific sub-modules, revisit.
 
 ### Why Not Approach C Right Now (Backend-Agnostic Frontend)
 
-Approach C proposed introducing `FEScalar` (frontend scalar vocabulary) to break the `MoonType → MoonBack.BackScalar` dependency, allowing the type system to be defined without knowing backend scalar specifics. The critique found this approach's migration cost (Very High — 15-25 files, cross-cutting BackScalar refs) outweighs its current benefit.
+Approach C proposed introducing `FEScalar` (frontend scalar vocabulary) to break the `LalinType → LalinBack.BackScalar` dependency, allowing the type system to be defined without knowing backend scalar specifics. The critique found this approach's migration cost (Very High — 15-25 files, cross-cutting BackScalar refs) outweighs its current benefit.
 
-- **Benefit unrealized**: Moonlift has one primary backend (Cranelift) and one aspirational backend (DynASM). Until a second backend actually diverges in scalar support, `FEScalar` is a structurally identical copy of `BackScalar` with ongoing maintenance overhead.
+- **Benefit unrealized**: Lalin has one primary backend (Cranelift) and one aspirational backend (DynASM). Until a second backend actually diverges in scalar support, `FEScalar` is a structurally identical copy of `BackScalar` with ongoing maintenance overhead.
 - **MachineCastOp is salvageable independently**: The 3-tier→2-tier op collapse (removing MachineCastOp's 11 variants) can be done without introducing `FEScalar`. This is a smaller, independent refactor with clear benefit.
 
 **Verdict**: Deferred. Do the MachineCastOp elimination independently when resources permit. Revisit the full decoupling when a second backend is actively under development.
@@ -1361,7 +1361,7 @@ Approach C proposed introducing `FEScalar` (frontend scalar vocabulary) to break
 
 ## Appendix: Concrete Type Definitions (Before → After)
 
-### MoonSem — Before and After
+### LalinSem — Before and After
 
 **Before (24 types)**:
 ```
@@ -1391,7 +1391,7 @@ Total reduction: **11 types removed** (ValueClass, ConstClass, CodeShapeClass, A
 
 Note: `CallTarget` is partially removed. `CallUnresolved` and `CallIndirect` are derivable (from the callee expression) and are removed. `CallDirect`, `CallExtern`, and `CallClosure` contain stored type info (`fn_ty`) that is either non-derivable or expensive to recompute — these stay but can optionally be merged into a simpler form.
 
-### MoonBind BindingClass — Before and After
+### LalinBind BindingClass — Before and After
 
 **Before (20 variants)**:
 ```
@@ -1417,7 +1417,7 @@ OpenSlot(slot)    -- merges FuncSlot/ConstSlot/StaticSlot/ValueSlot
 
 Optional: keep GlobalFunc/GlobalConst/GlobalStatic separate (3 variants) if consumers benefit from distinguishing them without a sub-match. The analysis found these are distinct enough in practice to keep separate, but they could be merged with an inner `GlobalKind` sum.
 
-### MoonOpen SlotValue — Unchanged
+### LalinOpen SlotValue — Unchanged
 
 `SlotValue` (26 variants) is referenced for context but is unchanged by this decision. Its fragmentation is architectural (each syntactic category needs its own fill type), not a classification overhead.
 
@@ -1449,7 +1449,7 @@ Now I have all the data needed. Let me compile the comprehensive plan.
 
 ### Files to Modify — Phase 1: Schema Changes
 
-### 1. `lua/moonlift/schema/core.lua`
+### 1. `lua/lalin/schema/core.lua`
 
 **Goal**: Add `SymKind` sum type and `OpenSym` product type that the compressed BindingClass will reference.
 
@@ -1466,7 +1466,7 @@ Now I have all the data needed. Let me compile the comprehensive plan.
         },
 
         A.product "OpenSym" {
-            A.field "kind" "MoonCore.SymKind",
+            A.field "kind" "LalinCore.SymKind",
             A.field "key" "string",
             A.field "name" "string",
             A.field "symbol" "string",
@@ -1480,7 +1480,7 @@ Now I have all the data needed. Let me compile the comprehensive plan.
 
 ---
 
-### 2. `lua/moonlift/schema/sem.lua`
+### 2. `lua/lalin/schema/sem.lua`
 
 **Goal**: Remove 11 annotation types, keep 7 structural types + FlowClass + ConstValue etc.
 
@@ -1525,7 +1525,7 @@ SwitchDecision (lines 215-229), CallTarget (lines 231-257)
 
 **Edit block 11**: Remove `CallTarget` sum — delete lines 231-257.
 
-**After all removals**: The file should end with the closing `}` of `A.module "MoonSem"` right after `FlowClass`'s closing.
+**After all removals**: The file should end with the closing `}` of `A.module "LalinSem"` right after `FlowClass`'s closing.
 
 **Quirks/notes**:
 - The deletions must leave valid Lua — remove entire blocks including trailing commas. The remaining types (FlowClass, ConstValue, etc.) already have proper closing punctuation.
@@ -1536,7 +1536,7 @@ SwitchDecision (lines 215-229), CallTarget (lines 231-257)
 
 ---
 
-### 3. `lua/moonlift/schema/tree.lua`
+### 3. `lua/lalin/schema/tree.lua`
 
 **Goal**: Remove ExprSem, ExprCode from ExprHeader; remove PlaceSem from PlaceHeader; remove StmtTyped and merge StmtSem+StmtCode in StmtHeader; remove key field from SwitchStmtArm and SwitchExprArm.
 
@@ -1547,23 +1547,23 @@ SwitchDecision (lines 215-229), CallTarget (lines 231-257)
         A.sum "ExprHeader" {
             A.variant "ExprSurface",
             A.variant "ExprTyped" {
-                A.field "ty" "MoonType.Type",
+                A.field "ty" "LalinType.Type",
                 A.variant_unique,
             },
             A.variant "ExprOpen" {
-                A.field "ty" "MoonType.Type",
-                A.field "open" "MoonOpen.OpenSet",
+                A.field "ty" "LalinType.Type",
+                A.field "open" "LalinOpen.OpenSet",
                 A.variant_unique,
             },
             A.variant "ExprSem" {
-                A.field "ty" "MoonType.Type",
-                A.field "value_class" "MoonSem.ValueClass",
-                A.field "const_class" "MoonSem.ConstClass",
+                A.field "ty" "LalinType.Type",
+                A.field "value_class" "LalinSem.ValueClass",
+                A.field "const_class" "LalinSem.ConstClass",
                 A.variant_unique,
             },
             A.variant "ExprCode" {
-                A.field "ty" "MoonType.Type",
-                A.field "shape" "MoonSem.CodeShapeClass",
+                A.field "ty" "LalinType.Type",
+                A.field "shape" "LalinSem.CodeShapeClass",
                 A.variant_unique,
             },
         },
@@ -1574,12 +1574,12 @@ SwitchDecision (lines 215-229), CallTarget (lines 231-257)
         A.sum "ExprHeader" {
             A.variant "ExprSurface",
             A.variant "ExprTyped" {
-                A.field "ty" "MoonType.Type",
+                A.field "ty" "LalinType.Type",
                 A.variant_unique,
             },
             A.variant "ExprOpen" {
-                A.field "ty" "MoonType.Type",
-                A.field "open" "MoonOpen.OpenSet",
+                A.field "ty" "LalinType.Type",
+                A.field "open" "LalinOpen.OpenSet",
                 A.variant_unique,
             },
         },
@@ -1592,17 +1592,17 @@ SwitchDecision (lines 215-229), CallTarget (lines 231-257)
         A.sum "PlaceHeader" {
             A.variant "PlaceSurface",
             A.variant "PlaceTyped" {
-                A.field "ty" "MoonType.Type",
+                A.field "ty" "LalinType.Type",
                 A.variant_unique,
             },
             A.variant "PlaceOpen" {
-                A.field "ty" "MoonType.Type",
-                A.field "open" "MoonOpen.OpenSet",
+                A.field "ty" "LalinType.Type",
+                A.field "open" "LalinOpen.OpenSet",
                 A.variant_unique,
             },
             A.variant "PlaceSem" {
-                A.field "ty" "MoonType.Type",
-                A.field "address_class" "MoonSem.AddressClass",
+                A.field "ty" "LalinType.Type",
+                A.field "address_class" "LalinSem.AddressClass",
                 A.variant_unique,
             },
         },
@@ -1613,12 +1613,12 @@ SwitchDecision (lines 215-229), CallTarget (lines 231-257)
         A.sum "PlaceHeader" {
             A.variant "PlaceSurface",
             A.variant "PlaceTyped" {
-                A.field "ty" "MoonType.Type",
+                A.field "ty" "LalinType.Type",
                 A.variant_unique,
             },
             A.variant "PlaceOpen" {
-                A.field "ty" "MoonType.Type",
-                A.field "open" "MoonOpen.OpenSet",
+                A.field "ty" "LalinType.Type",
+                A.field "open" "LalinOpen.OpenSet",
                 A.variant_unique,
             },
         },
@@ -1632,15 +1632,15 @@ SwitchDecision (lines 215-229), CallTarget (lines 231-257)
             A.variant "StmtSurface",
             A.variant "StmtTyped",
             A.variant "StmtOpen" {
-                A.field "open" "MoonOpen.OpenSet",
+                A.field "open" "LalinOpen.OpenSet",
                 A.variant_unique,
             },
             A.variant "StmtSem" {
-                A.field "flow" "MoonSem.FlowClass",
+                A.field "flow" "LalinSem.FlowClass",
                 A.variant_unique,
             },
             A.variant "StmtCode" {
-                A.field "flow" "MoonSem.FlowClass",
+                A.field "flow" "LalinSem.FlowClass",
                 A.variant_unique,
             },
         },
@@ -1651,11 +1651,11 @@ SwitchDecision (lines 215-229), CallTarget (lines 231-257)
         A.sum "StmtHeader" {
             A.variant "StmtSurface",
             A.variant "StmtOpen" {
-                A.field "open" "MoonOpen.OpenSet",
+                A.field "open" "LalinOpen.OpenSet",
                 A.variant_unique,
             },
             A.variant "StmtFlow" {
-                A.field "flow" "MoonSem.FlowClass",
+                A.field "flow" "LalinSem.FlowClass",
                 A.variant_unique,
             },
         },
@@ -1668,8 +1668,8 @@ Note: Renaming `StmtSem`/`StmtCode` to `StmtFlow` avoids phase-specific naming w
 **Before** (lines 84-88):
 ```lua
         A.product "SwitchStmtArm" {
-            A.field "key" "MoonSem.SwitchKey",
-            A.field "body" (A.many "MoonTree.Stmt"),
+            A.field "key" "LalinSem.SwitchKey",
+            A.field "body" (A.many "LalinTree.Stmt"),
             A.unique,
         },
 ```
@@ -1677,7 +1677,7 @@ Note: Renaming `StmtSem`/`StmtCode` to `StmtFlow` avoids phase-specific naming w
 **After**:
 ```lua
         A.product "SwitchStmtArm" {
-            A.field "body" (A.many "MoonTree.Stmt"),
+            A.field "body" (A.many "LalinTree.Stmt"),
             A.unique,
         },
 ```
@@ -1687,9 +1687,9 @@ Note: Renaming `StmtSem`/`StmtCode` to `StmtFlow` avoids phase-specific naming w
 **Before** (lines 90-95):
 ```lua
         A.product "SwitchExprArm" {
-            A.field "key" "MoonSem.SwitchKey",
-            A.field "body" (A.many "MoonTree.Stmt"),
-            A.field "result" "MoonTree.Expr",
+            A.field "key" "LalinSem.SwitchKey",
+            A.field "body" (A.many "LalinTree.Stmt"),
+            A.field "result" "LalinTree.Expr",
             A.unique,
         },
 ```
@@ -1697,8 +1697,8 @@ Note: Renaming `StmtSem`/`StmtCode` to `StmtFlow` avoids phase-specific naming w
 **After**:
 ```lua
         A.product "SwitchExprArm" {
-            A.field "body" (A.many "MoonTree.Stmt"),
-            A.field "result" "MoonTree.Expr",
+            A.field "body" (A.many "LalinTree.Stmt"),
+            A.field "result" "LalinTree.Expr",
             A.unique,
         },
 ```
@@ -1707,7 +1707,7 @@ Note: Renaming `StmtSem`/`StmtCode` to `StmtFlow` avoids phase-specific naming w
 
 ---
 
-### 4. `lua/moonlift/schema/bind.lua`
+### 4. `lua/lalin/schema/bind.lua`
 
 **Goal**: Compress BindingClass from 20 to ~8 variants. Merge 4 Sym variants into BindingClassOpenSym. Merge 4 Slot variants into BindingClassOpenSlot. Compress ValueRef from 7 to 4 variants.
 
@@ -1762,19 +1762,19 @@ Note: Renaming `StmtSem`/`StmtCode` to `StmtFlow` avoids phase-specific naming w
                 A.variant_unique,
             },
             A.variant "BindingClassOpenParam" {
-                A.field "param" "MoonOpen.OpenParam",
+                A.field "param" "LalinOpen.OpenParam",
                 A.variant_unique,
             },
             A.variant "BindingClassImport" {
-                A.field "import" "MoonOpen.ValueImport",
+                A.field "import" "LalinOpen.ValueImport",
                 A.variant_unique,
             },
             A.variant "BindingClassOpenSym" {
-                A.field "sym" "MoonCore.OpenSym",
+                A.field "sym" "LalinCore.OpenSym",
                 A.variant_unique,
             },
             A.variant "BindingClassOpenSlot" {
-                A.field "slot" "MoonOpen.Slot",
+                A.field "slot" "LalinOpen.Slot",
                 A.variant_unique,
             },
         },
@@ -1792,69 +1792,69 @@ Note: Renaming `StmtSem`/`StmtCode` to `StmtFlow` avoids phase-specific naming w
                 A.variant_unique,
             },
             A.variant "ValueRefPath" {
-                A.field "path" "MoonCore.Path",
+                A.field "path" "LalinCore.Path",
                 A.variant_unique,
             },
             A.variant "ValueRefBinding" {
-                A.field "binding" "MoonBind.Binding",
+                A.field "binding" "LalinBind.Binding",
                 A.variant_unique,
             },
             A.variant "ValueRefHole" {
-                A.field "slot" "MoonOpen.Slot",
+                A.field "slot" "LalinOpen.Slot",
                 A.variant_unique,
             },
         },
 ```
 
-**Danger zone**: `MoonOpen.Slot` is a 16-variant sum. Consumers that previously matched `ValueRefSlot` (with `self.slot.ty`) now need to match `ValueRefHole` and extract the type from the MoonOpen.Slot variant. For `FuncSlot.fn_ty`, consumers must match `SlotFunc` specifically. This changes the extraction pattern in ~12 consumer files.
+**Danger zone**: `LalinOpen.Slot` is a 16-variant sum. Consumers that previously matched `ValueRefSlot` (with `self.slot.ty`) now need to match `ValueRefHole` and extract the type from the LalinOpen.Slot variant. For `FuncSlot.fn_ty`, consumers must match `SlotFunc` specifically. This changes the extraction pattern in ~12 consumer files.
 
 ---
 
-### 5. `lua/moonlift/sem_derive.lua` (NEW FILE)
+### 5. `lua/lalin/sem_derive.lua` (NEW FILE)
 
 **Goal**: Provide computed accessor functions for removed annotations.
 
 **Purpose**: Contains pure functions that derive ValueClass, ConstClass, CodeShapeClass, AddressClass, SwitchKey properties from type + binding + flow context.
 
 **Imports required**:
-- `moonlift.pvm` for type predicates
-- `MoonType`, `MoonBind`, `MoonCore`, `MoonTree` types from schema
-- `MoonSem.FlowClass`, `MoonSem.ConstValue` (remaining types)
+- `lalin.pvm` for type predicates
+- `LalinType`, `LalinBind`, `LalinCore`, `LalinTree` types from schema
+- `LalinSem.FlowClass`, `LalinSem.ConstValue` (remaining types)
 
 **Contents sketch**:
 ```lua
 -- sem_derive.lua — Derived annotation accessors
 -- Replaces stored ValueClass, ConstClass, CodeShapeClass, AddressClass annotations
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 
 local M = {}
 
 function M.Define(T)
-    local Sem = T.MoonSem
-    local Tr = T.MoonTree
-    local Ty = T.MoonType
-    local C = T.MoonCore
+    local Sem = T.LalinSem
+    local Tr = T.LalinTree
+    local Ty = T.LalinType
+    local C = T.LalinCore
     
     -- ValueClass: ValuePlain vs ValueAddress derived from type
     -- pointer types → ValueAddress, others → ValuePlain
     -- ValueMaterialized/ValueTerminated from flow context
-    M.value_class = pvm.phase("moonlift_sem_derive_value_class", {
+    M.value_class = pvm.phase("lalin_sem_derive_value_class", {
         -- takes (expr, ty, flow?) -> ValueClass output (as string/enum)
     })
     
     -- ConstClass: is the expression a literal or const reference?
-    M.const_class = pvm.phase("moonlift_sem_derive_const_class", {
+    M.const_class = pvm.phase("lalin_sem_derive_const_class", {
         -- takes (expr) -> "yes" | "no" plus optional ConstValue
     })
     
     -- CodeShapeClass: from Type + vectorization decision
-    M.code_shape = pvm.phase("moonlift_sem_derive_code_shape", {
+    M.code_shape = pvm.phase("lalin_sem_derive_code_shape", {
         -- takes (ty) -> scalar or vector shape
     })
     
     -- AddressClass: from binding residence
-    M.address_class = pvm.phase("moonlift_sem_derive_address_class", {
+    M.address_class = pvm.phase("lalin_sem_derive_address_class", {
         -- takes (binding, ty) -> address classification string
     })
     
@@ -1877,13 +1877,13 @@ return M
 
 ### Files to Modify — Phase 2: Consumer Code Migration
 
-### 6. `lua/moonlift/tree_expr_type.lua`
+### 6. `lua/lalin/tree_expr_type.lua`
 
 **Lines 35-39**: Remove `ExprSem` and `ExprCode` from `header_type` phase.
 
 **Before** (lines 35-40):
 ```lua
-    header_type = pvm.phase("moonlift_tree_expr_header_type", {
+    header_type = pvm.phase("lalin_tree_expr_header_type", {
         [Tr.ExprSurface] = function() return pvm.empty() end,
         [Tr.ExprTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprOpen] = function(self) return pvm.once(self.ty) end,
@@ -1894,7 +1894,7 @@ return M
 
 **After**:
 ```lua
-    header_type = pvm.phase("moonlift_tree_expr_header_type", {
+    header_type = pvm.phase("lalin_tree_expr_header_type", {
         [Tr.ExprSurface] = function() return pvm.empty() end,
         [Tr.ExprTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprOpen] = function(self) return pvm.once(self.ty) end,
@@ -1925,17 +1925,17 @@ return M
         end,
 ```
 
-**Note**: Requires `O = T.MoonOpen` to be available at the top of the file. If not already imported, add to the local variables.
+**Note**: Requires `O = T.LalinOpen` to be available at the top of the file. If not already imported, add to the local variables.
 
 ---
 
-### 7. `lua/moonlift/tree_place_type.lua`
+### 7. `lua/lalin/tree_place_type.lua`
 
 **Lines 22-28**: Remove `PlaceSem` from `header_type` phase.
 
 **Before**:
 ```lua
-    header_type = pvm.phase("moonlift_tree_place_header_type", {
+    header_type = pvm.phase("lalin_tree_place_header_type", {
         [Tr.PlaceSurface] = function() return pvm.empty() end,
         [Tr.PlaceTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.PlaceOpen] = function(self) return pvm.once(self.ty) end,
@@ -1945,7 +1945,7 @@ return M
 
 **After**:
 ```lua
-    header_type = pvm.phase("moonlift_tree_place_header_type", {
+    header_type = pvm.phase("lalin_tree_place_header_type", {
         [Tr.PlaceSurface] = function() return pvm.empty() end,
         [Tr.PlaceTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.PlaceOpen] = function(self) return pvm.once(self.ty) end,
@@ -1966,13 +1966,13 @@ return M
 
 ---
 
-### 8. `lua/moonlift/tree_control_facts.lua`
+### 8. `lua/lalin/tree_control_facts.lua`
 
 **Lines 28-34**: Remove ExprSem and ExprCode from `expr_type` phase.
 
 **Before** (lines 28-34):
 ```lua
-    expr_type = pvm.phase("moonlift_tree_control_expr_type", {
+    expr_type = pvm.phase("lalin_tree_control_expr_type", {
         [Tr.ExprTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprOpen] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprSem] = function(self) return pvm.once(self.ty) end,
@@ -1983,7 +1983,7 @@ return M
 
 **After**:
 ```lua
-    expr_type = pvm.phase("moonlift_tree_control_expr_type", {
+    expr_type = pvm.phase("lalin_tree_control_expr_type", {
         [Tr.ExprTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprOpen] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprSurface] = function() return pvm.empty() end,
@@ -1992,13 +1992,13 @@ return M
 
 ---
 
-### 9. `lua/moonlift/tree_to_back.lua`
+### 9. `lua/lalin/tree_to_back.lua`
 
 **Lines 387-391**: Remove ExprSem and ExprCode from `expr_type` phase.
 
 **Before**:
 ```lua
-    expr_type = pvm.phase("moonlift_tree_expr_type_from_header", {
+    expr_type = pvm.phase("lalin_tree_expr_type_from_header", {
         [Tr.ExprTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprOpen] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprSem] = function(self) return pvm.once(self.ty) end,
@@ -2009,7 +2009,7 @@ return M
 
 **After**:
 ```lua
-    expr_type = pvm.phase("moonlift_tree_expr_type_from_header", {
+    expr_type = pvm.phase("lalin_tree_expr_type_from_header", {
         [Tr.ExprTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprOpen] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprSurface] = function() return pvm.empty() end,
@@ -2020,7 +2020,7 @@ return M
 
 **Before** (lines 410-422):
 ```lua
-    local switch_key_raw = pvm.phase("moonlift_tree_switch_key_raw", {
+    local switch_key_raw = pvm.phase("lalin_tree_switch_key_raw", {
         [Sem.SwitchKeyRaw] = function(self) return pvm.once(self.raw) end,
         [Sem.SwitchKeyConst] = function(self)
             local cls = pvm.classof(self.value)
@@ -2069,7 +2069,7 @@ return M
             end
 ```
 
-**After**: Replace with a single `Bn.ValueRefHole` branch that dispatches on the MoonOpen.Slot variant.
+**After**: Replace with a single `Bn.ValueRefHole` branch that dispatches on the LalinOpen.Slot variant.
 
 **Lines 1628-1632**: Same ValueRef compression for `place_addr_to_back`.
 
@@ -2079,13 +2079,13 @@ return M
 
 ---
 
-### 10. `lua/moonlift/tree_control_to_back.lua`
+### 10. `lua/lalin/tree_control_to_back.lua`
 
 **Lines 163-175**: The `switch_key_raw` phase here mirrors the one in tree_to_back.lua. Same removal logic applies — SwitchKey types are gone, key extraction must be derived.
 
 ---
 
-### 11. `lua/moonlift/tree_typecheck.lua`
+### 11. `lua/lalin/tree_typecheck.lua`
 
 **Line 594**: Remove ExprSem and ExprCode from the header class check.
 
@@ -2140,7 +2140,7 @@ Apply this substitution to ALL instances (lines 682, 692, 694, 698, 700, 701, 70
 
 ---
 
-### 12. `lua/moonlift/tree_module_type.lua`
+### 12. `lua/lalin/tree_module_type.lua`
 
 **Lines 48-63**: Replace BindingClassFuncSym/ExternSym/ConstSym/StaticSym with BindingClassOpenSym.
 
@@ -2178,7 +2178,7 @@ B.BindingClassOpenSym(C.OpenSym(C.SymKindStatic, self.sym.key, self.sym.name, ""
 
 ---
 
-### 13. `lua/moonlift/open_facts.lua`
+### 13. `lua/lalin/open_facts.lua`
 
 **Lines 83-100**: Remove ExprSem, ExprCode, PlaceSem, StmtTyped from header fact phases.
 
@@ -2193,7 +2193,7 @@ Remove `[Tr.StmtTyped]` entry. Rename `StmtSem` to `StmtFlow` (matching the sche
 
 **Before** (lines 96-101):
 ```lua
-    stmt_header_facts = pvm.phase("moonlift_open_stmt_header_facts", {
+    stmt_header_facts = pvm.phase("lalin_open_stmt_header_facts", {
         [Tr.StmtSurface] = function() return pvm.empty() end,
         [Tr.StmtTyped] = function() return pvm.empty() end,
         [Tr.StmtOpen] = function(self) return open_set_facts(self.open) end,
@@ -2204,7 +2204,7 @@ Remove `[Tr.StmtTyped]` entry. Rename `StmtSem` to `StmtFlow` (matching the sche
 
 **After**:
 ```lua
-    stmt_header_facts = pvm.phase("moonlift_open_stmt_header_facts", {
+    stmt_header_facts = pvm.phase("lalin_open_stmt_header_facts", {
         [Tr.StmtSurface] = function() return pvm.empty() end,
         [Tr.StmtOpen] = function(self) return open_set_facts(self.open) end,
         [Tr.StmtFlow] = function() return pvm.empty() end,
@@ -2248,7 +2248,7 @@ Remove `[Tr.StmtTyped]` entry. Rename `StmtSem` to `StmtFlow` (matching the sche
 
 ---
 
-### 14. `lua/moonlift/open_expand.lua`
+### 14. `lua/lalin/open_expand.lua`
 
 **Lines 596-634**: Remove ExprSem, ExprCode from `expand_expr_header`; remove PlaceSem from `expand_place_header`; remove StmtTyped and rename StmtSem/StmtCode to StmtFlow.
 
@@ -2260,7 +2260,7 @@ Remove `[Tr.StmtTyped]` entry. Rename `StmtSem` to `StmtFlow` (matching the sche
 
 **Before** (lines 621-634):
 ```lua
-    expand_stmt_header = pvm.phase("moonlift_open_expand_stmt_header", {
+    expand_stmt_header = pvm.phase("lalin_open_expand_stmt_header", {
         [Tr.StmtSurface] = function(self) return pvm.once(self) end,
         [Tr.StmtTyped] = function(self) return pvm.once(self) end,
         [Tr.StmtOpen] = function(self, env)
@@ -2275,7 +2275,7 @@ Remove `[Tr.StmtTyped]` entry. Rename `StmtSem` to `StmtFlow` (matching the sche
 
 **After**:
 ```lua
-    expand_stmt_header = pvm.phase("moonlift_open_expand_stmt_header", {
+    expand_stmt_header = pvm.phase("lalin_open_expand_stmt_header", {
         [Tr.StmtSurface] = function(self) return pvm.once(self) end,
         [Tr.StmtOpen] = function(self, env)
             local open = one(expand_open_set, self.open, env)
@@ -2294,7 +2294,7 @@ Remove `[Tr.StmtTyped]` entry. Rename `StmtSem` to `StmtFlow` (matching the sche
 
 ---
 
-### 15. `lua/moonlift/open_rewrite.lua`
+### 15. `lua/lalin/open_rewrite.lua`
 
 **Lines 183-188**: Replace 4 ValueRef slot variants with ValueRefHole.
 
@@ -2313,7 +2313,7 @@ Remove `[Tr.StmtTyped]` entry. Rename `StmtSem` to `StmtFlow` (matching the sche
 
 ---
 
-### 16. `lua/moonlift/sem_const_eval.lua`
+### 16. `lua/lalin/sem_const_eval.lua`
 
 **Line 24**: `const_value` function references `Sem.ConstClassYes`. ConstClass is removed. The function must operate directly on ConstValue.
 
@@ -2341,7 +2341,7 @@ Remove `[Tr.StmtTyped]` entry. Rename `StmtSem` to `StmtFlow` (matching the sche
 
 **Before**:
 ```lua
-    expr_type = pvm.phase("moonlift_sem_const_expr_type", {
+    expr_type = pvm.phase("lalin_sem_const_expr_type", {
         [Tr.ExprSurface] = function() return pvm.empty() end,
         [Tr.ExprTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprOpen] = function(self) return pvm.once(self.ty) end,
@@ -2352,7 +2352,7 @@ Remove `[Tr.StmtTyped]` entry. Rename `StmtSem` to `StmtFlow` (matching the sche
 
 **After**:
 ```lua
-    expr_type = pvm.phase("moonlift_sem_const_expr_type", {
+    expr_type = pvm.phase("lalin_sem_const_expr_type", {
         [Tr.ExprSurface] = function() return pvm.empty() end,
         [Tr.ExprTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprOpen] = function(self) return pvm.once(self.ty) end,
@@ -2378,7 +2378,7 @@ Remove `[Tr.StmtTyped]` entry. Rename `StmtSem` to `StmtFlow` (matching the sche
 
 ---
 
-### 17. `lua/moonlift/sem_call_decide.lua`
+### 17. `lua/lalin/sem_call_decide.lua`
 
 **Lines 52-74**: Replace BindingClassFuncSym/ExternSym/ConstSym/StaticSym with BindingClassOpenSym; replace BindingClassFuncSlot/ConstSlot/StaticSlot/ValueSlot with BindingClassOpenSlot.
 
@@ -2440,7 +2440,7 @@ end,
 
 ---
 
-### 18. `lua/moonlift/sem_layout_resolve.lua`
+### 18. `lua/lalin/sem_layout_resolve.lua`
 
 **Line 153**: Remove PlaceSem from type check.
 
@@ -2468,7 +2468,7 @@ end,
 
 ---
 
-### 19. `lua/moonlift/sem_switch_decide.lua` (ENTIRE FILE)
+### 19. `lua/lalin/sem_switch_decide.lua` (ENTIRE FILE)
 
 **Goal**: This entire module computes SwitchKey/SwitchKeySet/SwitchDecision. Since those types are removed from the schema, this module must be restructured to produce derived decisions.
 
@@ -2491,7 +2491,7 @@ end,
 
 ---
 
-### 20. `lua/moonlift/bind_residence_gather.lua`
+### 20. `lua/lalin/bind_residence_gather.lua`
 
 **Lines 49-52**: Replace 4 ValueRef slot variants with ValueRefHole.
 
@@ -2510,7 +2510,7 @@ end,
 
 ---
 
-### 21-23. `lua/moonlift/closure_convert.lua`, `region_normal_form.lua`, `parse.lua`, `host_func_values.lua`, `host_region_values.lua`, `pvm_surface_cache_values.lua`, `pvm_surface_region_values.lua`
+### 21-23. `lua/lalin/closure_convert.lua`, `region_normal_form.lua`, `parse.lua`, `host_func_values.lua`, `host_region_values.lua`, `pvm_surface_cache_values.lua`, `pvm_surface_region_values.lua`
 
 **These files reference CallUnresolved and SwitchKey but do NOT store them in schema types** — they construct them transiently during parsing/construction. The decision record keeps CallDirect, CallExtern, CallClosure but removes CallUnresolved and CallIndirect. However, these types are used extensively during parsing and compilation.
 
@@ -2576,7 +2576,7 @@ binding("static.slot", "sslot", i32, B.BindingClassOpenSlot(O.SlotStatic(static_
 binding("value.slot", "vslot", i32, B.BindingClassOpenSlot(O.SlotValue(value_slot))),
 ```
 
-**Note**: `MoonOpen.Slot` is already a 16-variant sum — each slot kind has a corresponding `Slot*` variant. This uses the existing slot wrapper types.
+**Note**: `LalinOpen.Slot` is already a 16-variant sum — each slot kind has a corresponding `Slot*` variant. This uses the existing slot wrapper types.
 
 ### 27. Test file referencing ExprSem
 
@@ -2584,7 +2584,7 @@ binding("value.slot", "vslot", i32, B.BindingClassOpenSlot(O.SlotValue(value_slo
 
 **Before**:
 ```lua
-local xs_expr = Tree.ExprRef(Tree.ExprSem(ptr_index_ty, T.MoonSem.ValuePlain, T.MoonSem.ConstClassNo), ...)
+local xs_expr = Tree.ExprRef(Tree.ExprSem(ptr_index_ty, T.LalinSem.ValuePlain, T.LalinSem.ConstClassNo), ...)
 ```
 
 **After**:
@@ -2596,11 +2596,11 @@ local xs_expr = Tree.ExprRef(Tree.ExprTyped(ptr_index_ty), ...)
 
 ### Order of Operations
 
-1. **First**: `lua/moonlift/schema/core.lua` — add SymKind + OpenSym (new types, no consumers break)
-2. **Second**: `lua/moonlift/schema/sem.lua` — remove 11 annotation types (schema break, all consumers must be updated simultaneously with this or in the next commit)
-3. **Third**: `lua/moonlift/schema/tree.lua` — remove ExprSem/ExprCode/PlaceSem/StmtTyped, merge StmtSem+StmtCode, remove SwitchStmtArm.key/SwitchExprArm.key
-4. **Fourth**: `lua/moonlift/schema/bind.lua` — compress BindingClass and ValueRef
-5. **Fifth**: `lua/moonlift/sem_derive.lua` — NEW FILE with computed accessor functions
+1. **First**: `lua/lalin/schema/core.lua` — add SymKind + OpenSym (new types, no consumers break)
+2. **Second**: `lua/lalin/schema/sem.lua` — remove 11 annotation types (schema break, all consumers must be updated simultaneously with this or in the next commit)
+3. **Third**: `lua/lalin/schema/tree.lua` — remove ExprSem/ExprCode/PlaceSem/StmtTyped, merge StmtSem+StmtCode, remove SwitchStmtArm.key/SwitchExprArm.key
+4. **Fourth**: `lua/lalin/schema/bind.lua` — compress BindingClass and ValueRef
+5. **Fifth**: `lua/lalin/sem_derive.lua` — NEW FILE with computed accessor functions
 6. **Sixth**: All tree_*.lua consumer files (tree_expr_type, tree_place_type, tree_control_facts, tree_to_back, tree_control_to_back, tree_typecheck, tree_module_type)
 7. **Seventh**: All open_*.lua consumer files (open_facts, open_expand, open_rewrite)
 8. **Eighth**: All sem_*.lua consumer files (sem_const_eval, sem_call_decide, sem_layout_resolve, sem_switch_decide)
@@ -2630,7 +2630,7 @@ local xs_expr = Tree.ExprRef(Tree.ExprTyped(ptr_index_ty), ...)
 
 - All new schema types use `A.sum`/`A.product` consistently with the existing DSL pattern
 - Removed types must NOT leave dangling commas in the remaining AST
-- ValueRefHole with `MoonOpen.Slot` requires inner dispatch on `pvm.classof(slot)` — do NOT assume `slot.ty` exists for all slot kinds
+- ValueRefHole with `LalinOpen.Slot` requires inner dispatch on `pvm.classof(slot)` — do NOT assume `slot.ty` exists for all slot kinds
 - CallTarget removal is partial — CallDirect, CallExtern, CallClosure are kept (but as transient/derived, not stored in schema)
 - SwitchKey removal replaces stored schema types with transient Lua tables
 - `Tr.StmtTyped` → `Tr.StmtSurface` in all typecheck output (since StmtSurface is the unannotated header)
@@ -2649,17 +2649,17 @@ All clean. Here's the summary of Phase 1 completed:
 
 | File | Change | Stats |
 |------|--------|-------|
-| `lua/moonlift/schema/core.lua` | Added `SymKind` (5 variants) + `OpenSym` product (+2 types) | 273 lines |
-| `lua/moonlift/schema/sem.lua` | Removed 11 types: ValueClass, ConstClass, CodeShapeClass, AddressClass, SwitchKey, SwitchKeySet, SwitchDecision, ConstStmtResult, ExprExit, OperandContext, CallTarget. Kept FlowClass, ConstValue, MemLayout, TypeLayout, FieldRef, FieldLayout, LayoutEnv, ConstFieldValue, ConstLocalEntry, ConstLocalEnv (-11 types) | 115 lines (was ~260) |
-| `lua/moonlift/schema/tree.lua` | ExprHeader: removed ExprSem, ExprCode. PlaceHeader: removed PlaceSem. StmtHeader: removed StmtTyped, merged StmtSem+StmtCode → StmtFlow. SwitchStmtArm: removed `key` field. SwitchExprArm: removed `key` field. ExprCall: removed `target` field. | 1360 lines |
-| `lua/moonlift/schema/bind.lua` | BindingClass: replaced 4 Sym variants + 4 Slot variants → BindingClassOpenSym (using MoonCore.OpenSym) + BindingClassOpenSlot (using MoonOpen.Slot). ValueRef: replaced 4 slot variants → ValueRefHole (using MoonOpen.Slot). | 211 lines |
-| `lua/moonlift/sem_derive.lua` | **NEW** — 5 derivation functions with real implementations: `value_class`, `const_class`, `code_shape`, `address_class`, `switch_key_kind`, plus helpers `switch_decision`, `call_target`, `flow_class`, `const_value`. | 299 lines |
+| `lua/lalin/schema/core.lua` | Added `SymKind` (5 variants) + `OpenSym` product (+2 types) | 273 lines |
+| `lua/lalin/schema/sem.lua` | Removed 11 types: ValueClass, ConstClass, CodeShapeClass, AddressClass, SwitchKey, SwitchKeySet, SwitchDecision, ConstStmtResult, ExprExit, OperandContext, CallTarget. Kept FlowClass, ConstValue, MemLayout, TypeLayout, FieldRef, FieldLayout, LayoutEnv, ConstFieldValue, ConstLocalEntry, ConstLocalEnv (-11 types) | 115 lines (was ~260) |
+| `lua/lalin/schema/tree.lua` | ExprHeader: removed ExprSem, ExprCode. PlaceHeader: removed PlaceSem. StmtHeader: removed StmtTyped, merged StmtSem+StmtCode → StmtFlow. SwitchStmtArm: removed `key` field. SwitchExprArm: removed `key` field. ExprCall: removed `target` field. | 1360 lines |
+| `lua/lalin/schema/bind.lua` | BindingClass: replaced 4 Sym variants + 4 Slot variants → BindingClassOpenSym (using LalinCore.OpenSym) + BindingClassOpenSlot (using LalinOpen.Slot). ValueRef: replaced 4 slot variants → ValueRefHole (using LalinOpen.Slot). | 211 lines |
+| `lua/lalin/sem_derive.lua` | **NEW** — 5 derivation functions with real implementations: `value_class`, `const_class`, `code_shape`, `address_class`, `switch_key_kind`, plus helpers `switch_decision`, `call_target`, `flow_class`, `const_value`. | 299 lines |
 
 ### Key Metrics
 
-- **11 types removed** from MoonSem schema (~60% reduction in sem.lua)
-- **5 variants removed** from MoonTree headers (ExprSem, ExprCode, PlaceSem, StmtTyped, merged StmtSem/StmtCode)
-- **12 variants removed** from MoonBind (4 Sym + 4 Slot variants in BindingClass; 4 slot variants in ValueRef)
+- **11 types removed** from LalinSem schema (~60% reduction in sem.lua)
+- **5 variants removed** from LalinTree headers (ExprSem, ExprCode, PlaceSem, StmtTyped, merged StmtSem/StmtCode)
+- **12 variants removed** from LalinBind (4 Sym + 4 Slot variants in BindingClass; 4 slot variants in ValueRef)
 - **3 new variants added** (BindingClassOpenSym, BindingClassOpenSlot, ValueRefHole)
 - **2 new foundation types** (SymKind, OpenSym)
 - **Zero orphaned references** in schema files
@@ -2678,38 +2678,38 @@ Phase 2 consumer code migration for Approach B (Derivability-First Annotation Co
 ## Files Changed
 
 ### Schema (from Phase 1, already done — minor fix):
-- `lua/moonlift/schema/tree.lua` — Added `callee` field back to `ExprCall` (needed for typechecking)
+- `lua/lalin/schema/tree.lua` — Added `callee` field back to `ExprCall` (needed for typechecking)
 
 ### New file:
-- `lua/moonlift/sem_derive.lua` — 5 derivation functions for removed annotation types
+- `lua/lalin/sem_derive.lua` — 5 derivation functions for removed annotation types
 
 ### Tree consumers (10 files):
-- `lua/moonlift/tree_expr_type.lua` — Removed ExprSem/ExprCode; compressed ValueRef slot variants; simplified call_target_type
-- `lua/moonlift/tree_place_type.lua` — Removed PlaceSem; compressed ValueRef
-- `lua/moonlift/tree_control_facts.lua` — Removed ExprSem/ExprCode from expr_type phase
-- `lua/moonlift/tree_typecheck.lua` — StmtTyped→StmtSurface (18 sites); ref_type ValueRef compression; ExprCall handler uses self.callee/self.args with new schema; ExprSem/ExprCode/PlaceSem removed from header checks; SwitchKey handling updated
-- `lua/moonlift/tree_module_type.lua` — BindingClass FuncSym/ExternSym/ConstSym/StaticSym → OpenSym
-- `lua/moonlift/tree_to_back.lua` — Removed ExprSem/ExprCode; updated switch_key_raw and call_target phases; ValueRef slot→ValueRefHole compression (3 sites); added `O = T.MoonOpen`
-- `lua/moonlift/tree_control_to_back.lua` — SwitchKey phase converted from PVM phase to regular function
+- `lua/lalin/tree_expr_type.lua` — Removed ExprSem/ExprCode; compressed ValueRef slot variants; simplified call_target_type
+- `lua/lalin/tree_place_type.lua` — Removed PlaceSem; compressed ValueRef
+- `lua/lalin/tree_control_facts.lua` — Removed ExprSem/ExprCode from expr_type phase
+- `lua/lalin/tree_typecheck.lua` — StmtTyped→StmtSurface (18 sites); ref_type ValueRef compression; ExprCall handler uses self.callee/self.args with new schema; ExprSem/ExprCode/PlaceSem removed from header checks; SwitchKey handling updated
+- `lua/lalin/tree_module_type.lua` — BindingClass FuncSym/ExternSym/ConstSym/StaticSym → OpenSym
+- `lua/lalin/tree_to_back.lua` — Removed ExprSem/ExprCode; updated switch_key_raw and call_target phases; ValueRef slot→ValueRefHole compression (3 sites); added `O = T.LalinOpen`
+- `lua/lalin/tree_control_to_back.lua` — SwitchKey phase converted from PVM phase to regular function
 
 ### Open consumers (3 files):
-- `lua/moonlift/open_facts.lua` — Removed ExprSem/ExprCode/PlaceSem/StmtTyped; StmtSem/StmtCode→StmtFlow; compressed BindingClass and ValueRef
-- `lua/moonlift/open_expand.lua` — Same header changes; ValueRef compression; CallUnresolved/SwitchKey handling updated
-- `lua/moonlift/open_rewrite.lua` — Compressed ValueRef slot→ValueRefHole
+- `lua/lalin/open_facts.lua` — Removed ExprSem/ExprCode/PlaceSem/StmtTyped; StmtSem/StmtCode→StmtFlow; compressed BindingClass and ValueRef
+- `lua/lalin/open_expand.lua` — Same header changes; ValueRef compression; CallUnresolved/SwitchKey handling updated
+- `lua/lalin/open_rewrite.lua` — Compressed ValueRef slot→ValueRefHole
 
 ### Sem consumers (4 files):
-- `lua/moonlift/sem_call_decide.lua` — BindingClass Sym/Slot variants→OpenSym/OpenSlot; ValueRef compression; CallUnresolved/CallIndirect → Lua tables
-- `lua/moonlift/sem_const_eval.lua` — ExprSem/ExprCode removed; ConstClass/ConstStmtResult → Lua tables; ValueRef compression; no()/yes() helpers simplified
-- `lua/moonlift/sem_layout_resolve.lua` — Removed ExprSem/ExprCode/PlaceSem from header checks
-- `lua/moonlift/sem_switch_decide.lua` — SwitchKey/SwitchKeySet/SwitchDecision → Lua tables; PVM phases → regular functions
+- `lua/lalin/sem_call_decide.lua` — BindingClass Sym/Slot variants→OpenSym/OpenSlot; ValueRef compression; CallUnresolved/CallIndirect → Lua tables
+- `lua/lalin/sem_const_eval.lua` — ExprSem/ExprCode removed; ConstClass/ConstStmtResult → Lua tables; ValueRef compression; no()/yes() helpers simplified
+- `lua/lalin/sem_layout_resolve.lua` — Removed ExprSem/ExprCode/PlaceSem from header checks
+- `lua/lalin/sem_switch_decide.lua` — SwitchKey/SwitchKeySet/SwitchDecision → Lua tables; PVM phases → regular functions
 
 ### Other consumers (7 files):
-- `lua/moonlift/bind_residence_gather.lua` — ValueRef slot→ValueRefHole
-- `lua/moonlift/closure_convert.lua` — Simplified ExprCall handling (target field removed)
-- `lua/moonlift/region_normal_form.lua` — CallUnresolved/CallIndirect → Lua table pattern matching
-- `lua/moonlift/host_func_values.lua` — SwitchKey construction → Lua tables
-- `lua/moonlift/host_region_values.lua` — SwitchKey construction → Lua tables
-- `lua/moonlift/parse.lua`, `ast.lua`, `host_expr_values.lua`, `c/lower_c.lua`, `pvm_surface_cache_values.lua`, `pvm_surface_region_values.lua`, `mom/verify/parser_native_ast.lua` — ExprCall with callee+args; SwitchKey→Lua tables
+- `lua/lalin/bind_residence_gather.lua` — ValueRef slot→ValueRefHole
+- `lua/lalin/closure_convert.lua` — Simplified ExprCall handling (target field removed)
+- `lua/lalin/region_normal_form.lua` — CallUnresolved/CallIndirect → Lua table pattern matching
+- `lua/lalin/host_func_values.lua` — SwitchKey construction → Lua tables
+- `lua/lalin/host_region_values.lua` — SwitchKey construction → Lua tables
+- `lua/lalin/parse.lua`, `ast.lua`, `host_expr_values.lua`, `c/lower_c.lua`, `pvm_surface_cache_values.lua`, `pvm_surface_region_values.lua`, `mom/verify/parser_native_ast.lua` — ExprCall with callee+args; SwitchKey→Lua tables
 
 ### Tests (21 files):
 - All `Tr.StmtTyped` → `Tr.StmtSurface`
@@ -2730,7 +2730,7 @@ All pre-existing backend JIT failures (`block 4 dup`, `value 3 rebound`, `unknow
 
 ## Notes
 - The `ExprCall` schema was given a `callee` field in addition to `h` and `args` — the callee expression is essential for typechecking. This was a minor schema addition (not a removal), justified by the fact that call target resolution requires knowing what expression is being called.
-- MOM deep check shows 8 failures: 6 are expected (new schema types not yet ported to MOM), 2 are pre-existing (no MOM module mapped for MoonC/MoonCAst).
+- MOM deep check shows 8 failures: 6 are expected (new schema types not yet ported to MOM), 2 are pre-existing (no MOM module mapped for LalinC/LalinCAst).
 - The MOM runtime failures ("attempt to index local 'target'") are pre-existing and unrelated to our changes.
 
 ## Worker Output — 2026-05-18 18:11:02
@@ -2746,11 +2746,11 @@ All clean. Zero orphaned imports. Zero old variant references in executable code
 ### Step 1: Dead Code Removal
 - **No dead code found.** The Sym types (FuncSym, ExternSym, ConstSym, StaticSym) remain in `core.lua` because they're still actively used in `tree.lua` for FuncOpen, ExternFuncOpen, ConstItemOpen, StaticItemOpen variants. These are NOT the old BindingClass variants — they're tree-level schema types for open declarations.
 - **All old BindingClass variants** (FuncSym/ExternSym/ConstSym/StaticSym, FuncSlot/ConstSlot/StaticSlot/ValueSlot): Zero references remain.
-- **All removed MoonSem types** (ValueClass, ConstClass, CodeShapeClass, AddressClass, SwitchKey, SwitchKeySet, SwitchDecision, ConstStmtResult, ExprExit, OperandContext, CallTarget): Zero references remain.
+- **All removed LalinSem types** (ValueClass, ConstClass, CodeShapeClass, AddressClass, SwitchKey, SwitchKeySet, SwitchDecision, ConstStmtResult, ExprExit, OperandContext, CallTarget): Zero references remain.
 - **All old header variants** (StmtTyped, ExprSem, ExprCode, PlaceSem): Zero references remain.
 
 ### Step 2: Debug Assertion Module
-- **Created**: `lua/moonlift/sem_derive_verify.lua` — Provides `wrap()`, `wrap_simple()`, `wrap_string()` for debug-mode phase boundary assertions. Enabled when running under LuaJIT (`jit and true`). Wraps derivation functions with automatic comparison against expected values.
+- **Created**: `lua/lalin/sem_derive_verify.lua` — Provides `wrap()`, `wrap_simple()`, `wrap_string()` for debug-mode phase boundary assertions. Enabled when running under LuaJIT (`jit and true`). Wraps derivation functions with automatic comparison against expected values.
 
 ### Step 3: Full Test Suite — All 44 key tests pass
 | Category | Tests | Status |
@@ -2774,7 +2774,7 @@ All clean. Zero orphaned imports. Zero old variant references in executable code
 
 ### Step 5: MOM Correctness
 - **`test_mom_check_correctness.mlua`**: ✓ **ALL CORRECT** — Lua→MOM type matching passes
-- **`test_mom_check_deep.mlua`**: 2538 passed, 8 failed. 4 failures are pre-existing (SymKind in MOM, MoonC, FieldInit.offset, MoonCAst). 4 failures are expected new gaps (BindingClassOpenSym, BindingClassOpenSlot, ValueRefHole, StmtFlow — MOM needs separate porting)
+- **`test_mom_check_deep.mlua`**: 2538 passed, 8 failed. 4 failures are pre-existing (SymKind in MOM, LalinC, FieldInit.offset, LalinCAst). 4 failures are expected new gaps (BindingClassOpenSym, BindingClassOpenSlot, ValueRefHole, StmtFlow — MOM needs separate porting)
 
 ### Step 6: Build Check
 - **`cargo build --release`**: ✓ Clean build, only pre-existing warnings
@@ -2793,7 +2793,7 @@ The most significant finding was **lingering `expr.target` references from the o
 `tests/test_closure_convert.lua` — was relying on `Sem.CallUnresolved(closure)` (removed in Phase 1). Restructured to verify closure conversion produces correct hoisted helpers and descriptor references, without requiring full backend lowering (which was a test bypass of the typechecker).
 
 ### New Files
-- `lua/moonlift/sem_derive_verify.lua` — Debug-mode phase boundary assertion module
+- `lua/lalin/sem_derive_verify.lua` — Debug-mode phase boundary assertion module
 
 ### Overall Phase 3 Stats
 - **7 consumer files fixed** for lingering `expr.target` references
@@ -2807,20 +2807,20 @@ The most significant finding was **lingering `expr.target` references from the o
 
 ## Files Reviewed
 
-- `lua/moonlift/schema/core.lua` (+SymKind, +OpenSym)
-- `lua/moonlift/schema/sem.lua` (-11 types)
-- `lua/moonlift/schema/tree.lua` (-ExprSem, -ExprCode, -PlaceSem, -StmtTyped, merged StmtSem+StmtCode→StmtFlow, removed SwitchStmtArm.key, SwitchExprArm.key, changed ExprCall.target→callee)
-- `lua/moonlift/schema/bind.lua` (compressed BindingClass, ValueRef)
-- `lua/moonlift/sem_derive.lua` (new, dead)
-- `lua/moonlift/sem_derive_verify.lua` (new, dead)
-- `lua/moonlift/tree_to_back.lua` (~20 site changes)
-- `lua/moonlift/tree_control_to_back.lua` (switch_key_raw as fn)
-- `lua/moonlift/tree_expr_type.lua`, `tree_place_type.lua`, `tree_typecheck.lua` (header/phases)
-- `lua/moonlift/sem_const_eval.lua` (ExprSwitch, switch_key_value)
-- `lua/moonlift/sem_switch_decide.lua` (SwitchKey→Lua tables)
-- `lua/moonlift/sem_call_decide.lua` (OpenSym/OpenSlot)
-- `lua/moonlift/parse.lua`, `host_func_values.lua`, `host_region_values.lua`, `c/lower_c.lua` (SwitchStmtArm construction)
-- `lua/moonlift/mom/verify/parser_native_ast.lua`, `mom/schema/MoonCyclic.mlua` (MOM gaps)
+- `lua/lalin/schema/core.lua` (+SymKind, +OpenSym)
+- `lua/lalin/schema/sem.lua` (-11 types)
+- `lua/lalin/schema/tree.lua` (-ExprSem, -ExprCode, -PlaceSem, -StmtTyped, merged StmtSem+StmtCode→StmtFlow, removed SwitchStmtArm.key, SwitchExprArm.key, changed ExprCall.target→callee)
+- `lua/lalin/schema/bind.lua` (compressed BindingClass, ValueRef)
+- `lua/lalin/sem_derive.lua` (new, dead)
+- `lua/lalin/sem_derive_verify.lua` (new, dead)
+- `lua/lalin/tree_to_back.lua` (~20 site changes)
+- `lua/lalin/tree_control_to_back.lua` (switch_key_raw as fn)
+- `lua/lalin/tree_expr_type.lua`, `tree_place_type.lua`, `tree_typecheck.lua` (header/phases)
+- `lua/lalin/sem_const_eval.lua` (ExprSwitch, switch_key_value)
+- `lua/lalin/sem_switch_decide.lua` (SwitchKey→Lua tables)
+- `lua/lalin/sem_call_decide.lua` (OpenSym/OpenSlot)
+- `lua/lalin/parse.lua`, `host_func_values.lua`, `host_region_values.lua`, `c/lower_c.lua` (SwitchStmtArm construction)
+- `lua/lalin/mom/verify/parser_native_ast.lua`, `mom/schema/LalinCyclic.mlua` (MOM gaps)
 
 ---
 
@@ -2834,7 +2834,7 @@ The most significant finding was **lingering `expr.target` references from the o
 
 ### `sem_switch_decide.lua:29-33` — Switch arm key phase references removed field
 ```lua
-stmt_arm_key = pvm.phase("moonlift_sem_stmt_switch_arm_key", {
+stmt_arm_key = pvm.phase("lalin_sem_stmt_switch_arm_key", {
     [Tr.SwitchStmtArm] = function(arm) return pvm.once(arm.key) end,
 })
 ```
@@ -2844,7 +2844,7 @@ stmt_arm_key = pvm.phase("moonlift_sem_stmt_switch_arm_key", {
 ```lua
 return self.slot.ty or self.slot.fn_ty
 ```
-`self.slot` is a `MoonOpen.Slot` wrapper sum (e.g., `SlotValue { slot: ValueSlot }`). The wrapper has `.slot`, NOT `.ty` or `.fn_ty`. Correct access is:
+`self.slot` is a `LalinOpen.Slot` wrapper sum (e.g., `SlotValue { slot: ValueSlot }`). The wrapper has `.slot`, NOT `.ty` or `.fn_ty`. Correct access is:
 ```lua
 self.slot.slot.ty or self.slot.slot.fn_ty
 ```
@@ -2869,9 +2869,9 @@ The ASDL constructor will likely map the key table to `body` and silently drop t
 After the `.key` bug, line 283 accesses `self.arms[i].result` — but for `StmtSwitch` arms, `SwitchStmtArm` has no `.result` field. The `[Tr.ExprSwitch]` handler iterates over arms, but if any arm happens to have `.result == nil`, the fallback constant evaluation produces incorrect results.
 
 ### MOM schema gaps — 4 types not ported
-- `lua/moonlift/mom/schema/MoonCyclic.mlua:204`: Still has `ExprCall(h, target: M.CallTarget, args)` — should be `callee` not `target`
-- `lua/moonlift/mom/build/port_map.lua:319`: References `call_target_type(self.target)` — dead reference
-- `lua/moonlift/mom/build/port_map.lua:326`: References old `ValueRefSlot`, `ValueRefFuncSlot` variants
+- `lua/lalin/mom/schema/LalinCyclic.mlua:204`: Still has `ExprCall(h, target: M.CallTarget, args)` — should be `callee` not `target`
+- `lua/lalin/mom/build/port_map.lua:319`: References `call_target_type(self.target)` — dead reference
+- `lua/lalin/mom/build/port_map.lua:326`: References old `ValueRefSlot`, `ValueRefFuncSlot` variants
 - `BindingClassOpenSym`, `BindingClassOpenSlot`, `ValueRefHole`, `StmtFlow` not defined in MOM schema
 
 ---
@@ -2892,8 +2892,8 @@ With `key` removed from arm schema types, there's no standard place to store the
 
 Consider either (a) adding a `raw_key` string field back to `SwitchStmtArm`/`SwitchExprArm` (the Approach B plan never said to remove the key storage entirely — only the `SwitchKey` ASDL type was removed), or (b) establishing a convention for how keys are passed through the pipeline.
 
-### `tree_to_back.lua` — missing `O = T.MoonOpen` import? No, it's present.
-Checked: the diff shows `local O = T.MoonOpen` was added. The ValueRefHole consumers in `tree_to_back.lua` correctly use `self.ref.slot.slot` (two levels). This is the model to follow for the `tree_expr_type.lua`/`tree_place_type.lua`/`tree_typecheck.lua` fixes above.
+### `tree_to_back.lua` — missing `O = T.LalinOpen` import? No, it's present.
+Checked: the diff shows `local O = T.LalinOpen` was added. The ValueRefHole consumers in `tree_to_back.lua` correctly use `self.ref.slot.slot` (two levels). This is the model to follow for the `tree_expr_type.lua`/`tree_place_type.lua`/`tree_typecheck.lua` fixes above.
 
 ### Test coverage gaps
 The existing tests pass because they don't exercise these broken paths:
@@ -2928,27 +2928,27 @@ All 6 critical bugs identified by the reviewer are fixed. 38/38 tests pass (1 pr
 
 | File | Fix | Details |
 |------|-----|---------|
-| `lua/moonlift/schema/tree.lua` | Fix 1: Added `raw_key` string field | SwitchStmtArm and SwitchExprArm each gained `A.field "raw_key" "string"` |
-| `lua/moonlift/tree_expr_type.lua` | Fix 2: ValueRefHole double-deref | `self.slot.ty` → inner dispatch via `self.slot.slot.ty` + `O = T.MoonOpen` import |
-| `lua/moonlift/tree_place_type.lua` | Fix 2: ValueRefHole double-deref | Same pattern + `O = T.MoonOpen` import |
-| `lua/moonlift/tree_typecheck.lua` | Fix 2: ValueRefHole double-deref | Same pattern + `O = T.MoonOpen` import |
-| `lua/moonlift/parse.lua` | Fix 3: 4 construction sites | `Tr.SwitchStmtArm/ExprArm(key_table, ...)` → `Tr.SwitchStmtArm/ExprArm(key_table.raw or "", ...)` |
-| `lua/moonlift/host_func_values.lua` | Fix 3: 2 construction sites | Same pattern — extract `.raw` from key table |
-| `lua/moonlift/host_region_values.lua` | Fix 3: 1 construction site | Same pattern |
-| `lua/moonlift/c/lower_c.lua` | Fix 3: 1 construction site | `{ kind="expr", expr=...}` → `""` (expression key, no raw value) |
-| `lua/moonlift/sem_switch_decide.lua` | Fix 4a: Consumption + key_kind | `arm.key` → `arm.raw_key` in both phases; `key_kind()` now checks `key == ""` instead of `key.kind` |
-| `lua/moonlift/sem_const_eval.lua` | Fix 4b: Consumption + switch_key_value | `arm.key` → `arm.raw_key`; `switch_key_value()` simplified to return string directly |
-| `lua/moonlift/tree_to_back.lua` | Fix 4c: 2 consumption sites | `self.arms[i].key` → `self.arms[i].raw_key` (both ExprSwitch and StmtSwitch) |
-| `lua/moonlift/tree_control_to_back.lua` | Fix 4d: Consumption | Replaced `if stmt.arms[i].key ~= nil then switch_key_raw(...) else tostring(i-1) end` with direct `stmt.arms[i].raw_key` check |
-| `lua/moonlift/sem_derive.lua` | Fix 5: Removed dead code | Never imported by any consumer |
-| `lua/moonlift/sem_derive_verify.lua` | Fix 5: Removed dead code | Never imported by any consumer |
+| `lua/lalin/schema/tree.lua` | Fix 1: Added `raw_key` string field | SwitchStmtArm and SwitchExprArm each gained `A.field "raw_key" "string"` |
+| `lua/lalin/tree_expr_type.lua` | Fix 2: ValueRefHole double-deref | `self.slot.ty` → inner dispatch via `self.slot.slot.ty` + `O = T.LalinOpen` import |
+| `lua/lalin/tree_place_type.lua` | Fix 2: ValueRefHole double-deref | Same pattern + `O = T.LalinOpen` import |
+| `lua/lalin/tree_typecheck.lua` | Fix 2: ValueRefHole double-deref | Same pattern + `O = T.LalinOpen` import |
+| `lua/lalin/parse.lua` | Fix 3: 4 construction sites | `Tr.SwitchStmtArm/ExprArm(key_table, ...)` → `Tr.SwitchStmtArm/ExprArm(key_table.raw or "", ...)` |
+| `lua/lalin/host_func_values.lua` | Fix 3: 2 construction sites | Same pattern — extract `.raw` from key table |
+| `lua/lalin/host_region_values.lua` | Fix 3: 1 construction site | Same pattern |
+| `lua/lalin/c/lower_c.lua` | Fix 3: 1 construction site | `{ kind="expr", expr=...}` → `""` (expression key, no raw value) |
+| `lua/lalin/sem_switch_decide.lua` | Fix 4a: Consumption + key_kind | `arm.key` → `arm.raw_key` in both phases; `key_kind()` now checks `key == ""` instead of `key.kind` |
+| `lua/lalin/sem_const_eval.lua` | Fix 4b: Consumption + switch_key_value | `arm.key` → `arm.raw_key`; `switch_key_value()` simplified to return string directly |
+| `lua/lalin/tree_to_back.lua` | Fix 4c: 2 consumption sites | `self.arms[i].key` → `self.arms[i].raw_key` (both ExprSwitch and StmtSwitch) |
+| `lua/lalin/tree_control_to_back.lua` | Fix 4d: Consumption | Replaced `if stmt.arms[i].key ~= nil then switch_key_raw(...) else tostring(i-1) end` with direct `stmt.arms[i].raw_key` check |
+| `lua/lalin/sem_derive.lua` | Fix 5: Removed dead code | Never imported by any consumer |
+| `lua/lalin/sem_derive_verify.lua` | Fix 5: Removed dead code | Never imported by any consumer |
 | `tests/test_sem_switch_call.lua` | Fix 4: Test updated | `key1`/`key2`/`expr_key` changed from tables to plain strings |
 
 ## Root Causes Fixed
 
 1. **`raw_key` string field**: The old `SwitchKey` ASDL sum type was correctly removed (it was a derivable classification). But the actual case label value (the `"42"` in `case 42 ->`) is *payload*, not classification, and must be stored. The `raw_key` string field carries this payload.
 
-2. **ValueRefHole**: `self.slot` is a `MoonOpen.Slot` wrapper sum (e.g., `SlotValue { slot: ValueSlot }`), so `self.slot.ty` would hit the wrapper sum for a `.ty` field that doesn't exist. The fix uses `pvm.classof()` to dispatch on the slot wrapper type, then accesses `.slot.ty` (or `.slot.fn_ty`) on the inner value.
+2. **ValueRefHole**: `self.slot` is a `LalinOpen.Slot` wrapper sum (e.g., `SlotValue { slot: ValueSlot }`), so `self.slot.ty` would hit the wrapper sum for a `.ty` field that doesn't exist. The fix uses `pvm.classof()` to dispatch on the slot wrapper type, then accesses `.slot.ty` (or `.slot.fn_ty`) on the inner value.
 
 3. **Construction sites**: All 8 sites were passing a key table (`{ kind = "raw", raw = "42" }`) as the first positional arg, which the new schema maps to `body` (dropping the real body). Fixed by extracting `.raw` from the key table and passing it as the `raw_key` string.
 
@@ -2969,11 +2969,11 @@ Here is the post-implementation record.
 
 ## 1. What Was the Problem
 
-The Moonlift ASDL schema had three concrete, measurable pathologies identified by the architecture pipeline (scout → knowledge-builder → approach-proposer → critique):
+The Lalin ASDL schema had three concrete, measurable pathologies identified by the architecture pipeline (scout → knowledge-builder → approach-proposer → critique):
 
-### Pathology 1: MoonSem Annotation Bloat (24 types, ~75% redundant)
+### Pathology 1: LalinSem Annotation Bloat (24 types, ~75% redundant)
 
-MoonSem defined 24 types (17 sum/product types). The knowledge-builder analyzed each against a derivability criterion — could the value be recomputed from type + binding + flow context instead of stored?
+LalinSem defined 24 types (17 sum/product types). The knowledge-builder analyzed each against a derivability criterion — could the value be recomputed from type + binding + flow context instead of stored?
 
 | Type | Variants | Stored Because | Verdict |
 |------|----------|---------------|---------|
@@ -3026,9 +3026,9 @@ Every header variant had to be matched by every consumer, even though only 1–2
 
 ### Deferred: Approach C — Backend-Agnostic Frontend
 
-**Core idea**: Introduce `FEScalar` (frontend scalar vocabulary) to break the `MoonType → MoonBack.BackScalar` dependency, allowing the type system to be defined without knowing backend scalar specifics.
+**Core idea**: Introduce `FEScalar` (frontend scalar vocabulary) to break the `LalinType → LalinBack.BackScalar` dependency, allowing the type system to be defined without knowing backend scalar specifics.
 
-**Deferred because**: The migration cost (Very High — 15-25 files, cross-cutting BackScalar refs) outweighed the current benefit. Moonlift has one primary backend (Cranelift) and one aspirational backend (DynASM). Until a second backend actually diverges in scalar support, `FEScalar` would be a structurally identical copy of `BackScalar` with ongoing maintenance overhead.
+**Deferred because**: The migration cost (Very High — 15-25 files, cross-cutting BackScalar refs) outweighed the current benefit. Lalin has one primary backend (Cranelift) and one aspirational backend (DynASM). Until a second backend actually diverges in scalar support, `FEScalar` would be a structurally identical copy of `BackScalar` with ongoing maintenance overhead.
 
 The MachineCastOp elimination (removing the intermediate 11-variant cast op system) was identified as salvageable independently — a smaller, independent refactor with clear benefit even without the full decoupling.
 
@@ -3046,7 +3046,7 @@ The critique found the caching concern largely theoretical because "the current 
 
 ### 3.1 Schema Changes (Phase 1)
 
-#### MoonSem (`lua/moonlift/schema/sem.lua`) — 24 types → 7
+#### LalinSem (`lua/lalin/schema/sem.lua`) — 24 types → 7
 
 **Removed (11 types)**:
 
@@ -3068,7 +3068,7 @@ The critique found the caching concern largely theoretical because "the current 
 
 File shrank from ~260 lines to 115 lines.
 
-#### MoonTree (`lua/moonlift/schema/tree.lua`) — header variants reduced, ExprCall restructured
+#### LalinTree (`lua/lalin/schema/tree.lua`) — header variants reduced, ExprCall restructured
 
 **ExprHeader**: 5 variants → 3:
 - Removed `ExprSem` (stored `value_class`, `const_class`)
@@ -3088,20 +3088,20 @@ File shrank from ~260 lines to 115 lines.
 
 **ExprCall**: Replaced `target: CallTarget` with `callee: Expr`. The CallTarget ASDL sum was removed; call target resolution now happens inline using the callee expression directly. This also added a `callee` field to the schema — essential for typechecking, since call target resolution requires knowing what expression is being called.
 
-#### MoonBind (`lua/moonlift/schema/bind.lua`) — compressed BindingClass and ValueRef
+#### LalinBind (`lua/lalin/schema/bind.lua`) — compressed BindingClass and ValueRef
 
 **BindingClass**: 12 variants removed (4 Sym + 4 Slot + 4 old structural that were absorbed):
-- `BindingClassFuncSym`/`ExternSym`/`ConstSym`/`StaticSym` → `BindingClassOpenSym { sym: MoonCore.OpenSym }`
-- `BindingClassFuncSlot`/`ConstSlot`/`StaticSlot`/`ValueSlot` → `BindingClassOpenSlot { slot: MoonOpen.Slot }`
+- `BindingClassFuncSym`/`ExternSym`/`ConstSym`/`StaticSym` → `BindingClassOpenSym { sym: LalinCore.OpenSym }`
+- `BindingClassFuncSlot`/`ConstSlot`/`StaticSlot`/`ValueSlot` → `BindingClassOpenSlot { slot: LalinOpen.Slot }`
 - Remaining structural variants (LocalValue, LocalCell, Arg, BlockParam, etc.) kept unchanged
 
 New total: ~8 variants (exact count depends on whether GlobalFunc/Const/Static are counted separately).
 
 **ValueRef**: 7 variants → 4:
-- `ValueRefSlot`/`ValueRefFuncSlot`/`ValueRefConstSlot`/`ValueRefStaticSlot` → `ValueRefHole { slot: MoonOpen.Slot }`
+- `ValueRefSlot`/`ValueRefFuncSlot`/`ValueRefConstSlot`/`ValueRefStaticSlot` → `ValueRefHole { slot: LalinOpen.Slot }`
 - Kept: `ValueRefName`, `ValueRefPath`, `ValueRefBinding`
 
-#### MoonCore (`lua/moonlift/schema/core.lua`) — new foundation types
+#### LalinCore (`lua/lalin/schema/core.lua`) — new foundation types
 
 Added (appended after existing Sym products, which remain for backward compatibility):
 
@@ -3115,7 +3115,7 @@ A.sum "SymKind" {
 }
 
 A.product "OpenSym" {
-    A.field "kind" "MoonCore.SymKind",
+    A.field "kind" "LalinCore.SymKind",
     A.field "key" "string",
     A.field "name" "string",
     A.field "symbol" "string",  -- empty for non-extern syms
@@ -3135,7 +3135,7 @@ The old `FuncSym`, `ExternSym`, `ConstSym`, `StaticSym` product types remain in 
 
 **Pattern 3 — BindingClass Sym/Slot → OpenSym/OpenSlot**: All pattern matches on the 4 Sym variants became a single `BindingClassOpenSym` arm with inner dispatch on `sym.kind`. All pattern matches on the 4 Slot variants became a single `BindingClassOpenSlot` arm with inner dispatch on `pvm.classof(slot)`.
 
-**Pattern 4 — ValueRef slots → ValueRefHole**: All 4 slot-variant matches collapsed to one `ValueRefHole` with the same inner dispatch on the `MoonOpen.Slot` wrapper. Requires double dereference: `self.ref.slot.slot.ty` (the outer `slot` is the MoonOpen.Slot wrapper sum; the inner `.slot` is the wrapped product).
+**Pattern 4 — ValueRef slots → ValueRefHole**: All 4 slot-variant matches collapsed to one `ValueRefHole` with the same inner dispatch on the `LalinOpen.Slot` wrapper. Requires double dereference: `self.ref.slot.slot.ty` (the outer `slot` is the LalinOpen.Slot wrapper sum; the inner `.slot` is the wrapped product).
 
 **Pattern 5 — SwitchKey → raw_key string**: In `parse.lua`, `host_func_values.lua`, `host_region_values.lua`, `c/lower_c.lua`: construction changed from `Tr.SwitchStmtArm(key_table, body)` to `Tr.SwitchStmtArm(key_table.raw or "", body)`. In `sem_switch_decide.lua`, `sem_const_eval.lua`, `tree_to_back.lua`, `tree_control_to_back.lua`: consumption changed from `arm.key` to `arm.raw_key`.
 
@@ -3143,7 +3143,7 @@ The old `FuncSym`, `ExternSym`, `ConstSym`, `StaticSym` product types remain in 
 
 ### 3.3 Files That Were Created and Then Removed
 
-**`lua/moonlift/sem_derive.lua`** was created (Phase 1) with 5 derivation functions (`value_class`, `const_class`, `code_shape`, `address_class`, `switch_key_kind`). **`lua/moonlift/sem_derive_verify.lua`** was created (Phase 3) for debug-mode phase boundary assertions.
+**`lua/lalin/sem_derive.lua`** was created (Phase 1) with 5 derivation functions (`value_class`, `const_class`, `code_shape`, `address_class`, `switch_key_kind`). **`lua/lalin/sem_derive_verify.lua`** was created (Phase 3) for debug-mode phase boundary assertions.
 
 Both were **never wired into any consumer**. The worker implemented them as a specification of the derivations but the Phase 2 consumer migration inlined the derivations directly instead of calling the shared module. The reviewer flagged them as dead code, and they were removed in Phase 3 cleanup.
 
@@ -3153,8 +3153,8 @@ Both were **never wired into any consumer**. The worker implemented them as a sp
 
 | Metric | Before | After | Change |
 |--------|--------|-------|--------|
-| MoonSem types | 24 | 7 | −11 types (−60%) |
-| MoonSem schema lines | ~260 | 115 | −145 lines |
+| LalinSem types | 24 | 7 | −11 types (−60%) |
+| LalinSem schema lines | ~260 | 115 | −145 lines |
 | ExprHeader variants | 5 | 3 | −2 |
 | PlaceHeader variants | 4 | 3 | −1 |
 | StmtHeader variants | 5 | 3 | −2 (StmtTyped removed, StmtSem+StmtCode merged) |
@@ -3192,18 +3192,18 @@ The reviewer identified **6 critical bugs** introduced by the migration. All wer
 
 ### Bug 2: ValueRefHole Double Dereference (reviewer critical #5)
 
-**Root cause**: `ValueRefHole { slot: MoonOpen.Slot }` wraps a `MoonOpen.Slot` — which is itself a 16-variant wrapper sum (e.g., `SlotValue { slot: ValueSlot }`). Accessing `self.slot.ty` attempts to read `.ty` from the outer wrapper sum, which has no such field. The correct access is `self.slot.slot.ty` — first unwrap the MoonOpen.Slot sum, then access the inner product's `.ty` field.
+**Root cause**: `ValueRefHole { slot: LalinOpen.Slot }` wraps a `LalinOpen.Slot` — which is itself a 16-variant wrapper sum (e.g., `SlotValue { slot: ValueSlot }`). Accessing `self.slot.ty` attempts to read `.ty` from the outer wrapper sum, which has no such field. The correct access is `self.slot.slot.ty` — first unwrap the LalinOpen.Slot sum, then access the inner product's `.ty` field.
 
 **Broken sites** (3 files):
-- `lua/moonlift/tree_expr_type.lua` line 41
-- `lua/moonlift/tree_place_type.lua` line 30
-- `lua/moonlift/tree_typecheck.lua` line 203
+- `lua/lalin/tree_expr_type.lua` line 41
+- `lua/lalin/tree_place_type.lua` line 30
+- `lua/lalin/tree_typecheck.lua` line 203
 
 All returned `nil` for every `ValueRefHole` type query.
 
-**Fix**: Added inner dispatch using `pvm.classof(self.slot)` to check which MoonOpen.Slot variant is present, then access `.slot.ty` or `.slot.fn_ty` on the inner product.
+**Fix**: Added inner dispatch using `pvm.classof(self.slot)` to check which LalinOpen.Slot variant is present, then access `.slot.ty` or `.slot.fn_ty` on the inner product.
 
-**Key lesson**: When a schema type wraps another schema type (`ValueRefHole.slot: MoonOpen.Slot`), the slot field is one level of indirection deeper than it appears. The ASDL builder creates a wrapper sum with the variant name as the outer wrapper, so accessing a field on the inner type requires `outer_sum_variant.slot.field`, not `outer_sum_variant.field`.
+**Key lesson**: When a schema type wraps another schema type (`ValueRefHole.slot: LalinOpen.Slot`), the slot field is one level of indirection deeper than it appears. The ASDL builder creates a wrapper sum with the variant name as the outer wrapper, so accessing a field on the inner type requires `outer_sum_variant.slot.field`, not `outer_sum_variant.field`.
 
 ### Bug 3: `tree_control_to_back.lua` Arm Index Fallback (reviewer warning)
 
@@ -3223,14 +3223,14 @@ Similarly, `ExprCall` lost its `target` field — but the callee expression was 
 
 ### 5.1 MOM Schema Gaps (4 types not ported)
 
-The native compiler schema (`lua/moonlift/mom/`) was not updated. Four new types are missing:
+The native compiler schema (`lua/lalin/mom/`) was not updated. Four new types are missing:
 
 | Missing Type | Defined In |
 |-------------|-----------|
-| `BindingClassOpenSym` | MoonBind (compressed from 4 Sym variants) |
-| `BindingClassOpenSlot` | MoonBind (compressed from 4 Slot variants) |
-| `ValueRefHole` | MoonBind (compressed from 4 slot variants) |
-| `StmtFlow` | MoonTree (merged StmtSem+StmtCode) |
+| `BindingClassOpenSym` | LalinBind (compressed from 4 Sym variants) |
+| `BindingClassOpenSlot` | LalinBind (compressed from 4 Slot variants) |
+| `ValueRefHole` | LalinBind (compressed from 4 slot variants) |
+| `StmtFlow` | LalinTree (merged StmtSem+StmtCode) |
 
 Additionally, the MOM schema still has the old `ExprCall(h, target: M.CallTarget, args)` signature — needs updating to `h, callee, args`.
 
@@ -3238,7 +3238,7 @@ The MOM deep check (`test_mom_check_deep.mlua`) reports 8 failures: 4 of these n
 
 ### 5.2 Old Sym Types in core.lua
 
-The old `FuncSym`, `ExternSym`, `ConstSym`, `StaticSym` product types remain in `lua/moonlift/schema/core.lua`. They are still referenced by `tree.lua` for open-declaration variants (`FuncOpen`, `ExternFuncOpen`, `ConstItemOpen`, `StaticItemOpen`).
+The old `FuncSym`, `ExternSym`, `ConstSym`, `StaticSym` product types remain in `lua/lalin/schema/core.lua`. They are still referenced by `tree.lua` for open-declaration variants (`FuncOpen`, `ExternFuncOpen`, `ConstItemOpen`, `StaticItemOpen`).
 
 A future cleanup could either:
 - Remove the old Sym types and update tree.lua's open-declaration variants to use `OpenSym`
@@ -3264,38 +3264,38 @@ The `sem_derive.lua` module was created but never wired into consumers and was r
 
 | File | Change Type | Description |
 |------|-------------|-------------|
-| `lua/moonlift/schema/core.lua` | Modified (+27 lines) | Added `SymKind` sum + `OpenSym` product |
-| `lua/moonlift/schema/sem.lua` | Modified (−145 lines) | Removed 11 types, kept 7 structural types |
-| `lua/moonlift/schema/tree.lua` | Modified | Header variants reduced; ExprCall.target→callee; SwitchStmtArm/SwitchExprArm key→raw_key |
-| `lua/moonlift/schema/bind.lua` | Modified | BindingClass compressed to ~8 variants; ValueRef compressed to 4 variants |
-| `lua/moonlift/sem_derive.lua` | Created then removed | Dead code — never wired into consumers |
-| `lua/moonlift/sem_derive_verify.lua` | Created then removed | Dead code — never wired into consumers |
-| `lua/moonlift/tree_expr_type.lua` | Modified | ExprSem/ExprCode removed; ValueRef compression |
-| `lua/moonlift/tree_place_type.lua` | Modified | PlaceSem removed; ValueRef compression |
-| `lua/moonlift/tree_control_facts.lua` | Modified | ExprSem/ExprCode removed from expr_type phase |
-| `lua/moonlift/tree_typecheck.lua` | Modified | StmtTyped→StmtSurface (18 sites); ValueRef compression; ExprCall callee fix |
-| `lua/moonlift/tree_module_type.lua` | Modified | BindingClass Sym→OpenSym conversion |
-| `lua/moonlift/tree_to_back.lua` | Modified | ExprSem/ExprCode removed; switch lowering fixed; ValueRef compression; CallTarget→callee |
-| `lua/moonlift/tree_control_to_back.lua` | Modified | SwitchKey phase→regular function; raw_key fix |
-| `lua/moonlift/open_facts.lua` | Modified | Header variants removed; BindingClass/ValueRef compression |
-| `lua/moonlift/open_expand.lua` | Modified | Header variants removed; ValueRef compression; CallUnresolved→Lua tables |
-| `lua/moonlift/open_rewrite.lua` | Modified | ValueRef slot→ValueRefHole |
-| `lua/moonlift/sem_call_decide.lua` | Modified | BindingClass compression; CallTarget→Lua tables |
-| `lua/moonlift/sem_const_eval.lua` | Modified | Switch keys→raw_key; ConstClass→Lua tables; ExprSem/ExprCode removed |
-| `lua/moonlift/sem_layout_resolve.lua` | Modified | Header matches updated |
-| `lua/moonlift/sem_switch_decide.lua` | Modified | SwitchKey→raw_key; PVM phases→regular functions |
-| `lua/moonlift/bind_residence_gather.lua` | Modified | ValueRef slot→ValueRefHole |
-| `lua/moonlift/closure_convert.lua` | Modified | ExprCall target→callee; CallTarget→Lua tables |
-| `lua/moonlift/region_normal_form.lua` | Modified | CallTarget→Lua tables |
-| `lua/moonlift/parse.lua` | Modified | SwitchStmtArm key→raw_key (4 sites) |
-| `lua/moonlift/host_func_values.lua` | Modified | SwitchStmtArm key→raw_key (2 sites) |
-| `lua/moonlift/host_region_values.lua` | Modified | SwitchStmtArm key→raw_key (1 site) |
-| `lua/moonlift/c/lower_c.lua` | Modified | SwitchStmtArm key→raw_key (1 site) |
-| `lua/moonlift/ast.lua` | Modified | Switch key construction |
-| `lua/moonlift/host_expr_values.lua` | Modified | Switch key construction |
-| `lua/moonlift/pvm_surface_cache_values.lua` | Modified | Switch key construction |
-| `lua/moonlift/pvm_surface_region_values.lua` | Modified | Switch key construction |
-| `lua/moonlift/mom/verify/parser_native_ast.lua` | Modified | ExprCall callee field |
+| `lua/lalin/schema/core.lua` | Modified (+27 lines) | Added `SymKind` sum + `OpenSym` product |
+| `lua/lalin/schema/sem.lua` | Modified (−145 lines) | Removed 11 types, kept 7 structural types |
+| `lua/lalin/schema/tree.lua` | Modified | Header variants reduced; ExprCall.target→callee; SwitchStmtArm/SwitchExprArm key→raw_key |
+| `lua/lalin/schema/bind.lua` | Modified | BindingClass compressed to ~8 variants; ValueRef compressed to 4 variants |
+| `lua/lalin/sem_derive.lua` | Created then removed | Dead code — never wired into consumers |
+| `lua/lalin/sem_derive_verify.lua` | Created then removed | Dead code — never wired into consumers |
+| `lua/lalin/tree_expr_type.lua` | Modified | ExprSem/ExprCode removed; ValueRef compression |
+| `lua/lalin/tree_place_type.lua` | Modified | PlaceSem removed; ValueRef compression |
+| `lua/lalin/tree_control_facts.lua` | Modified | ExprSem/ExprCode removed from expr_type phase |
+| `lua/lalin/tree_typecheck.lua` | Modified | StmtTyped→StmtSurface (18 sites); ValueRef compression; ExprCall callee fix |
+| `lua/lalin/tree_module_type.lua` | Modified | BindingClass Sym→OpenSym conversion |
+| `lua/lalin/tree_to_back.lua` | Modified | ExprSem/ExprCode removed; switch lowering fixed; ValueRef compression; CallTarget→callee |
+| `lua/lalin/tree_control_to_back.lua` | Modified | SwitchKey phase→regular function; raw_key fix |
+| `lua/lalin/open_facts.lua` | Modified | Header variants removed; BindingClass/ValueRef compression |
+| `lua/lalin/open_expand.lua` | Modified | Header variants removed; ValueRef compression; CallUnresolved→Lua tables |
+| `lua/lalin/open_rewrite.lua` | Modified | ValueRef slot→ValueRefHole |
+| `lua/lalin/sem_call_decide.lua` | Modified | BindingClass compression; CallTarget→Lua tables |
+| `lua/lalin/sem_const_eval.lua` | Modified | Switch keys→raw_key; ConstClass→Lua tables; ExprSem/ExprCode removed |
+| `lua/lalin/sem_layout_resolve.lua` | Modified | Header matches updated |
+| `lua/lalin/sem_switch_decide.lua` | Modified | SwitchKey→raw_key; PVM phases→regular functions |
+| `lua/lalin/bind_residence_gather.lua` | Modified | ValueRef slot→ValueRefHole |
+| `lua/lalin/closure_convert.lua` | Modified | ExprCall target→callee; CallTarget→Lua tables |
+| `lua/lalin/region_normal_form.lua` | Modified | CallTarget→Lua tables |
+| `lua/lalin/parse.lua` | Modified | SwitchStmtArm key→raw_key (4 sites) |
+| `lua/lalin/host_func_values.lua` | Modified | SwitchStmtArm key→raw_key (2 sites) |
+| `lua/lalin/host_region_values.lua` | Modified | SwitchStmtArm key→raw_key (1 site) |
+| `lua/lalin/c/lower_c.lua` | Modified | SwitchStmtArm key→raw_key (1 site) |
+| `lua/lalin/ast.lua` | Modified | Switch key construction |
+| `lua/lalin/host_expr_values.lua` | Modified | Switch key construction |
+| `lua/lalin/pvm_surface_cache_values.lua` | Modified | Switch key construction |
+| `lua/lalin/pvm_surface_region_values.lua` | Modified | Switch key construction |
+| `lua/lalin/mom/verify/parser_native_ast.lua` | Modified | ExprCall callee field |
 | 21 test files | Modified | StmtTyped→StmtSurface, BindingClass Sym→OpenSym, SwitchKey→Lua tables |
 
 ---

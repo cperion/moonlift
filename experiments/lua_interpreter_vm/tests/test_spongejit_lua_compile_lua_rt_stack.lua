@@ -4,15 +4,15 @@ package.path = "./experiments/lua_interpreter_vm/spongejit/?.lua;./experiments/l
 local ffi = require("ffi")
 local C = require("lua_compile")
 local Schema = require("lua_compile.schema")
-local Emit = require("lua_compile.moon_cfg_emit")
-local Validate = require("lua_compile.moon_cfg_validate")
+local Emit = require("lua_compile.lalin_cfg_emit")
+local Validate = require("lua_compile.lalin_cfg_validate")
 local ExecLower = require("lua_compile.lua_src_to_lua_exec_lower")
-local ExecToMoon = require("lua_compile.lua_exec_to_moon_cfg_lower")
+local ExecToLalin = require("lua_compile.lua_exec_to_lalin_cfg_lower")
 local ValueModel = require("lua_compile.lua_rt_value_model")
 local OutcomeModel = require("lua_compile.lua_rt_outcome_model")
 local StackModel = require("lua_compile.lua_rt_stack_model")
 local T = Schema.get()
-local RT, Exec, CFG, CC = T.LuaRT, T.LuaExec, T.MoonCFG, T.CompileContract
+local RT, Exec, CFG, CC = T.LuaRT, T.LuaExec, T.LalinCFG, T.CompileContract
 
 pcall(function()
   ffi.cdef[[
@@ -119,7 +119,7 @@ local function lower_outcome(events, evidence, projection)
   local unit = C.unit_from_events(events, evidence or {})
   local exec_kernel, exec_errors = ExecLower.lower(unit.source, unit.evidence)
   assert(exec_kernel, "LuaExec stack lowering rejected fixture: " .. table.concat(exec_errors or {}, "; "))
-  local cfg, cfg_errors = ExecToMoon.lower_outcome(exec_kernel, projection)
+  local cfg, cfg_errors = ExecToLalin.lower_outcome(exec_kernel, projection)
   assert(cfg, "LuaExec stack outcome rejected fixture: " .. table.concat(cfg_errors or {}, "; "))
   return cfg
 end

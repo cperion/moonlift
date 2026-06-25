@@ -1,7 +1,7 @@
 -- lua_compile_unit.lua -- LuaCompile.Unit construction.
 
 local B = require("lua_compile.builders")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local Collect = require("lua_compile.lua_src_window_collect")
 local FactObserve = require("lua_compile.lua_fact_from_runtime_observe")
 

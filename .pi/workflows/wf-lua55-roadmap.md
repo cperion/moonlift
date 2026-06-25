@@ -1,4 +1,4 @@
-# SpongeJIT Lua 5.5 Feature Roadmap 
+# SpongeJIT Lua 5.5 Feature Roadmap
 Identify features needed after SpongeJIT clean-base reset to grow toward full Lua 5.5 semantics.
 **Workflow ID**: wf-lua55-roadmap
 **Started**: 2026-06-06 16:17:46
@@ -8,21 +8,21 @@ Identify features needed after SpongeJIT clean-base reset to grow toward full Lu
 
 ## Files Retrieved
 
-1. `experiments/lua_interpreter_vm/spongejit/ssa_asdl/spongejit_lua_ssa.asdl` (lines 1-260, 261-520, 521-880, 881-1270, 1271-1610, 1760-1814) — full current clean-base vocabulary: `LuaSrc`, `LuaFFI`, `LuaRT`, `LuaGC`, `LuaExec`, `MoonCFG`, `LuaCompile`.
+1. `experiments/lua_interpreter_vm/spongejit/ssa_asdl/spongejit_lua_ssa.asdl` (lines 1-260, 261-520, 521-880, 881-1270, 1271-1610, 1760-1814) — full current clean-base vocabulary: `LuaSrc`, `LuaFFI`, `LuaRT`, `LuaGC`, `LuaExec`, `LalinCFG`, `LuaCompile`.
 2. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_from_puc_decode.lua` (lines 1-135) — PUC event/table decoder into `LuaSrc.Op`, explicit decoders for all real opcodes.
 3. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_window_collect.lua` (lines 1-46) — window collector and `EXTRAARG` preservation.
 4. `experiments/lua_interpreter_vm/spongejit/lua_compile/validate.lua` (lines 1-160) — cross-layer validation, LuaSrc companion checks.
 5. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_to_lua_exec_lower.lua` (lines 1-923) — current source-to-`LuaExec` semantic lowering and fail-closed cases.
-6. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua` (lines 1-880) — `LuaExec` to `MoonCFG` lowering; supported runtime expressions, outcome mode, unsupported ops.
-7. `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua` (lines 1-1329) — MoonCFG-to-Moonlift emitter and executable runtime substrates.
-8. `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua` (lines 1-393) — validator support set and forbidden protocol/legacy concepts.
+6. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua` (lines 1-880) — `LuaExec` to `LalinCFG` lowering; supported runtime expressions, outcome mode, unsupported ops.
+7. `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua` (lines 1-1329) — LalinCFG-to-Lalin emitter and executable runtime substrates.
+8. `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_validate.lua` (lines 1-393) — validator support set and forbidden protocol/legacy concepts.
 9. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_value_model.lua` (lines 1-145) — executable `LuaRTValue` tags/type tests.
 10. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_stack_model.lua` (lines 1-88) — stack/window/sequence/vararg runtime model.
 11. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_object_model.lua` (lines 1-132) — table/string/raw-get/hash/barrier runtime model.
 12. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_cdata_model.lua` (lines 1-64) — cdata scalar-bank model.
 13. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_outcome_model.lua` (lines 1-82) — return/error/yield outcome model.
-14. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_validate.lua` (lines 1-220) — structural LuaExec validator; recognizes more expressions than MoonCFG lower executes.
-15. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_to_moon_kernel.lua` (lines 1-77) — public compile route: `LuaSrc.Window -> LuaExec.Kernel -> MoonCFG.Kernel`, no fallback.
+14. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_validate.lua` (lines 1-220) — structural LuaExec validator; recognizes more expressions than LalinCFG lower executes.
+15. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_to_lalin_kernel.lua` (lines 1-77) — public compile route: `LuaSrc.Window -> LuaExec.Kernel -> LalinCFG.Kernel`, no fallback.
 16. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_unit.lua` (lines 1-21) — unit construction from events/evidence.
 17. `experiments/lua_interpreter_vm/spongejit/lua_compile/init.lua` (lines 1-43) — public facade exports.
 18. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_fact_from_runtime_observe.lua` (lines 1-212) — runtime observation import into `LuaFact.Evidence`.
@@ -36,20 +36,20 @@ Identify features needed after SpongeJIT clean-base reset to grow toward full Lu
 26. `experiments/lua_interpreter_vm/SPONJIT_ARCHITECTURE.md` (lines 1-31) — current direction and retired assumptions.
 27. `experiments/lua_interpreter_vm/SPONJIT_FFI_DESIGN.md` (lines 1-180) — FFI design target and explicit data/control split.
 28. `experiments/lua_interpreter_vm/SPONJIT_GC_DESIGN.md` (lines 1-180) — GC design target.
-29. `experiments/lua_interpreter_vm/SPONJIT_MOONLIFT_COPY_PATCH_DESIGN.md` (lines 1-180) — copy/patch executor design.
+29. `experiments/lua_interpreter_vm/SPONJIT_LALIN_COPY_PATCH_DESIGN.md` (lines 1-180) — copy/patch executor design.
 30. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_src.lua` (lines 1-120) — LuaSrc decode coverage and field preservation tests.
 31. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_schema.lua` (lines 1-119) — schema presence/shape assertions.
-32. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua` (lines 1-380) — core LuaExec/MoonCFG executable tests.
+32. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua` (lines 1-380) — core LuaExec/LalinCFG executable tests.
 33. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arithmetic.lua` (lines 1-179) — current arithmetic executable slice.
 34. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_objects.lua` (lines 1-168) — object/table/string executable slice.
 35. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_stack.lua` (lines 1-207) — stack/sequence/vararg executable slice.
-36. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua` (lines 1-363) — MoonCFG route, positive/negative support tests.
+36. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua` (lines 1-363) — LalinCFG route, positive/negative support tests.
 37. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_ffi.lua` (lines 1-159) — FFI ASDL/validator/stencil metadata foundation.
 38. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_gc.lua` (lines 1-230) — GC ASDL/validator/stencil metadata foundation.
 39. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_completion.lua` (lines 1-63) — opt-in completion gate.
 40. `experiments/lua_interpreter_vm/spongejit/build/lua_compile_corpus100/lua_compile_grammar_coverage.json` (line 1) — generated corpus coverage after run.
 41. `experiments/lua_interpreter_vm/spongejit/build/lua_compile_corpus100/lua_compile_representatives.md` (lines 1-34) — generated corpus representative summary.
-42. `experiments/lua_interpreter_vm/src/products.lua` (lines 1-120) — Moonlift-native VM data tree, separate from SpongeJIT clean-base compiler but relevant substrate evidence.
+42. `experiments/lua_interpreter_vm/src/products.lua` (lines 1-120) — Lalin-native VM data tree, separate from SpongeJIT clean-base compiler but relevant substrate evidence.
 43. `experiments/lua_interpreter_vm/src/constants.lua` (lines 1-287) — Lua 5.5 VM opcode/tag/TM/resume/error constants.
 44. `experiments/lua_interpreter_vm/src/opcodes.lua` (lines 1-880) — native VM dispatch arms/handlers for opcodes.
 45. `experiments/lua_interpreter_vm/src/op_handlers.lua` (lines 1-19) — native VM handler aggregation.
@@ -68,7 +68,7 @@ Identify features needed after SpongeJIT clean-base reset to grow toward full Lu
 --   LuaRT           answers: what Lua runtime semantic objects/state exist.
 --   LuaExec         answers: what explicit semantic Lua CFG is executed over LuaRT.
 --   CompileContract answers: what executable-route obligations/facts/invalidation assumptions are attached.
---   MoonCFG         answers: what explicit Moonlift CFG is emitted.
+--   LalinCFG         answers: what explicit Lalin CFG is emitted.
 ```
 
 ### LuaSrc opcode surface
@@ -156,18 +156,18 @@ end
 ```
 
 ```lua
--- test_spongejit_lua_compile_moon_cfg.lua lines 270-282
-local external_jump = C.compile_to_moon_kernel(...)
+-- test_spongejit_lua_compile_lalin_cfg.lua lines 270-282
+local external_jump = C.compile_to_lalin_kernel(...)
 assert(external_jump.kind == "Reject", "external jump target must not compile as closed success")
 
-local legacy_mul = C.compile_to_moon_kernel(...)
-assert(legacy_mul.kind == "Reject", "NF-owned MUL must not compile through MoonKernel fallback")
+local legacy_mul = C.compile_to_lalin_kernel(...)
+assert(legacy_mul.kind == "Reject", "NF-owned MUL must not compile through LalinKernel fallback")
 ```
 
 ```lua
--- test_spongejit_lua_compile_moon_cfg.lua lines 344-345
+-- test_spongejit_lua_compile_lalin_cfg.lua lines 344-345
 for _, op in ipairs({ "CALL", "TAILCALL", "CLOSE", "TBC", "TFORPREP", "TFORCALL", "TFORLOOP", "SETLIST", "GETVARG" }) do
-  local r = C.compile_to_moon_kernel(C.unit_from_events({ sample_event(op) }, {}))
+  local r = C.compile_to_lalin_kernel(C.unit_from_events({ sample_event(op) }, {}))
   assert(r.kind == "Reject", op .. " must not compile as protocol success")
 end
 ```
@@ -175,9 +175,9 @@ end
 ### Public compile route has no semantic fallback
 
 ```lua
--- lua_compile_to_moon_kernel.lua lines 52-65
--- Accepted MoonKernel compilation has one executable route:
--- LuaSrc.Window -> LuaExec.Kernel -> MoonCFG.Kernel. Unsupported source
+-- lua_compile_to_lalin_kernel.lua lines 52-65
+-- Accepted LalinKernel compilation has one executable route:
+-- LuaSrc.Window -> LuaExec.Kernel -> LalinCFG.Kernel. Unsupported source
 -- windows return diagnostics; there are no silent success fallbacks.
 local exec_kernel, exec_errors = LuaExecLower.lower(unit.source, unit.evidence)
 if not exec_kernel then
@@ -185,11 +185,11 @@ if not exec_kernel then
 end
 ...
 if not cfg_kernel then
-  return Errors.compile_reject_from_errors("lua_exec_to_moon_cfg_lower", unit.source, cfg_errors, "internal_invariant_failure")
+  return Errors.compile_reject_from_errors("lua_exec_to_lalin_cfg_lower", unit.source, cfg_errors, "internal_invariant_failure")
 end
 ```
 
-### Executable runtime substrates present in MoonCFG emitter
+### Executable runtime substrates present in LalinCFG emitter
 
 - `LuaRTValue`: tag + payload fields, all tags modeled.
 - `LuaRTOutcome`: normal/error/yield with first two values.
@@ -218,7 +218,7 @@ Example object model:
 Example raw table support:
 
 ```lua
--- moon_cfg_emit.lua lines 462-528
+-- lalin_cfg_emit.lua lines 462-528
 -- raw get checks TableTag, payload handle, NoMetatable, integer array key,
 -- then bounded hash probe over hash_capacity <= HASH_PROBE_LIMIT.
 ```
@@ -226,7 +226,7 @@ Example raw table support:
 Example cdata emitter fragment:
 
 ```lua
--- moon_cfg_emit.lua lines 327-355
+-- lalin_cfg_emit.lua lines 327-355
 local function render_cdata_access_ok(cdata_bank, cdata_value, scalar, type_id, offset_bytes, width_bytes)
   ...
   "if " .. cdata_value .. ".tag == " .. tag_lit("CDataTag") .. " then",
@@ -236,7 +236,7 @@ local function render_cdata_access_ok(cdata_bank, cdata_value, scalar, type_id, 
 end
 ```
 
-But `moon_cfg_validate.lua` accepted runtime expr list does **not** include `RuntimeCDataAccessOk` / `RuntimeCDataLoadScalar`, and `lua_exec_to_moon_cfg_lower.lua` has no cdata expression lowering.
+But `lalin_cfg_validate.lua` accepted runtime expr list does **not** include `RuntimeCDataAccessOk` / `RuntimeCDataLoadScalar`, and `lua_exec_to_lalin_cfg_lower.lua` has no cdata expression lowering.
 
 ## Relationships
 
@@ -250,11 +250,11 @@ PUC/event rows
   -> LuaCompile.Unit(source, evidence)
   -> lua_src_to_lua_exec_lower.lua
   -> LuaExec.Kernel
-  -> lua_exec_to_moon_cfg_lower.lua
-  -> MoonCFG.Kernel
-  -> moon_cfg_validate.lua
-  -> moon_cfg_emit.lua
-  -> Moonlift source/native compile in tests
+  -> lua_exec_to_lalin_cfg_lower.lua
+  -> LalinCFG.Kernel
+  -> lalin_cfg_validate.lua
+  -> lalin_cfg_emit.lua
+  -> Lalin source/native compile in tests
 ```
 
 ### Current supported executable families
@@ -297,7 +297,7 @@ PUC/event rows
 - **FFI/cdata**
   - ASDL and validators model C types, layouts, symbols, callbacks, cdata, finalizers, patch holes.
   - CData runtime model/emitter fragments exist for scalar bank load/access.
-  - No current source opcode/API path lowers FFI/cdata operations to accepted MoonCFG.
+  - No current source opcode/API path lowers FFI/cdata operations to accepted LalinCFG.
 - **GC**
   - ASDL and validators model headers, state, roots, barriers, finalizers, weak/ephemeron controls.
   - Executable SpongeJIT path has table write barrier metadata only.
@@ -305,7 +305,7 @@ PUC/event rows
 
 ### Current native VM is broader but separate
 
-`experiments/lua_interpreter_vm/src/opcodes.lua` builds dispatch arms for opcode numbers 0-84 and routes all non-inlined opcodes to handler regions. `src/products.lua` defines VM-level `Value`, `String`, `Table`, `Proto`, `UpVal`, `LClosure`, `CClosure`, `UserData`, `Frame`, `LuaThread`, `GlobalState`. This is evidence of runtime substrate in the Moonlift-native VM, but SpongeJIT clean-base compiler intentionally accepts only the LuaExec/MoonCFG route above.
+`experiments/lua_interpreter_vm/src/opcodes.lua` builds dispatch arms for opcode numbers 0-84 and routes all non-inlined opcodes to handler regions. `src/products.lua` defines VM-level `Value`, `String`, `Table`, `Proto`, `UpVal`, `LClosure`, `CClosure`, `UserData`, `Frame`, `LuaThread`, `GlobalState`. This is evidence of runtime substrate in the Lalin-native VM, but SpongeJIT clean-base compiler intentionally accepts only the LuaExec/LalinCFG route above.
 
 ## Test / Coverage Signals
 
@@ -330,7 +330,7 @@ Printed tests:
 - `ok - SpongeJIT LuaRT object/table/string substrate`
 - `ok - SpongeJIT LuaRT stack/window/top/sequence/vararg substrate`
 - `ok - SpongeJIT LuaCompile LuaSrc (decode coverage 85/85)`
-- `ok - SpongeJIT LuaCompile MoonCFG LuaExec route`
+- `ok - SpongeJIT LuaCompile LalinCFG LuaExec route`
 - `ok - SpongeJIT LuaCompile pipeline`
 - `ok - SpongeJIT LuaCompile schema`
 - `ok - SpongeJIT LuaCompile stencil artifacts`
@@ -344,7 +344,7 @@ cd experiments/lua_interpreter_vm/spongejit && make test-completion
 Result:
 
 ```text
-ok - SpongeJIT LuaCompile completion (LuaExec/MoonCFG semantic fixtures)
+ok - SpongeJIT LuaCompile completion (LuaExec/LalinCFG semantic fixtures)
 ```
 
 Opt-in corpus:
@@ -384,15 +384,15 @@ Top corpus accepted/rejected patterns after run:
 ## Observations
 
 - LuaSrc is complete for Lua 5.5 opcode decoding: 85/85 real op families.
-- LuaExec/MoonCFG is intentionally much narrower than LuaSrc. Coverage summary lists 35 supported op names, but some are contextual (`MMBIN*` companions, `GETVARG` with full vararg window, closed comparisons with following `JMP`).
+- LuaExec/LalinCFG is intentionally much narrower than LuaSrc. Coverage summary lists 35 supported op names, but some are contextual (`MMBIN*` companions, `GETVARG` with full vararg window, closed comparisons with following `JMP`).
 - The clean-base no-fallback invariant is strongly tested: no `LuaSem`, `LuaNF`, protocol exits, `out_tag`, opcode helper fallbacks, or old stencil-bank path in accepted products.
 - Main suite excludes `completion` and `corpus100`; both opt-in gates are currently green after running.
 - ASDL already models many full Lua semantics substrates: FFI, GC, closures, upvalues, calls, metatables, yield/error state, close chains, numeric/generic loops, cdata.
 - Executable SpongeJIT currently implements only portions of those substrates:
   - tables/strings/varargs/errors are executable in bounded slices;
   - GC/FFI/cdata are mostly typed ASDL/validator/stencil metadata foundations, with small runtime-emitter fragments;
-  - calls/metatables/upvalues/closures are represented but not accepted executable LuaExec/MoonCFG paths.
-- MoonCFG has CData ASDL/emitter cases, but current validator/lower path does not include them as accepted expressions; no tests execute cdata scalar load/store.
+  - calls/metatables/upvalues/closures are represented but not accepted executable LuaExec/LalinCFG paths.
+- LalinCFG has CData ASDL/emitter cases, but current validator/lower path does not include them as accepted expressions; no tests execute cdata scalar load/store.
 - Native VM code under `experiments/lua_interpreter_vm/src/` has broader Lua 5.5 runtime structures and opcode handlers, but SpongeJIT clean-base roadmap evidence should keep it distinct from the current `lua_compile` accepted fast-path compiler.
 
 ## Knowledge-builder Output — 2026-06-06 16:31:45
@@ -407,75 +407,75 @@ Top corpus accepted/rejected patterns after run:
 
 ### Non-Obvious Observations
 
-- **Calls are the central semantic bottleneck.**  
+- **Calls are the central semantic bottleneck.**
   `CALL`/`TAILCALL` are not just another opcode family. They are required by:
   - `__index`, `__newindex`, `__call`, arithmetic/comparison/concat/len metamethods
   - generic `for` iterator calls
   - `__close`
   - FFI C calls and callbacks
   - finalizers
-  - open-result arity adjustment  
+  - open-result arity adjustment
   So accepting “full” table, arithmetic, close, generic-loop, or FFI semantics before call/yield/result handling exists would create fake success.
 
-- **Arity/sequence support must precede real calls, returns, varargs, and constructors.**  
-  Current MoonCFG/outcome support is effectively small-arity: outcome projection and value sequences preserve only the first two values in several places. That is fine for the current slice, but Lua 5.5 call/return/vararg semantics depend on open counts (`B=0`, `C=0`), top adjustment, result padding/truncation, and value buffers. Without general `ValueSeq`/top/value-buffer correctness, `CALL`, `TAILCALL`, `RETURN`, `VARARG`, `SETLIST`, and generic `for` can only be partial.
+- **Arity/sequence support must precede real calls, returns, varargs, and constructors.**
+  Current LalinCFG/outcome support is effectively small-arity: outcome projection and value sequences preserve only the first two values in several places. That is fine for the current slice, but Lua 5.5 call/return/vararg semantics depend on open counts (`B=0`, `C=0`), top adjustment, result padding/truncation, and value buffers. Without general `ValueSeq`/top/value-buffer correctness, `CALL`, `TAILCALL`, `RETURN`, `VARARG`, `SETLIST`, and generic `for` can only be partial.
 
-- **Metatable-present cases cannot be modeled as “typed error” once claiming full semantics.**  
+- **Metatable-present cases cannot be modeled as “typed error” once claiming full semantics.**
   Current raw table/len/arithmetic paths can error or reject when metatables are present. For the clean-base slice that is honest, but for Lua 5.5 coverage it becomes wrong unless the contract proves no relevant metamethod exists. A table `GETTABLE` with `__index`, arithmetic with `__add`, `LEN` with `__len`, or callable table with `__call` is not an error path; it is a call path.
 
-- **`MMBIN*` companions make arithmetic sequencing non-local.**  
+- **`MMBIN*` companions make arithmetic sequencing non-local.**
   Arithmetic support is not “add more opcodes.” LuaSrc preserves `MMBIN`, `MMBINI`, `MMBINK`, operand flip flags, and metamethod selector data. A full arithmetic opcode cannot be accepted safely unless its companion relationship, operand order, and continuation are known. Standalone companion markers must remain reject-only.
 
-- **The current `ADDI` limitation implies a hidden source fidelity constraint.**  
+- **The current `ADDI` limitation implies a hidden source fidelity constraint.**
   `MMBINI` preserves `operands_flipped`, but current ADDI lowering only accepts unflipped companions because the arithmetic op itself lacks enough source-origin information. Any roadmap for full arithmetic must account for operand-order fidelity before claiming immediate arithmetic/metamethod coverage.
 
-- **Closures/upvalues depend on both GC and close-chain semantics.**  
+- **Closures/upvalues depend on both GC and close-chain semantics.**
   `CLOSURE`, `GETUPVAL`, and `SETUPVAL` are tied to:
   - closure allocation
   - open vs closed upvalue identity
   - frame lifetime
   - upvalue write barriers
   - upvalue epoch invalidation
-  - `CLOSE`, `TBC`, return-close, tailcall-close  
+  - `CLOSE`, `TBC`, return-close, tailcall-close
   Treating upvalues as just extra slots would break lifetime and invalidation semantics.
 
-- **`CLOSE`/`TBC` is a cross-cutting control protocol, not a side effect.**  
+- **`CLOSE`/`TBC` is a cross-cutting control protocol, not a side effect.**
   Close handling appears on explicit `CLOSE`, `TBC`, `RETURN` with close flag, `TAILCALL` with close flag, errors, yields, and possibly finalizer/`__close` interactions. Since ASDL already models `CloseYieldState`, `CloseErrorState`, and resume points, full support must preserve error/yield ordering through close chains. Accepting return/error paths before close obligations are represented would be unsound.
 
-- **Numeric `for` is simpler than generic `for`, but still not scalar.**  
+- **Numeric `for` is simpler than generic `for`, but still not scalar.**
   `loop_regions.lua` correctly treats loop bytecodes as whole-region topology. `FORPREP`/`FORLOOP` depend on slot conventions, integer-vs-float loop state, comparisons, increments, and backedges. Generic `for` additionally depends on call/arity/yield/close behavior. Loop support cannot be measured by individual opcode acceptance.
 
-- **`NEWTABLE`, `SETLIST`, `CONCAT`, `CLOSURE`, and cdata creation all force real allocation semantics.**  
+- **`NEWTABLE`, `SETLIST`, `CONCAT`, `CLOSURE`, and cdata creation all force real allocation semantics.**
   Current `CONCAT` uses a synthetic negative string handle; current table support assumes preexisting table banks. Full Lua semantics require GC allocation results, root safety during initialization, object headers, write barriers, and allocation-failure/error behavior. GC cannot remain only “barrier metadata” once constructors or allocating string operations are accepted.
 
-- **`SETLIST` is blocked by three dependencies at once.**  
+- **`SETLIST` is blocked by three dependencies at once.**
   It needs table allocation/shape semantics, bulk writes with barriers, and open value counts from varargs/call results. Its `EXTRAARG` extension is already preserved, so dropping or simplifying that field would be an observable fake success.
 
-- **FFI/cdata has a visible schema/emitter mismatch.**  
-  ASDL and emitter fragments include cdata scalar access/load/store, but MoonCFG validation/lowering do not accept them. That means cdata is currently architectural substrate, not executable feature coverage. Any accepted FFI/cdata path must first close the lower/validator/emitter/ABI gap.
+- **FFI/cdata has a visible schema/emitter mismatch.**
+  ASDL and emitter fragments include cdata scalar access/load/store, but LalinCFG validation/lowering do not accept them. That means cdata is currently architectural substrate, not executable feature coverage. Any accepted FFI/cdata path must first close the lower/validator/emitter/ABI gap.
 
-- **FFI depends on both call ABI and GC/finalization.**  
+- **FFI depends on both call ABI and GC/finalization.**
   FFI is not just scalar loads/stores. `ffi.C` calls need symbol resolution, ABI/calling convention, relocation/patch holes, and result conversion. CData ownership/finalizers require GC roots and finalizer queues. Callbacks re-enter Lua call/yield/error semantics. So FFI should not be considered independently coverable from calls and GC.
 
-- **Foundry facts currently outpace executable semantics.**  
+- **Foundry facts currently outpace executable semantics.**
   Foundry can generate facts for `GETFIELD`, `SETFIELD`, `GETTABUP`, arithmetic families, barriers, and call targets, but the lowerer rejects many of those opcodes. This is good as a guardrail. The risk is future “coverage” metrics counting fact availability or decode coverage as semantic support.
 
-- **Corpus success is presently biased toward terminal/simple windows.**  
+- **Corpus success is presently biased toward terminal/simple windows.**
   The corpus accepted top patterns are mostly `RETURN*` and raw `SETTABLE`; rejected patterns include common program features like `CALL`, `GETUPVAL`, `GETTABUP`, `TAILCALL`, `GETFIELD`, `SELF`. This implies full Lua coverage requires changing the semantic frontier, not merely improving fact supply.
 
-- **Stencil artifact identity must grow with semantics.**  
-  Current representative identity uses MoonCFG + CompileContract + Stencil.VariantKey, but real calls/GC/FFI require typed patch holes for call targets, frame layout, constants/upvalues, FFI symbols/field offsets/layouts, GC state pointers, barrier entries, finalizer queues, and epochs. Otherwise materialized code can become stale while still matching the same variant key.
+- **Stencil artifact identity must grow with semantics.**
+  Current representative identity uses LalinCFG + CompileContract + Stencil.VariantKey, but real calls/GC/FFI require typed patch holes for call targets, frame layout, constants/upvalues, FFI symbols/field offsets/layouts, GC state pointers, barrier entries, finalizer queues, and epochs. Otherwise materialized code can become stale while still matching the same variant key.
 
-- **The validator’s forbidden-string policy is currently a roadmap constraint.**  
-  `moon_cfg_validate.lua` forbids semantic strings like `call`, `close`, `generic_for`, `setlist`, `getvarg` to prevent legacy/protocol fallback. That protects the clean base, but future real typed support must not accidentally trip the same anti-fallback checks or weaken them so much that legacy protocol exits re-enter.
+- **The validator’s forbidden-string policy is currently a roadmap constraint.**
+  `lalin_cfg_validate.lua` forbids semantic strings like `call`, `close`, `generic_for`, `setlist`, `getvarg` to prevent legacy/protocol fallback. That protects the clean base, but future real typed support must not accidentally trip the same anti-fallback checks or weaken them so much that legacy protocol exits re-enter.
 
-- **“Supported ops” count overstates readiness.**  
+- **“Supported ops” count overstates readiness.**
   The reported 35 supported op names include contextual cases: comparisons require following `JMP`, `MMBIN*` only as companions, `GETVARG` needs proper vararg source/window, arithmetic needs following continuation, returns reject close/C cases. Roadmap coverage should track semantic families plus preconditions, not opcode names alone.
 
 ### Knowledge Gaps
 
 - Exact Lua 5.5 runtime rules for `TBC`, `__close`, yieldability during close/finalization, and tailcall close ordering should be pinned against PUC behavior.
-- The intended arbitrary-value buffer ABI for full call/return/vararg support is not yet clear from the current accepted MoonCFG path.
+- The intended arbitrary-value buffer ABI for full call/return/vararg support is not yet clear from the current accepted LalinCFG path.
 - Native VM opcode handlers may contain useful semantic detail, but they are intentionally separate from SpongeJIT; any reuse boundary needs explicit confirmation.
 - Current stencil object-byte extraction/materialization status is unclear beyond metadata foundations.
 
@@ -483,7 +483,7 @@ Top corpus accepted/rejected patterns after run:
 
 ### Approach A: Dependency-Ordered Semantic Core
 
-- **Core idea**: Build the missing shared Lua runtime semantics first—arity/calls/GC/close/metatables—then enable opcode families only when their full dependencies are executable through `LuaExec -> MoonCFG`.
+- **Core idea**: Build the missing shared Lua runtime semantics first—arity/calls/GC/close/metatables—then enable opcode families only when their full dependencies are executable through `LuaExec -> LalinCFG`.
 
 - **Key changes**:
   - Extend `ssa_asdl/spongejit_lua_ssa.asdl` with complete `LuaRT`/`LuaExec` nodes for:
@@ -502,14 +502,14 @@ Top corpus accepted/rejected patterns after run:
     - `lua_rt_ffi_abi_model.lua`
   - Expand:
     - `lua_src_to_lua_exec_lower.lua`
-    - `lua_exec_to_moon_cfg_lower.lua`
-    - `moon_cfg_validate.lua`
-    - `moon_cfg_emit.lua`
+    - `lua_exec_to_lalin_cfg_lower.lua`
+    - `lalin_cfg_validate.lua`
+    - `lalin_cfg_emit.lua`
   - Strengthen foundry/stencil contracts so every accepted kernel records call-target, metatable, upvalue, GC, ABI, and layout assumptions.
 
 - **Tradeoff**: Optimizes semantic correctness and long-term coherence; sacrifices short-term corpus wins because many opcodes remain rejected until the shared core exists.
 
-- **Risk**: The foundational layer may become large before it visibly improves accepted coverage, and arbitrary arity/call/yield/close handling may force substantial MoonCFG/emitter changes.
+- **Risk**: The foundational layer may become large before it visibly improves accepted coverage, and arbitrary arity/call/yield/close handling may force substantial LalinCFG/emitter changes.
 
 - **Rough sketch**:
   - First implement general `LuaRTValueSeq`/top/arity semantics for `CALL`, `RETURN`, `VARARG`, `SETLIST`, and open counts.
@@ -574,11 +574,11 @@ Top corpus accepted/rejected patterns after run:
     - `GCAllocRegion`
     - `FFIRegion`
   - Refactor `lua_src_to_lua_exec_lower.lua` from ad-hoc opcode cases into static region emission.
-  - Use `src/opcodes.lua`, `src/products.lua`, and related native VM structures as reference material, but re-express everything as `LuaRT`/`LuaExec`/`MoonCFG`.
-  - Extend `moon_cfg_validate.lua` so future support is typed region support, not forbidden semantic strings.
+  - Use `src/opcodes.lua`, `src/products.lua`, and related native VM structures as reference material, but re-express everything as `LuaRT`/`LuaExec`/`LalinCFG`.
+  - Extend `lalin_cfg_validate.lua` so future support is typed region support, not forbidden semantic strings.
   - Add exhaustive opcode conformance tests: every LuaSrc opcode must have either a complete static region lowering or a precise reject reason.
 
-- **Tradeoff**: Optimizes completeness and traceability: engineers can grep one semantic region per feature/opcode. Sacrifices early optimization and may produce large MoonCFG/stencils.
+- **Tradeoff**: Optimizes completeness and traceability: engineers can grep one semantic region per feature/opcode. Sacrifices early optimization and may produce large LalinCFG/stencils.
 
 - **Risk**: If the region library mirrors VM handlers too literally, it may become bulky and hard to optimize. It must avoid becoming a runtime bytecode interpreter; each source window must lower to static CFG, not dynamic dispatch.
 
@@ -586,7 +586,7 @@ Top corpus accepted/rejected patterns after run:
   - Define full runtime state objects: frame, stack, top, value buffer, heap, GC state, call state, close state, thread/yield state.
   - Port opcode semantics into typed static regions, starting with arity/calls/returns, then tables/metatables, closures/upvalues, loops, close/TBC, GC/allocation, arithmetic, and FFI/cdata.
   - Lower compound bytecode patterns as whole regions: `EXTRAARG`, `MMBIN*`, comparison+`JMP`, loop groups, call/result windows.
-  - Emit static MoonCFG per window/proto; no fallback, no VM protocol exit, no hidden helper semantics.
+  - Emit static LalinCFG per window/proto; no fallback, no VM protocol exit, no hidden helper semantics.
   - Testing strategy: opcode matrix tests, PUC differential fixtures, region-level validators, corpus completion, and stencil artifact identity checks.
 
 ---
@@ -603,11 +603,11 @@ Top corpus accepted/rejected patterns after run:
 
 ## Goal
 
-Enable SpongeJIT to grow from its current clean-base LuaExec/MoonCFG slice into full Lua 5.5 semantic coverage by lowering every `LuaSrc` opcode or opcode family into explicit, typed `LuaExec` semantic regions and then into `MoonCFG`, with ASDL-defined runtime state, contracts, and control semantics as the governing architecture.
+Enable SpongeJIT to grow from its current clean-base LuaExec/LalinCFG slice into full Lua 5.5 semantic coverage by lowering every `LuaSrc` opcode or opcode family into explicit, typed `LuaExec` semantic regions and then into `LalinCFG`, with ASDL-defined runtime state, contracts, and control semantics as the governing architecture.
 
 ## Incentives
 
-SpongeJIT already decodes all Lua 5.5 bytecodes, but its executable compiler accepts only a narrow subset. The current pipeline is intentionally fail-closed: unsupported Lua semantics return `Reject`, and accepted kernels must go through `LuaSrc.Window -> LuaExec.Kernel -> MoonCFG.Kernel` with no fallback. That discipline has protected the clean base from fake success, but it also means common Lua features remain outside the accepted fast path: `CALL`, `TAILCALL`, `GETUPVAL`, `GETTABUP`, `GETFIELD`, `SELF`, closures, upvalues, metatables, loops, `SETLIST`, allocation, close/TBC, FFI/cdata, and most arithmetic families.
+SpongeJIT already decodes all Lua 5.5 bytecodes, but its executable compiler accepts only a narrow subset. The current pipeline is intentionally fail-closed: unsupported Lua semantics return `Reject`, and accepted kernels must go through `LuaSrc.Window -> LuaExec.Kernel -> LalinCFG.Kernel` with no fallback. That discipline has protected the clean base from fake success, but it also means common Lua features remain outside the accepted fast path: `CALL`, `TAILCALL`, `GETUPVAL`, `GETTABUP`, `GETFIELD`, `SELF`, closures, upvalues, metatables, loops, `SETLIST`, allocation, close/TBC, FFI/cdata, and most arithmetic families.
 
 The roadmap decision addresses this gap without weakening the clean-base invariants. Full Lua 5.5 support cannot be reached by treating opcodes as isolated cases or by embedding helper strings/protocol exits. Lua semantics are cross-cutting: calls are needed by metamethods, generic `for`, FFI, `__close`, and finalizers; arity and value sequences are needed by calls, returns, varargs, constructors, and `SETLIST`; GC allocation is needed by tables, closures, strings, cdata, and finalizers; close/TBC semantics affect returns, errors, yields, and tailcalls. The chosen direction makes those dependencies explicit in typed ASDL products before any lowering or emission claims support.
 
@@ -630,7 +630,7 @@ The ASDL layers define the intended separation of meaning:
 | `LuaRT` | Lua runtime semantic objects/state |
 | `LuaExec` | Explicit semantic Lua CFG over `LuaRT` |
 | `CompileContract` | Executable-route obligations, facts, invalidation assumptions |
-| `MoonCFG` | Explicit Moonlift CFG to emit |
+| `LalinCFG` | Explicit Lalin CFG to emit |
 
 The accepted compile route is:
 
@@ -642,20 +642,20 @@ PUC/event rows
   -> LuaCompile.Unit
   -> lua_src_to_lua_exec_lower.lua
   -> LuaExec.Kernel
-  -> lua_exec_to_moon_cfg_lower.lua
-  -> MoonCFG.Kernel
-  -> moon_cfg_validate.lua
-  -> moon_cfg_emit.lua
+  -> lua_exec_to_lalin_cfg_lower.lua
+  -> LalinCFG.Kernel
+  -> lalin_cfg_validate.lua
+  -> lalin_cfg_emit.lua
 ```
 
 The public route in:
 
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_to_moon_kernel.lua`
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_to_lalin_kernel.lua`
 
 has one accepted executable path only:
 
 ```text
-LuaSrc.Window -> LuaExec.Kernel -> MoonCFG.Kernel
+LuaSrc.Window -> LuaExec.Kernel -> LalinCFG.Kernel
 ```
 
 Unsupported source windows return diagnostics. There is no semantic fallback, no interpreter handoff, and no silent success route.
@@ -683,7 +683,7 @@ asserts decode coverage of `85/85` real opcodes and requires an explicit decoder
 
 This means source fidelity is not the blocker. The gap is semantic execution coverage.
 
-### Current LuaExec/MoonCFG support
+### Current LuaExec/LalinCFG support
 
 The current `LuaExec` lowering in:
 
@@ -716,7 +716,7 @@ supports only a limited semantic slice. Current accepted families include:
 
 Unsupported cases deliberately reject. Examples include `CALL`, `TAILCALL`, `CLOSURE`, `GETUPVAL`, `SETUPVAL`, `NEWTABLE`, `SETLIST`, `GETFIELD`, `SETFIELD`, `GETI`, `SETI`, `SELF`, `GETTABUP`, `SETTABUP`, `FOR*`, `TFOR*`, `CLOSE`, `TBC`, most arithmetic/bitwise operations, FFI/cdata operations, and allocating semantics.
 
-The validation and tests also enforce absence of legacy concepts. `moon_cfg_validate.lua` rejects forbidden protocol/helper concepts, and tests assert that unsupported instructions do not compile as successful kernels.
+The validation and tests also enforce absence of legacy concepts. `lalin_cfg_validate.lua` rejects forbidden protocol/helper concepts, and tests assert that unsupported instructions do not compile as successful kernels.
 
 ### Runtime substrates already present but incomplete
 
@@ -728,7 +728,7 @@ Several runtime-model files already provide executable pieces:
 - `lua_rt_cdata_model.lua`
 - `lua_rt_outcome_model.lua`
 
-`moon_cfg_emit.lua` already contains executable substrate for:
+`lalin_cfg_emit.lua` already contains executable substrate for:
 
 - tagged `LuaRTValue`
 - stack/window/vararg structures
@@ -740,7 +740,7 @@ Several runtime-model files already provide executable pieces:
 - outcome values for return/error/yield
 - cdata scalar emitter fragments
 
-However, several modeled substrates are not accepted through the full lowering/validation path. For example, cdata access/load rendering exists in the emitter, but `moon_cfg_validate.lua` and `lua_exec_to_moon_cfg_lower.lua` do not currently accept cdata expressions as executable feature coverage.
+However, several modeled substrates are not accepted through the full lowering/validation path. For example, cdata access/load rendering exists in the emitter, but `lalin_cfg_validate.lua` and `lua_exec_to_lalin_cfg_lower.lua` do not currently accept cdata expressions as executable feature coverage.
 
 ### Native VM relationship
 
@@ -753,7 +753,7 @@ The broader native VM under:
 
 contains much wider Lua 5.5 runtime structures and opcode handlers. It models VM-level values, strings, tables, protos, closures, upvalues, frames, threads, and global state.
 
-For SpongeJIT, this VM code is reference material only. The clean-base compiler must not become a VM fallback path. Semantics used by SpongeJIT must be re-expressed as typed `LuaRT`, `LuaExec`, `CompileContract`, and `MoonCFG` products.
+For SpongeJIT, this VM code is reference material only. The clean-base compiler must not become a VM fallback path. Semantics used by SpongeJIT must be re-expressed as typed `LuaRT`, `LuaExec`, `CompileContract`, and `LalinCFG` products.
 
 ### Current testing and corpus signal
 
@@ -762,7 +762,7 @@ The main SpongeJIT test suite is green. Important tests include:
 - LuaSrc decode coverage
 - LuaExec pipeline tests
 - LuaRT arithmetic/object/stack tests
-- MoonCFG route tests
+- LalinCFG route tests
 - FFI ASDL foundation tests
 - GC ASDL foundation tests
 - fail-closed rejection tests
@@ -786,7 +786,7 @@ The chosen roadmap is **Approach C: Opcode-Complete Static Semantic Region Libra
 
 The decision is:
 
-> Every Lua 5.5 opcode or opcode family represented by `LuaSrc` should lower into explicit, typed `LuaExec` semantic regions and then into typed `MoonCFG`. No accepted feature may rely on interpreter fallback, VM protocol handoff, hidden helper strings, side-table semantics, or partial “raw-only” behavior that would be observably wrong under full Lua semantics.
+> Every Lua 5.5 opcode or opcode family represented by `LuaSrc` should lower into explicit, typed `LuaExec` semantic regions and then into typed `LalinCFG`. No accepted feature may rely on interpreter fallback, VM protocol handoff, hidden helper strings, side-table semantics, or partial “raw-only” behavior that would be observably wrong under full Lua semantics.
 
 The governing discipline is ASDL-first:
 
@@ -795,7 +795,7 @@ The governing discipline is ASDL-first:
 3. Define the runtime state shape.
 4. Define the compile contract and invalidation shape.
 5. Only then lower from `LuaSrc` to `LuaExec`.
-6. Only then lower from `LuaExec` to `MoonCFG`.
+6. Only then lower from `LuaExec` to `LalinCFG`.
 7. Only then validate, emit, and test the feature.
 
 This preserves the current clean-base rule that ASDL is the architecture. Semantics must live in typed products, not in strings, callbacks, helper names, legacy protocol exits, or implicit interpreter behavior.
@@ -809,12 +809,12 @@ LuaSrc.Op / LuaSrc.Window
   -> typed LuaExec semantic region
   -> typed LuaRT state/effects/outcomes
   -> typed CompileContract obligations
-  -> typed MoonCFG region/kernel
-  -> MoonCFG validation
-  -> Moonlift emission
+  -> typed LalinCFG region/kernel
+  -> LalinCFG validation
+  -> Lalin emission
 ```
 
-Each opcode family becomes a named, typed semantic region family in `LuaExec`, backed by explicit `LuaRT` state and lowered into `MoonCFG`. The semantic regions are static CFG expansions for the source window/proto being compiled. They are not dynamic bytecode dispatch and not a hidden interpreter.
+Each opcode family becomes a named, typed semantic region family in `LuaExec`, backed by explicit `LuaRT` state and lowered into `LalinCFG`. The semantic regions are static CFG expansions for the source window/proto being compiled. They are not dynamic bytecode dispatch and not a hidden interpreter.
 
 The region library covers the major Lua 5.5 semantic families:
 
@@ -843,7 +843,7 @@ A feature is not considered supported merely because:
 
 - `LuaSrc` can decode it,
 - foundry can produce facts for it,
-- `moon_cfg_emit.lua` contains a fragment resembling it,
+- `lalin_cfg_emit.lua` contains a fragment resembling it,
 - the native VM has an opcode handler,
 - a corpus window compiles through a helper path,
 - or a stringly escape hatch can be emitted.
@@ -853,7 +853,7 @@ A feature is considered on the roadmap’s accepted path only when its semantics
 - `LuaRT` for runtime values/state/effects,
 - `LuaExec` for semantic control regions,
 - `CompileContract` / evidence for assumptions and invalidation,
-- `MoonCFG` for emitted CFG structure.
+- `LalinCFG` for emitted CFG structure.
 
 This is especially important for dynamic Lua features. For example, a metatable-present table access is not an error under full Lua semantics; it may be a metamethod call. Therefore full table support requires ASDL-visible metatable and call semantics, not a raw-only success path pretending to be complete.
 
@@ -907,7 +907,7 @@ The current validation posture remains part of the decision:
 - standalone companion opcodes such as `MMBIN*` reject unless in valid context,
 - external jumps reject,
 - legacy fallback concepts remain forbidden,
-- accepted products must pass `LuaExec` and `MoonCFG` validation,
+- accepted products must pass `LuaExec` and `LalinCFG` validation,
 - emitted kernels must come from typed regions, not helper strings or protocol exits.
 
 Future tests are expected to validate the ASDL-first route for each semantic family:
@@ -915,9 +915,9 @@ Future tests are expected to validate the ASDL-first route for each semantic fam
 - ASDL schema presence and shape,
 - `LuaSrc` window/context preservation,
 - `LuaExec` semantic region construction,
-- `LuaExec -> MoonCFG` lowering,
-- MoonCFG validation,
-- Moonlift emission,
+- `LuaExec -> LalinCFG` lowering,
+- LalinCFG validation,
+- Lalin emission,
 - PUC behavior conformance where applicable,
 - negative tests for fake success and stale contracts,
 - corpus representative coverage under typed contracts.
@@ -928,7 +928,7 @@ This decision prioritizes completeness, traceability, and semantic honesty over 
 
 The accepted tradeoffs are:
 
-- Generated `LuaExec`/`MoonCFG` may be larger than hand-specialized shards.
+- Generated `LuaExec`/`LalinCFG` may be larger than hand-specialized shards.
 - Early progress may appear slower because shared runtime state and semantic regions must be defined before opcode families are accepted.
 - The region library may require substantial ASDL expansion before many new corpus windows succeed.
 - Optimization is secondary to correctness and explicitness at this stage.
@@ -942,7 +942,7 @@ Known risks of the chosen target are:
 
 - The static region library could become bulky if it mirrors VM handlers too literally.
 - Large generated CFGs may need later optimization work.
-- Calls, arity, yield, close, and GC interactions are complex and may force substantial changes to `LuaRT`, `LuaExec`, `MoonCFG`, validation, and emission.
+- Calls, arity, yield, close, and GC interactions are complex and may force substantial changes to `LuaRT`, `LuaExec`, `LalinCFG`, validation, and emission.
 - Weakening the validator’s forbidden-string policy could accidentally reintroduce legacy protocol fallback; the policy must evolve toward typed support, not become permissive.
 - Contract omissions are dangerous: missing epochs, layouts, barriers, ABI facts, or metamethod dependencies can cause fake success.
 - Opcode-complete coverage must not become dynamic bytecode dispatch. Each accepted source window must lower to explicit static semantic CFG.
@@ -961,7 +961,7 @@ Before edits begin, verify:
   - `LuaGC` starts at line 875 and already owns allocation/root/barrier objects.
   - `LuaExec` starts at line 1119; `RegionKind` is currently lines 1135-1151.
   - `CompileContract` starts at line 1323.
-  - `MoonCFG` starts at line 1357.
+  - `LalinCFG` starts at line 1357.
   - `Stencil` starts at line 1548.
 - Existing schema tests still assert field order for:
   - `LuaRT.ValueSeq == "kind,values,count,origin"`
@@ -973,8 +973,8 @@ Before edits begin, verify:
   - `scan_shape` around line 139.
   - `lower_block` around line 682.
   - final region construction around lines 915-918.
-- `lua_exec_to_moon_cfg_lower.lua` still rejects `Exec.EmitRegion` at lines 582-583.
-- `moon_cfg_validate.lua` still forbids lowercase semantic fallback strings at lines 13-21.
+- `lua_exec_to_lalin_cfg_lower.lua` still rejects `Exec.EmitRegion` at lines 582-583.
+- `lalin_cfg_validate.lua` still forbids lowercase semantic fallback strings at lines 13-21.
 
 ---
 
@@ -1342,7 +1342,7 @@ Add these as schema/model metadata files:
 
 3. **`M.region`, after region kind check around line 129**:
    - If region kind is scaffold-only, allow structural validation.
-   - Do **not** reject here; rejection happens in `lua_exec_to_moon_cfg_lower.lua`.
+   - Do **not** reject here; rejection happens in `lua_exec_to_lalin_cfg_lower.lua`.
 
 4. **Obligation/Guarantee validation**
    - If currently absent, add helpers to validate:
@@ -1437,7 +1437,7 @@ Add these as schema/model metadata files:
 
 ---
 
-#### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua`
+#### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua`
 
 **Goal**: Lower only executable static regions and reject scaffold-only regions explicitly.
 
@@ -1470,7 +1470,7 @@ Add these as schema/model metadata files:
    - Immediately after `local region = kernel.body`, add:
      ```lua
      if not RegionModel.is_executable_region_kind(region.kind) then
-       return nil, { "lua_exec_to_moon_cfg:scaffold_only_region:" .. tostring(region.kind and region.kind.kind) }
+       return nil, { "lua_exec_to_lalin_cfg:scaffold_only_region:" .. tostring(region.kind and region.kind.kind) }
      end
      ```
    - Preserve existing lowering for executable region kinds.
@@ -1481,9 +1481,9 @@ Add these as schema/model metadata files:
 
 ---
 
-#### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua`
+#### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_validate.lua`
 
-**Goal**: Keep MoonCFG guardrails strict while recognizing any new typed ASDL nodes as non-fallback metadata.
+**Goal**: Keep LalinCFG guardrails strict while recognizing any new typed ASDL nodes as non-fallback metadata.
 
 **Edit blocks**
 
@@ -1496,7 +1496,7 @@ Add these as schema/model metadata files:
      ```
 
 2. **`validate_runtime_expr`, lines 143-258**:
-   - If new MoonCFG expressions are added for arity only, validate them here.
+   - If new LalinCFG expressions are added for arity only, validate them here.
    - Do not add validation for dynamic call/metatable/GC execution yet.
 
 3. **`validate_region`, lines 300-382**:
@@ -1509,7 +1509,7 @@ Add these as schema/model metadata files:
 
 ---
 
-#### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua`
+#### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua`
 
 **Goal**: Emit only phase-1 executable value-seq/arity substrate; no call helper or protocol handoff.
 
@@ -1517,7 +1517,7 @@ Add these as schema/model metadata files:
 
 1. **Runtime value-seq rendering, around lines 683-707**:
    - Reuse existing `RuntimeValueSeqFixed`, `RuntimeValueSeqFromStack`, `RuntimeValueSeqAdjust`.
-   - If ASDL adds a new MoonCFG arity expression, render it as explicit `LuaRTValueSeq` manipulation, not a helper call.
+   - If ASDL adds a new LalinCFG arity expression, render it as explicit `LuaRTValueSeq` manipulation, not a helper call.
 
 2. **Type inference, around lines 837-845**:
    - Add any new arity-only runtime expr to `LuaRTValueSeq`.
@@ -1627,7 +1627,7 @@ Add these as schema/model metadata files:
   local C = require("lua_compile")
   local Schema = require("lua_compile.schema")
   local ExecLower = require("lua_compile.lua_src_to_lua_exec_lower")
-  local ExecToMoon = require("lua_compile.lua_exec_to_moon_cfg_lower")
+  local ExecToLalin = require("lua_compile.lua_exec_to_lalin_cfg_lower")
   local ExecValidate = require("lua_compile.lua_exec_validate")
   local RegionModel = require("lua_compile.lua_exec_region_model")
   ```
@@ -1636,14 +1636,14 @@ Add these as schema/model metadata files:
   2. Resulting `exec_kernel.body.kind` is executable per `RegionModel`.
   3. Exec contract contains typed region descriptor obligation/guarantee if implemented.
   4. Manual `Exec.Region(..., Exec.CallRegion, ...)` validates structurally.
-  5. Manual `CallRegion` rejects in `ExecToMoon.lower` with `scaffold_only_region`.
-  6. LuaSrc `CALL` still rejects through `compile_to_moon_kernel`.
+  5. Manual `CallRegion` rejects in `ExecToLalin.lower` with `scaffold_only_region`.
+  6. LuaSrc `CALL` still rejects through `compile_to_lalin_kernel`.
   7. LuaSrc `TAILCALL` still rejects.
   8. `MMBIN` standalone still rejects.
 
 ---
 
-#### `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua`
+#### `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua`
 
 **Goal**: Extend guardrail tests.
 
@@ -1662,8 +1662,8 @@ Add these as schema/model metadata files:
 3. Extend validators.
 4. Add `lua_exec_region_model.lua`.
 5. Refactor `lua_src_to_lua_exec_lower.lua` to attach/use static region metadata without expanding accepted opcodes.
-6. Add fail-closed checks in `lua_exec_to_moon_cfg_lower.lua`.
-7. Update MoonCFG validator/emitter only for explicitly executable arity/value-seq scaffolding.
+6. Add fail-closed checks in `lua_exec_to_lalin_cfg_lower.lua`.
+7. Update LalinCFG validator/emitter only for explicitly executable arity/value-seq scaffolding.
 8. Update compile contract/stencil validation.
 9. Add schema/model tests.
 10. Add static region/no-fake-success tests.
@@ -1692,7 +1692,7 @@ Expected phase-1 behavior:
 - Existing successful kernels remain successful.
 - `CALL`/`TAILCALL`/metatable/GC/close dynamic semantics still reject.
 - New region scaffolding appears in schema/model tests.
-- No protocol/helper fallback strings appear in emitted Moonlift.
+- No protocol/helper fallback strings appear in emitted Lalin.
 
 ---
 
@@ -1723,7 +1723,7 @@ Implemented Phase 1 ASDL-first static semantic region scaffolding for `wf-lua55-
 - Extended LuaRT, LuaExec, and CompileContract validators structurally.
 - Added static region metadata to current LuaExec kernels without expanding accepted opcodes.
 - Kept CALL/TAILCALL/metatable/GC/close/FFI execution scaffold-only/fail-closed.
-- Added explicit scaffold-only rejection in LuaExec→MoonCFG lowering.
+- Added explicit scaffold-only rejection in LuaExec→LalinCFG lowering.
 - Added schema/static-region/no-fake-success tests.
 - Marked edit-plan tasks `T001`–`T012` complete.
 
@@ -1741,13 +1741,13 @@ Implemented Phase 1 ASDL-first static semantic region scaffolding for `wf-lua55-
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_validate.lua` - validates new LuaRT scaffold nodes.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_validate.lua` - validates region descriptors/scaffold expressions/contracts.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_to_lua_exec_lower.lua` - attaches region descriptor contracts; scaffold-only source rejects.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua` - rejects scaffold-only regions/expressions; propagates semantic assumptions.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua` - preserved forbidden-string guardrail comment.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua` - rejects scaffold-only regions/expressions; propagates semantic assumptions.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_validate.lua` - preserved forbidden-string guardrail comment.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/compile_contract_validate.lua` - validates semantic assumptions.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/compile_contract_key.lua` - structural-keying note.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_schema.lua` - schema/model coverage.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_regions.lua` - new static region tests.
-- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua` - no-fake-success/contract/stencil tests.
+- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua` - no-fake-success/contract/stencil tests.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_pipeline.lua` - planned file list updated.
 
 ## Verification
@@ -1764,7 +1764,7 @@ cd experiments/lua_interpreter_vm/spongejit && make test-lua-compile-corpus100
 Corpus result remained fail-closed: `37 ok / 104 rejected`, with test reporting `31 successful windows, 26 reps checked`.
 
 ## Notes
-No remaining blockers. CALL/TAILCALL/close/GC allocation scaffolds are structurally valid typed products but still reject before MoonCFG execution, as required.
+No remaining blockers. CALL/TAILCALL/close/GC allocation scaffolds are structurally valid typed products but still reject before LalinCFG execution, as required.
 
 ## Edit-planner Output — 2026-06-06 18:28:38
 
@@ -1777,17 +1777,17 @@ Before edits begin, verify the repo still matches Phase 1:
   - `LuaRT.ArityShape` and `LuaRT.ResultChannel` exist around lines 650-668.
   - `LuaExec.Expr` includes `AdjustResultsExpr`, scaffold-only exprs around lines 1323-1358.
   - `LuaExec.Op.AssignSeq` exists around line 1395.
-  - `MoonCFG.RuntimeValueSeq*` and `RuntimeOutcome*` exprs exist around lines 1548-1559.
+  - `LalinCFG.RuntimeValueSeq*` and `RuntimeOutcome*` exprs exist around lines 1548-1559.
   - Do **not** change tested field orders for `ValueSeq`, `ArityShape`, `ResultChannel`, `Region`, `Kernel`, `Block`.
 - `lua_src_to_lua_exec_lower.lua`
   - `SUPPORTED_INSTR` is still line ~30 and must not gain `CALL`, `TAILCALL`, `SETLIST`, `TFOR*`.
   - `VARARG` lowering is around lines 510-523.
   - `return_seq_for` is around lines 660-688.
-- `lua_exec_to_moon_cfg_lower.lua`
+- `lua_exec_to_lalin_cfg_lower.lua`
   - `lower_value_seq_runtime` is around lines 328-366.
   - `AssignSeq` currently stores only value0/value1 around lines 567-575.
   - `lower_return_outcome` currently uses `RuntimeOutcomeReturn(count, values, i64_const(0))` around lines 742-745.
-- `moon_cfg_emit.lua`
+- `lalin_cfg_emit.lua`
   - `seq_value_at` currently returns value0/value1 or buffer directly around lines 597-600; Phase 2 must make this count-safe.
 - Existing Phase 1 tests are green before starting.
 
@@ -1842,25 +1842,25 @@ Before edits begin, verify the repo still matches Phase 1:
      | AssumesResultChannel(LuaRT.ResultChannel channel) unique
      ```
 
-5. **Lines 1548-1559**: Extend `MoonCFG.Expr`.
+5. **Lines 1548-1559**: Extend `LalinCFG.Expr`.
    - Add:
      ```asdl
-     | RuntimeValueSeqNormalize(MoonCFG.Value seq, LuaRT.ArityShape shape) unique
-     | RuntimeValueSeqBuffer(MoonCFG.Value seq) unique
-     | RuntimeValueSeqBase(MoonCFG.Value seq) unique
-     | RuntimeOutcomeReturnSeq(MoonCFG.Value seq) unique
+     | RuntimeValueSeqNormalize(LalinCFG.Value seq, LuaRT.ArityShape shape) unique
+     | RuntimeValueSeqBuffer(LalinCFG.Value seq) unique
+     | RuntimeValueSeqBase(LalinCFG.Value seq) unique
+     | RuntimeOutcomeReturnSeq(LalinCFG.Value seq) unique
      | RuntimeOutcomeYieldSeq(LuaRT.ResumePoint resume_point,
-                              MoonCFG.Value seq,
-                              MoonCFG.Value saved_pc,
-                              MoonCFG.Value saved_top) unique
+                              LalinCFG.Value seq,
+                              LalinCFG.Value saved_pc,
+                              LalinCFG.Value saved_top) unique
      ```
 
-6. **Lines 1618-1641**: Extend `MoonCFG.Op`.
+6. **Lines 1618-1641**: Extend `LalinCFG.Op`.
    - Add:
      ```asdl
-     | RuntimeValueSeqStore(MoonCFG.Value stack,
-                            MoonCFG.Value base,
-                            MoonCFG.Value seq) unique
+     | RuntimeValueSeqStore(LalinCFG.Value stack,
+                            LalinCFG.Value base,
+                            LalinCFG.Value seq) unique
      ```
 
 **Danger zones**
@@ -1918,7 +1918,7 @@ Before edits begin, verify the repo still matches Phase 1:
 **Edit blocks**
 
 1. **Lines 15-20**: Keep `LuaRTValueSeq` struct shape:
-   ```moonlift
+   ```lalin
    kind, count, value0, value1, buffer: ptr(LuaRTValue), base
    ```
    Do not remove inline value0/value1.
@@ -1939,15 +1939,15 @@ Before edits begin, verify the repo still matches Phase 1:
 
 **Edit block**
 
-- **Lines 16-19**: Change emitted Moonlift struct from:
-  ```moonlift
+- **Lines 16-19**: Change emitted Lalin struct from:
+  ```lalin
   value_buffer: i64;
   ```
   to:
-  ```moonlift
+  ```lalin
   value_buffer: ptr(LuaRTValue); value_base: i64;
   ```
-- Update all emitted outcome constructors later in `moon_cfg_emit.lua` to initialize both fields.
+- Update all emitted outcome constructors later in `lalin_cfg_emit.lua` to initialize both fields.
 
 ---
 
@@ -1985,7 +1985,7 @@ Before edits begin, verify the repo still matches Phase 1:
    - `ProducesResultChannel`
 
 **Danger zone**
-- Validation is structural only; unsupported call/metatable/GC scaffold expressions must still validate structurally but reject in MoonCFG lowering.
+- Validation is structural only; unsupported call/metatable/GC scaffold expressions must still validate structurally but reject in LalinCFG lowering.
 
 ---
 
@@ -2094,9 +2094,9 @@ Before edits begin, verify the repo still matches Phase 1:
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua`
 
-**Goal**: Lower normalized value sequences and result channels into explicit MoonCFG runtime ops.
+**Goal**: Lower normalized value sequences and result channels into explicit LalinCFG runtime ops.
 
 **Edit blocks**
 
@@ -2163,9 +2163,9 @@ Before edits begin, verify the repo still matches Phase 1:
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_validate.lua`
 
-**Goal**: Validate new MoonCFG arity/runtime ops while preserving forbidden fallback policy.
+**Goal**: Validate new LalinCFG arity/runtime ops while preserving forbidden fallback policy.
 
 **Edit blocks**
 
@@ -2193,7 +2193,7 @@ Before edits begin, verify the repo still matches Phase 1:
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua`
 
 **Goal**: Emit safe executable sequence normalization, stack copies, and outcome projection beyond two values.
 
@@ -2228,8 +2228,8 @@ Before edits begin, verify the repo still matches Phase 1:
    - Preserve buffer/base.
 
 6. **Add rendering for `RuntimeValueSeqStore` in `render_op`, around lines 1044-1047**:
-   - Emit explicit Moonlift block loop copying `i = 0..seq.count-1`:
-     ```moonlift
+   - Emit explicit Lalin block loop copying `i = 0..seq.count-1`:
+     ```lalin
      stack[base + i] = seq_value_at(seq, i)
      ```
    - No helper calls.
@@ -2243,7 +2243,7 @@ Before edits begin, verify the repo still matches Phase 1:
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_to_moon_kernel.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_to_lalin_kernel.lua`
 
 **Goal**: Keep public compile route honest with new result-channel core.
 
@@ -2254,7 +2254,7 @@ Before edits begin, verify the repo still matches Phase 1:
     - `LuaExec.NormalizeResultsExpr`
     - `LuaExec.ResultChannelExpr`
   - Only if direct lowering would otherwise reject dynamic LuaRTValue returns.
-  - Do not treat this as fallback; it is still `LuaExec -> MoonCFG`.
+  - Do not treat this as fallback; it is still `LuaExec -> LalinCFG`.
 
 ---
 
@@ -2285,12 +2285,12 @@ Add assertions for:
 - `LuaExec.NormalizesArity`
 - `LuaExec.ProducesResultChannel`
 - `CompileContract.AssumesResultChannel`
-- `MoonCFG.RuntimeValueSeqNormalize`
-- `MoonCFG.RuntimeValueSeqBuffer`
-- `MoonCFG.RuntimeValueSeqBase`
-- `MoonCFG.RuntimeValueSeqStore`
-- `MoonCFG.RuntimeOutcomeReturnSeq`
-- `MoonCFG.RuntimeOutcomeYieldSeq`
+- `LalinCFG.RuntimeValueSeqNormalize`
+- `LalinCFG.RuntimeValueSeqBuffer`
+- `LalinCFG.RuntimeValueSeqBase`
+- `LalinCFG.RuntimeValueSeqStore`
+- `LalinCFG.RuntimeOutcomeReturnSeq`
+- `LalinCFG.RuntimeOutcomeYieldSeq`
 
 Keep existing field-order asserts.
 
@@ -2345,7 +2345,7 @@ Add regression tests:
   - `RequiresResultChannel`
   - `NormalizesArity`
   - `ProducesResultChannel`
-  - compile contract contains structural semantic assumptions after MoonCFG lowering.
+  - compile contract contains structural semantic assumptions after LalinCFG lowering.
 
 ---
 
@@ -2361,7 +2361,7 @@ Add fail-closed checks:
 
 ---
 
-### `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua`
+### `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua`
 
 Add guardrail tests:
 
@@ -2377,8 +2377,8 @@ Add guardrail tests:
 2. Update `lua_rt_arity_model.lua`, `lua_rt_stack_model.lua`, `lua_rt_outcome_model.lua`.
 3. Update LuaRT/LuaExec/CompileContract validators.
 4. Update LuaSrc lowering to build typed arity normalization for existing supported ops only.
-5. Update LuaExec→MoonCFG lowering.
-6. Update MoonCFG validator/emitter.
+5. Update LuaExec→LalinCFG lowering.
+6. Update LalinCFG validator/emitter.
 7. Update public compile route/foundry contract expectations.
 8. Add schema/model tests.
 9. Add new arity executable tests.
@@ -2427,7 +2427,7 @@ Added tasks:
 - `T015` Extend structural validators for arity nodes
 - `T016` Add contract identity support for result channels
 - `T017` Refactor LuaSrc lowering to emit arity normalization
-- `T018` Lower arity normalization to MoonCFG
+- `T018` Lower arity normalization to LalinCFG
 - `T019` Emit and validate safe value-sequence runtime ops
 - `T020` Update compile route and foundry expectations
 - `T021` Update schema and model tests
@@ -2453,8 +2453,8 @@ Ready task: `T013`.
 ## Completed
 Implemented Phase 2 executable value-sequence/arity core for `wf-lua55-roadmap`.
 
-- Added ASDL vocabulary for `ArityNormalization`, `FromArityNormalization`, arity/result-channel Exec contracts, `AssumesResultChannel`, and MoonCFG sequence/outcome runtime nodes.
-- Added/extended arity model, validators, contract keying, LuaSrc→LuaExec lowering, LuaExec→MoonCFG lowering, MoonCFG validation/emission.
+- Added ASDL vocabulary for `ArityNormalization`, `FromArityNormalization`, arity/result-channel Exec contracts, `AssumesResultChannel`, and LalinCFG sequence/outcome runtime nodes.
+- Added/extended arity model, validators, contract keying, LuaSrc→LuaExec lowering, LuaExec→LalinCFG lowering, LalinCFG validation/emission.
 - Refactored existing `RETURN`/`VARARG` sequence paths through typed arity normalization without enabling new dynamic opcode families.
 - Kept `CALL`, `TAILCALL`, `SETLIST`, generic-for, close/GC dynamic semantics fail-closed.
 - Added Phase 2 arity tests and updated regression/guardrail tests.
@@ -2470,15 +2470,15 @@ Implemented Phase 2 executable value-sequence/arity core for `wf-lua55-roadmap`.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/compile_contract_validate.lua` - `AssumesResultChannel`.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/compile_contract_key.lua` - structural keying note.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_to_lua_exec_lower.lua` - typed arity normalization/contracts.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua` - normalized seq lowering and projections.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua` - new runtime expr/op validation.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua` - safe seq store/projection emission.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_to_moon_kernel.lua` - outcome-mode detection.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua` - normalized seq lowering and projections.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_validate.lua` - new runtime expr/op validation.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua` - safe seq store/projection emission.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_to_lalin_kernel.lua` - outcome-mode detection.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_schema.lua` - schema/validator coverage.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua` - new executable arity tests.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_regions.lua` - arity contracts/fail-closed checks.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua` - arity contract/outcome regressions.
-- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua` - result-channel contract key coverage.
+- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua` - result-channel contract key coverage.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_stack.lua` - legacy vararg projection coverage moved to new arity test.
 
 ## Verification
@@ -2512,7 +2512,7 @@ Before edits begin, verify:
   - `LuaRT.CallState` field order is still `call,shape,target,state,result_channel` at lines ~823-827.
   - `LuaExec.Region` field order is still `id,kind,params,continuations,entry,blocks`.
   - `LuaExec.Expr` starts around line ~1320; `LuaExec.Op` starts around line ~1400.
-  - `MoonCFG.Expr` starts around line ~1545; `MoonCFG.Op` starts around line ~1647.
+  - `LalinCFG.Expr` starts around line ~1545; `LalinCFG.Op` starts around line ~1647.
 - `lua_src_to_lua_exec_lower.lua`
   - `SUPPORTED_INSTR` still does **not** include `CALL` or `TAILCALL`.
   - `CALL` still rejects with `lua_exec:scaffold_only_region:CallRegion`.
@@ -2686,27 +2686,27 @@ This is call foundation, not a generic interpreter-like call fallback.
    | AssumesCallTargetIdentity(LuaRT.CallTargetIdentity identity) unique
    ```
 
-8. **Lines ~1545-1620, `MoonCFG.Expr`**: Add typed call runtime expressions.
+8. **Lines ~1545-1620, `LalinCFG.Expr`**: Add typed call runtime expressions.
 
    ```asdl
-   | RuntimeClassifyCallee(MoonCFG.Value callee) unique
-   | RuntimeCallTargetCheck(MoonCFG.Value callee,
+   | RuntimeClassifyCallee(LalinCFG.Value callee) unique
+   | RuntimeCallTargetCheck(LalinCFG.Value callee,
                             LuaRT.ResolvedCallTarget target) unique
-   | RuntimeCallFramePrepare(MoonCFG.Value caller_stack,
-                             MoonCFG.Value callee_stack,
+   | RuntimeCallFramePrepare(LalinCFG.Value caller_stack,
+                             LalinCFG.Value callee_stack,
                              LuaRT.CallFrameLayout layout,
-                             MoonCFG.Value args) unique
-   | RuntimeCallFrameResultSeq(MoonCFG.Value callee_stack,
+                             LalinCFG.Value args) unique
+   | RuntimeCallFrameResultSeq(LalinCFG.Value callee_stack,
                                LuaRT.CallFrameLayout layout,
                                LuaRT.CallResultChannel channel) unique
    ```
 
-9. **Lines ~1647-1666, `MoonCFG.Op`**: Add explicit arg transfer op.
+9. **Lines ~1647-1666, `LalinCFG.Op`**: Add explicit arg transfer op.
 
    ```asdl
-   | RuntimeCallFrameStoreArgs(MoonCFG.Value callee_stack,
+   | RuntimeCallFrameStoreArgs(LalinCFG.Value callee_stack,
                                LuaRT.CallFrameLayout layout,
-                               MoonCFG.Value args) unique
+                               LalinCFG.Value args) unique
    ```
 
    Result transfer can reuse `RuntimeValueSeqStore`.
@@ -2822,7 +2822,7 @@ This is call foundation, not a generic interpreter-like call fallback.
 1. **`validate_region_descriptor`, lines ~48-65**:
    - Current validation rejects `executable=true` on scaffold-only region kind.
    - Replace with `RegionModel.is_potentially_executable_region_kind(kind)`.
-   - Allow `CallRegion` as potentially executable; actual contract gating happens in `lua_exec_to_moon_cfg_lower.lua`.
+   - Allow `CallRegion` as potentially executable; actual contract gating happens in `lua_exec_to_lalin_cfg_lower.lua`.
 
 2. **`validate_expr`, lines ~70-120**:
    - Add cases for:
@@ -2866,9 +2866,9 @@ This is call foundation, not a generic interpreter-like call fallback.
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua`
 
-**Goal**: Lower fixed-shape call-frame substrate into typed MoonCFG.
+**Goal**: Lower fixed-shape call-frame substrate into typed LalinCFG.
 
 **Edit blocks**
 
@@ -2928,7 +2928,7 @@ This is call foundation, not a generic interpreter-like call fallback.
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_validate.lua`
 
 **Goal**: Validate typed call runtime nodes without weakening forbidden-string policy.
 
@@ -2961,9 +2961,9 @@ This is call foundation, not a generic interpreter-like call fallback.
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua`
 
-**Goal**: Emit explicit Moonlift call-frame substrate.
+**Goal**: Emit explicit Lalin call-frame substrate.
 
 **Edit blocks**
 
@@ -3083,11 +3083,11 @@ Add assertions for all new ASDL nodes:
 - `LuaExec.ResolvesCallTarget`
 - `CompileContract.AssumesResolvedCallTarget`
 - `CompileContract.AssumesCallFrameLayout`
-- `MoonCFG.RuntimeClassifyCallee`
-- `MoonCFG.RuntimeCallTargetCheck`
-- `MoonCFG.RuntimeCallFramePrepare`
-- `MoonCFG.RuntimeCallFrameResultSeq`
-- `MoonCFG.RuntimeCallFrameStoreArgs`
+- `LalinCFG.RuntimeClassifyCallee`
+- `LalinCFG.RuntimeCallTargetCheck`
+- `LalinCFG.RuntimeCallFramePrepare`
+- `LalinCFG.RuntimeCallFrameResultSeq`
+- `LalinCFG.RuntimeCallFrameStoreArgs`
 - `Stencil.FromCallTargetIdentity`
 - `Stencil.FromCallFrameLayout`
 
@@ -3121,10 +3121,10 @@ Cover:
    - has call frame layout,
    - has arg/result channels,
    - validates structurally,
-   - lowers to MoonCFG,
+   - lowers to LalinCFG,
    - validates,
    - emits,
-   - compiled Moonlift test returns expected result projection.
+   - compiled Lalin test returns expected result projection.
 
 6. Negative manual cases:
    - missing call contract rejects.
@@ -3142,13 +3142,13 @@ Update existing static-region tests:
 - Empty `CallRegion` still rejects.
 - Under-contracted `CallRegion` still rejects.
 - Properly contracted manual `CallRegion` lowers.
-- Source `CALL` still rejects through `compile_to_moon_kernel`.
+- Source `CALL` still rejects through `compile_to_lalin_kernel`.
 - Source `TAILCALL` still rejects.
 - `SETLIST`, `TFOR*`, standalone `MMBIN*` remain fail-closed.
 
 ---
 
-### `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua`
+### `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua`
 
 Add guardrail checks:
 
@@ -3164,8 +3164,8 @@ Add guardrail checks:
 2. Update `lua_rt_call_model.lua`.
 3. Update LuaRT/LuaExec/CompileContract validators.
 4. Update region executability gating.
-5. Lower call substrate in `lua_exec_to_moon_cfg_lower.lua`.
-6. Validate/emit MoonCFG call runtime nodes.
+5. Lower call substrate in `lua_exec_to_lalin_cfg_lower.lua`.
+6. Validate/emit LalinCFG call runtime nodes.
 7. Preserve source `CALL`/`TAILCALL` rejects.
 8. Add schema/model tests.
 9. Add executable call substrate tests.
@@ -3184,7 +3184,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_ca
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_regions.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 cd experiments/lua_interpreter_vm/spongejit && make test-completion
 ```
@@ -3214,8 +3214,8 @@ Added tasks:
 - `T026` Implement call model semantics helpers
 - `T027` Extend structural validators for call nodes
 - `T028` Gate executable CallRegion by typed contract
-- `T029` Lower call substrate to MoonCFG
-- `T030` Validate and emit MoonCFG call runtime
+- `T029` Lower call substrate to LalinCFG
+- `T030` Validate and emit LalinCFG call runtime
 - `T031` Propagate call contract identity
 - `T032` Keep source CALL and TAILCALL fail-closed
 - `T033` Update schema and model tests
@@ -3246,7 +3246,7 @@ Phase 3 adds the ASDL-first fixed-shape call-frame substrate:
 - call frame layout/state
 - LuaExec call-frame exprs/ops/contracts
 - CompileContract call assumptions
-- MoonCFG runtime call-frame nodes/op
+- LalinCFG runtime call-frame nodes/op
 - typed Stencil call patch sources
 - executable gating for manually constructed, fully contracted `CallRegion`
 
@@ -3258,16 +3258,16 @@ Source `CALL` / `TAILCALL` remain rejected and were not added to `SUPPORTED_INST
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_validate.lua` - call structural validators.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_validate.lua` - call expr/op/contract validation.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_region_model.lua` - contract-aware `CallRegion` gating.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua` - call substrate lowering and call contract propagation.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua` - MoonCFG call runtime validation/inference.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua` - call-frame runtime emission.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua` - call substrate lowering and call contract propagation.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_validate.lua` - LalinCFG call runtime validation/inference.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua` - call-frame runtime emission.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/compile_contract_validate.lua` - call assumption validation.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/compile_contract_key.lua` - structural call keying note.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_to_lua_exec_lower.lua` - explicit source `CALL`/`TAILCALL` fail-closed comments.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_schema.lua` - schema/model/call validation assertions.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua` - new executable call-frame substrate tests.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_regions.lua` - contracted/under-contracted `CallRegion` tests.
-- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua` - typed call stencil guardrails.
+- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua` - typed call stencil guardrails.
 
 ## Verification
 Passed:
@@ -3277,7 +3277,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_ca
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_regions.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 cd experiments/lua_interpreter_vm/spongejit && make test-completion
 cd experiments/lua_interpreter_vm/spongejit && make test-lua-compile-corpus100
@@ -3301,11 +3301,11 @@ Before Phase 4 edits begin, verify current Phase 3 state:
   - `LuaExec.Region` field order remains `id,kind,params,continuations,entry,blocks` around lines 1263-1268.
   - `LuaExec.CallContinuationRegion` exists around lines 1325-1329.
   - `LuaExec.Op.EmitRegion(region,args,continuations)` still exists around line 1481.
-  - `MoonCFG.Op.EmitRegion` exists around line 1754 but is still rejected by validation/emission.
-- `lua_exec_to_moon_cfg_lower.lua`
+  - `LalinCFG.Op.EmitRegion` exists around line 1754 but is still rejected by validation/emission.
+- `lua_exec_to_lalin_cfg_lower.lua`
   - Direct `Exec.EmitRegion` still rejects at lines ~695-696.
   - `lower_value(kernel, opts)` currently lowers only one `Exec.Kernel`, not a module/library.
-- `moon_cfg_validate.lua`
+- `lalin_cfg_validate.lua`
   - `CFG.EmitRegion`, `CFG.Continue`, and `CFG.Exit` are still unsupported terminators/ops around lines 400-401.
 - `lua_src_to_lua_exec_lower.lua`
   - `SUPPORTED_INSTR` still does **not** include `CALL` or `TAILCALL`.
@@ -3327,12 +3327,12 @@ What becomes executable:
   - the target region is present in the module region library,
   - the invocation is covered by typed `StaticRegionInvocation` / `CallContinuationRegion` contract nodes,
   - the target region is a static, non-scaffold executable region,
-  - the invocation is inlined before MoonCFG lowering.
+  - the invocation is inlined before LalinCFG lowering.
 
 What stays rejected:
 
-- Direct `ExecToMoon.lower(kernel)` with `EmitRegion`.
-- `MoonCFG.EmitRegion`.
+- Direct `ExecToLalin.lower(kernel)` with `EmitRegion`.
+- `LalinCFG.EmitRegion`.
 - source `CALL` / `TAILCALL`.
 - unknown call targets, dynamic arity, C/FFI/metamethod targets, tailcalls, nested/uncontracted emits.
 
@@ -3404,7 +3404,7 @@ StaticRegionInvocation = (LuaExec.Name id,
 ```
 
 **Danger zones**
-- Do not change `LuaExec.Module`, `Kernel`, `Region`, `Op.EmitRegion`, or `MoonCFG.Kernel` field order.
+- Do not change `LuaExec.Module`, `Kernel`, `Region`, `Op.EmitRegion`, or `LalinCFG.Kernel` field order.
 - Do not add lowercase semantic strings.
 - Do not add dynamic call dispatch constructors.
 
@@ -3418,7 +3418,7 @@ StaticRegionInvocation = (LuaExec.Name id,
 
 ```lua
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local Exec = T.LuaExec
 local RegionModel = require("lua_compile.lua_exec_region_model")
@@ -3533,13 +3533,13 @@ local StaticRegionModel = require("lua_compile.lua_exec_static_region_model")
 
 ### New file: `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_static_region_inline.lua`
 
-**Goal**: Expand typed `LuaExec.EmitRegion` into a single inlined executable `LuaExec.Kernel` before MoonCFG lowering.
+**Goal**: Expand typed `LuaExec.EmitRegion` into a single inlined executable `LuaExec.Kernel` before LalinCFG lowering.
 
 **Contents sketch**
 
 ```lua
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local Exec = T.LuaExec
 local ExecValidate = require("lua_compile.lua_exec_validate")
@@ -3611,7 +3611,7 @@ end
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua`
 
 **Goal**: Add module lowering through static inlining while keeping direct `EmitRegion` rejected.
 
@@ -3661,9 +3661,9 @@ M.lower_module_uncached = lower_module_value
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_validate.lua`
 
-**Goal**: Preserve MoonCFG guardrails.
+**Goal**: Preserve LalinCFG guardrails.
 
 **Edit blocks**
 
@@ -3671,8 +3671,8 @@ M.lower_module_uncached = lower_module_value
 - Keep unchanged.
 - Add comment:
 ```lua
--- Phase 4 LuaExec static invocation is inlined before MoonCFG. MoonCFG.EmitRegion
--- remains rejected until typed MoonCFG region emission is implemented separately.
+-- Phase 4 LuaExec static invocation is inlined before LalinCFG. LalinCFG.EmitRegion
+-- remains rejected until typed LalinCFG region emission is implemented separately.
 ```
 
 2. **Supported ops table, lines 28-37**:
@@ -3683,9 +3683,9 @@ M.lower_module_uncached = lower_module_value
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua`
 
-**Goal**: No new MoonCFG emit support in Phase 4.
+**Goal**: No new LalinCFG emit support in Phase 4.
 
 **Edit blocks**
 
@@ -3693,8 +3693,8 @@ M.lower_module_uncached = lower_module_value
 - Keep no `CFG.EmitRegion` render case.
 - If adding a guard comment:
 ```lua
--- LuaExec static invocation must be inlined before MoonCFG; do not render
--- MoonCFG.EmitRegion in Phase 4.
+-- LuaExec static invocation must be inlined before LalinCFG; do not render
+-- LalinCFG.EmitRegion in Phase 4.
 ```
 
 2. Ensure emitted source still contains no:
@@ -3816,7 +3816,7 @@ Cover:
      - `ReceiveCallResults`
      - `Return`
    - `lower_module_outcome(module, "kernel", "value2_payload_i64")` succeeds.
-   - emitted Moonlift runs and returns expected third result.
+   - emitted Lalin runs and returns expected third result.
 
 2. Contract identity:
    - compile contract contains static invocation assumptions.
@@ -3850,8 +3850,8 @@ Update:
 - `test_spongejit_lua_compile_lua_rt_call.lua`
   - Existing Phase 3 call-frame substrate still passes.
 
-- `test_spongejit_lua_compile_moon_cfg.lua`
-  - `MoonCFG.EmitRegion` still rejected.
+- `test_spongejit_lua_compile_lalin_cfg.lua`
+  - `LalinCFG.EmitRegion` still rejected.
   - typed static invocation stencil sources accepted.
   - lowercase semantic strings rejected.
 
@@ -3865,9 +3865,9 @@ Update:
 4. Extend `lua_rt_call_model.lua`.
 5. Extend `lua_exec_validate.lua`.
 6. Add `lua_exec_static_region_inline.lua`.
-7. Wire module lowering in `lua_exec_to_moon_cfg_lower.lua`.
+7. Wire module lowering in `lua_exec_to_lalin_cfg_lower.lua`.
 8. Update contract/stencil validation comments/tests.
-9. Preserve MoonCFG `EmitRegion` rejection.
+9. Preserve LalinCFG `EmitRegion` rejection.
 10. Preserve source `CALL`/`TAILCALL` rejection.
 11. Add schema/static-invocation tests.
 12. Run verification.
@@ -3885,7 +3885,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_ca
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_regions.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 cd experiments/lua_interpreter_vm/spongejit && make test-completion
 ```
@@ -3914,7 +3914,7 @@ Added tasks:
 - `T039` Extend LuaRT and LuaExec validators
 - `T040` Implement static region inline expansion
 - `T041` Wire module lowering through inliner
-- `T042` Preserve MoonCFG EmitRegion guardrails
+- `T042` Preserve LalinCFG EmitRegion guardrails
 - `T043` Update contract and stencil validation
 - `T044` Keep source CALL fail-closed
 - `T045` Update schema and model tests
@@ -3931,7 +3931,7 @@ Ready first task: `T037`.
 - ASDL first; no stringly semantics.
 - Phase 4 executes **manual typed static invocation only**, not source `CALL`.
 - `LuaExec.EmitRegion` is executable only through `LuaExec.Module` + typed contract + inline expansion.
-- `MoonCFG.EmitRegion` remains rejected.
+- `LalinCFG.EmitRegion` remains rejected.
 - Unknown/dynamic/tailcall/C/FFI/metamethod targets reject.
 - No VM dispatch, interpreter handoff, helper calls, or protocol exits.
 
@@ -3945,7 +3945,7 @@ Define SpongeJIT’s full Lua 5.5 semantic architecture coherently up front in A
 
 ## Incentives
 
-The previous roadmap correctly preserved the clean-base invariant that accepted kernels must go through `LuaSrc.Window -> LuaExec.Kernel -> MoonCFG.Kernel` with no fallback. However, its implementation plans framed the architecture itself as phased: Phase 1 scaffold-only regions, Phase 2 arity, Phase 3 call frames, Phase 4 static invocation, and so on. That is the corrected mistake. A partial “scaffold now, semantic architecture later” approach is too avoidant for Lua 5.5 because the hard features are interdependent. Calls depend on arity, metatables, closures, close/yield, and FFI; GC allocation affects tables, closures, strings, cdata, finalizers, and barriers; close/TBC affects returns, errors, yields, and tailcalls. If the product vocabulary is allowed to evolve feature-by-feature, the architecture can encode local compromises that later conflict with full semantics.
+The previous roadmap correctly preserved the clean-base invariant that accepted kernels must go through `LuaSrc.Window -> LuaExec.Kernel -> LalinCFG.Kernel` with no fallback. However, its implementation plans framed the architecture itself as phased: Phase 1 scaffold-only regions, Phase 2 arity, Phase 3 call frames, Phase 4 static invocation, and so on. That is the corrected mistake. A partial “scaffold now, semantic architecture later” approach is too avoidant for Lua 5.5 because the hard features are interdependent. Calls depend on arity, metatables, closures, close/yield, and FFI; GC allocation affects tables, closures, strings, cdata, finalizers, and barriers; close/TBC affects returns, errors, yields, and tailcalls. If the product vocabulary is allowed to evolve feature-by-feature, the architecture can encode local compromises that later conflict with full semantics.
 
 The corrected rule is: **implementation may be phased; architecture must not be phased**.
 
@@ -3965,15 +3965,15 @@ PUC/event rows
   -> LuaCompile.Unit(source, evidence)
   -> lua_src_to_lua_exec_lower.lua
   -> LuaExec.Kernel
-  -> lua_exec_to_moon_cfg_lower.lua
-  -> MoonCFG.Kernel
-  -> moon_cfg_validate.lua
-  -> moon_cfg_emit.lua
+  -> lua_exec_to_lalin_cfg_lower.lua
+  -> LalinCFG.Kernel
+  -> lalin_cfg_validate.lua
+  -> lalin_cfg_emit.lua
 ```
 
 `LuaSrc` already decodes all 85 real Lua 5.5 opcodes. The source layer is complete enough to preserve bytecode facts such as `EXTRAARG`, `MMBIN*`, comparison + `JMP`, loop groups, call/return counts, varargs, closures, and table forms.
 
-The executable `LuaExec`/`MoonCFG` slice is much narrower. It currently supports selected loads, moves, returns, comparisons, `ADD`/`ADDI`/`ADDK`, raw `GETTABLE`/`SETTABLE`, limited `LEN`/`CONCAT`, selected varargs, and typed outcomes. Common Lua features such as `CALL`, `TAILCALL`, closures/upvalues, metatable paths, `NEWTABLE`, `SETLIST`, loops, close/TBC, GC allocation, and FFI/cdata remain rejected.
+The executable `LuaExec`/`LalinCFG` slice is much narrower. It currently supports selected loads, moves, returns, comparisons, `ADD`/`ADDI`/`ADDK`, raw `GETTABLE`/`SETTABLE`, limited `LEN`/`CONCAT`, selected varargs, and typed outcomes. Common Lua features such as `CALL`, `TAILCALL`, closures/upvalues, metatable paths, `NEWTABLE`, `SETLIST`, loops, close/TBC, GC allocation, and FFI/cdata remain rejected.
 
 Recent work introduced typed scaffold/product pieces for static regions, arity/result channels, call frames, call target identity, and call-frame transfer. It also kept source `CALL`/`TAILCALL` rejected. Those edits are useful as implementation material, but the *architectural framing* as sequential scaffold phases is now superseded. The correct architecture is not “Phase 1 ASDL, then Phase 2 ASDL, then Phase 3 ASDL.” The correct architecture is one complete Lua 5.5 semantic product model, with implementation gates filling in lowering/emission over time.
 
@@ -4129,9 +4129,9 @@ Static invocation must be represented explicitly through typed region products s
 
 No assumption may be hidden in strings, helper names, side tables, or untyped variant keys.
 
-#### `MoonCFG`
+#### `LalinCFG`
 
-`MoonCFG` is the typed Moonlift CFG target. It must contain only explicit runtime operations corresponding to typed `LuaRT`/`LuaExec` semantics.
+`LalinCFG` is the typed Lalin CFG target. It must contain only explicit runtime operations corresponding to typed `LuaRT`/`LuaExec` semantics.
 
 Valid future support includes typed operations for:
 
@@ -4145,7 +4145,7 @@ Valid future support includes typed operations for:
 - close-chain execution;
 - FFI/cdata scalar and ABI operations.
 
-`MoonCFG.EmitRegion`, if supported later, must be typed and validated. Until then, static `LuaExec` invocation may be inlined before MoonCFG. It must not become a protocol exit.
+`LalinCFG.EmitRegion`, if supported later, must be typed and validated. Until then, static `LuaExec` invocation may be inlined before LalinCFG. It must not become a protocol exit.
 
 #### Foundry, stencil, and identity
 
@@ -4211,7 +4211,7 @@ The correction accepts these risks to preserve the core SpongeJIT rule: **ASDL i
 
 ## Files Retrieved
 
-1. `experiments/lua_interpreter_vm/spongejit/ssa_asdl/spongejit_lua_ssa.asdl` (lines 1-180, 170-499, 496-1255, 1250-2020, 2020-2048) — current ASDL authority: doctrine, all `LuaSrc` opcodes, `LuaFact`, `LuaFFI`, `LuaRT`, `LuaGC`, `LuaExec`, `CompileContract`, `MoonCFG`, `Stencil`, `LuaCompile`.
+1. `experiments/lua_interpreter_vm/spongejit/ssa_asdl/spongejit_lua_ssa.asdl` (lines 1-180, 170-499, 496-1255, 1250-2020, 2020-2048) — current ASDL authority: doctrine, all `LuaSrc` opcodes, `LuaFact`, `LuaFFI`, `LuaRT`, `LuaGC`, `LuaExec`, `CompileContract`, `LalinCFG`, `Stencil`, `LuaCompile`.
 2. `experiments/lua_interpreter_vm/spongejit/ssa_asdl/README.md` (lines 1-38) — layer responsibilities and guardrails.
 3. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_from_puc_decode.lua` (lines 1-135) — explicit decoder for 85 Lua 5.5 real opcodes.
 4. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_window_collect.lua` (lines 1-46) — `EXTRAARG` preservation for `LOADKX`, `NEWTABLE`, `SETLIST`.
@@ -4228,14 +4228,14 @@ The correction accepts these risks to preserve the core SpongeJIT rule: **ASDL i
 15. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_cdata_model.lua` (lines 1-64) — cdata scalar bank substrate.
 16. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_validate.lua` (lines 1-135) — structural validation for LuaRT products.
 17. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_validate.lua` (lines 1-350) — structural LuaExec validation; module validation is shallow.
-18. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua` (lines 1-1090) — LuaExec→MoonCFG lowering; `EmitRegion` still rejected.
-19. `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua` (lines 1-450) — MoonCFG support set and forbidden fallback strings.
-20. `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua` (lines 1-220, 560-1530) — MoonCFG runtime emission for current executable substrate.
+18. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua` (lines 1-1090) — LuaExec→LalinCFG lowering; `EmitRegion` still rejected.
+19. `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_validate.lua` (lines 1-450) — LalinCFG support set and forbidden fallback strings.
+20. `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua` (lines 1-220, 560-1530) — LalinCFG runtime emission for current executable substrate.
 21. `experiments/lua_interpreter_vm/spongejit/lua_compile/compile_contract_validate.lua` (lines 1-160) — current semantic assumption validation.
 22. `experiments/lua_interpreter_vm/spongejit/lua_compile/stencil_key.lua` (lines 1-120) — structural keying and forbidden string guardrails.
 23. `experiments/lua_interpreter_vm/spongejit/lua_compile/stencil_validate.lua` (lines 1-220) — stencil structural validation.
 24. `experiments/lua_interpreter_vm/spongejit/lua_compile/stencil_materialize.lua` (lines 240-330) — materializer supports only a small subset of `PatchSource`.
-25. `experiments/lua_interpreter_vm/spongejit/lua_compile/stencil_foundry.lua` (lines 1-34) — stencil variant identity from MoonCFG + contract.
+25. `experiments/lua_interpreter_vm/spongejit/lua_compile/stencil_foundry.lua` (lines 1-34) — stencil variant identity from LalinCFG + contract.
 26. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_fact_from_runtime_observe.lua` (lines 1-212) — runtime observations to facts/evidence.
 27. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_foundry.lua` (lines 160-320) — current fact axes for arithmetic/table/upvalue/call-target-ish evidence.
 28. `experiments/lua_interpreter_vm/spongejit/src/loop_regions.lua` (lines 1-220) — numeric/generic loop topology recognition.
@@ -4255,12 +4255,12 @@ The correction accepts these risks to preserve the core SpongeJIT rule: **ASDL i
 42. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_src.lua` (lines 1-140) — decode coverage and source field preservation.
 43. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_regions.lua` (lines 1-158) — scaffold/contracted manual `CallRegion` tests.
 44. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua` (lines 1-220) — executable fixed-shape call-frame substrate tests.
-45. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua` (lines 300-450) — unsupported source guardrails, stencil key guardrails.
+45. `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua` (lines 300-450) — unsupported source guardrails, stencil key guardrails.
 46. `experiments/lua_interpreter_vm/spongejit/Makefile` (lines 1-64) — main test scope and no-old-imports gate.
 47. `experiments/lua_interpreter_vm/SPONJIT_ARCHITECTURE.md` (lines 1-31) — current no-fallback direction.
 48. `experiments/lua_interpreter_vm/SPONJIT_FFI_DESIGN.md` (lines 1-220) — FFI target facts.
 49. `experiments/lua_interpreter_vm/SPONJIT_GC_DESIGN.md` (lines 1-220) — GC target facts.
-50. `experiments/lua_interpreter_vm/SPONJIT_MOONLIFT_COPY_PATCH_DESIGN.md` (lines 1-220) — copy/patch/stencil target facts.
+50. `experiments/lua_interpreter_vm/SPONJIT_LALIN_COPY_PATCH_DESIGN.md` (lines 1-220) — copy/patch/stencil target facts.
 
 ## Key Code
 
@@ -4275,12 +4275,12 @@ The correction accepts these risks to preserve the core SpongeJIT rule: **ASDL i
 --   LuaRT           answers: what Lua runtime semantic objects/state exist.
 --   LuaExec         answers: what explicit semantic Lua CFG is executed over LuaRT.
 --   CompileContract answers: what executable-route obligations/facts/invalidation assumptions are attached.
---   MoonCFG         answers: what explicit Moonlift CFG is emitted.
---   Stencil         answers: what typed copy-and-patch backend artifact is materialized from MoonCFG.
+--   LalinCFG         answers: what explicit Lalin CFG is emitted.
+--   Stencil         answers: what typed copy-and-patch backend artifact is materialized from LalinCFG.
 --
 -- Source opcode mechanics are code-shaping in LuaSrc and must be dead after LuaExec.
 -- Physical residency is not semantic identity.
--- Runtime/Moonlift output never rediscovers Lua opcode meaning.
+-- Runtime/Lalin output never rediscovers Lua opcode meaning.
 ```
 
 ### LuaSrc opcode coverage
@@ -4399,25 +4399,25 @@ M.EXECUTABLE_REGION_KIND = {
 
 ### Non-Obvious Observations
 
-- **The current ASDL still reflects phased implementation, not a completed target architecture.**  
+- **The current ASDL still reflects phased implementation, not a completed target architecture.**
   Names/comments/models such as “scaffold-only,” “Phase 2,” “Phase 3,” `executable` flags on `RegionDescriptor`, and `EXECUTABLE_REGION_KIND` make implementation status visible in architectural products. For the corrected roadmap, ASDL should describe semantic possibility; executability should be a contract/lowering property, not a field baked into region identity.
 
-- **`RegionDescriptor.executable` is especially suspect.**  
+- **`RegionDescriptor.executable` is especially suspect.**
   A region’s semantic identity should not change because today’s lowerer can or cannot emit it. If variant keys or contracts include this boolean, code identity can accidentally encode compiler maturity instead of Lua meaning. The architecture likely needs separate typed support/validation facts, not semantic identity fields.
 
-- **Calls are currently split across overlapping products that do not yet form one invariant.**  
+- **Calls are currently split across overlapping products that do not yet form one invariant.**
   `CallShape`, `CallTarget`, `CallState`, `ResolvedCallTarget`, `CallArgChannel`, `CallResultChannel`, `CallFrameLayout`, and `CallFrameState` all describe parts of a call, but the ASDL itself does not enforce that:
   - they share the same `CallRef`,
   - the callee in `CallShape` matches `CallTarget.callee`,
   - arg/result counts match frame layout,
   - tailcall state matches continuation kind,
-  - yielded/error outcomes correspond to call continuation wiring.  
+  - yielded/error outcomes correspond to call continuation wiring.
   Full Lua 5.5 needs call identity as a single consistency spine across these products.
 
-- **`CallTarget` has a shape smell: every target carries a `metamethod`.**  
+- **`CallTarget` has a shape smell: every target carries a `metamethod`.**
   Non-metamethod calls still require a `LuaRT.Metamethod` field. That makes irrelevant data mandatory and risks bogus values becoming part of structural identity. Full architecture should distinguish direct callable identity from metamethod-call identity without forcing unused fields into every target.
 
-- **Fixed-shape call-frame substrate is not the same as Lua call semantics.**  
+- **Fixed-shape call-frame substrate is not the same as Lua call semantics.**
   The current call-frame model copies args/results but explicitly does not invoke callee bodies. That is valid implementation substrate, but architecturally a full call product also needs:
   - frame activation/replacement,
   - proto dispatch/static region binding,
@@ -4428,74 +4428,74 @@ M.EXECUTABLE_REGION_KIND = {
   - vararg preparation,
   - debug/resume PC state.
 
-- **Arity products are close, but still too “normalization-result” centered.**  
+- **Arity products are close, but still too “normalization-result” centered.**
   `ArityNormalization(source, shape, channel)` describes source adjustment, but Lua call/return semantics also require ownership of top movement, caller/callee frame slots, result overwrite ranges, padding/truncation, and open tail propagation through nested call/vararg/constructor contexts. These are not just sequence transforms; they are frame effects.
 
-- **`ResultChannel` mixes destination policy and value carrier.**  
+- **`ResultChannel` mixes destination policy and value carrier.**
   A result channel currently contains `kind`, `values`, and `count`. For full semantics, “where results go” and “what values exist” may diverge: return outcome, continuation args, caller stack slots, tailcall frame replacement, yielded values, and close-chain pending result all need different routing while sharing the same value sequence.
 
-- **Closures/upvalues are under-modeled relative to their semantic weight.**  
+- **Closures/upvalues are under-modeled relative to their semantic weight.**
   `UpvalueRef = (number index)` is too weak for full identity. Upvalues need proto/frame scope, open-vs-closed state, captured slot identity, close epoch, write barrier dependency, and alias identity across closures. Otherwise `GETUPVAL`/`SETUPVAL` can appear slot-like even though lifetime and invalidation are the main semantics.
 
-- **GC and closure products are not yet aligned.**  
+- **GC and closure products are not yet aligned.**
   `LuaGC.GCObjectKind` includes `ProtoKind`, `ThreadKind`, and `UpvalueKind`, but `CollectableObject` lacks corresponding object variants. That mismatch matters because closures, protos, threads, and upvalues are precisely the objects call/close/yield semantics depend on.
 
-- **Metatable products describe lookup states but not complete invalidation identity.**  
+- **Metatable products describe lookup states but not complete invalidation identity.**
   `MetatableRef`, `MetamethodLookup`, and `MetamethodCallHook` exist, but full semantics require epoch/fact identity for:
   - receiver’s metatable,
   - metamethod slot content,
   - type metatable cache,
   - `__index` / `__newindex` chains,
   - loop-limit assumptions,
-  - metamethod absence vs presence.  
+  - metamethod absence vs presence.
   `AssumesNoMetamethod(value, method)` is not enough unless tied to the exact metatable epoch and lookup path.
 
-- **Raw table paths must not become the architectural table model.**  
+- **Raw table paths must not become the architectural table model.**
   Current executable `GETTABLE`/`SETTABLE` are raw/no-metatable slices. Full ASDL must make raw access one branch of table semantics, not the table semantics. Otherwise metatable-present cases risk staying modeled as errors even though Lua requires call/table-chain behavior.
 
-- **Arithmetic is split inconsistently.**  
+- **Arithmetic is split inconsistently.**
   `LuaRT.ArithmeticOp` only covers arithmetic through `IDiv`, while `LuaExec.NumberOp` includes bitwise and unary ops. Lua 5.5 arithmetic/bitwise/unary semantics share companion/metamethod/coercion rules. Splitting them across layers risks losing the invariant that opcode, `MMBIN*`, operand order, operation kind, and metamethod selector are one semantic unit.
 
-- **Companion opcodes are architectural, not lowering trivia.**  
+- **Companion opcodes are architectural, not lowering trivia.**
   `MMBIN*`, `EXTRAARG`, comparison+`JMP`, loop groups, and call/result windows must remain represented as typed source-window constraints until semantic lowering has consumed them. Full ASDL should not let single-op regions claim completeness where Lua semantics require multi-op context.
 
-- **Generic `for` is a call/arity/close/yield feature, not a loop feature.**  
+- **Generic `for` is a call/arity/close/yield feature, not a loop feature.**
   `GenericForState` currently stores iterator/state/control/closing/wanted results. Full generic-for semantics must tie this to iterator call identity, result channel, yielded call continuation, close variable, and loop backedge topology. Otherwise it will be impossible to distinguish “iterator returned nil” from call error/yield/close effects.
 
-- **Numeric `for` still needs whole-region identity.**  
+- **Numeric `for` still needs whole-region identity.**
   Numeric for is simpler than generic for, but `FORPREP`/`FORLOOP` depend on typed loop variables, integer/float mode, control-slot conventions, backedge target, and overflow/comparison rules. Modeling only `NumericForState` is insufficient unless region topology is also first-class.
 
-- **Close/TBC is under-integrated with error/yield/return.**  
+- **Close/TBC is under-integrated with error/yield/return.**
   `CloseHook(kind, chain, result_channel)` captures a hook but not the ordering protocol: original result/error/yield, close method lookup, close call, replacement error, yielded close continuation, resume behavior, and tailcall frame replacement. Full semantics need close chains to be part of every exit path, not a side metadata hook.
 
-- **Error and yield outcomes need richer causality.**  
+- **Error and yield outcomes need richer causality.**
   `ErrorState(kind, error_object, saved_pc, saved_top)` and `YieldState` exist, but full Lua 5.5 needs to know whether an error/yield occurred during normal call, metamethod, iterator, close, finalizer, FFI callback, or allocation path, because resumption/propagation rules differ.
 
-- **GC is broad but not yet connected to allocation-producing opcodes.**  
+- **GC is broad but not yet connected to allocation-producing opcodes.**
   `NEWTABLE`, `CLOSURE`, allocating `CONCAT`, cdata creation, userdata, closures, and finalizers all require allocation/root/barrier/failure products. Current `GCHook` is too generic if it becomes the only bridge; full architecture needs typed allocation result/effect products tied to the runtime object being created.
 
-- **FFI is architecturally broad but execution identity is thin.**  
+- **FFI is architecturally broad but execution identity is thin.**
   FFI products model layouts, symbols, callbacks, cdata, and finalizers, but full integration also needs call ABI channels, conversion rules between `LuaRT.TValue` and C values, ownership transitions, callback re-entry into Lua call/yield/error, and GC rooting/finalizer identity. `AssumesFFILayout(type_id, layout_hash)` is only one slice.
 
-- **Stencil identity already knows about future domains, but materialization lags.**  
+- **Stencil identity already knows about future domains, but materialization lags.**
   `PatchSource` has GC/FFI/call/upvalue/metatable sources, while materialization supports only a subset. That is acceptable only if unsupported patch sources reject loudly. Architecturally, every executable contract assumption that can affect generated code needs a corresponding typed patch/variant identity path.
 
-- **Foundry fact axes are too coarse for full semantics.**  
+- **Foundry fact axes are too coarse for full semantics.**
   Existing dependencies like `MetatableEpoch`, `UpvalueEpoch`, `CallTargetEpoch`, `VmAbiEpoch` are useful but likely too global. Full ASDL needs facts that bind an epoch to a specific object/path/layout/slot, or stale assumptions may survive structural keying.
 
-- **Static regions must be semantic CFG composition, not call semantics by another name.**  
+- **Static regions must be semantic CFG composition, not call semantics by another name.**
   `EmitRegion` / static invocation should mean typed CFG splice with explicit continuation binding. It must not hide callee dispatch, VM protocol, or fallback. The key invariant is: static region invocation composes already-typed regions; it does not discover Lua meaning at runtime.
 
-- **`LuaExec.Module` is currently too shallow for full static region architecture.**  
+- **`LuaExec.Module` is currently too shallow for full static region architecture.**
   A module with `regions,kernels` needs region-library identity, duplicate-region constraints, continuation resolution, binding contracts, and inlining/composition invariants. Without these, static invocation can become a side table convention instead of ASDL-controlled architecture.
 
-- **Contracts need relationship invariants, not just node presence.**  
+- **Contracts need relationship invariants, not just node presence.**
   Current validators mostly check structural class membership. Full correctness requires cross-node constraints: same call ref, matching frame refs, matching region descriptors, dependency coverage for every assumption, no unknown target in executable contracts, no dynamic count where fixed required, etc.
 
 - **The final ASDL should separate three notions now conflated:**
   - **semantic product exists**: well-formed Lua meaning;
   - **contract proves assumptions**: safe specialization;
-  - **lowerer supports execution**: current implementation capability.  
+  - **lowerer supports execution**: current implementation capability.
   Phase-scaffold products blur these boundaries.
 
 ---
@@ -4519,7 +4519,7 @@ M.EXECUTABLE_REGION_KIND = {
 ### Final ASDL Invariants to Preserve
 
 - No lowercase semantic strings or helper/protocol names carry meaning.
-- LuaSrc opcode mechanics are fully consumed before MoonCFG; MoonCFG never rediscovers bytecode semantics.
+- LuaSrc opcode mechanics are fully consumed before LalinCFG; LalinCFG never rediscovers bytecode semantics.
 - Every executable dynamic assumption has typed contract identity and invalidation dependencies.
 - Every call-related product in one call path shares a coherent `CallRef`.
 - Every upvalue identity is scoped enough to distinguish proto/frame/lifetime/epoch.
@@ -4552,10 +4552,10 @@ Define SpongeJIT’s complete Lua 5.5 semantic architecture up front as typed AS
 SpongeJIT already has a strong clean-base invariant: accepted kernels must compile through the typed route
 
 ```text
-LuaSrc.Window -> LuaExec.Kernel -> MoonCFG.Kernel
+LuaSrc.Window -> LuaExec.Kernel -> LalinCFG.Kernel
 ```
 
-with no interpreter fallback, protocol exit, helper-name semantics, or legacy opcode helper path. This protects correctness, but current executable coverage is intentionally narrow. `LuaSrc` decodes all 85 Lua 5.5 real opcodes, while `LuaExec`/`MoonCFG` currently accepts only a subset: basic loads/moves, returns, selected comparisons, `ADD`/`ADDI`/`ADDK`, raw `GETTABLE`/`SETTABLE`, limited `LEN`/`CONCAT`, selected varargs, and typed outcomes.
+with no interpreter fallback, protocol exit, helper-name semantics, or legacy opcode helper path. This protects correctness, but current executable coverage is intentionally narrow. `LuaSrc` decodes all 85 Lua 5.5 real opcodes, while `LuaExec`/`LalinCFG` currently accepts only a subset: basic loads/moves, returns, selected comparisons, `ADD`/`ADDI`/`ADDK`, raw `GETTABLE`/`SETTABLE`, limited `LEN`/`CONCAT`, selected varargs, and typed outcomes.
 
 The main roadmap correction is that **implementation may be phased, but architecture must not be phased**. Lua 5.5 semantics are too interdependent for product vocabulary to grow opportunistically. Calls depend on arity, closures, metatables, generic `for`, FFI, close/TBC, yield/error, and static region invocation. GC allocation affects `NEWTABLE`, `CLOSURE`, strings, cdata, finalizers, barriers, roots, and object lifetime. Close/TBC affects returns, tailcalls, errors, yields, and finalizer ordering. If ASDL products are introduced only as local scaffolds for each implementation phase, they risk encoding partial truths that later conflict with full Lua semantics.
 
@@ -4580,7 +4580,7 @@ Its layer doctrine is already correct and remains the target organizing principl
 | `LuaRT` | Lua runtime semantic objects/state |
 | `LuaExec` | Explicit semantic Lua CFG over `LuaRT` |
 | `CompileContract` | Executable-route obligations, facts, invalidation assumptions |
-| `MoonCFG` | Explicit Moonlift CFG emitted from semantic products |
+| `LalinCFG` | Explicit Lalin CFG emitted from semantic products |
 | `Stencil` | Typed copy/patch backend artifact identity and patch sources |
 
 The clean-base compiler path is:
@@ -4592,10 +4592,10 @@ PUC/event rows
   -> LuaCompile.Unit(source, evidence)
   -> lua_src_to_lua_exec_lower.lua
   -> LuaExec.Kernel
-  -> lua_exec_to_moon_cfg_lower.lua
-  -> MoonCFG.Kernel
-  -> moon_cfg_validate.lua
-  -> moon_cfg_emit.lua
+  -> lua_exec_to_lalin_cfg_lower.lua
+  -> LalinCFG.Kernel
+  -> lalin_cfg_validate.lua
+  -> lalin_cfg_emit.lua
 ```
 
 The public compiler route has no semantic fallback. Unsupported windows reject.
@@ -4666,31 +4666,31 @@ These are useful foundations, but the corrected roadmap treats them as partial c
 
 The scout and knowledge-builder findings identify several important tensions:
 
-1. **Implementation status leaks into architecture.**  
+1. **Implementation status leaks into architecture.**
    Terms and flags such as scaffold-only, executable region kind tables, and `RegionDescriptor.executable` encode current compiler capability rather than Lua semantic identity.
 
-2. **Calls are split across overlapping products.**  
+2. **Calls are split across overlapping products.**
    `CallShape`, `CallTarget`, `CallState`, `ResolvedCallTarget`, `CallArgChannel`, `CallResultChannel`, `CallFrameLayout`, and `CallFrameState` exist, but the architecture must make their shared `CallRef` and cross-field invariants explicit.
 
-3. **`CallTarget` carries a mandatory metamethod field.**  
+3. **`CallTarget` carries a mandatory metamethod field.**
    Non-metamethod calls still carry a `LuaRT.Metamethod`, forcing irrelevant data into structural identity.
 
-4. **Arity is modeled as sequence normalization, but full Lua arity also moves frame state.**  
+4. **Arity is modeled as sequence normalization, but full Lua arity also moves frame state.**
    Calls, returns, varargs, `SETLIST`, constructors, tailcalls, and generic `for` require top movement, slot overwrite ranges, open-tail propagation, and result routing.
 
-5. **Closures/upvalues are under-modeled.**  
+5. **Closures/upvalues are under-modeled.**
    `UpvalueRef` is too weak if it only identifies an index. Full semantics require proto/frame scope, captured slot identity, open/closed state, lifetime, close epoch, aliasing, and barriers.
 
-6. **Metatable facts are insufficient without lookup-path identity.**  
+6. **Metatable facts are insufficient without lookup-path identity.**
    Assumptions such as no metamethod must be tied to exact metatable epoch and lookup path.
 
-7. **GC object taxonomy is broader than collectable object representation.**  
+7. **GC object taxonomy is broader than collectable object representation.**
    `GCObjectKind` includes proto/thread/upvalue kinds, while collectable object variants are not fully aligned.
 
-8. **`LuaExec.Module` and static regions are shallow.**  
+8. **`LuaExec.Module` and static regions are shallow.**
    Full static region architecture needs region library identity, duplicate detection, continuation resolution, binding contracts, and splice/inlining invariants.
 
-9. **Contract validation is mostly structural.**  
+9. **Contract validation is mostly structural.**
    Full correctness needs relationship invariants: same call refs, matching frame layouts, matching descriptors, epoch coverage, fixed/dynamic arity legality, and no unknown executable targets.
 
 ## Chosen Target
@@ -4746,7 +4746,7 @@ It must preserve:
   - loop groups
 - bytecode-local operands, counts, flags, slots, constants, and PCs.
 
-`LuaSrc` must not contain runtime semantics. Opcode mechanics must be consumed before `MoonCFG`; `MoonCFG` must never rediscover Lua opcode meaning.
+`LuaSrc` must not contain runtime semantics. Opcode mechanics must be consumed before `LalinCFG`; `LalinCFG` must never rediscover Lua opcode meaning.
 
 ## LuaRT
 
@@ -5087,9 +5087,9 @@ No semantic assumption may be hidden in strings, helper names, side tables, or u
 
 ---
 
-## MoonCFG
+## LalinCFG
 
-`MoonCFG` is the typed Moonlift CFG emitted from semantic products.
+`LalinCFG` is the typed Lalin CFG emitted from semantic products.
 
 It must contain explicit runtime operations for:
 
@@ -5107,9 +5107,9 @@ It must contain explicit runtime operations for:
 - close-chain execution
 - FFI/cdata scalar/ABI/call behavior
 
-`MoonCFG` must not contain Lua opcode mechanics. It must not contain lowercase semantic strings such as `"call"`, `"close"`, `"generic_for"`, `"setlist"`, `"out_tag"`, or helper/protocol tags as carriers of meaning.
+`LalinCFG` must not contain Lua opcode mechanics. It must not contain lowercase semantic strings such as `"call"`, `"close"`, `"generic_for"`, `"setlist"`, `"out_tag"`, or helper/protocol tags as carriers of meaning.
 
-If `MoonCFG.EmitRegion` is supported later, it must be typed and validated. Until then, static `LuaExec` invocation may be inlined before MoonCFG.
+If `LalinCFG.EmitRegion` is supported later, it must be typed and validated. Until then, static `LuaExec` invocation may be inlined before LalinCFG.
 
 ---
 
@@ -5214,7 +5214,7 @@ Contracts must validate relationships, not just constructor classes.
 Validators must enforce:
 
 - no lowercase semantic strings carry meaning;
-- source opcode mechanics do not survive into MoonCFG;
+- source opcode mechanics do not survive into LalinCFG;
 - every executable dynamic assumption has typed contract identity;
 - every call path has coherent `CallRef`;
 - every static invocation has target binding and continuation wiring;
@@ -5264,7 +5264,7 @@ Complete LuaSrc fidelity
   -> complete LuaRT semantic state
   -> complete LuaExec static semantic regions
   -> typed CompileContract assumptions/invalidation
-  -> explicit MoonCFG runtime operations
+  -> explicit LalinCFG runtime operations
   -> structural Stencil/foundry identity
 ```
 
@@ -5770,7 +5770,7 @@ Before edits begin, verify current repo matches Phase 3 state:
 
 ---
 
-### `lua_exec_to_moon_cfg_lower.lua`
+### `lua_exec_to_lalin_cfg_lower.lua`
 
 **Goal**: Lower current executable slice; reject complete unsupported products cleanly.
 
@@ -5778,18 +5778,18 @@ Before edits begin, verify current repo matches Phase 3 state:
 - Update contract propagation for new assumption constructors.
 - Update result channel/arity lowering for new `ResultBundle`.
 - Replace scaffold-only expression rejections with unsupported semantic product diagnostics.
-- Keep unsupported complete products rejected before MoonCFG emission.
+- Keep unsupported complete products rejected before LalinCFG emission.
 
 ---
 
-### `moon_cfg_validate.lua` / `moon_cfg_emit.lua`
+### `lalin_cfg_validate.lua` / `lalin_cfg_emit.lua`
 
-**Goal**: Preserve current MoonCFG support and guardrails.
+**Goal**: Preserve current LalinCFG support and guardrails.
 
 **Edits**
 - Update renamed runtime products only if current slice needs them.
 - Keep forbidden strings unchanged.
-- Keep `MoonCFG.EmitRegion`, `Continue`, `Exit` unsupported unless separately implemented.
+- Keep `LalinCFG.EmitRegion`, `Continue`, `Exit` unsupported unless separately implemented.
 - No VM dispatch, no helper calls.
 
 ---
@@ -5821,7 +5821,7 @@ Before edits begin, verify current repo matches Phase 3 state:
 6. Update LuaRT/LuaExec/CompileContract validators.
 7. Update contract/stencil key/validation/materialization.
 8. Update source lowering to new constructors while preserving unsupported rejects.
-9. Update LuaExec→MoonCFG and MoonCFG validators/emitters.
+9. Update LuaExec→LalinCFG and LalinCFG validators/emitters.
 10. Update schema and structural tests.
 11. Update current regression tests.
 12. Run verification.
@@ -5840,7 +5840,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_ar
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_regions.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 cd experiments/lua_interpreter_vm/spongejit && make test-completion
 ```
@@ -5907,8 +5907,8 @@ Key outcomes:
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_region_model.lua` / `lua_exec_validate.lua` - region/module/static identity validation.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/compile_contract_validate.lua` / `compile_contract_key.lua` / `stencil_key.lua` - typed contract/stencil identity.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_to_lua_exec_lower.lua` - updated constructors and fail-closed diagnostics.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua` - updated gates/contract propagation.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua` - guardrail comments retained/clarified.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua` - updated gates/contract propagation.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_validate.lua` - guardrail comments retained/clarified.
 - Tests updated/added under `experiments/lua_interpreter_vm/tests/`, including:
   - `test_spongejit_lua_compile_schema.lua`
   - `test_spongejit_lua_compile_full_semantics_products.lua`
@@ -5925,7 +5925,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_ar
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_regions.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 cd experiments/lua_interpreter_vm/spongejit && make test-completion
 cd experiments/lua_interpreter_vm/spongejit && make test-lua-compile-corpus100
@@ -5947,19 +5947,19 @@ Before edits begin, verify:
   - `RegionDescriptor` has **no** `executable` field around lines 1443-1448.
   - `StaticRegionBinding`, `CallContinuationRegion`, and `StaticRegionInvocation` exist around lines 1460-1474.
   - `LuaExec.EmitRegion(region,args,continuations)` exists around line 1629.
-  - `MoonCFG.EmitRegion` exists around line 1948, but must remain unsupported.
+  - `LalinCFG.EmitRegion` exists around line 1948, but must remain unsupported.
 - Current repo fact: `lua_exec_static_region_model.lua` and `lua_exec_static_region_inline.lua` do **not** exist.
-- `lua_exec_to_moon_cfg_lower.lua`
+- `lua_exec_to_lalin_cfg_lower.lua`
   - direct `Exec.EmitRegion` rejects at lines ~750-751.
   - no `lower_module` / `lower_module_outcome` API exists near lines ~1083-1092.
-- `moon_cfg_validate.lua`
-  - comments explicitly say LuaExec static invocation must be inlined before MoonCFG around lines 16-19.
+- `lalin_cfg_validate.lua`
+  - comments explicitly say LuaExec static invocation must be inlined before LalinCFG around lines 16-19.
   - `CFG.Continue` / `CFG.Exit` remain unsupported around lines ~402-403.
 - `lua_src_to_lua_exec_lower.lua`
   - source `CALL` / `TAILCALL` still reject with `unsupported_source_semantics`.
   - Do **not** add source `CALL` / `TAILCALL` acceptance.
 
-Chosen milestone: **typed LuaExec.Module static region invocation + inlining before MoonCFG lowering**.  
+Chosen milestone: **typed LuaExec.Module static region invocation + inlining before LalinCFG lowering**.
 No ASDL architecture changes are planned.
 
 ---
@@ -5974,7 +5974,7 @@ No ASDL architecture changes are planned.
 
 ```lua
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local Exec = T.LuaExec
 local RegionModel = require("lua_compile.lua_exec_region_model")
@@ -6059,13 +6059,13 @@ M.lua_exec_static_region_model = require("lua_compile.lua_exec_static_region_mod
 
 ### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_static_region_inline.lua` **(new)**
 
-**Goal**: Inline typed static `EmitRegion` from `LuaExec.Module` into one `LuaExec.Kernel` before MoonCFG lowering.
+**Goal**: Inline typed static `EmitRegion` from `LuaExec.Module` into one `LuaExec.Kernel` before LalinCFG lowering.
 
 **Contents sketch**
 
 ```lua
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local Exec = T.LuaExec
 local ExecValidate = require("lua_compile.lua_exec_validate")
@@ -6104,7 +6104,7 @@ return M
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua`
 
 **Goal**: Add module-lowering API through static inlining; keep direct kernel `EmitRegion` rejected.
 
@@ -6161,26 +6161,26 @@ return M
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_validate.lua`
 
-**Goal**: Preserve MoonCFG guardrails.
+**Goal**: Preserve LalinCFG guardrails.
 
 **Edit blocks**
-- Around lines 16-19, keep comment that LuaExec static invocation is inlined before MoonCFG.
+- Around lines 16-19, keep comment that LuaExec static invocation is inlined before LalinCFG.
 - Do **not** add `CFG.EmitRegion` to `SUPPORTED_OPS`.
 - Around lines ~402-403, keep `CFG.Continue` and `CFG.Exit` unsupported.
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua`
 
-**Goal**: Ensure no MoonCFG region-emission path is introduced.
+**Goal**: Ensure no LalinCFG region-emission path is introduced.
 
 **Edit**
 - No functional change expected.
 - Optional comment near `render_op`, line ~1244:
   ```lua
-  -- LuaExec static invocation must be inlined before MoonCFG; do not render MoonCFG.EmitRegion here.
+  -- LuaExec static invocation must be inlined before LalinCFG; do not render LalinCFG.EmitRegion here.
   ```
 
 ---
@@ -6239,13 +6239,13 @@ Test shape:
    - `RequiresCallContinuationRegion`
    - matching guarantees.
 5. Assert:
-   - `ExecToMoon.lower_module_outcome(module, "kernel", "value2_payload_i64")` succeeds;
-   - MoonCFG validates;
-   - emitted Moonlift runs and returns expected third result;
+   - `ExecToLalin.lower_module_outcome(module, "kernel", "value2_payload_i64")` succeeds;
+   - LalinCFG validates;
+   - emitted Lalin runs and returns expected third result;
    - emitted source contains no forbidden helper/protocol strings.
 
 Negative cases:
-- direct `ExecToMoon.lower(kernel_with_emit)` rejects;
+- direct `ExecToLalin.lower(kernel_with_emit)` rejects;
 - missing static invocation contract rejects;
 - target region not in module rejects;
 - descriptor mismatch rejects;
@@ -6269,8 +6269,8 @@ Update:
   - static invocation expression still rejects in direct kernel lowering unless going through module inliner;
   - source dynamic semantics unchanged.
 
-- `test_spongejit_lua_compile_moon_cfg.lua`
-  - `MoonCFG.EmitRegion` still unsupported;
+- `test_spongejit_lua_compile_lalin_cfg.lua`
+  - `LalinCFG.EmitRegion` still unsupported;
   - forbidden lowercase semantic strings remain rejected.
 
 ---
@@ -6281,9 +6281,9 @@ Update:
 2. Export it from `init.lua`.
 3. Strengthen `lua_exec_validate.lua` module/static-invocation checks.
 4. Add `lua_exec_static_region_inline.lua`.
-5. Wire `lower_module` / `lower_module_outcome` in `lua_exec_to_moon_cfg_lower.lua`.
+5. Wire `lower_module` / `lower_module_outcome` in `lua_exec_to_lalin_cfg_lower.lua`.
 6. Strengthen static contract validation.
-7. Preserve source and MoonCFG guardrails.
+7. Preserve source and LalinCFG guardrails.
 8. Add schema/model tests.
 9. Add executable static invocation test.
 10. Add fail-closed regressions.
@@ -6303,7 +6303,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_semantic_
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 cd experiments/lua_interpreter_vm/spongejit && make test-completion
 ```
@@ -6317,7 +6317,7 @@ cd experiments/lua_interpreter_vm/spongejit && make test-lua-compile-corpus100
 Expected:
 - manual typed `LuaExec.Module` static invocation succeeds;
 - direct kernel `EmitRegion` rejects;
-- `MoonCFG.EmitRegion` rejects;
+- `LalinCFG.EmitRegion` rejects;
 - source `CALL` / `TAILCALL` reject;
 - corpus success count should not be expected to increase.
 
@@ -6333,7 +6333,7 @@ Added tasks:
 - `T069` Implement static region inliner
 - `T070` Wire module lowering API
 - `T071` Validate static contracts structurally
-- `T072` Preserve source and MoonCFG guardrails
+- `T072` Preserve source and LalinCFG guardrails
 - `T073` Update schema and model tests
 - `T074` Add executable static invocation tests
 - `T075` Add static invocation fail-closed regressions
@@ -6347,7 +6347,7 @@ Ready task: `T067`.
 
 - No ASDL architecture changes unless required by compile errors.
 - Static invocation is typed `LuaExec.Module` composition, not VM dispatch.
-- Inline before MoonCFG; keep `MoonCFG.EmitRegion` rejected.
+- Inline before LalinCFG; keep `LalinCFG.EmitRegion` rejected.
 - Direct `lower(kernel)` with `EmitRegion` still rejects.
 - Source `CALL` / `TAILCALL` remain fail-closed.
 - No lowercase semantic strings, helpers, protocol exits, or fallback paths.
@@ -6358,11 +6358,11 @@ Ready task: `T067`.
 Implemented edit-plan tasks `T067`–`T076` for `wf-lua55-roadmap`.
 
 - Added typed `LuaExec.Module` static region invocation model.
-- Added static `EmitRegion` inliner before MoonCFG lowering.
+- Added static `EmitRegion` inliner before LalinCFG lowering.
 - Added `lower_module` / `lower_module_outcome` APIs.
 - Preserved direct kernel `EmitRegion` rejection.
 - Preserved source `CALL` / `TAILCALL` fail-closed behavior.
-- Preserved `MoonCFG.EmitRegion` / `Continue` guardrails.
+- Preserved `LalinCFG.EmitRegion` / `Continue` guardrails.
 - Added executable static invocation tests and fail-closed regressions.
 - Marked all tasks `T067`–`T076` complete in the structured edit plan.
 
@@ -6371,12 +6371,12 @@ Implemented edit-plan tasks `T067`–`T076` for `wf-lua55-roadmap`.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_static_region_inline.lua` - new module static region inliner.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/init.lua` - exports static region model.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_validate.lua` - strengthened module/static invocation validation.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua` - added module lowering APIs.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua` - added module lowering APIs.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/compile_contract_validate.lua` - validates static invocation assumptions via model helpers.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_region_model.lua` - added static target support-gate helper.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_invoke.lua` - new executable static invocation tests.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_schema.lua` - static model export/schema tests.
-- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua` - MoonCFG/static stencil guardrail tests.
+- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua` - LalinCFG/static stencil guardrail tests.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_pipeline.lua` - planned file list updated.
 
 ## Verification
@@ -6389,7 +6389,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_semantic_
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 cd experiments/lua_interpreter_vm/spongejit && make test-completion
 cd experiments/lua_interpreter_vm/spongejit && make test-lua-compile-corpus100
@@ -6417,13 +6417,13 @@ Before edits begin, verify:
   - `CALL` still rejects around lines 194–197.
   - `SUPPORTED_INSTR` does not include `CALL`.
   - `lower_value()` currently returns only `LuaExec.Kernel`.
-- `lua_exec_to_moon_cfg_lower.lua`
+- `lua_exec_to_lalin_cfg_lower.lua`
   - direct `EmitRegion` rejects around lines 751–752.
   - `lower_module` / `lower_module_outcome` exist around lines 1107–1115.
 - `lua_exec_static_region_inline.lua`
-  - inlines typed `LuaExec.Module` static regions before MoonCFG.
+  - inlines typed `LuaExec.Module` static regions before LalinCFG.
   - currently rejects target params / emit args.
-- `MoonCFG.EmitRegion` remains unsupported.
+- `LalinCFG.EmitRegion` remains unsupported.
 
 Corrected milestone: accept **one honest source `CALL` slice**, not another avoidance phase.
 
@@ -6513,7 +6513,7 @@ Validate:
 
 ```lua
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local Src, Fact, RT, Exec = T.LuaSrc, T.LuaFact, T.LuaRT, T.LuaExec
 
@@ -6673,7 +6673,7 @@ static_invocations = {}
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_to_moon_kernel.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_to_lalin_kernel.lua`
 
 **Goal**: Route `LuaExec.Module` products through module lowering.
 
@@ -6685,15 +6685,15 @@ static_invocations = {}
 2. **`lower_exec_to_cfg`, lines 42–53**:
    - Detect `pvm.classof(exec_product) == T.LuaExec.Module`.
    - For module:
-     - call `LuaExecToMoon.lower_module(...)`
+     - call `LuaExecToLalin.lower_module(...)`
      - kernel name should be `"lua_exec_core_kernel"` unless lowerer exposes a constant.
-   - Preserve outcome fallback only as typed `LuaExec -> MoonCFG`, not semantic fallback.
+   - Preserve outcome fallback only as typed `LuaExec -> LalinCFG`, not semantic fallback.
 
 3. **Comment in `compile_value`, lines 56–59**:
    - Update route text to:
 
 ```text
-LuaSrc.Window -> LuaExec.Kernel/LuaExec.Module -> MoonCFG.Kernel
+LuaSrc.Window -> LuaExec.Kernel/LuaExec.Module -> LalinCFG.Kernel
 ```
 
    - Clarify module path is only typed static region composition.
@@ -6733,18 +6733,18 @@ LuaSrc.Window -> LuaExec.Kernel/LuaExec.Module -> MoonCFG.Kernel
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_validate.lua`
 
 **Goal**: Preserve guardrails.
 
 **Edits**
 - No functional change expected.
-- Keep `MoonCFG.EmitRegion`, `Continue`, and `Exit` unsupported.
+- Keep `LalinCFG.EmitRegion`, `Continue`, and `Exit` unsupported.
 - Keep forbidden lowercase strings.
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua`
 
 **Goal**: Preserve no-fallback emission.
 
@@ -6788,8 +6788,8 @@ Build:
 - static callee region:
   - writes two fixed results to callee result slots
   - terminates via `Continue(ret)`
-- compile through public `compile_to_moon_kernel` or lowerer + `lower_module_outcome`.
-- run emitted Moonlift and assert result payload.
+- compile through public `compile_to_lalin_kernel` or lowerer + `lower_module_outcome`.
+- run emitted Lalin and assert result payload.
 
 **Negative tests**
 - `TAILCALL` rejects.
@@ -6816,8 +6816,8 @@ Build:
   - keep manual module static invocation green.
 - `test_spongejit_lua_compile_semantic_gates.lua`
   - update CALL expectation: missing evidence rejects, not unconditional unsupported.
-- `test_spongejit_lua_compile_moon_cfg.lua`
-  - keep `MoonCFG.EmitRegion` unsupported.
+- `test_spongejit_lua_compile_lalin_cfg.lua`
+  - keep `LalinCFG.EmitRegion` unsupported.
 - corpus/completion tests:
   - no generic CALL success expected without typed static payloads.
 
@@ -6851,7 +6851,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_semantic_
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 cd experiments/lua_interpreter_vm/spongejit && make test-completion
 ```
@@ -6866,7 +6866,7 @@ Expected:
 - one evidence-backed fixed direct Lua closure source `CALL` succeeds;
 - generic corpus CALLs still reject;
 - no source `TAILCALL` acceptance;
-- no MoonCFG `EmitRegion`;
+- no LalinCFG `EmitRegion`;
 - no helper/protocol/VM fallback strings.
 
 ---
@@ -6882,7 +6882,7 @@ Added tasks:
 - `T080` Lower strict source CALL to LuaExec.Module
 - `T081` Route public compile through module lowering
 - `T082` Harden static inliner for source CALL modules
-- `T083` Preserve MoonCFG guardrails for CALL slice
+- `T083` Preserve LalinCFG guardrails for CALL slice
 - `T084` Update foundry and coverage expectations
 - `T085` Add schema and evidence tests
 - `T086` Add positive source CALL compile test
@@ -6897,7 +6897,7 @@ Ready task: `T077`.
 
 - Source `CALL` support is real but narrow: fixed direct Lua closure + typed static callee region.
 - Evidence must carry typed closure/proto/static-region proof.
-- Lower source CALL to `LuaExec.Module` + typed `EmitRegion`; inline before MoonCFG.
+- Lower source CALL to `LuaExec.Module` + typed `EmitRegion`; inline before LalinCFG.
 - Preserve fail-closed behavior outside the slice.
 - No helper strings, VM dispatch, protocol handoff, or fallback.
 
@@ -6909,7 +6909,7 @@ Implemented `wf-lua55-roadmap` tasks `T077`–`T088`.
 - Added typed source `CALL` evidence payloads.
 - Added `lua_src_call_static_model.lua` for strict static closure/callee proof validation.
 - Taught `lua_src_to_lua_exec_lower.lua` to accept only fixed-shape, evidence-backed direct Lua closure `CALL`.
-- Source `CALL` now lowers to `LuaExec.Module` + typed `EmitRegion`, then inlines before MoonCFG.
+- Source `CALL` now lowers to `LuaExec.Module` + typed `EmitRegion`, then inlines before LalinCFG.
 - Kept `TAILCALL`, open-count calls, missing evidence, C/FFI/metamethod/unknown targets, bad proto/descriptor, close/yield/error target paths, nested emit, and direct kernel `EmitRegion` fail-closed.
 - Updated public compile route to handle `LuaExec.Module`.
 - Added positive/negative source `CALL` tests.
@@ -6921,14 +6921,14 @@ Implemented `wf-lua55-roadmap` tasks `T077`–`T088`.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_fact_from_runtime_observe.lua` - runtime import aliases for new payloads.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_call_static_model.lua` - new strict source CALL evidence/model helper.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_to_lua_exec_lower.lua` - strict CALL shape/lowering to `LuaExec.Module`.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_to_moon_kernel.lua` - routes modules through module lowering.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_to_lalin_kernel.lua` - routes modules through module lowering.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_foundry.lua` - dynamic payload coverage count and CALL evidence note.
 - Tests updated/added:
   - `test_spongejit_lua_compile_source_call.lua`
   - `test_spongejit_lua_compile_schema.lua`
   - `test_spongejit_lua_compile_lua_fact.lua`
   - `test_spongejit_lua_compile_semantic_gates.lua`
-  - `test_spongejit_lua_compile_moon_cfg.lua`
+  - `test_spongejit_lua_compile_lalin_cfg.lua`
   - `test_spongejit_lua_compile_static_regions.lua`
   - `test_spongejit_lua_compile_pipeline.lua`
 
@@ -6943,7 +6943,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_semantic_
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 cd experiments/lua_interpreter_vm/spongejit && make test-completion
 cd experiments/lua_interpreter_vm/spongejit && make test-lua-compile-corpus100
@@ -6980,9 +6980,9 @@ Verify before edits:
   - `CALL` strict evidence path exists.
   - `CLOSURE` currently rejects with `unsupported_source_semantics:GCAllocRegion`.
   - `TAILCALL` remains rejected.
-- `lua_exec_to_moon_cfg_lower.lua`
+- `lua_exec_to_lalin_cfg_lower.lua`
   - `RT.LuaClosureValue` currently boxes `LuaClosureTag` with handle `0`; this must become contract-backed for this slice.
-- `MoonCFG.EmitRegion` remains unsupported; static invocation stays pre-MoonCFG.
+- `LalinCFG.EmitRegion` remains unsupported; static invocation stays pre-LalinCFG.
 
 ---
 
@@ -7129,7 +7129,7 @@ Exec.AssignValue(slot_ref(op.a.id), Exec.ConstTValue(RT.LuaClosureValue(payload.
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua`
 
 **Goal**: Box `LuaClosureValue` with typed closure handle.
 
@@ -7180,7 +7180,7 @@ Positive:
   - same closure/proto/handle
 - Assert:
   - public compile succeeds
-  - emitted Moonlift has no helper/protocol/dispatch strings
+  - emitted Lalin has no helper/protocol/dispatch strings
   - runtime result matches static callee
   - closure slot is boxed with expected `LuaClosureTag` handle
 
@@ -7198,7 +7198,7 @@ Negative:
 #### Existing regressions
 Update:
 - `semantic_gates`: CLOSURE missing evidence rejects, but strict evidence-backed CLOSURE compiles.
-- `moon_cfg`: `MoonCFG.EmitRegion` still unsupported.
+- `lalin_cfg`: `LalinCFG.EmitRegion` still unsupported.
 - `source_call`: existing strict CALL tests remain green.
 
 ---
@@ -7210,7 +7210,7 @@ Update:
 3. New strict CLOSURE model.
 4. Export model.
 5. Source lowerer CLOSURE scan/IO/lowering/contracts.
-6. LuaExec→MoonCFG closure handle boxing.
+6. LuaExec→LalinCFG closure handle boxing.
 7. Contract validation updates.
 8. Schema/fact tests.
 9. Positive source CLOSURE→CALL test.
@@ -7232,7 +7232,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_semantic_
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 cd experiments/lua_interpreter_vm/spongejit && make test-completion
 ```
@@ -7289,11 +7289,11 @@ Implemented `wf-lua55-roadmap` tasks `T089`–`T100`.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_closure_static_model.lua` - new strict CLOSURE model.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/init.lua` - exported closure model.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_to_lua_exec_lower.lua` - strict CLOSURE lowering and CALL matching.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua` - closure handle contract boxing.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua` - closure handle contract boxing.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_validate.lua` - closure identity contract validation.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_foundry.lua` - coverage note update.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_source_closure.lua` - new positive/negative tests.
-- Updated schema/fact/semantic/moon/pipeline tests.
+- Updated schema/fact/semantic/lalin/pipeline tests.
 
 ## Verification
 Passed:
@@ -7307,7 +7307,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_semantic_
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 cd experiments/lua_interpreter_vm/spongejit && make test-completion
 cd experiments/lua_interpreter_vm/spongejit && make test-lua-compile-corpus100
@@ -7325,12 +7325,12 @@ Corpus remained fail-closed: `37 ok / 104 rejected`, `31 successful windows`, `2
 
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/*.lua` — all 60 package files scanned; key files read in full or near-full:
   - `schema.lua` (1-79), `builders.lua` (1-46), `init.lua` (1-60)
-  - `lua_compile_unit.lua` (1-19), `lua_compile_to_moon_kernel.lua` (1-98)
+  - `lua_compile_unit.lua` (1-19), `lua_compile_to_lalin_kernel.lua` (1-98)
   - `lua_src_to_lua_exec_lower.lua` (1-1127)
   - `lua_src_call_static_model.lua` (1-203), `lua_src_closure_static_model.lua` (1-121)
   - `lua_exec_static_region_model.lua` (1-278), `lua_exec_static_region_inline.lua` (1-189)
-  - `lua_exec_to_moon_cfg_lower.lua` (1-1158)
-  - `moon_cfg_validate.lua` (1-440), `moon_cfg_emit.lua` (1-1586), `moon_cfg_key.lua` (1-33)
+  - `lua_exec_to_lalin_cfg_lower.lua` (1-1158)
+  - `lalin_cfg_validate.lua` (1-440), `lalin_cfg_emit.lua` (1-1586), `lalin_cfg_key.lua` (1-33)
   - `compile_contract_key.lua` (1-48), `compile_contract_validate.lua` (1-217)
   - `stencil_key.lua` (1-138), `stencil_foundry.lua` (1-44), `stencil_materialization_plan.lua` (1-104), `stencil_materialize.lua` (1-432), `stencil_bank.lua` (1-214), `stencil_bundle.lua` (1-185), `stencil_manifest.lua` (1-455), `stencil_object_extract.lua` (1-147), `stencil_validate.lua` (1-331)
   - runtime/fact/source helpers read: `lua_fact_from_runtime_observe.lua` (1-217), `lua_fact_from_foundry_bundle.lua` (1-55), `lua_fact_payload_lease.lua` (1-95), `lua_fact_closure.lua` (1-85), `lua_src_from_puc_decode.lua` (1-138), `lua_src_window_collect.lua` (1-36), `lua_src_to_lua_region_recognize.lua` (1-40)
@@ -7355,15 +7355,15 @@ Only four `pvm.phase` definitions occur under `lua_compile/`:
 | File | Lines | Phase name | Covered transformation |
 |---|---:|---|---|
 | `lua_src_to_lua_exec_lower.lua` | 1094-1098 | `spongejit_lua_src_to_lua_exec_lower` | `LuaSrc.Window + LuaFact.Evidence -> LuaExec.Kernel` or `LuaExec.Module`; phase errors on unsupported after preflight |
-| `lua_exec_to_moon_cfg_lower.lua` | 1116-1123 | `spongejit_lua_exec_to_moon_cfg_lower` | `LuaExec.Kernel + mode/projection -> { cfg=MoonCFG.Kernel }` or `{ errors=... }` |
-| `lua_exec_to_moon_cfg_lower.lua` | 1125-1130 | `spongejit_lua_exec_module_to_moon_cfg_lower` | `LuaExec.Module + kernel_name + mode/projection -> MoonCFG.Kernel`; includes static inlining internally |
-| `lua_compile_to_moon_kernel.lua` | 87-92 | `spongejit_lua_compile_to_moon_kernel` | `LuaCompile.Unit -> LuaCompile.Result` via LuaSrc→LuaExec then LuaExec/Module→MoonCFG |
+| `lua_exec_to_lalin_cfg_lower.lua` | 1116-1123 | `spongejit_lua_exec_to_lalin_cfg_lower` | `LuaExec.Kernel + mode/projection -> { cfg=LalinCFG.Kernel }` or `{ errors=... }` |
+| `lua_exec_to_lalin_cfg_lower.lua` | 1125-1130 | `spongejit_lua_exec_module_to_lalin_cfg_lower` | `LuaExec.Module + kernel_name + mode/projection -> LalinCFG.Kernel`; includes static inlining internally |
+| `lua_compile_to_lalin_kernel.lua` | 87-92 | `spongejit_lua_compile_to_lalin_kernel` | `LuaCompile.Unit -> LuaCompile.Result` via LuaSrc→LuaExec then LuaExec/Module→LalinCFG |
 
 Test coverage for phase caching:
 - `test_spongejit_lua_compile_pipeline.lua` lines 19-33 checks phase cache hits for:
-  - `lua_compile_to_moon_kernel.phase`
+  - `lua_compile_to_lalin_kernel.phase`
   - `lua_src_to_lua_exec_lower.phase`
-  - `lua_exec_to_moon_cfg_lower.phase`
+  - `lua_exec_to_lalin_cfg_lower.phase`
 
 No `pvm.phase` exists for:
 - source decode/window collection,
@@ -7371,7 +7371,7 @@ No `pvm.phase` exists for:
 - foundry bundle → evidence,
 - static CALL/CLOSURE evidence product construction,
 - static region inliner as a standalone pass,
-- MoonCFG emission,
+- LalinCFG emission,
 - key generation,
 - stencil plan/template/materialization/bank/bundle/manifest generation,
 - foundry/corpus orchestration.
@@ -7384,7 +7384,7 @@ No `pvm.phase` exists for:
 
 - `schema.lua` — ASDL bootstrap/context loading; exposes `Schema.get`, `builders`, `classof`.
 - `builders.lua` — constructor conveniences only.
-- `moon_cfg_abi.lua` — typed MoonCFG parameter/name helpers.
+- `lalin_cfg_abi.lua` — typed LalinCFG parameter/name helpers.
 - `lua_rt_value_model.lua` — LuaRT value tag/runtime representation constants.
 - `lua_rt_stack_model.lua` — stack/value-sequence/vararg runtime layout constants.
 - `lua_rt_object_model.lua` — string/table/raw-get runtime layout constants.
@@ -7404,7 +7404,7 @@ No `pvm.phase` exists for:
 - `lua_gc_validate.lua`
 - `lua_rt_validate.lua`
 - `lua_exec_validate.lua`
-- `moon_cfg_validate.lua`
+- `lalin_cfg_validate.lua`
 - `compile_contract_validate.lua`
 - `stencil_validate.lua`
 - model validators:
@@ -7430,8 +7430,8 @@ These files may construct small ASDL helper values in support functions, but the
 - `lua_src_to_lua_region_recognize.lua`
 - `lua_src_to_lua_exec_lower.lua`
 - `lua_exec_static_region_inline.lua`
-- `lua_exec_to_moon_cfg_lower.lua`
-- `lua_compile_to_moon_kernel.lua`
+- `lua_exec_to_lalin_cfg_lower.lua`
+- `lua_compile_to_lalin_kernel.lua`
 - `stencil_materialization_plan.lua`
 - `stencil_object_extract.lua`
 - `stencil_materialize.lua`
@@ -7456,23 +7456,23 @@ These files may construct small ASDL helper values in support functions, but the
 
 - `lua_src_to_lua_exec_lower.lua`
   - `LuaSrc.Window + LuaFact.Evidence -> LuaExec.Kernel/LuaExec.Module`
-- `lua_exec_to_moon_cfg_lower.lua`
-  - `LuaExec.Kernel/LuaExec.Module -> MoonCFG.Kernel`
-- `lua_compile_to_moon_kernel.lua`
+- `lua_exec_to_lalin_cfg_lower.lua`
+  - `LuaExec.Kernel/LuaExec.Module -> LalinCFG.Kernel`
+- `lua_compile_to_lalin_kernel.lua`
   - orchestration: `LuaCompile.Unit -> LuaCompile.Result`
 
 ### Emitter/materializer/artifact generation
 
-- `moon_cfg_emit.lua`
-  - `MoonCFG.Kernel -> Moonlift source string`
-- `moon_cfg_key.lua`
-  - `MoonCFG.Kernel -> structural string key`
+- `lalin_cfg_emit.lua`
+  - `LalinCFG.Kernel -> Lalin source string`
+- `lalin_cfg_key.lua`
+  - `LalinCFG.Kernel -> structural string key`
 - `compile_contract_key.lua`
   - `CompileContract.Contract -> structural string key`
 - `stencil_key.lua`
   - `Stencil.* / semantic ASDL -> structural string keys`
 - `stencil_materialization_plan.lua`
-  - `MoonCFG.Kernel + CompileContract -> Stencil.VariantKey`
+  - `LalinCFG.Kernel + CompileContract -> Stencil.VariantKey`
   - explicit template/plan builders
 - `stencil_object_extract.lua`
   - plain metadata + variant -> `Stencil.StencilTemplate`
@@ -7513,15 +7513,15 @@ These files may construct small ASDL helper values in support functions, but the
 | `lua_src_closure_static_model.find_static_closure_payload` | `LuaFact.Evidence + LuaSrc.CLOSURE` | `LuaFact.StaticClosureValuePayload` | No | hidden helper inside source lowerer | source CLOSURE tests |
 | `lua_src_closure_static_model.build_closure_products` | `LuaSrc.CLOSURE + payload` | plain Lua table containing ASDL products | No | hidden helper inside source lowerer | source CLOSURE tests |
 | `lua_src_to_lua_exec_lower.lower_value` | `LuaSrc.Window + LuaFact.Evidence` | `LuaExec.Kernel` or `LuaExec.Module` | Wrapped by phase, but also exported as `lower_uncached`; `M.lower` pre-runs it before phase | public phase API `M.lower`; hidden major helper | pipeline, source call/closure, many runtime tests |
-| `lua_exec_static_region_inline.inline_module_kernel` | `LuaExec.Module + kernel_name` | inlined `LuaExec.Kernel` | No standalone phase | hidden inside `lua_exec_to_moon_cfg_lower` module phase; also public helper module | static invoke tests |
-| `lua_exec_to_moon_cfg_lower.lower_value` | `LuaExec.Kernel` | `MoonCFG.Kernel` | Wrapped by `phase`; exported `lower_uncached` | public phase API `M.lower` | pipeline, MoonCFG/runtime tests |
-| `lua_exec_to_moon_cfg_lower.lower_module_value` | `LuaExec.Module` | `MoonCFG.Kernel` | Wrapped by `module_phase`; exported `lower_module_uncached` | public phase API `M.lower_module` | static invoke, source CALL/CLOSURE |
-| `lua_compile_to_moon_kernel.compile_value` | `LuaCompile.Unit` | `LuaCompile.Ok/Reject` | Wrapped by phase | public phase API `M.compile`; `compile_uncached` exported | pipeline, most public tests |
-| `moon_cfg_emit.emit` | `MoonCFG.Kernel` | Moonlift source string | No | public helper | runtime tests, foundry |
-| `moon_cfg_key.key` | `MoonCFG.Kernel` | string key | No | public helper | foundry tests |
-| `compile_contract_key.key` | `CompileContract.Contract` | string key | No | public helper | foundry/MoonCFG tests |
+| `lua_exec_static_region_inline.inline_module_kernel` | `LuaExec.Module + kernel_name` | inlined `LuaExec.Kernel` | No standalone phase | hidden inside `lua_exec_to_lalin_cfg_lower` module phase; also public helper module | static invoke tests |
+| `lua_exec_to_lalin_cfg_lower.lower_value` | `LuaExec.Kernel` | `LalinCFG.Kernel` | Wrapped by `phase`; exported `lower_uncached` | public phase API `M.lower` | pipeline, LalinCFG/runtime tests |
+| `lua_exec_to_lalin_cfg_lower.lower_module_value` | `LuaExec.Module` | `LalinCFG.Kernel` | Wrapped by `module_phase`; exported `lower_module_uncached` | public phase API `M.lower_module` | static invoke, source CALL/CLOSURE |
+| `lua_compile_to_lalin_kernel.compile_value` | `LuaCompile.Unit` | `LuaCompile.Ok/Reject` | Wrapped by phase | public phase API `M.compile`; `compile_uncached` exported | pipeline, most public tests |
+| `lalin_cfg_emit.emit` | `LalinCFG.Kernel` | Lalin source string | No | public helper | runtime tests, foundry |
+| `lalin_cfg_key.key` | `LalinCFG.Kernel` | string key | No | public helper | foundry tests |
+| `compile_contract_key.key` | `CompileContract.Contract` | string key | No | public helper | foundry/LalinCFG tests |
 | `stencil_key.variant_key/template_key/...` | Stencil/semantic ASDL | string key | No | public helper | stencil/foundry/corpus tests |
-| `stencil_materialization_plan.variant_for_kernel` | `MoonCFG.Kernel + CompileContract` | `Stencil.VariantKey` | No | helper via `stencil_foundry` | stencil/foundry tests |
+| `stencil_materialization_plan.variant_for_kernel` | `LalinCFG.Kernel + CompileContract` | `Stencil.VariantKey` | No | helper via `stencil_foundry` | stencil/foundry tests |
 | `stencil_materialization_plan.template` | explicit args | `Stencil.StencilTemplate` | No | public builder helper | stencil tests |
 | `stencil_object_extract.template_from_metadata` | plain metadata + variant | `Stencil.StencilTemplate` | No | public adapter | stencil tests |
 | `stencil_materialize.materialize` | `Stencil.StencilTemplate + code bytes` | `Stencil.MaterializedImage` | No | public materializer | stencil tests |
@@ -7557,23 +7557,23 @@ end
 Observed: `M.lower` runs `lower_value` once before entering the phase, then the phase runs `lower_value` again on successful cases.
 
 ```lua
--- lua_exec_to_moon_cfg_lower.lua lines 1116-1130
-local phase = pvm.phase("spongejit_lua_exec_to_moon_cfg_lower", function(kernel, mode, projection)
+-- lua_exec_to_lalin_cfg_lower.lua lines 1116-1130
+local phase = pvm.phase("spongejit_lua_exec_to_lalin_cfg_lower", function(kernel, mode, projection)
   local cfg, errors = lower_value(kernel, opts_from_mode(mode, projection))
   if cfg then return { cfg = cfg } end
-  return { errors = errors or { "lua_exec_to_moon_cfg_lower_failed" } }
+  return { errors = errors or { "lua_exec_to_lalin_cfg_lower_failed" } }
 end)
 
-local module_phase = pvm.phase("spongejit_lua_exec_module_to_moon_cfg_lower", function(module, kernel_name, mode, projection)
+local module_phase = pvm.phase("spongejit_lua_exec_module_to_lalin_cfg_lower", function(module, kernel_name, mode, projection)
   local cfg, errors = lower_module_value(module, kernel_name ~= "" and kernel_name or nil, opts_from_mode(mode, projection))
   if cfg then return { cfg = cfg } end
-  return { errors = errors or { "lua_exec_module_to_moon_cfg_lower_failed" } }
+  return { errors = errors or { "lua_exec_module_to_lalin_cfg_lower_failed" } }
 end)
 ```
 
 ```lua
--- lua_compile_to_moon_kernel.lua lines 87-94
-local phase = pvm.phase("spongejit_lua_compile_to_moon_kernel", function(unit)
+-- lua_compile_to_lalin_kernel.lua lines 87-94
+local phase = pvm.phase("spongejit_lua_compile_to_lalin_kernel", function(unit)
   return compile_value(unit)
 end)
 
@@ -7656,7 +7656,7 @@ end
 ```
 
 ```lua
--- lua_exec_to_moon_cfg_lower.lua lines 1099-1103
+-- lua_exec_to_lalin_cfg_lower.lua lines 1099-1103
 local function lower_module_value(module, kernel_name, opts)
   local inlined, inline_errors = StaticInline.inline_module_kernel(module, kernel_name)
   if not inlined then return nil, inline_errors end
@@ -7664,10 +7664,10 @@ local function lower_module_value(module, kernel_name, opts)
 end
 ```
 
-### MoonCFG emission is non-PVM artifact generation
+### LalinCFG emission is non-PVM artifact generation
 
 ```lua
--- moon_cfg_emit.lua lines 1549-1584
+-- lalin_cfg_emit.lua lines 1549-1584
 local function render_kernel(kernel, opts)
   ...
   return table.concat(lines, "\n")
@@ -7676,7 +7676,7 @@ end
 function M.emit(kernel, opts)
   opts = opts or {}
   local ok, errors = Validate.validate(kernel)
-  if not ok then error("MoonCFG validation failed before emission: " .. table.concat(errors, "; "), 2) end
+  if not ok then error("LalinCFG validation failed before emission: " .. table.concat(errors, "; "), 2) end
   return render_kernel(kernel, opts)
 end
 ```
@@ -7684,8 +7684,8 @@ end
 ### Key generation emits strings, not ASDL
 
 ```lua
--- moon_cfg_key.lua lines 1-33
-function M.key(kernel) return "MoonCFG\n" .. key(kernel) end
+-- lalin_cfg_key.lua lines 1-33
+function M.key(kernel) return "LalinCFG\n" .. key(kernel) end
 ```
 
 ```lua
@@ -7712,18 +7712,18 @@ function M.compile_window(ops, bundle, opts)
   local evidence = FoundryEvidence.from_bundle(bundle or {})
   local unit = C.lua_compile_unit.from_events(ops or {}, {})
   unit = C.lua_compile_unit.from_parts(unit.source, evidence)
-  local moon_result = C.compile_to_moon_kernel(unit)
+  local lalin_result = C.compile_to_lalin_kernel(unit)
   ...
   return {
     ok = true,
     representative_key = rep_key,
-    moon_cfg_key = cfg_key,
+    lalin_cfg_key = cfg_key,
     stencil_variant = variant,
     stencil_variant_key = stencil_variant_key,
     contract_key = ckey,
     contract = contract,
-    moon_cfg_kernel = kernel,
-    moonlift_source = source_or_err,
+    lalin_cfg_kernel = kernel,
+    lalin_source = source_or_err,
     source_ops = copy_array(ops),
     fact_bundle = copy_array(bundle),
   }
@@ -7771,18 +7771,18 @@ LuaExec.Module
 LuaExec.Kernel
 
 LuaExec.Kernel
-  -- pvm.phase: spongejit_lua_exec_to_moon_cfg_lower -->
-MoonCFG.Kernel
+  -- pvm.phase: spongejit_lua_exec_to_lalin_cfg_lower -->
+LalinCFG.Kernel
 
 LuaCompile.Unit
-  -- pvm.phase: spongejit_lua_compile_to_moon_kernel -->
-LuaCompile.Ok/Reject containing MoonCFG.Kernel
+  -- pvm.phase: spongejit_lua_compile_to_lalin_kernel -->
+LuaCompile.Ok/Reject containing LalinCFG.Kernel
 
-MoonCFG.Kernel
+LalinCFG.Kernel
   -- no pvm.phase -->
-Moonlift source string
+Lalin source string
 
-MoonCFG.Kernel + CompileContract
+LalinCFG.Kernel + CompileContract
   -- no pvm.phase -->
 string keys / Stencil.VariantKey / foundry representative tables
 ```
@@ -7798,10 +7798,10 @@ LuaFact.Evidence payloads
     -> plain Lua table of ASDL call/static invocation products
     -> lua_src_to_lua_exec_lower lower_block
     -> LuaExec.Module with EmitRegion
-    -> lua_exec_to_moon_cfg_lower module_phase
+    -> lua_exec_to_lalin_cfg_lower module_phase
     -> lua_exec_static_region_inline.inline_module_kernel
     -> LuaExec.Kernel
-    -> MoonCFG.Kernel
+    -> LalinCFG.Kernel
 ```
 
 ### Source CLOSURE path
@@ -7820,8 +7820,8 @@ LuaFact.Evidence payload StaticClosureValuePayload
 ### Stencil/foundry path
 
 ```text
-MoonCFG.Kernel + CompileContract
-  -> compile_contract_key.key / moon_cfg_key.key / stencil_key.variant_key
+LalinCFG.Kernel + CompileContract
+  -> compile_contract_key.key / lalin_cfg_key.key / stencil_key.variant_key
   -> plain representative key strings
   -> lua_compile_foundry.run_windows plain Lua representative table
   -> write_artifacts JSON/markdown
@@ -7846,10 +7846,10 @@ Stencil.StencilModule + code bytes
   - fact closure.
 - `lua_src_to_lua_exec_lower.M.lower` performs an uncached `lower_value` preflight before calling the `pvm.phase`, so successful calls execute the lowering logic twice: once outside the phase, once inside.
 - `lua_src_call_static_model.build_call_products` and `lua_src_closure_static_model.build_closure_products` construct significant semantic ASDL products but return plain Lua tables as carriers.
-- Static region inlining is a major ASDL rewrite from `LuaExec.Module` to `LuaExec.Kernel`; it has no standalone `pvm.phase`, but it is included inside `lua_exec_to_moon_cfg_lower`’s `module_phase`.
-- Direct kernel `Exec.EmitRegion` remains rejected by `lua_exec_to_moon_cfg_lower.lower_op`; module lowering accepts it only by pre-MoonCFG inlining.
-- `moon_cfg_emit.emit` is a deterministic artifact-generation pass from `MoonCFG.Kernel` to Moonlift source string; it is not a PVM phase.
-- Key modules (`moon_cfg_key`, `compile_contract_key`, `stencil_key`) deterministically transform ASDL products into plain strings; none are PVM phases.
+- Static region inlining is a major ASDL rewrite from `LuaExec.Module` to `LuaExec.Kernel`; it has no standalone `pvm.phase`, but it is included inside `lua_exec_to_lalin_cfg_lower`’s `module_phase`.
+- Direct kernel `Exec.EmitRegion` remains rejected by `lua_exec_to_lalin_cfg_lower.lower_op`; module lowering accepts it only by pre-LalinCFG inlining.
+- `lalin_cfg_emit.emit` is a deterministic artifact-generation pass from `LalinCFG.Kernel` to Lalin source string; it is not a PVM phase.
+- Key modules (`lalin_cfg_key`, `compile_contract_key`, `stencil_key`) deterministically transform ASDL products into plain strings; none are PVM phases.
 - Stencil bank/manifest/foundry orchestration often returns plain Lua tables rather than ASDL products:
   - bank index,
   - manifest,
@@ -7858,9 +7858,9 @@ Stencil.StencilModule + code bytes
 - Tests explicitly check PVM cache boundaries only for:
   - public compile,
   - LuaSrc→LuaExec,
-  - LuaExec→MoonCFG kernel lowering.
+  - LuaExec→LalinCFG kernel lowering.
 - Tests exercise non-phase transformations directly through `*_uncached`, `lower_module_outcome`, `Emit.emit`, foundry helpers, and stencil helpers.
-- Documentation says semantic choices become ASDL/MoonCFG structure and stencil artifacts are generated from semantic CFGs/contracts; current code has several deterministic transitions after/before these products that are plain helper calls rather than named PVM phases.
+- Documentation says semantic choices become ASDL/LalinCFG structure and stencil artifacts are generated from semantic CFGs/contracts; current code has several deterministic transitions after/before these products that are plain helper calls rather than named PVM phases.
 
 ## Edit-planner Output — 2026-06-07 18:02:04
 
@@ -7869,10 +7869,10 @@ Stencil.StencilModule + code bytes
 Before edits begin, verify:
 
 - `lua_src_to_lua_exec_lower.M.lower` still pre-runs `lower_value()` before calling `phase`.
-- `lua_exec_to_moon_cfg_lower` has no preflight misuse, but uses plain `{ cfg/errors }` phase records.
+- `lua_exec_to_lalin_cfg_lower` has no preflight misuse, but uses plain `{ cfg/errors }` phase records.
 - `lua_src_call_static_model.build_call_products()` and `lua_src_closure_static_model.build_closure_products()` still return plain Lua product carrier tables.
 - `lua_exec_static_region_inline.inline_module_kernel()` is still a helper called inside module lowering, not its own phase.
-- `MoonCFG.EmitRegion`, source `TAILCALL`, open `CALL`, generic/metatable/FFI/upvalue paths remain rejected.
+- `LalinCFG.EmitRegion`, source `TAILCALL`, open `CALL`, generic/metatable/FFI/upvalue paths remain rejected.
 - Existing strict source `CALL`/`CLOSURE` tests are green before repair.
 
 ---
@@ -7894,7 +7894,7 @@ Before edits begin, verify:
 2. **`LuaCompile` module, near `Product/Result`**: add phase result wrappers:
    - `ExecProduct = ExecKernel(LuaExec.Kernel kernel) | ExecModule(LuaExec.Module module)`
    - `ExecLowerResult = ExecLowerOk(LuaCompile.ExecProduct product) | ExecLowerReject(string* errors)`
-   - `MoonLowerResult = MoonLowerOk(MoonCFG.Kernel kernel) | MoonLowerReject(string* errors)`
+   - `LalinLowerResult = LalinLowerOk(LalinCFG.Kernel kernel) | LalinLowerReject(string* errors)`
    - `StaticInlineResult = StaticInlineOk(LuaExec.Kernel kernel) | StaticInlineReject(string* errors)`
 
 3. **`LuaExec` module**: replace plain source helper product tables with ASDL products:
@@ -8042,17 +8042,17 @@ Before edits begin, verify:
 - Phase returns `LuaCompile.StaticInlineResult`.
 - `inline_module_kernel(...)` unwraps cached result.
 - Keep direct `LuaExec.EmitRegion` rejected outside module inlining.
-- Keep `MoonCFG.EmitRegion` unsupported.
+- Keep `LalinCFG.EmitRegion` unsupported.
 
 ---
 
-### `lua_exec_to_moon_cfg_lower.lua`
+### `lua_exec_to_lalin_cfg_lower.lua`
 
 **Goal**: Normalize phase results and audit for preflight misuse.
 
 **Edits**
-- Kernel phase returns `LuaCompile.MoonLowerResult`.
-- Module phase returns `LuaCompile.MoonLowerResult`.
+- Kernel phase returns `LuaCompile.LalinLowerResult`.
+- Module phase returns `LuaCompile.LalinLowerResult`.
 - No uncached pre-run before phase calls.
 - Module lower path must call static inline phase, not raw helper logic.
 - Public APIs preserve current behavior:
@@ -8061,34 +8061,34 @@ Before edits begin, verify:
 
 ---
 
-### `lua_compile_to_moon_kernel.lua`
+### `lua_compile_to_lalin_kernel.lua`
 
 **Goal**: Route public compile through phase-backed boundaries only.
 
 **Edits**
 - Keep compile phase returning `LuaCompile.Result`.
 - Use cached `LuaSrc -> LuaExec` API.
-- Use cached kernel/module `LuaExec -> MoonCFG` API.
+- Use cached kernel/module `LuaExec -> LalinCFG` API.
 - Update route comment:
   ```text
-  LuaSrc.Window -> LuaExec.Kernel/Module -> MoonCFG.Kernel
+  LuaSrc.Window -> LuaExec.Kernel/Module -> LalinCFG.Kernel
   ```
 - No fallback/interpreter/protocol path.
 
 ---
 
-### `moon_cfg_emit.lua`
+### `lalin_cfg_emit.lua`
 
-**Goal**: Phase MoonCFG emission.
+**Goal**: Phase LalinCFG emission.
 
 **Edits**
 - Add:
   ```lua
-  M.phase = pvm.phase("spongejit_moon_cfg_emit", function(kernel, name) ... end)
+  M.phase = pvm.phase("spongejit_lalin_cfg_emit", function(kernel, name) ... end)
   ```
 - `M.emit(kernel, opts)` normalizes `opts.name` to a string and calls phase.
 - Preserve validation before rendering.
-- Output remains Moonlift source string.
+- Output remains Lalin source string.
 
 ---
 
@@ -8096,7 +8096,7 @@ Before edits begin, verify:
 
 Modify:
 
-- `moon_cfg_key.lua`
+- `lalin_cfg_key.lua`
 - `compile_contract_key.lua`
 - `stencil_key.lua`
 
@@ -8104,7 +8104,7 @@ Modify:
 
 **Edits**
 - Add named phases:
-  - `spongejit_moon_cfg_key`
+  - `spongejit_lalin_cfg_key`
   - `spongejit_compile_contract_key`
   - `spongejit_stencil_semantic_key`
   - `spongejit_stencil_variant_key`
@@ -8129,7 +8129,7 @@ Modify:
 **Goal**: Phase meaningful deterministic artifact transforms.
 
 **Required boundaries**
-- `MoonCFG.Kernel + CompileContract -> Stencil.VariantKey`
+- `LalinCFG.Kernel + CompileContract -> Stencil.VariantKey`
 - `Stencil.StencilTemplate + code bytes -> Stencil.MaterializedImage`
 - `Stencil.StencilModule -> Stencil.BankIndex` where ASDL output exists
 - bundle/materialize-selected transforms where inputs/outputs are ASDL
@@ -8149,7 +8149,7 @@ Modify:
 - `compile_window` must use:
   - evidence import phase
   - public compile phase
-  - MoonCFG emit phase
+  - LalinCFG emit phase
   - key phases
   - stencil variant phase
 - Document boundary: plain corpus/foundry tables are external inputs; first compiler product boundary is canonical ASDL input → product phase.
@@ -8182,7 +8182,7 @@ Modify:
 - `test_spongejit_lua_compile_source_closure.lua`
 - `test_spongejit_lua_compile_static_invoke.lua`
 - `test_spongejit_lua_compile_semantic_gates.lua`
-- `test_spongejit_lua_compile_moon_cfg.lua`
+- `test_spongejit_lua_compile_lalin_cfg.lua`
   - Preserve all strict positive/negative behavior.
 
 ### New test
@@ -8199,12 +8199,12 @@ Cover cache hits for:
 - source CALL product phase
 - source CLOSURE product phase
 - static region inline phase
-- LuaExec → MoonCFG kernel and module phases
-- MoonCFG emit phase
-- MoonCFG/contract/stencil key phases
+- LuaExec → LalinCFG kernel and module phases
+- LalinCFG emit phase
+- LalinCFG/contract/stencil key phases
 - stencil variant/materialization phases
 
-Also prove direct kernel `EmitRegion`, `MoonCFG.EmitRegion`, unsupported CALL/CLOSURE cases, and forbidden strings still reject.
+Also prove direct kernel `EmitRegion`, `LalinCFG.EmitRegion`, unsupported CALL/CLOSURE cases, and forbidden strings still reject.
 
 ---
 
@@ -8215,7 +8215,7 @@ Also prove direct kernel `EmitRegion`, `MoonCFG.EmitRegion`, unsupported CALL/CL
 3. Fix `lua_src_to_lua_exec_lower` double-run misuse.
 4. Phase CALL/CLOSURE product construction.
 5. Phase static region inlining.
-6. Normalize LuaExec→MoonCFG result wrappers.
+6. Normalize LuaExec→LalinCFG result wrappers.
 7. Route public compile through cached APIs.
 8. Phase emission/key/stencil artifact transforms.
 9. Update foundry to consume product phases.
@@ -8238,7 +8238,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_semantic_
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 cd experiments/lua_interpreter_vm/spongejit && make test-completion
 cd experiments/lua_interpreter_vm/spongejit && make test-lua-compile-corpus100
@@ -8281,9 +8281,9 @@ Key outcomes:
   - LuaSrc→LuaExec result wrappers
   - strict CALL/CLOSURE product construction
   - static region inlining
-  - LuaExec→MoonCFG result wrappers
-  - MoonCFG emission
-  - MoonCFG/contract/stencil keys
+  - LuaExec→LalinCFG result wrappers
+  - LalinCFG emission
+  - LalinCFG/contract/stencil keys
   - stencil variant/materialization/bundle transforms
 - Removed LuaSrc→LuaExec public double-run preflight; public `lower()` now unwraps cached ASDL phase results.
 - Updated foundry to use phased product APIs internally.
@@ -8301,8 +8301,8 @@ Key outcomes:
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_call_static_model.lua`
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_closure_static_model.lua`
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_static_region_inline.lua`
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua`
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua`
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua`
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua`
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/*key.lua`
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/stencil_*.lua`
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/init.lua`
@@ -8322,7 +8322,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_ca
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_regions.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_stencil.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_foundry.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
@@ -8346,8 +8346,8 @@ Corpus passed: `36 ok / 106 rejected`, `30 successful windows`, `26 reps checked
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_call_static_model.lua` (lines 1-226)
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_closure_static_model.lua` (lines 1-160)
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_static_region_inline.lua` (lines 1-189)
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua` (lines 1080-1158)
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua` (lines 1549-1586)
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua` (lines 1080-1158)
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua` (lines 1549-1586)
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/stencil_materialization_plan.lua` (lines 57-64, 87-105)
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/stencil_materialize.lua` (lines 426-431)
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/stencil_bundle.lua` (lines 170-179)
@@ -8367,7 +8367,7 @@ Corpus passed: `36 ok / 106 rejected`, `30 successful windows`, `26 reps checked
 - Either canonicalize stencil/materialization options into typed ASDL/string/number arguments before phases, or explicitly document which plain-table artifact adapters are outside the compiler product graph.
 
 ## Summary
-Core PVM repairs are mostly present: `lua_src_to_lua_exec_lower.M.lower` no longer pre-runs `lower_value`, CALL/CLOSURE products are ASDL-backed and phased, static inlining is phased and used by module lowering, and direct `EmitRegion`/MoonCFG guardrails remain. I found no new VM fallback/protocol handoff path, but there is a real decode regression and some phase boundaries still depend on non-canonical plain tables. Tests were not run in this read-only review.
+Core PVM repairs are mostly present: `lua_src_to_lua_exec_lower.M.lower` no longer pre-runs `lower_value`, CALL/CLOSURE products are ASDL-backed and phased, static inlining is phased and used by module lowering, and direct `EmitRegion`/LalinCFG guardrails remain. I found no new VM fallback/protocol handoff path, but there is a real decode regression and some phase boundaries still depend on non-canonical plain tables. Tests were not run in this read-only review.
 
 ## Edit-planner Output — 2026-06-07 18:42:53
 
@@ -8390,7 +8390,7 @@ Before edits:
 
 - Confirm existing source `CALL`/`CLOSURE` strict tests are green.
 - Confirm `CALL B=0`, `TAILCALL`, metatable/C/FFI/unknown targets still reject.
-- Confirm `MoonCFG.EmitRegion` still rejects; static invocation remains pre-MoonCFG inlining.
+- Confirm `LalinCFG.EmitRegion` still rejects; static invocation remains pre-LalinCFG inlining.
 - Run/verify current LuaSrc decode tests, especially reviewer-noted `LOADI`/`LOADF` canonical aliases, before relying on broader test results.
 
 ---
@@ -8404,11 +8404,11 @@ Before edits:
 **Edit**
 - Around runtime struct declaration lines ~15–23:
   - Change `LuaRTValueSeq` from:
-    ```moonlift
+    ```lalin
     kind, count, value0, value1, buffer, base
     ```
   - To include:
-    ```moonlift
+    ```lalin
     available_count: i64
     ```
 - Meaning:
@@ -8430,7 +8430,7 @@ Before edits:
 
 ---
 
-### `moon_cfg_emit.lua`
+### `lalin_cfg_emit.lua`
 
 **Goal**: Emit count-safe sequence normalization, stores, and outcome projections.
 
@@ -8458,7 +8458,7 @@ Before edits:
 
 ---
 
-### `lua_exec_to_moon_cfg_lower.lua`
+### `lua_exec_to_lalin_cfg_lower.lua`
 
 **Goal**: Make `FrameEffect` executable and reusable.
 
@@ -8578,14 +8578,14 @@ Before edits:
 
 ---
 
-### `moon_cfg_validate.lua`
+### `lalin_cfg_validate.lua`
 
 **Goal**: Validate updated runtime sequence/outcome semantics.
 
 **Edit**
 - Update validation/inference for new runtime fields if required.
 - Keep:
-  - `MoonCFG.EmitRegion` unsupported;
+  - `LalinCFG.EmitRegion` unsupported;
   - `Continue` / `Exit` unsupported;
   - forbidden strings unchanged.
 
@@ -8674,7 +8674,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_in
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_semantic_gates.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 cd experiments/lua_interpreter_vm/spongejit && make test-completion
 ```
@@ -8707,7 +8707,7 @@ Partial implementation continued for T127, but it is **blocked**.
 - Marked T127 blocked honestly in the edit plan.
 
 ## Files Changed
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua` - partial sequence emission fixes.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua` - partial sequence emission fixes.
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_stack_model.lua` - partial runtime sequence layout adjustments.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua` - added padding/truncation/outcome tests.
 - `.pi/workflows/wf-lua55-roadmap.edit-plan.json` - T127 marked blocked.
@@ -8733,13 +8733,13 @@ This occurs in the new padded `RuntimeValueSeqNormalize -> RuntimeValueSeqStore`
 
 Choose a **hybrid typed emission architecture**:
 
-- Use **`moon.*` quotes/splices** for readable typed Moonlift snippets: struct declarations, simple statement groups, function/region shells, and splice-checked params/body lists.
-- Use **raw MoonTree/host builders** for generated CFG-shaped code: dynamic block lists, hygienic names, jumps, branches, control-expression regions, and place/expression construction where string interpolation is fragile.
-- Keep string source only as **compatibility/debug serialization** for existing `Emit.emit(kernel,{name=...})`; semantic execution should move to typed Moonlift products through new typed emission APIs.
+- Use **`lalin.*` quotes/splices** for readable typed Lalin snippets: struct declarations, simple statement groups, function/region shells, and splice-checked params/body lists.
+- Use **raw LalinTree/host builders** for generated CFG-shaped code: dynamic block lists, hygienic names, jumps, branches, control-expression regions, and place/expression construction where string interpolation is fragile.
+- Keep string source only as **compatibility/debug serialization** for existing `Emit.emit(kernel,{name=...})`; semantic execution should move to typed Lalin products through new typed emission APIs.
 
 Why hybrid:
 - Quote-only would still tempt generated source interpolation for dynamic CFGs.
-- Raw-builder-only would be too verbose for stable runtime structs and small idiomatic Moonlift fragments.
+- Raw-builder-only would be too verbose for stable runtime structs and small idiomatic Lalin fragments.
 - Hybrid lets the worker migrate the fragile runtime sequence/outcome/call-frame paths first, while preserving all existing behavior and tests.
 
 ---
@@ -8756,7 +8756,7 @@ Before implementation:
    - phased `LOADI`/`LOADF` canonical decode preserves `sbx`/`value`.
    - removed PVM design-compliance tests are not reintroduced.
 3. Confirm guardrails:
-   - `MoonCFG.EmitRegion`, `Continue`, `Exit` unsupported.
+   - `LalinCFG.EmitRegion`, `Continue`, `Exit` unsupported.
    - source `TAILCALL`, open `CALL`, metatable/C/FFI/upvalue paths still reject.
    - `Emit.emit` callers still receive a source string.
 
@@ -8764,12 +8764,12 @@ Before implementation:
 
 ## Files to Modify
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit_source_compat.lua` **(new)**
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit_source_compat.lua` **(new)**
 
 **Goal**: Preserve current source-string emission as compatibility.
 
 **Plan**
-- Move the current hand-concatenating implementation from `moon_cfg_emit.lua` here mostly unchanged.
+- Move the current hand-concatenating implementation from `lalin_cfg_emit.lua` here mostly unchanged.
 - Export:
   - `emit(kernel, opts) -> string`
   - `emit_uncached(kernel, opts) -> string`
@@ -8778,15 +8778,15 @@ Before implementation:
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_typed_emit.lua` **(new)**
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_typed_emit.lua` **(new)**
 
-**Goal**: New typed MoonCFG → Moonlift construction layer.
+**Goal**: New typed LalinCFG → Lalin construction layer.
 
 **Contents**
-- Require `moonlift`, and use:
-  - `moon.stmts{...}[[...]]`
-  - `moon.params`, `moon.fields`, `moon.bundle`
-  - raw MoonTree builders via `moonlift.ast` / host APIs where dynamic CFG demands it.
+- Require `lalin`, and use:
+  - `lalin.stmts{...}[[...]]`
+  - `lalin.params`, `lalin.fields`, `lalin.bundle`
+  - raw LalinTree builders via `lalin.ast` / host APIs where dynamic CFG demands it.
 - Provide:
   - `build_bundle(kernel, opts)`
   - `build_func(kernel, opts)`
@@ -8794,7 +8794,7 @@ Before implementation:
   - optional `run(kernel, opts, ...)` test helper
 - Maintain an emitter context:
   - stable hygienic name generation;
-  - CFG place/value → typed Moonlift expr/place mapping;
+  - CFG place/value → typed Lalin expr/place mapping;
   - local binding table;
   - typed runtime type registry;
   - block/region builder helpers.
@@ -8810,14 +8810,14 @@ Do **not** reintroduce open arity or `available_count` yet.
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua`
 
 **Goal**: Become the facade.
 
 **Edit**
 - Import:
-  - `moon_cfg_emit_source_compat`
-  - `moon_cfg_typed_emit`
+  - `lalin_cfg_emit_source_compat`
+  - `lalin_cfg_typed_emit`
 - Keep:
   - `Emit.emit(kernel,{name=...}) -> string`
   - existing emission phase name for compatibility.
@@ -8843,20 +8843,20 @@ Do **not** reintroduce open arity or `available_count` yet.
 **Plan**
 - Keep `TYPE_DECL` strings for compatibility source renderer.
 - Add typed declaration helpers only if useful, e.g.:
-  - `typed_decl(moon_or_bundle)`
-  - `typed_type(moon)`
+  - `typed_decl(lalin_or_bundle)`
+  - `typed_type(lalin)`
 - Do not change runtime layouts yet.
 
 ---
 
-### `moon_cfg_validate.lua`
+### `lalin_cfg_validate.lua`
 
 **Goal**: Preserve validation; no semantic broadening.
 
 **Edit**
 - No major behavior change.
 - Ensure typed emitter uses the same validator before building.
-- Keep `MoonCFG.EmitRegion`, `Continue`, `Exit` unsupported.
+- Keep `LalinCFG.EmitRegion`, `Continue`, `Exit` unsupported.
 - Keep forbidden lowercase semantic strings.
 
 ---
@@ -8894,16 +8894,16 @@ Ensure `test_spongejit_lua_compile_lua_src.lua` covers real behavior:
 
 ## Migration Order
 
-1. **Extract legacy source compatibility renderer**  
+1. **Extract legacy source compatibility renderer**
    No behavior change; tests must remain green.
 
-2. **Add typed emitter shell**  
+2. **Add typed emitter shell**
    Build typed runtime declarations and a typed function wrapper, but initially support only minimal `LOADI/RETURN1` or equivalent smoke path.
 
-3. **Migrate fragile runtime fragments first**  
+3. **Migrate fragile runtime fragments first**
    Sequence/outcome/call-frame fragments move to typed builders before any open arity work resumes.
 
-4. **Wire typed execution into tests**  
+4. **Wire typed execution into tests**
    Existing semantic runtime tests execute typed products; `Emit.emit` remains string compatibility.
 
 5. **Migrate remaining current-slice ops incrementally**
@@ -8920,7 +8920,7 @@ Ensure `test_spongejit_lua_compile_lua_src.lua` covers real behavior:
 `Emit.emit(kernel,{name=...})` remains source-string output for now.
 
 Rules:
-- It delegates to `moon_cfg_emit_source_compat.lua`.
+- It delegates to `lalin_cfg_emit_source_compat.lua`.
 - It is not the semantic execution path for newly migrated behavior tests.
 - It remains useful for:
   - debug snapshots;
@@ -8959,7 +8959,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_ca
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_invoke.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_source_call.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_source_closure.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 cd experiments/lua_interpreter_vm/spongejit && make test-completion
 ```
@@ -8983,7 +8983,7 @@ Corrected statuses:
 
 Added new tasks:
 - `T131` Extract legacy source emitter facade
-- `T132` Add typed MoonCFG emission module
+- `T132` Add typed LalinCFG emission module
 - `T133` Build typed runtime ABI declarations
 - `T134` Migrate fragile runtime fragments to typed builders
 - `T135` Wire typed execution while preserving `Emit.emit`
@@ -8998,11 +8998,11 @@ Ready task: `T131`.
 
 ### Decision
 
-Corrected architecture: **`MoonCFG -> moon.* typed quoted fragments`**.
+Corrected architecture: **`LalinCFG -> lalin.* typed quoted fragments`**.
 
-The primary semantic emission path must build Moonlift through typed quote/splice APIs (`moon.func`, `moon.stmts`, `moon.expr`, `moon.type`, `moon.params`, `moon.fields`, etc.). The existing source-string renderer may remain only as compatibility/debug serialization behind `Emit.emit`.
+The primary semantic emission path must build Lalin through typed quote/splice APIs (`lalin.func`, `lalin.stmts`, `lalin.expr`, `lalin.type`, `lalin.params`, `lalin.fields`, etc.). The existing source-string renderer may remain only as compatibility/debug serialization behind `Emit.emit`.
 
-Raw MoonTree/ASDL builders may be used only as narrow local implementation details when the quote API cannot ergonomically express a node; they are not an architectural path.
+Raw LalinTree/ASDL builders may be used only as narrow local implementation details when the quote API cannot ergonomically express a node; they are not an architectural path.
 
 ---
 
@@ -9014,7 +9014,7 @@ Before edits:
 - Confirm `Emit.emit(kernel,{name=...})` still returns source string through current renderer.
 - Confirm phased decode preserves `LOADI`/`LOADF` `sbx`/`value` aliases.
 - Confirm guardrails remain:
-  - `MoonCFG.EmitRegion`, `Continue`, `Exit` unsupported.
+  - `LalinCFG.EmitRegion`, `Continue`, `Exit` unsupported.
   - source `TAILCALL`, open `CALL`, metatable/C/FFI/upvalue paths reject.
   - strict source `CALL`/`CLOSURE` tests are green.
 
@@ -9022,12 +9022,12 @@ Before edits:
 
 ## Files to Modify
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit_source_compat.lua` **(new)**
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit_source_compat.lua` **(new)**
 
 **Goal**: Hold the existing hand-concatenating renderer as compatibility/debug only.
 
 **Plan**
-- Move current `moon_cfg_emit.lua` rendering implementation here mostly unchanged.
+- Move current `lalin_cfg_emit.lua` rendering implementation here mostly unchanged.
 - Export:
   - `emit(kernel, opts) -> string`
   - `emit_uncached(kernel, opts) -> string`
@@ -9036,22 +9036,22 @@ Before edits:
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua` **(new)**
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_quote_emit.lua` **(new)**
 
-**Goal**: Primary semantic emitter: `MoonCFG -> moon.* typed quoted fragments`.
+**Goal**: Primary semantic emitter: `LalinCFG -> lalin.* typed quoted fragments`.
 
 **Plan**
-- Require `moonlift`.
+- Require `lalin`.
 - Build output using:
-  - `moon.func`, `moon.stmts`, `moon.expr`, `moon.type`
-  - `moon.params`, `moon.fields`, `moon.conts`, `moon.blocks`, `moon.entry_params`
+  - `lalin.func`, `lalin.stmts`, `lalin.expr`, `lalin.type`
+  - `lalin.params`, `lalin.fields`, `lalin.conts`, `lalin.blocks`, `lalin.entry_params`
   - `@{...}` splices for typed values, names, types, statement lists.
 - Provide APIs:
   - `build_func(kernel, opts)`
   - `build_bundle(kernel, opts)`
   - `compile(kernel, opts)`
   - optional test helper `run(kernel, opts, ...)`
-- Validate `MoonCFG.Kernel` before building.
+- Validate `LalinCFG.Kernel` before building.
 - Rare raw builders allowed only with local comment explaining the missing quote ergonomic.
 
 **First migrated fragments**
@@ -9065,17 +9065,17 @@ Do **not** reintroduce `available_count` or open-result arity changes yet.
 
 ---
 
-### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua`
+### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua`
 
 **Goal**: Become facade.
 
 **Edits**
 - Import:
-  - `moon_cfg_emit_source_compat`
-  - `moon_cfg_quote_emit`
+  - `lalin_cfg_emit_source_compat`
+  - `lalin_cfg_quote_emit`
 - Keep:
   - `Emit.emit(kernel,{name=...}) -> string`
-  - existing `spongejit_moon_cfg_emit` phase behavior.
+  - existing `spongejit_lalin_cfg_emit` phase behavior.
 - Add quote-first semantic APIs:
   - `Emit.build(...)`
   - `Emit.compile(...)`
@@ -9097,7 +9097,7 @@ Files:
 
 **Edits**
 - Keep `TYPE_DECL` for compatibility renderer.
-- Add helpers only if useful for quote emitter, e.g. type/field declarations built with `moon.fields` / `moon.type`.
+- Add helpers only if useful for quote emitter, e.g. type/field declarations built with `lalin.fields` / `lalin.type`.
 - Do not change runtime layouts in this milestone.
 
 ---
@@ -9111,7 +9111,7 @@ Update runtime execution helpers in:
 - `test_spongejit_lua_compile_static_invoke.lua`
 - `test_spongejit_lua_compile_source_call.lua`
 - `test_spongejit_lua_compile_source_closure.lua`
-- current-slice arithmetic/object/moon_cfg tests as migrated.
+- current-slice arithmetic/object/lalin_cfg tests as migrated.
 
 **Change**
 - Prefer:
@@ -9128,8 +9128,8 @@ Also ensure `test_spongejit_lua_compile_lua_src.lua` covers:
 
 ## Migration Order
 
-1. Extract legacy source renderer into `moon_cfg_emit_source_compat.lua`.
-2. Add `moon_cfg_quote_emit.lua` shell using `moon.*` quotes/splices.
+1. Extract legacy source renderer into `lalin_cfg_emit_source_compat.lua`.
+2. Add `lalin_cfg_quote_emit.lua` shell using `lalin.*` quotes/splices.
 3. Build runtime ABI declarations through quote APIs.
 4. Migrate fragile sequence/outcome/call-frame fragments first.
 5. Wire `Emit.compile` as the semantic execution path while preserving `Emit.emit`.
@@ -9142,7 +9142,7 @@ Also ensure `test_spongejit_lua_compile_lua_src.lua` covers:
 
 ## Guardrails / Non-goals
 
-- No new hand-concatenated semantic Moonlift code.
+- No new hand-concatenated semantic Lalin code.
 - Do not resume open arity/top work yet.
 - Do not accept `TAILCALL`, open `CALL`, metatable `__call`, C/FFI calls, upvalue closures, `SETLIST`, `NEWTABLE`, or generic-for.
 - Do not add VM dispatch, helper calls, protocol exits, or lowercase semantic tags.
@@ -9160,7 +9160,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_ca
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_invoke.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_source_call.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_source_closure.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 cd experiments/lua_interpreter_vm/spongejit && make test-completion
 ```
@@ -9183,7 +9183,7 @@ Updated `wf-lua55-roadmap` sidecar to revision `r242`.
   - `T131` — Extract legacy source renderer facade.
 
 Pattern memo now enforced in task wording:
-- Primary path: **`MoonCFG -> moon.* typed quoted fragments`**
+- Primary path: **`LalinCFG -> lalin.* typed quoted fragments`**
 - `Emit.emit` remains compatibility/debug source output.
 - New semantic execution uses quote-first `Emit.compile`/typed APIs.
 
@@ -9191,14 +9191,14 @@ Pattern memo now enforced in task wording:
 
 ## Completed
 - Claimed and completed `T131`: extracted legacy hand-concatenating renderer into compatibility module.
-- Claimed and completed `T132`: added quote-first `moon_cfg_quote_emit.lua` facade/module skeleton.
-- Claimed and completed `T133`: added quote-built runtime ABI declarations with `moon.fields`/`bundle:struct`.
+- Claimed and completed `T132`: added quote-first `lalin_cfg_quote_emit.lua` facade/module skeleton.
+- Claimed and completed `T133`: added quote-built runtime ABI declarations with `lalin.fields`/`bundle:struct`.
 - Claimed `T134` and marked it **blocked** honestly after partial quote runtime expression work.
 
 ## Files Changed
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua` - now a facade preserving `Emit.emit` and exposing quote-first API stubs.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit_source_compat.lua` - new compatibility/debug source renderer, mostly extracted unchanged.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua` - new quote-first emitter module; runtime ABI and partial runtime expression quote support.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua` - now a facade preserving `Emit.emit` and exposing quote-first API stubs.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit_source_compat.lua` - new compatibility/debug source renderer, mostly extracted unchanged.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_quote_emit.lua` - new quote-first emitter module; runtime ABI and partial runtime expression quote support.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_pipeline.lua` - planned file list updated for new modules.
 - `.pi/workflows/wf-lua55-roadmap.edit-plan.json` - task status/evidence updated.
 
@@ -9207,7 +9207,7 @@ Passed:
 ```sh
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_src.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_pipeline.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 ```
@@ -9221,19 +9221,19 @@ cd experiments/lua_interpreter_vm/spongejit && make test
 
 Before worker starts T140:
 
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua`
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua`
   - Still a facade.
-  - `Emit.emit` delegates to `moon_cfg_emit_source_compat`.
-  - `Emit.build/build_func/build_bundle/compile/run` delegate to `moon_cfg_quote_emit`.
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua`
+  - `Emit.emit` delegates to `lalin_cfg_emit_source_compat`.
+  - `Emit.build/build_func/build_bundle/compile/run` delegate to `lalin_cfg_quote_emit`.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_quote_emit.lua`
   - Has quote-first comments and runtime ABI declarations.
   - Has partial `quote_runtime_expr`.
   - `build_func` currently fails closed via `unsupported(kernel)`.
 - Guardrails remain:
   - no open arity / `available_count`;
   - no new source feature acceptance;
-  - no `MoonCFG.EmitRegion`;
-  - no hand-concatenated semantic Moonlift for migrated quote paths.
+  - no `LalinCFG.EmitRegion`;
+  - no hand-concatenated semantic Lalin for migrated quote paths.
 
 ---
 
@@ -9266,7 +9266,7 @@ I updated the structured edit plan so the blocked broad task is replaced by smal
 
 ### Files to Modify by New Tasks
 
-#### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua`
+#### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_quote_emit.lua`
 
 Main work file for `T140`–`T144`.
 
@@ -9282,9 +9282,9 @@ Required progression:
    - `RuntimeStackStore`
 5. Add minimal single-entry return/control assembly.
 
-All unsupported paths must return `moon_cfg_quote_emit:not_yet_migrated:*`.
+All unsupported paths must return `lalin_cfg_quote_emit:not_yet_migrated:*`.
 
-#### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua`
+#### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua`
 
 Used by `T145`.
 
@@ -9318,14 +9318,14 @@ Ready task:
 
 ```text
 T140 — Build quote-first function shell
-file: experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua
+file: experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_quote_emit.lua
 after: T133
 ```
 
 ### Pattern Memo
 
-- Primary path is **MoonCFG -> moon.* typed quoted fragments**.
-- No hand-concatenated semantic Moonlift for migrated quote paths.
+- Primary path is **LalinCFG -> lalin.* typed quoted fragments**.
+- No hand-concatenated semantic Lalin for migrated quote paths.
 - Raw builders only as narrow documented local escape hatches.
 - `Emit.emit` remains compatibility/debug only.
 - Quote emitter fails closed; it must not fallback to source renderer.
@@ -9348,7 +9348,7 @@ Implemented the focused quote-first emission chain:
 `Emit.emit` remains source compatibility/debug output. `Emit.compile` now exercises the quote-first migrated subset and fails closed for unsupported paths.
 
 ## Files Changed
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua` - implemented quote-first build/compile subset, runtime expr/op lowering, single-block return support.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_quote_emit.lua` - implemented quote-first build/compile subset, runtime expr/op lowering, single-block return support.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua` - added `Emit.compile` quote execution coverage for arity/stack/seq-store smoke paths.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_src.lua` - added `LOADF value` phased decode regression.
 
@@ -9363,7 +9363,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_ca
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_invoke.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_source_call.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_source_closure.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
 cd experiments/lua_interpreter_vm/spongejit && make test-completion
 ```
@@ -9376,12 +9376,12 @@ cd experiments/lua_interpreter_vm/spongejit && make test-completion
 ## Worker Output — 2026-06-08 07:35:09
 
 ## Completed
-- Implemented T137: migrated additional current-slice quote-first MoonCFG emission support.
+- Implemented T137: migrated additional current-slice quote-first LalinCFG emission support.
 - Also completed T139 verification gates.
 - No source opcode support was broadened.
 
 ## Files Changed
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua`
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_quote_emit.lua`
   - Added quote-first support for `AddressOf`, `RuntimeTypeTest`, `RuntimeClassifyCallee`, `RuntimeCallTargetCheck`.
   - Made fixed count extraction more robust.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua`
@@ -9401,7 +9401,7 @@ luajit .../test_spongejit_lua_compile_lua_rt_call.lua
 luajit .../test_spongejit_lua_compile_static_invoke.lua
 luajit .../test_spongejit_lua_compile_source_call.lua
 luajit .../test_spongejit_lua_compile_source_closure.lua
-luajit .../test_spongejit_lua_compile_moon_cfg.lua
+luajit .../test_spongejit_lua_compile_lalin_cfg.lua
 luajit .../test_spongejit_lua_compile_stencil.lua
 luajit .../test_spongejit_lua_compile_foundry.lua
 cd experiments/lua_interpreter_vm/spongejit && make test
@@ -9418,28 +9418,28 @@ No ready/todo/claimed/blocked edit-plan tasks remain.
 
 ### 1. Decision / Scope
 
-Finish the **quote-first MoonCFG emitter** for all **currently supported MoonCFG paths exercised by SpongeJIT tests**.
+Finish the **quote-first LalinCFG emitter** for all **currently supported LalinCFG paths exercised by SpongeJIT tests**.
 
 In scope:
-- Complete `MoonCFG -> moon.* typed quoted fragments` emission.
+- Complete `LalinCFG -> lalin.* typed quoted fragments` emission.
 - Make `Emit.compile` usable for current runtime/source/static SpongeJIT semantics.
 - Preserve `Emit.emit` as compatibility/debug source output for source-text checks and foundry artifacts.
-- Keep quote emitter fail-closed for unsupported MoonCFG nodes.
+- Keep quote emitter fail-closed for unsupported LalinCFG nodes.
 
 Out of scope:
 - No new Lua feature support.
 - No open `CALL`, `TAILCALL`, metatable/C/FFI/upvalue paths.
 - No `available_count` / open-result arity work.
-- No `MoonCFG.EmitRegion`, `Continue`, or `Exit`.
+- No `LalinCFG.EmitRegion`, `Continue`, or `Exit`.
 - No design-compliance-only tests.
 
 ---
 
 ### 2. File-by-file Plan
 
-#### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua`
+#### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_quote_emit.lua`
 
-**Goal**: Complete quote-first semantic emission for the existing supported MoonCFG surface.
+**Goal**: Complete quote-first semantic emission for the existing supported LalinCFG surface.
 
 **Edit blocks**
 
@@ -9468,10 +9468,10 @@ Out of scope:
      - all `RuntimeCallFrame*`;
      - `RuntimeClassifyCallee`, `RuntimeCallTargetCheck`;
      - table/string/arithmetic runtime expressions.
-   - Unsupported expressions return `moon_cfg_quote_emit:not_yet_migrated:*`.
+   - Unsupported expressions return `lalin_cfg_quote_emit:not_yet_migrated:*`.
 
 3. **Around lines 391–430: `infer_expr_type`**
-   - Keep in sync with `moon_cfg_validate.lua:infer_let_type`.
+   - Keep in sync with `lalin_cfg_validate.lua:infer_let_type`.
    - Add missing current-slice return types:
      - `LuaRTValue`;
      - `LuaRTOutcome`;
@@ -9520,7 +9520,7 @@ Out of scope:
 
 7. **Around lines 542–590: control/block assembly**
    - Replace `is_single_entry_return_region` restriction.
-   - Support current valid `MoonCFG.Region` control:
+   - Support current valid `LalinCFG.Region` control:
      - multiple blocks;
      - block params;
      - entry param defaults from kernel params;
@@ -9533,16 +9533,16 @@ Out of scope:
      - `Switch`;
      - `Exit`;
      - `Continue`;
-     - `MoonCFG.EmitRegion`.
+     - `LalinCFG.EmitRegion`.
 
 8. **Around lines 559–740: `build_func_in_bundle`, `build_bundle`, `compile`**
    - Build complete typed function from region CFG.
-   - `Emit.compile` must never delegate to `moon_cfg_emit_source_compat`.
+   - `Emit.compile` must never delegate to `lalin_cfg_emit_source_compat`.
    - Preserve `build_bundle -> compile -> compiled:get(name)` API.
 
 ---
 
-#### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua`
+#### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua`
 
 **Goal**: Keep facade behavior stable.
 
@@ -9555,7 +9555,7 @@ Out of scope:
 
 ---
 
-#### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit_source_compat.lua`
+#### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit_source_compat.lua`
 
 **Goal**: Remain compatibility/debug renderer.
 
@@ -9566,13 +9566,13 @@ Out of scope:
 
 ---
 
-#### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua`
+#### `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_validate.lua`
 
 **Goal**: Preserve current support contract.
 
 **Edits**
 - No broadening unless quote work reveals a validator/type inference mismatch for already-supported current paths.
-- Keep `MoonCFG.EmitRegion`, `Continue`, `Exit` unsupported.
+- Keep `LalinCFG.EmitRegion`, `Continue`, `Exit` unsupported.
 - Keep forbidden strings unchanged.
 
 ---
@@ -9607,7 +9607,7 @@ Update observable runtime helpers to prefer `Emit.compile` where supported, whil
 - `tests/test_spongejit_lua_compile_lua_exec_pipeline.lua`
   - Convert representative runtime smoke paths to quote execution where possible.
 
-- `tests/test_spongejit_lua_compile_moon_cfg.lua`
+- `tests/test_spongejit_lua_compile_lalin_cfg.lua`
   - Add quote execution for branch/jump/branch-args/current control CFGs.
   - Keep existing `Emit.emit` deterministic source checks.
 
@@ -9631,7 +9631,7 @@ luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_in
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_source_call.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_source_closure.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua
-luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_cfg.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_stencil.lua
 luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_foundry.lua
 cd experiments/lua_interpreter_vm/spongejit && make test

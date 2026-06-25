@@ -3,9 +3,9 @@
 --
 -- Maintained offline foundry path:
 --   opcode sequence + foundry evidence -> LuaCompile.Unit -> LuaRT/LuaExec
---   -> MoonCFG.Kernel/Moonlift source -> MoonCFG + CompileContract + Stencil.VariantKey.
+--   -> LalinCFG.Kernel/Lalin source -> LalinCFG + CompileContract + Stencil.VariantKey.
 --
--- This worker only uses the maintained ASDL/MoonCFG/stencil compiler path.
+-- This worker only uses the maintained ASDL/LalinCFG/stencil compiler path.
 
 package.path = '../?.lua;../?/init.lua;?.lua;?/init.lua;src/?.lua;src/?/init.lua;../../../lua/?.lua;../../../lua/?/init.lua;' .. package.path
 

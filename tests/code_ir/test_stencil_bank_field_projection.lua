@@ -1,18 +1,18 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local Ty = T.MoonType
-local Value = T.MoonValue
-local Stencil = T.MoonStencil
-local StencilArtifactPlan = require("moonlift.stencil_artifact_plan")(T)
+local Core = T.LalinCore
+local Code = T.LalinCode
+local Ty = T.LalinType
+local Value = T.LalinValue
+local Stencil = T.LalinStencil
+local StencilArtifactPlan = require("lalin.stencil_artifact_plan")(T)
 local StencilBinary = require("tests.code_ir.stencil_binary_helper")
 
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)
@@ -111,4 +111,4 @@ assert(mask[0] == 0 and mask[1] == 1 and mask[2] == 0 and mask[3] == 0, "field c
 sym(artifacts[5])(xs, 1, 3, 99)
 assert(xs[0].right == 10 and xs[1].right == 99 and xs[2].right == 99 and xs[3].right == 7, "field fill")
 
-io.write("moonlift stencil_bank field projection ok\n")
+io.write("lalin stencil_bank field projection ok\n")

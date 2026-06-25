@@ -71,7 +71,7 @@ end
 
 local function main()
     local host = sdl3.new_host {
-        title = "Moonlift SDL3 text field demo",
+        title = "Lalin SDL3 text field demo",
         width = 920,
         height = 640,
         vsync = true,

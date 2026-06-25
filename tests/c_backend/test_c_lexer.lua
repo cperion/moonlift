@@ -1,12 +1,12 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
 
 local T = pvm.context()
 A(T)
 
-local lexer = require("moonlift.c.c_lexer")
+local lexer = require("lalin.c.c_lexer")
 
 -- ---------------------------------------------------------------------------
 -- Helper: lex a source string and return { tokens, spans, issues }
@@ -348,4 +348,4 @@ do
     print("  EOF token: PASS")
 end
 
-print("moonlift test_c_lexer ok")
+print("lalin test_c_lexer ok")

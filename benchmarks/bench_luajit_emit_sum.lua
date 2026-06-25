@@ -1,31 +1,31 @@
--- Benchmark emitted MoonLuaJIT ASDL against hand-written LuaJIT and GCC.
+-- Benchmark emitted LalinLuaJIT ASDL against hand-written LuaJIT and GCC.
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
 local bit = require("bit")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
-local Measure = require("moonlift.luajit_measure")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
+local Measure = require("lalin.luajit_measure")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local LJ = T.MoonLuaJIT
-local CType = require("moonlift.luajit_ctype")(T)
-local Expr = require("moonlift.luajit_expr")(T)
-local Emit = require("moonlift.luajit_emit")(T)
+local Core = T.LalinCore
+local Code = T.LalinCode
+local LJ = T.LalinLuaJIT
+local CType = require("lalin.luajit_ctype")(T)
+local Expr = require("lalin.luajit_expr")(T)
+local Emit = require("lalin.luajit_emit")(T)
 
 local mode = arg and arg[1] or "quick"
 local full = mode == "full"
-local n = tonumber(os.getenv("MOONLIFT_LJ_EMIT_BENCH_N") or (full and "5000000" or "350000"))
-local samples = tonumber(os.getenv("MOONLIFT_LJ_EMIT_BENCH_SAMPLES") or (full and "9" or "5"))
-local rounds = tonumber(os.getenv("MOONLIFT_LJ_EMIT_BENCH_ROUNDS") or "1")
-local cc = os.getenv("MOONLIFT_LJ_EMIT_BENCH_CC") or os.getenv("CC") or "gcc"
-local cflags = os.getenv("MOONLIFT_LJ_EMIT_BENCH_CFLAGS") or "-std=c99 -O3 -march=native"
-local with_gcc = os.getenv("MOONLIFT_LJ_EMIT_BENCH_GCC") ~= "0"
+local n = tonumber(os.getenv("LALIN_LJ_EMIT_BENCH_N") or (full and "5000000" or "350000"))
+local samples = tonumber(os.getenv("LALIN_LJ_EMIT_BENCH_SAMPLES") or (full and "9" or "5"))
+local rounds = tonumber(os.getenv("LALIN_LJ_EMIT_BENCH_ROUNDS") or "1")
+local cc = os.getenv("LALIN_LJ_EMIT_BENCH_CC") or os.getenv("CC") or "gcc"
+local cflags = os.getenv("LALIN_LJ_EMIT_BENCH_CFLAGS") or "-std=c99 -O3 -march=native"
+local with_gcc = os.getenv("LALIN_LJ_EMIT_BENCH_GCC") ~= "0"
 
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)
 local sem = Code.CodeIntSemantics(Code.CodeIntWrap, Code.CodeDivTrapOnZeroOrOverflow, Code.CodeShiftMaskCount)
@@ -98,7 +98,7 @@ end
 
 assert(emitted_sum() == handwritten_sum())
 
-print(string.format("MoonLuaJIT emitted sum benchmark mode=%s n=%d samples=%d rounds=%d", mode, n, samples, rounds))
+print(string.format("LalinLuaJIT emitted sum benchmark mode=%s n=%d samples=%d rounds=%d", mode, n, samples, rounds))
 print("emitted source bytes " .. tostring(#src))
 local results = Measure.measure({
     { name = "emitted LJ sum_i32", fn = emitted_sum },
@@ -195,6 +195,6 @@ end
 
 if with_gcc then run_gcc() end
 
-if os.getenv("MOONLIFT_LJ_EMIT_BENCH_SOURCE") == "1" then
+if os.getenv("LALIN_LJ_EMIT_BENCH_SOURCE") == "1" then
     print(src)
 end

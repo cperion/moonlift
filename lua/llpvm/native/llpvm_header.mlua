@@ -1,6 +1,6 @@
 -- llpvm_header.mlua -- Low-Level PVM product/protocol contract.
 --
--- LLPVM is the Moonlift-native substrate for small typed PicoVMs: worlds,
+-- LLPVM is the Lalin-native substrate for small typed PicoVMs: worlds,
 -- operation tapes, machine phases, recordings, caches, and reports. This
 -- header names the whole semantic surface. Implementation files own the region
 -- bodies one machine at a time.

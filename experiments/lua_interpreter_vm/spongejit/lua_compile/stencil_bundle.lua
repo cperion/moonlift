@@ -4,10 +4,10 @@
 -- Stencil.StencilModule metadata plus caller-supplied code bytes, materializes
 -- selected templates in stable VariantKey/template-name order, and returns
 -- explicit publish-ready metadata. It does not allocate executable memory,
--- call OS APIs, inspect Lua opcodes, recover MoonCFG semantics, or provide an
+-- call OS APIs, inspect Lua opcodes, recover LalinCFG semantics, or provide an
 -- interpreter/protocol fallback.
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local B = require("lua_compile.builders")
 local T = B.T
 local S = T.Stencil

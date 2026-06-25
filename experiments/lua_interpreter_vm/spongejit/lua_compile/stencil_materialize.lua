@@ -7,7 +7,7 @@
 -- interpreter fallback, or semantic descriptor recovery.
 
 local bit = require("bit")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local B = require("lua_compile.builders")
 local T = B.T
 local S = T.Stencil

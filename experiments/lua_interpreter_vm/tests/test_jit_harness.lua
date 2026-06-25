@@ -86,7 +86,7 @@ local function test_compile_static_profile()
         allow_fallback = false,
     })
     assert(bundle, err and err.detail or "compile failed")
-    assert(bundle.compiler == "moonlift-lua-vm")
+    assert(bundle.compiler == "lalin-lua-vm")
     assert(#bundle.protos[1].code == 5)
 
     local profile = profile_static.profile_proto_static(bundle, { max_arity = 4 })
@@ -104,7 +104,7 @@ local function test_candidate_vm_stencil_compile()
     local compile = require("tools.jit_harness.candidate_compile")
     local mine = require("tools.jit_harness.object_mine")
 
-    local out = "/tmp/moonlift_jit_harness_test"
+    local out = "/tmp/lalin_jit_harness_test"
     os.execute("rm -rf " .. out)
     local kernel = emit.emit_candidate_kernel({ id = "LOADI_MOVE_smoke", arity = 2, ops = { "LOADI", "MOVE" } }, { output_dir = out .. "/kernels" })
     assert(kernel.abi == "jit_stencil_v0")

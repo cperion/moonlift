@@ -1,5 +1,5 @@
 # Zyn synth UI side projection design 
-Design the UI-side projection layer for the Zyn Moonlift synth: how synth/program/control state should become typed UI authored tree, semantic widget events, and ABI/control events without violating Moonlift's compiler-shaped UI contracts.
+Design the UI-side projection layer for the Zyn Lalin synth: how synth/program/control state should become typed UI authored tree, semantic widget events, and ABI/control events without violating Lalin's compiler-shaped UI contracts.
 **Workflow ID**: wf-zyn-synth-ui-projection
 **Started**: 2026-06-14 04:31:17
 ---
@@ -37,10 +37,10 @@ Design the UI-side projection layer for the Zyn Moonlift synth: how synth/progra
 27. `tests/test_ui_{smoke,id_validation,interact_contract,state_bridge,sdl3_paint}.lua` — current UI tests.
 28. `.pi/workflows/wf-a6d2de07.md` + `.edit-plans/ui-completion.json` — prior UI completion workflow; notes many synth-readiness tasks now done, but synth demo still todo.
 29. `.pi/workflows/wf-zyn-synth-ui-projection.md` — current workflow stub only.
-30. `examples/synth/zyn_moonlift_synth_spec.md` (lines 1-500) — behavioral contract for synth implementation.
-31. `examples/synth/zyn_moonlift_synth_headers.mlua` (lines 1-1201) — complete synth product/control/protocol/ABI surface.
-32. `examples/synth/zyn_moonlift_synth_impl.mlua` key ranges around controls/events/ABI — current implementation bodies.
-33. `tests/test_zyn_moonlift_synth_impl.lua` (lines 1-690+) — synth compile/behavior smoke coverage and host-side FFI shapes.
+30. `examples/synth/zyn_lalin_synth_spec.md` (lines 1-500) — behavioral contract for synth implementation.
+31. `examples/synth/zyn_lalin_synth_headers.mlua` (lines 1-1201) — complete synth product/control/protocol/ABI surface.
+32. `examples/synth/zyn_lalin_synth_impl.mlua` key ranges around controls/events/ABI — current implementation bodies.
+33. `tests/test_zyn_lalin_synth_impl.lua` (lines 1-690+) — synth compile/behavior smoke coverage and host-side FFI shapes.
 
 ## Key Code
 
@@ -118,9 +118,9 @@ Common widget events include `activate`, `change`, `input`, `edit`, `focus`, `bl
 
 ### Synth control/ABI surface
 
-`examples/synth/zyn_moonlift_synth_headers.mlua` defines product/control types:
+`examples/synth/zyn_lalin_synth_headers.mlua` defines product/control types:
 
-```moonlift
+```lalin
 T.ParamAddress = struct
     scope: u8,
     part: u16,
@@ -157,7 +157,7 @@ end
 
 ABI functions:
 
-```moonlift
+```lalin
 F.synth_prepare_program(...)
 F.synth_render_block(...)
 F.synth_set_parameter(s: ptr(Synth), ev: ParameterEvent): i32
@@ -178,7 +178,7 @@ E.ParamScope = {
 
 ### Current synth parameter implementation facts
 
-`zyn_moonlift_synth_impl.mlua`:
+`zyn_lalin_synth_impl.mlua`:
 
 - `resolve_parameter` returns a generic `[0,1]` `ParamPolicy`; global param `0` is read/write, global param `1` read-only; other known scopes resolve to generic writable policy.
 - `apply_parameter_event` only writes `controls.macro_values[param]` for global parameters within `macro_count`.
@@ -195,7 +195,7 @@ E.ParamScope = {
 - Widgets route reducer events through their `surfaces` tables into widget-level events.
 - Apps own final state mutation and author the next tree.
 - SDL3 host events are normalized into Lua host tables and attach `ev.raw` / `ev.raws` via `ui.input`.
-- Zyn synth ABI consumes typed Moonlift structs/events (`ParameterEvent`, `MidiEvent`, `HostEvent`, `ProgramRef`) and returns integer `AbiStatus` at ABI boundary only.
+- Zyn synth ABI consumes typed Lalin structs/events (`ParameterEvent`, `MidiEvent`, `HostEvent`, `ProgramRef`) and returns integer `AbiStatus` at ABI boundary only.
 - There is no existing `examples/ui/synth_sdl3_demo.lua` and no Zyn-specific UI projection module found.
 
 ## Observations
@@ -216,19 +216,19 @@ E.ParamScope = {
 
 ## Files Retrieved
 
-1. `examples/synth/zyn_moonlift_synth_headers.mlua` (lines 1-1203) - Full public synth surface: encoding tables, product structs, region protocols, ABI seal functions.
-2. `examples/synth/zyn_moonlift_synth_spec.md` (lines 1-454) - Behavioral contract: storage, patch format, event semantics, parameter semantics, render order, ABI status mapping.
-3. `examples/synth/zyn_moonlift_synth_impl.mlua` (lines 1-940, 935-2114, 2115-3514, 4315-4946) - Implementation of storage/init, patch prep, event/control paths, modulation path, render orchestration, ABI status mapping.
-4. `tests/test_zyn_moonlift_synth_impl.lua` (lines 1-688) - Compile coverage and FFI behavioral smoke for ABI, events, voice lifecycle, render, DSP/modulation.
-5. `MOONLIFT_COMPILER_PATTERN.md` (lines 1-140, 220-520, 780-1070) - Live compiler/UI projection doctrine: authored source products → phases/facts → sealed loop; UI rendering example.
-6. `THE_MOONLIFT_DESIGN_BIBLE.md` (lines 36-106, 346-446) - Design doctrine: type forest/control graph, encoded tags with one owner region, protocol ownership.
+1. `examples/synth/zyn_lalin_synth_headers.mlua` (lines 1-1203) - Full public synth surface: encoding tables, product structs, region protocols, ABI seal functions.
+2. `examples/synth/zyn_lalin_synth_spec.md` (lines 1-454) - Behavioral contract: storage, patch format, event semantics, parameter semantics, render order, ABI status mapping.
+3. `examples/synth/zyn_lalin_synth_impl.mlua` (lines 1-940, 935-2114, 2115-3514, 4315-4946) - Implementation of storage/init, patch prep, event/control paths, modulation path, render orchestration, ABI status mapping.
+4. `tests/test_zyn_lalin_synth_impl.lua` (lines 1-688) - Compile coverage and FFI behavioral smoke for ABI, events, voice lifecycle, render, DSP/modulation.
+5. `LALIN_COMPILER_PATTERN.md` (lines 1-140, 220-520, 780-1070) - Live compiler/UI projection doctrine: authored source products → phases/facts → sealed loop; UI rendering example.
+6. `THE_LALIN_DESIGN_BIBLE.md` (lines 36-106, 346-446) - Design doctrine: type forest/control graph, encoded tags with one owner region, protocol ownership.
 7. `LANGUAGE_REFERENCE.md` (lines 3195-3245, 3480-3530) - View ABI and host-owned buffer boundary semantics.
 
 ## Key Code
 
 ### Header-level machine sentence / contract
 
-`examples/synth/zyn_moonlift_synth_headers.mlua` lines 16-23:
+`examples/synth/zyn_lalin_synth_headers.mlua` lines 16-23:
 
 ```lua
 -- Machine sentence:
@@ -242,7 +242,7 @@ E.ParamScope = {
 
 ### Encoding tables and owners
 
-Header encodings are Lua documentation tables, not Moonlift semantic unions. Each has an owner region.
+Header encodings are Lua documentation tables, not Lalin semantic unions. Each has an owner region.
 
 Examples:
 
@@ -284,9 +284,9 @@ Other public encodings: `MidiKind`, `ToneMask`, `VoiceStage`, `EnvelopeCurve`, `
 
 ### Core refs / handles
 
-`examples/synth/zyn_moonlift_synth_headers.mlua` lines 315-345:
+`examples/synth/zyn_lalin_synth_headers.mlua` lines 315-345:
 
-```moonlift
+```lalin
 T.ProgramRef = struct
     bank: u16,
     program: u16,
@@ -325,7 +325,7 @@ end
 
 `ParamAddress` is raw numeric addressing, not descriptive metadata:
 
-```moonlift
+```lalin
 T.ParamAddress = struct
     scope: u8,
     part: u16,
@@ -346,7 +346,7 @@ end
 
 Events:
 
-```moonlift
+```lalin
 T.MidiEvent = struct
     kind: u8,
     channel: u8,
@@ -373,7 +373,7 @@ end
 
 Control state:
 
-```moonlift
+```lalin
 T.ControlState = struct
     pitch_bend: f32,
     channel_pressure: f32,
@@ -395,9 +395,9 @@ end
 
 ### Prepared program representation
 
-`examples/synth/zyn_moonlift_synth_headers.mlua` lines 569-578:
+`examples/synth/zyn_lalin_synth_headers.mlua` lines 569-578:
 
-```moonlift
+```lalin
 -- Immutable prepared program/patch.  Any cached derived data lives in explicit
 -- caches below, not beside source facts except as phase output references.
 T.PreparedProgram = struct
@@ -411,7 +411,7 @@ end
 
 `PatchSource` is host-owned bytes:
 
-```moonlift
+```lalin
 T.PatchSource = struct
     bytes: ByteSlice,
     format_id: u32,
@@ -421,7 +421,7 @@ end
 
 ### Runtime state root
 
-```moonlift
+```lalin
 T.SynthStorage = struct
     arena: ByteArena,
     programs: ProgramStore,
@@ -443,9 +443,9 @@ end
 
 ### Public ABI seals
 
-`examples/synth/zyn_moonlift_synth_headers.mlua` lines 1185-1201:
+`examples/synth/zyn_lalin_synth_headers.mlua` lines 1185-1201:
 
-```moonlift
+```lalin
 F.synth_required_storage = func(config: SynthConfig): index end
 F.synth_init = func(s: ptr(Synth), storage: SynthStorage, config: SynthConfig, policy: EnginePolicy, sample_rate_hz: f32): i32 end
 F.synth_prepare_program = func(s: ptr(Synth), target: ProgramRef, src: PatchSource): i32 end
@@ -459,9 +459,9 @@ F.synth_panic = func(s: ptr(Synth)): i32 end
 
 ### Parameter resolution / update implementation
 
-`examples/synth/zyn_moonlift_synth_impl.mlua` lines 2447-2482:
+`examples/synth/zyn_lalin_synth_impl.mlua` lines 2447-2482:
 
-```moonlift
+```lalin
 R.resolve_parameter = R.resolve_parameter(BODY)[[
 entry start()
     let rw: ParamPolicy = { min_value = as(f32, 0.0), max_value = as(f32, 1.0), default_value = as(f32, 0.0), smoothing_ms = as(f32, 5.0), read_only = false }
@@ -478,7 +478,7 @@ end
 
 `apply_parameter_event` only writes global macro values:
 
-```moonlift
+```lalin
 if controls ~= nil and ev.address.scope == @{PARAM_SCOPE_GLOBAL} and as(index, ev.address.param) < (*controls).macro_count then
     controls[0].macro_values[as(index, ev.address.param)] = clamped
 end
@@ -512,11 +512,11 @@ Implementation follows this via `HLP.render_block_ready`: clear output, clear sc
 `LANGUAGE_REFERENCE.md` lines 3197-3214:
 
 ```c
-typedef struct MoonView_T {
+typedef struct LalinView_T {
     T* data;
     intptr_t len;
     intptr_t stride;
-} MoonView_T;
+} LalinView_T;
 ```
 
 Views may be exposed as descriptor, data/len/stride, or pointer policy depending on host/API exposure.
@@ -864,7 +864,7 @@ Scoring note: for **Coupling / Migration cost / Risk**, higher means worse. For 
 | **Coupling** | 2/5 | Keeps UI projection, widget routing, and synth ABI mutation separated through explicit commands. Some coupling remains in the hand-authored descriptor catalog. |
 | **Cohesion** | 5/5 | Clean split between snapshot sampling, UI-authored tree projection, semantic UI events, and synth command emission. |
 | **Migration cost** | 1/5 | Mostly additive. Does not require changing synth ABI, parameter resolver, patch format, or UI kernel contracts. |
-| **Philosophy fit** | 5/5 | Best immediate fit with Moonlift/UI principles: authored tree in, typed semantic events out, app-owned state update, no callbacks or stringly ABI shortcuts. |
+| **Philosophy fit** | 5/5 | Best immediate fit with Lalin/UI principles: authored tree in, typed semantic events out, app-owned state update, no callbacks or stringly ABI shortcuts. |
 | **Risk** | 2/5 | Main risk is metadata drift, but the small truthful surface makes this manageable. Avoids pretending the current broad parameter space is actually mutable. |
 | **Testability** | 5/5 | Highly incremental: fake snapshots, widget events, command translation, and ABI smoke tests can be validated independently. |
 
@@ -896,7 +896,7 @@ Scoring note: for **Coupling / Migration cost / Risk**, higher means worse. For 
 | **Coupling** | 3/5 | Decouples UI editing from immutable `PreparedProgram`, but introduces a new host-authored patch language that must stay aligned with synth patch bytes and preparation semantics. |
 | **Cohesion** | 4/5 | Clean source/product separation: edit authored patch state, compile to `PatchSource`, publish to synth. Runtime controls remain separate. |
 | **Migration cost** | 5/5 | Largest change by far: authored patch schema, serializer/compiler, editor pages, publish/preview flow, validation, and divergence management. |
-| **Philosophy fit** | 4/5 | Architecturally compatible with Moonlift’s source → phase → product model, but only if the patch authoring model is typed and explicit rather than an ad hoc Lua object graph. |
+| **Philosophy fit** | 4/5 | Architecturally compatible with Lalin’s source → phase → product model, but only if the patch authoring model is typed and explicit rather than an ad hoc Lua object graph. |
 | **Risk** | 5/5 | Very high. The authored model can diverge from the binary patch format, prepared-program behavior, and live runtime controls. Also much broader UI/state invalidation surface. |
 | **Testability** | 2/5 | Hard to validate incrementally without first defining the whole patch authoring schema and compiler boundary. Many failure modes are semantic, not just structural. |
 
@@ -938,7 +938,7 @@ Scoring note: for **Coupling / Migration cost / Risk**, higher means worse. For 
 - **Risk**: If descriptors and mutation semantics drift, the UI becomes formally typed but semantically dishonest.
 
 - **Rough sketch**:
-  - Define synth-owned descriptor structs in `examples/synth/zyn_moonlift_synth_headers.mlua`.
+  - Define synth-owned descriptor structs in `examples/synth/zyn_lalin_synth_headers.mlua`.
   - Generate/control descriptors during synth init or program preparation.
   - Add ABI calls like:
     - `synth_control_descriptor_count`
@@ -1084,7 +1084,7 @@ All three avoid the temporary-panel trap: each makes a foundational decision abo
 | **Coupling** | 3/5 | Decouples UI from `PreparedProgram`, but couples the host editor model tightly to patch serialization and synth preparation semantics. |
 | **Cohesion** | 4/5 | Excellent source/product split: edit authored source, compile/publish to synth product. Runtime controls remain separate. |
 | **Migration cost** | 5/5 | Very large: new authored patch schema, serializer/lowering, validation, editor state, publish/preview semantics. |
-| **Philosophy fit** | 5/5 | Deeply Moonlift-shaped if implemented as explicit typed source → compiler phases → prepared product. |
+| **Philosophy fit** | 5/5 | Deeply Lalin-shaped if implemented as explicit typed source → compiler phases → prepared product. |
 | **Risk** | 5/5 | Highest divergence risk. The authored patch model can become a second Zyn language that only approximately matches binary patch bytes and prepared-program behavior. |
 | **Testability** | 2/5 | Hard to test meaningfully until the authored schema and compiler boundary exist. Many bugs will be semantic, not structural. |
 
@@ -1100,7 +1100,7 @@ All three avoid the temporary-panel trap: each makes a foundational decision abo
 | **Coupling** | 4/5 | Intentionally couples synth control plumbing, UI metadata, command lowering, and tests through one canonical schema. That is powerful but dangerous. |
 | **Cohesion** | 5/5 | Best conceptual cohesion: one typed source describes authored fields, runtime parameters, meters, commands, and projection identity. |
 | **Migration cost** | 5/5 | Highest practical cost. It introduces a new schema/compiler layer and generated/derived artifacts across synth and UI. |
-| **Philosophy fit** | 5/5 | Best Moonlift fit if the schema is a real typed source product, not a loose Lua table convention. It embraces compiler-shaped projection instead of bolting UI metadata on afterward. |
+| **Philosophy fit** | 5/5 | Best Lalin fit if the schema is a real typed source product, not a loose Lua table convention. It embraces compiler-shaped projection instead of bolting UI metadata on afterward. |
 | **Risk** | 4/5 | Meta-language creep is the major risk. If undisciplined, it becomes an opaque framework that hides ownership instead of clarifying it. |
 | **Testability** | 4/5 | Strong upside: schema can generate tests proving every writable control has descriptor, binding, command lowering, and observable mutation. Initial bootstrap is nontrivial. |
 
@@ -1112,7 +1112,7 @@ All three avoid the temporary-panel trap: each makes a foundational decision abo
 ### Summary
 
 - **Recommended**: **Approach C: Shared Projection Schema Compiler**.  
-  This is the real architectural choice. It accepts that Zyn needs a canonical typed control/projection source, not a temporary UI catalog and not two drifting worlds. It best matches Moonlift’s philosophy: explicit source facts, generated/derived phase products, typed command lowering, and testable ownership boundaries.
+  This is the real architectural choice. It accepts that Zyn needs a canonical typed control/projection source, not a temporary UI catalog and not two drifting worlds. It best matches Lalin’s philosophy: explicit source facts, generated/derived phase products, typed command lowering, and testable ownership boundaries.
 
 - **Dark horse**: **Approach A**.  
   If the immediate product scope is strictly live synth control, A is cleaner and cheaper. But it risks lazy deferral of the deeper authored/control schema decision. It is acceptable only if the project is explicitly choosing “synth-owned runtime controls” as the long-term source of truth.
@@ -1131,7 +1131,7 @@ Bluntly: pick **C** if the goal is a durable Zyn synth/UI architecture. Pick **A
 
 ## Goal
 
-Enable the Zyn Moonlift synth UI to project synth/program/control state into typed authored UI trees, semantic widget events, and ABI/control events through a shared compiler-shaped schema, without violating Moonlift’s UI contract or inventing ad hoc UI metadata outside the synth/control architecture.
+Enable the Zyn Lalin synth UI to project synth/program/control state into typed authored UI trees, semantic widget events, and ABI/control events through a shared compiler-shaped schema, without violating Lalin’s UI contract or inventing ad hoc UI metadata outside the synth/control architecture.
 
 ## Problem
 
@@ -1149,7 +1149,7 @@ The UI side needs to know:
 
 Today, those facts are split or missing. `ParamAddress` is only a numeric routing key. `ParamPolicy` only contains numeric range/default/smoothing/read-only. The current synth implementation resolves many non-global parameter scopes as writable, but only global macro parameters actually mutate `ControlBank.macro_values`. The UI cannot truthfully infer labels, units, widget types, value kinds, grouping, or observability from the ABI alone.
 
-At the same time, Moonlift’s UI architecture is explicitly compiler-shaped:
+At the same time, Lalin’s UI architecture is explicitly compiler-shaped:
 
 ```text
 Auth.Node
@@ -1255,14 +1255,14 @@ The application, not the widget constructor, owns state mutation and external ef
 
 The Zyn synth surface is defined primarily in:
 
-- `examples/synth/zyn_moonlift_synth_headers.mlua`
-- `examples/synth/zyn_moonlift_synth_impl.mlua`
-- `examples/synth/zyn_moonlift_synth_spec.md`
-- `tests/test_zyn_moonlift_synth_impl.lua`
+- `examples/synth/zyn_lalin_synth_headers.mlua`
+- `examples/synth/zyn_lalin_synth_impl.mlua`
+- `examples/synth/zyn_lalin_synth_spec.md`
+- `tests/test_zyn_lalin_synth_impl.lua`
 
 Key public types include:
 
-```moonlift
+```lalin
 T.ParamAddress = struct
     scope: u8,
     part: u16,
@@ -1298,7 +1298,7 @@ end
 
 Persistent runtime state is rooted at:
 
-```moonlift
+```lalin
 T.Synth = struct
     current_program: ProgramRef,
     storage: SynthStorage,
@@ -1315,7 +1315,7 @@ end
 
 `PreparedProgram` is immutable render-ready product state:
 
-```moonlift
+```lalin
 T.PreparedProgram = struct
     parts: view(PartPlan),
     part_count: index,
@@ -1331,7 +1331,7 @@ The spec explicitly treats prepared programs as phase outputs. UI code must not 
 
 `R.resolve_parameter` currently returns a generic writable `[0,1]` policy for most known scopes, but actual mutation is narrow:
 
-```moonlift
+```lalin
 if controls ~= nil
    and ev.address.scope == @{PARAM_SCOPE_GLOBAL}
    and as(index, ev.address.param) < (*controls).macro_count then
@@ -1350,7 +1350,7 @@ The rejected trap is a temporary performance panel or ad hoc Lua metadata table 
 That trap would look superficially safe because it could expose only a small number of controls at first, but it would establish the wrong source of truth:
 
 - UI-visible labels and widget hints would live in Lua-only tables.
-- Parameter mutation behavior would live in Moonlift synth code.
+- Parameter mutation behavior would live in Lalin synth code.
 - Command lowering would live in separate handwritten routing logic.
 - Tests would need to prove consistency after the fact.
 - The architecture would be vulnerable to schema drift as soon as more controls, pages, patch fields, meters, or program-specific controls are added.
@@ -1384,7 +1384,7 @@ The canonical source of truth is a shared typed schema module, conceptually loca
 examples/synth/zyn_control_surface.lua
 ```
 
-or, if implemented in Moonlift-shaped source form:
+or, if implemented in Lalin-shaped source form:
 
 ```text
 examples/synth/zyn_control_surface.mlua
@@ -1567,7 +1567,7 @@ The command compiler owns this lowering boundary. It is the only place where UI-
 
 ## Source/Product Boundaries
 
-The architecture preserves Moonlift’s source/product discipline.
+The architecture preserves Lalin’s source/product discipline.
 
 ### Authored UI tree
 

@@ -2,7 +2,7 @@
 -- Structural only; allocation, lifetime transitions, and close execution remain fail-closed.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local RT, GC = T.LuaRT, T.LuaGC
 

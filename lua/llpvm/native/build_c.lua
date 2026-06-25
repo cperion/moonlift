@@ -1,12 +1,12 @@
 -- llpvm.native.build_c -- Build the LLPVM C artifact through the executed .mlua API.
 --
--- LLPVM modules use moon.require, so the C backend boundary is the artifact
+-- LLPVM modules use lalin.require, so the C backend boundary is the artifact
 -- API. The artifact owns generated implementation C, generated header C, and
 -- explicit support C that can be written as one includable/compilable blob.
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/llpvm/native/?.lua;./lua/llpvm/native/?.mlua;" .. package.path
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 
 local M = {}
 
@@ -95,9 +95,9 @@ function M.emit_artifact(opts)
     for k, v in pairs(opts) do emit_opts[k] = v end
     emit_opts.site = emit_opts.site or "llpvm C blob"
     emit_opts.support_source = emit_opts.support_source or LLPVM_SUPPORT_SOURCE
-    local chunk = moon.loadfile("lua/llpvm/native/llpvm_abi.mlua")
+    local chunk = lalin.loadfile("lua/llpvm/native/llpvm_abi.mlua")
     local decl = chunk()
-    return moon.emit_c_artifact(decl, emit_opts, opts.name or "llpvm")
+    return lalin.emit_c_artifact(decl, emit_opts, opts.name or "llpvm")
 end
 
 function M.write_artifact(path, opts)

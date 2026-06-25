@@ -1,22 +1,22 @@
-# Complete Moonlift C Backend Design
+# Complete Lalin C Backend Design
 
 Status: canonical design and execution contract. This document is intentionally broader
 than any single implementation pass. It defines what a **complete** C backend means, and
-now also records the ASDL/MoonCode refactor required to make that backend good by default.
+now also records the ASDL/LalinCode refactor required to make that backend good by default.
 
 Current checkpoint — 2026-06-15:
 
-- schema source files in `lua/moonlift/schema/` have been converted from Lua-builder modules
-  to MoonSchema Lua data, loaded by `schema/init.lua`;
-- `MoonCode` is the active normalized typed SSA/control ASDL layer in
-  `lua/moonlift/schema/code.lua`;
+- schema source files in `lua/lalin/schema/` have been converted from Lua-builder modules
+  to LalinSchema Lua data, loaded by `schema/init.lua`;
+- `LalinCode` is the active normalized typed SSA/control ASDL layer in
+  `lua/lalin/schema/code.lua`;
 - public native lowering now routes through `tree_to_code -> code_validate -> Flow/Mem/Kernel/Lower -> lower_to_back/code_to_back`;
 - public C lowering now routes through `tree_to_code -> code_validate -> code_to_c ->
   c_validate`, not direct `tree_to_c`;
 - the old direct Tree-to-C implementation modules have been deleted with no compatibility
   shims: `tree_to_c`, `tree_control_to_c`, `type_to_c`, `c_places`, `c_residence`, `c_cfg`,
   `c_data`, and `c_layout`;
-- the C path has MoonCode-driven TCC/libtcc/gcc coverage for a substantial subset, but final
+- the C path has LalinCode-driven TCC/libtcc/gcc coverage for a substantial subset, but final
   full-support status still requires closing remaining feature gaps and final gate suites.
 
 The C backend is a PVM side projection.  The target architecture is:
@@ -44,11 +44,11 @@ platforms, and cross compilation is a consequence of C emission.
 
 ## 1. Non-negotiable completeness rule
 
-A complete C backend must classify every construct in the resolved typed MoonTree schema:
+A complete C backend must classify every construct in the resolved typed LalinTree schema:
 
 - supported and emitted correctly;
 - unreachable after earlier phases, with a validator/assertion if it appears;
-- intentionally rejected with a real diagnostic because Moonlift itself does not support it
+- intentionally rejected with a real diagnostic because Lalin itself does not support it
   for native code generation.
 
 No construct may be silently ignored, partially lowered, or fall through to generic
@@ -56,14 +56,14 @@ No construct may be silently ignored, partially lowered, or fall through to gene
 
 ## 2. Projection source
 
-The source of truth is the typed/resolved MoonTree program after:
+The source of truth is the typed/resolved LalinTree program after:
 
 1. open expansion;
 2. closure conversion;
 3. typecheck;
 4. target-aware layout resolution.
 
-The C backend consumes resolved MoonTree/MoonCode facts directly. It does not
+The C backend consumes resolved LalinTree/LalinCode facts directly. It does not
 depend on the removed backend-command projection.
 The C backend preserves program-layer facts that would otherwise be erased:
 
@@ -91,7 +91,7 @@ CBackendTarget {
 }
 ```
 
-Current Moonlift layout code assumes 64-bit pointer/index in several places. A complete C
+Current Lalin layout code assumes 64-bit pointer/index in several places. A complete C
 backend must make pointer/index size target-aware before claiming non-native64 portability.
 For native64 C, pointer/index layout may match the LuaJIT host layout.
 
@@ -113,11 +113,11 @@ choices and tests must compile/run layout probes.
 
 ## 4. CBackend ASDL role
 
-`MoonC.CBackend*` is the backend's restricted C dialect. It is not parsed-C `MoonCAst`.
+`LalinC.CBackend*` is the backend's restricted C dialect. It is not parsed-C `LalinCAst`.
 It should be extended as needed, but the final shape must preserve these layers:
 
 ```text
-MoonTree resolved program
+LalinTree resolved program
   -> semantic C projection (`CBackendUnit`)
   -> validated restricted C
   -> deterministic C text
@@ -190,7 +190,7 @@ Global/static data must support:
 
 ## 6. Type coverage matrix
 
-| MoonType | Complete C backend rule |
+| LalinType | Complete C backend rule |
 |---|---|
 | `TScalar` | fixed-width C scalar typedef or standard integer/float type; bool is `uint8_t` invariant 0/1 |
 | `TPtr(T)` | data pointer; typed for C lvalues when safe, byte-addressed for raw memory helpers |
@@ -206,7 +206,7 @@ Global/static data must support:
 
 ## 7. Item coverage matrix
 
-| MoonTree item | Complete C backend rule |
+| LalinTree item | Complete C backend rule |
 |---|---|
 | `ItemFunc` | emit C function/prototype/body if concrete function; contracts/declarations classified below |
 | `ItemExtern` | emit extern declaration; preserve symbol and signature exactly |
@@ -225,7 +225,7 @@ Function variants:
 | Func variant | Rule |
 |---|---|
 | `FuncLocal` | emit static/local C function unless referenced/exported needs external linkage |
-| `FuncExport` | emit exported C symbol according to Moonlift ABI |
+| `FuncExport` | emit exported C symbol according to Lalin ABI |
 | `FuncLocalContract` | no body; if still present at emission, diagnostic unless lowered to declaration intentionally |
 | `FuncExportContract` | no body; declaration/export contract only if language permits; otherwise diagnostic |
 | `FuncDecl` | declaration only; no body |
@@ -302,7 +302,7 @@ create labels, and resume at joins.
 
 ## 10. Control-region design
 
-Moonlift control maps to labels/gotos.
+Lalin control maps to labels/gotos.
 
 Rules:
 
@@ -332,7 +332,7 @@ loop:
 The C backend must define two related ABIs:
 
 1. **Internal C projection ABI** for functions generated into the same C unit.
-2. **External Moonlift C ABI** for exported functions and extern declarations.
+2. **External Lalin C ABI** for exported functions and extern declarations.
 
 To stay aligned with the native path, the external ABI follows `type_func_abi_plan.lua`:
 
@@ -407,7 +407,7 @@ Pointer offsets are emitted through byte pointers for data pointers:
 (void *)((unsigned char *)base + scaled_offset)
 ```
 
-Integer overflow in offset calculation must be defined by Moonlift semantics or checked.
+Integer overflow in offset calculation must be defined by Lalin semantics or checked.
 The target pointer width controls index arithmetic.
 
 ## 14. Helper semantics contract
@@ -439,7 +439,7 @@ Trap behavior uses the backend trap helper.
 
 ### 14.3 Shifts/rotates
 
-Shift count semantics must match the MoonCode integer contract. The complete design uses
+Shift count semantics must match the LalinCode integer contract. The complete design uses
 one explicit mode per operation:
 
 - mask count modulo bit width; or
@@ -454,7 +454,7 @@ Rotates are helper functions using masked counts and unsigned storage.
 
 Dangerous casts use helpers:
 
-- float to signed/unsigned int checks NaN/out-of-range if Moonlift semantics trap;
+- float to signed/unsigned int checks NaN/out-of-range if Lalin semantics trap;
 - int extension/truncation uses explicit fixed-width casts;
 - bitcast uses `memcpy` or unions only under a target profile that permits it;
 - data pointer/code pointer casts are rejected unless semantically explicit and target-permitted.
@@ -672,13 +672,13 @@ A complete backend requires tests in these categories.
 
 ### 21.1 Exhaustiveness tests
 
-A schema coverage test enumerates every MoonTree `Expr`, `Stmt`, `Item`, `Func`, `Type`,
+A schema coverage test enumerates every LalinTree `Expr`, `Stmt`, `Item`, `Func`, `Type`,
 `Place`, and view variant and verifies that the C backend has a table entry classified as
 supported/unreachable/rejected.
 
 ### 21.2 Unit tests
 
-- type projection for every MoonType;
+- type projection for every LalinType;
 - helper semantics for every op/width/sign edge case;
 - place lowering and residence;
 - validator issue variants;
@@ -686,15 +686,15 @@ supported/unreachable/rejected.
 
 ### 21.3 Source smoke tests
 
-Source programs covering each language feature must pass `moon.emit_c` and C syntax checks.
+Source programs covering each language feature must pass `lalin.emit_c` and C syntax checks.
 
 ### 21.4 Semantic equivalence tests
 
 For executable subsets, each test runs both:
 
 ```text
-Moonlift -> LuaTrace bytecode
-Moonlift -> C -> cc -> executable/shared object
+Lalin -> LuaTrace bytecode
+Lalin -> C -> cc -> executable/shared object
 ```
 
 and compares results.
@@ -746,7 +746,7 @@ shape that can reach C projection must be classified in the enforced coverage ma
 
 1. `supported` — emitted to C and covered by gcc compile/run tests;
 2. `phase_unreachable` — impossible after earlier phases, proven by tests at the phase boundary;
-3. `language_rejected` — rejected by Moonlift itself/native parity before backend lowering.
+3. `language_rejected` — rejected by Lalin itself/native parity before backend lowering.
 
 There is no backend-level TODO status. If a feature is not emitted by C, it must either be
 removed from the language path before C projection or rejected by the same language rules that
@@ -769,7 +769,7 @@ The C backend phase-boundary tests enforce those claims.
 The acceptance condition is not only Lua unit tests. It is a source corpus that does:
 
 ```text
-Moonlift source -> moon.emit_c -> gcc/cc -> executable/shared object -> run/compare result
+Lalin source -> lalin.emit_c -> gcc/cc -> executable/shared object -> run/compare result
 ```
 
 for every supported language feature.
@@ -784,14 +784,14 @@ default C quality.
 The important correction is architectural:
 
 ```text
-resolved MoonTree
-  -> MoonCode normalized typed SSA/control layer
+resolved LalinTree
+  -> LalinCode normalized typed SSA/control layer
       -> code_to_c
       -> code_to_back
 ```
 
 The C backend must remain a side projection from the typed/resolved program layer, but it
-should not recursively rediscover SSA from nested `MoonTree.Expr` trees.  The bad TCC/no-O
+should not recursively rediscover SSA from nested `LalinTree.Expr` trees.  The bad TCC/no-O
 shape is a symptom of this missing middle layer:
 
 ```c
@@ -825,10 +825,10 @@ Completion claims must therefore be milestone-specific:
 
 | Milestone | Meaning | Status |
 |---|---|---|
-| C hosted subset | Moonlift source can emit C and run through TCC/gcc for covered features | working subset |
+| C hosted subset | Lalin source can emit C and run through TCC/gcc for covered features | working subset |
 | C native64 full coverage | every resolved supported language construct classified and tested through C | in progress |
-| MoonCode normalized layer | typed SSA/control ASDL validates defs/uses, places, calls, blocks, terms | implemented |
-| C-on-MoonCode | C lowering consumes normalized code instead of nested MoonTree | implemented |
+| LalinCode normalized layer | typed SSA/control ASDL validates defs/uses, places, calls, blocks, terms | implemented |
+| C-on-LalinCode | C lowering consumes normalized code instead of nested LalinTree | implemented |
 | C quality/perf readiness | TCC/no-O code has clean shape; gcc -O2 remains competitive | active |
 | target-aware C | pointer/index/layout/endian/freestanding profiles beyond hosted native64 | future |
 
@@ -836,25 +836,25 @@ Historical sections above remain useful as design contract and coverage rational
 current final gate is the full compile/run corpus plus target-model coverage, not the deleted
 recursive `tree_to_c` implementation.
 
-## 25. MoonSchema source projection
+## 25. LalinSchema source projection
 
-The schema source of truth is MoonSchema Lua data under:
+The schema source of truth is LalinSchema Lua data under:
 
 ```text
-lua/moonlift/schema/*.lua
+lua/lalin/schema/*.lua
 ```
 
 The runtime path is:
 
 ```text
-MoonSchema Lua module
-  -> MoonSchema module value
-  -> MoonAsdl.Schema projection value
+LalinSchema Lua module
+  -> LalinSchema module value
+  -> LalinAsdl.Schema projection value
   -> context_define_schema.define
   -> live runtime classes
 ```
 
-`MoonAsdl.Schema` is a projection value used by existing compiler/runtime class
+`LalinAsdl.Schema` is a projection value used by existing compiler/runtime class
 machinery. It is not the authored representation. There is no schema text parser
 or `.asdl` source path in the active compiler.
 
@@ -864,15 +864,15 @@ hosted Lua module.
 
 Current contract:
 
-1. every `lua/moonlift/schema/*.lua` loads as a MoonSchema module;
-2. `require("moonlift.schema_projection")(T)` defines all expected runtime modules;
-3. docs and source references point at MoonSchema Lua modules, not schema text files;
-4. `MoonAsdl` names remain internal projection vocabulary only.
+1. every `lua/lalin/schema/*.lua` loads as a LalinSchema module;
+2. `require("lalin.schema_projection")(T)` defines all expected runtime modules;
+3. docs and source references point at LalinSchema Lua modules, not schema text files;
+4. `LalinAsdl` names remain internal projection vocabulary only.
 
-## 26. MoonCode normalized layer
+## 26. LalinCode normalized layer
 
-`MoonCode` is the backend-neutral ASDL layer between resolved `MoonTree` and concrete
-backend projections.  It is neither `MoonBack` nor `MoonC.CBackend*`.  Its purpose is to
+`LalinCode` is the backend-neutral ASDL layer between resolved `LalinTree` and concrete
+backend projections.  It is neither `LalinBack` nor `LalinC.CBackend*`.  Its purpose is to
 make value dependencies, control dependencies, storage residence, places, memory effects,
 ABI signatures, and variant/tagged-union operations explicit once.
 
@@ -896,9 +896,9 @@ Lua DSL value
 The final architecture has one normalized native lowering route. Direct Tree-to-Back lowering
 has been deleted so native and C projection cannot drift behind separate Tree walkers.
 
-### 26.2 What MoonCode must preserve
+### 26.2 What LalinCode must preserve
 
-MoonCode must preserve all facts needed by C, LuaTrace, and native stencil-bank backends:
+LalinCode must preserve all facts needed by C, LuaTrace, and native stencil-bank backends:
 
 - typed values with stable `CodeValueId`s;
 - block params as the only phi form;
@@ -913,10 +913,10 @@ MoonCode must preserve all facts needed by C, LuaTrace, and native stencil-bank 
 - variant tag/payload extraction and variant-switch branch facts;
 - source origins for diagnostics and debugging.
 
-### 26.3 Why C quality depends on MoonCode
+### 26.3 Why C quality depends on LalinCode
 
 C wants local variables and gotos, not a pile of invented recursive-expression temporaries.
-MoonCode gives C lowering enough information to choose direct shapes safely:
+LalinCode gives C lowering enough information to choose direct shapes safely:
 
 - branch directly on compare values when the compare is single-use by a terminator;
 - assign jump args directly when no parallel-assignment hazard exists;
@@ -924,7 +924,7 @@ MoonCode gives C lowering enough information to choose direct shapes safely:
 - coalesce single-use arithmetic values into UB-free inline expressions;
 - keep loop-carried block params as ordinary C locals for reducible self-loops;
 - avoid bool temps for condition-only comparisons;
-- still preserve exact Moonlift semantics for overflow, div/rem, shifts, traps, and memory.
+- still preserve exact Lalin semantics for overflow, div/rem, shifts, traps, and memory.
 
 This is not an optional optimized profile.  It is the default lowering from the right IR.
 
@@ -938,17 +938,17 @@ The structured edit plan for this work is stored as:
 
 Summary order:
 
-1. freeze MoonSchema Lua files as schema source of truth and harden loader/embedding;
-2. harden MoonSchema diagnostics and projection validation;
-3. validate/revise `MoonCode` ASDL before depending on it;
+1. freeze LalinSchema Lua files as schema source of truth and harden loader/embedding;
+2. harden LalinSchema diagnostics and projection validation;
+3. validate/revise `LalinCode` ASDL before depending on it;
 4. implement `code_validate`;
 5. implement `tree_to_code`;
-6. add MoonCode semantic/validation tests;
+6. add LalinCode semantic/validation tests;
 7. implement `code_to_c` and migrate public C APIs to it;
 8. make default C output naturally optimizable: direct branches, minimal transfers,
    single-use expression coalescing, and clean loop-shaped gotos;
-9. implement LuaTrace/native-bank parity checks around MoonCode boundaries;
-10. reclassify C coverage around MoonCode boundaries;
+9. implement LuaTrace/native-bank parity checks around LalinCode boundaries;
+10. reclassify C coverage around LalinCode boundaries;
 11. expand TCC/libtcc/gcc compile-run and LuaTrace equivalence corpus;
 12. update this document only when gates actually pass.
 
@@ -960,13 +960,13 @@ luajit tests/test_schema_compile_pipeline.lua
 luajit tests/test_tree_to_code.lua
 luajit tests/test_code_validate.lua
 luajit tests/test_code_to_c.lua
-MOONLIFT_C_BACKEND_FINAL=1 luajit tests/test_c_backend_coverage_matrix.lua
+LALIN_C_BACKEND_FINAL=1 luajit tests/test_c_backend_coverage_matrix.lua
 luajit tests/test_c_gcc_feature_corpus.lua
-MOONLIFT_C_USE_LIBTCC=1 luajit tests/test_c_gcc_feature_corpus.lua
+LALIN_C_USE_LIBTCC=1 luajit tests/test_c_gcc_feature_corpus.lua
 luajit tests/test_c_full_semantic_equivalence.lua
 luajit benchmarks/bench_luajit_materializations.lua quick
-MOONLIFT_BENCH_C_RUNNER=gcc MOONLIFT_C_CC=gcc \
-  MOONLIFT_BENCH_CFLAGS='-std=c99 -O2 -fPIC -shared' \
+LALIN_BENCH_C_RUNNER=gcc LALIN_C_CC=gcc \
+  LALIN_BENCH_CFLAGS='-std=c99 -O2 -fPIC -shared' \
   luajit benchmarks/bench_luajit_materializations.lua quick
 ```
 
@@ -977,7 +977,7 @@ without a milestone means all final full-support gates above have passed.
 ## 28. Retirement map: removed direct Tree-to-C modules
 
 The refactor must make removal explicit.  A lot of current files exist because the first C
-backend tried to lower directly from nested `MoonTree` into `MoonC.CBackend*`.  That was a
+backend tried to lower directly from nested `LalinTree` into `LalinC.CBackend*`.  That was a
 useful bootstrap, but it is not the final architecture.
 
 ### 28.1 Public API that stays
@@ -986,13 +986,13 @@ These are user-facing or stable integration points and should survive the refact
 
 | API/file | Fate |
 |---|---|
-| `moon.emit_c`, `moon.compile_c` | stay; internally call the new MoonCode path |
-| `BundleValue:emit_c`, `BundleValue:compile_c` | stay; internally call the new MoonCode path |
-| `lua/moonlift/c_tcc.lua` | stay; runner/toolchain integration, independent of lowering IR |
-| `lua/moonlift/c_emit.lua` | stay if `MoonC.CBackend*` remains the restricted C dialect printer |
-| `lua/moonlift/c_validate.lua` | stay, but validate output from `code_to_c`; may shrink if checks move to `code_validate` |
-| `lua/moonlift/c_helpers.lua` | stay; semantic helper library for UB-free C operations |
-| `lua/moonlift/schema/c.lua` | canonical `MoonC` / `CBackend` ASDL consumed by C emission |
+| `lalin.emit_c`, `lalin.compile_c` | stay; internally call the new LalinCode path |
+| `BundleValue:emit_c`, `BundleValue:compile_c` | stay; internally call the new LalinCode path |
+| `lua/lalin/c_tcc.lua` | stay; runner/toolchain integration, independent of lowering IR |
+| `lua/lalin/c_emit.lua` | stay if `LalinC.CBackend*` remains the restricted C dialect printer |
+| `lua/lalin/c_validate.lua` | stay, but validate output from `code_to_c`; may shrink if checks move to `code_validate` |
+| `lua/lalin/c_helpers.lua` | stay; semantic helper library for UB-free C operations |
+| `lua/lalin/schema/c.lua` | canonical `LalinC` / `CBackend` ASDL consumed by C emission |
 | `tests/test_c_gcc_harness.lua` | stay; compile/run harness is backend-path neutral |
 | `benchmarks/bench_luajit_materializations.lua` | stay; compares active materializations |
 
@@ -1002,22 +1002,22 @@ These old-approach implementation details have been removed with no compatibilit
 
 | File | Why it was removed | Replacement / current owner |
 |---|---|---|
-| `lua/moonlift/tree_to_c.lua` | recursively lowered nested MoonTree, invented temps, and mixed normalization/control/place/type concerns | `tree_to_code.lua` normalizes; `code_to_c.lua` projects MoonCode to CBackend |
-| `lua/moonlift/tree_control_to_c.lua` | C-specific source-region lowering duplicated logic that belongs in MoonCode block params/terminators | control lowering in `tree_to_code.lua`; C block/term emission in `code_to_c.lua` |
-| `lua/moonlift/type_to_c.lua` | projected MoonType directly to C during recursive lowering | `code_type.lua` maps MoonType -> CodeType and CodeType -> CBackend type spelling |
-| `lua/moonlift/c_places.lua` | lowered MoonTree places directly to C places | CodePlace construction in `tree_to_code.lua`; place emission in `code_to_c.lua` |
-| `lua/moonlift/c_residence.lua` | computed C residence from MoonTree bindings in the C lowerer | CodeLocal/CodeResidence facts from `tree_to_code.lua`, consumed by `code_to_c.lua` |
-| `lua/moonlift/c_cfg.lua` | ad-hoc direct-C CFG builder | MoonCode CodeBlock/CodeTerm plus `code_to_c` block/term lowering |
-| `lua/moonlift/c_data.lua` | lowered MoonTree static/data directly to C globals | CodeGlobal/CodeData lowering in `tree_to_code.lua` and C global/data projection in `code_to_c.lua` |
-| `lua/moonlift/c_layout.lua` | projected layout facts directly from the old Tree-to-C path | layout-backed CBackend declarations are synthesized from MoonCode/CodeType/layout facts in `code_to_c.lua` |
+| `lua/lalin/tree_to_c.lua` | recursively lowered nested LalinTree, invented temps, and mixed normalization/control/place/type concerns | `tree_to_code.lua` normalizes; `code_to_c.lua` projects LalinCode to CBackend |
+| `lua/lalin/tree_control_to_c.lua` | C-specific source-region lowering duplicated logic that belongs in LalinCode block params/terminators | control lowering in `tree_to_code.lua`; C block/term emission in `code_to_c.lua` |
+| `lua/lalin/type_to_c.lua` | projected LalinType directly to C during recursive lowering | `code_type.lua` maps LalinType -> CodeType and CodeType -> CBackend type spelling |
+| `lua/lalin/c_places.lua` | lowered LalinTree places directly to C places | CodePlace construction in `tree_to_code.lua`; place emission in `code_to_c.lua` |
+| `lua/lalin/c_residence.lua` | computed C residence from LalinTree bindings in the C lowerer | CodeLocal/CodeResidence facts from `tree_to_code.lua`, consumed by `code_to_c.lua` |
+| `lua/lalin/c_cfg.lua` | ad-hoc direct-C CFG builder | LalinCode CodeBlock/CodeTerm plus `code_to_c` block/term lowering |
+| `lua/lalin/c_data.lua` | lowered LalinTree static/data directly to C globals | CodeGlobal/CodeData lowering in `tree_to_code.lua` and C global/data projection in `code_to_c.lua` |
+| `lua/lalin/c_layout.lua` | projected layout facts directly from the old Tree-to-C path | layout-backed CBackend declarations are synthesized from LalinCode/CodeType/layout facts in `code_to_c.lua` |
 
-Deletion happened after the public native and C APIs were hard-switched to MoonCode and the
+Deletion happened after the public native and C APIs were hard-switched to LalinCode and the
 focused CodeType/code_to_c/public API tests were rerouted.
 
 ### 28.3 Tests renamed, replaced, or rerouted
 
 Old behavior specs have been kept where useful, but test names/imports now refer to public APIs
-or MoonCode/code-to-C layers rather than the retired direct Tree-to-C modules.
+or LalinCode/code-to-C layers rather than the retired direct Tree-to-C modules.
 
 | Historical tests/imports | Current fate |
 |---|---|
@@ -1036,9 +1036,9 @@ These call sites have been changed deliberately:
 
 | File | Old dependency | Current dependency |
 |---|---|---|
-| `lua/moonlift/frontend_pipeline.lua` | `tree_to_c`, `type_to_c` | `tree_to_code`, `code_validate`, `code_to_c`, `c_validate` |
-| `lua/moonlift/init.lua` | exported `type_to_c`, `tree_to_c` | public C APIs stay stable; MoonCode diagnostics are exposed where useful |
-| `lua/moonlift/host_module_values.lua` | bundle C emission assumed the old CBackend unit path | bundle methods call the new pipeline but keep method names |
+| `lua/lalin/frontend_pipeline.lua` | `tree_to_c`, `type_to_c` | `tree_to_code`, `code_validate`, `code_to_c`, `c_validate` |
+| `lua/lalin/init.lua` | exported `type_to_c`, `tree_to_c` | public C APIs stay stable; LalinCode diagnostics are exposed where useful |
+| `lua/lalin/host_module_values.lua` | bundle C emission assumed the old CBackend unit path | bundle methods call the new pipeline but keep method names |
 | examples under `examples/c_backend/` | user-facing scripts should continue unchanged | only internals changed |
 
 ### 28.5 Deletion evidence / remaining grep gate
@@ -1047,8 +1047,8 @@ The deletion gate has been crossed for section 30.2 modules:
 
 1. production code no longer requires them;
 2. tests were rerouted to public APIs, CodeType, `tree_to_code`, or `code_to_c`;
-3. public `moon.emit_c`, `moon.compile_c`, `BundleValue:emit_c`, and `BundleValue:compile_c`
-   pass through the MoonCode C path;
+3. public `lalin.emit_c`, `lalin.compile_c`, `BundleValue:emit_c`, and `BundleValue:compile_c`
+   pass through the LalinCode C path;
 4. the C feature corpus and renamed code-to-C smoke tests run on the new path;
 5. benchmarks report `tree_to_code`, `code_validate`, `code_to_c`, and `code_to_back` phase names;
 6. this section records the modules as removed, not migration scaffolding.
@@ -1056,13 +1056,13 @@ The deletion gate has been crossed for section 30.2 modules:
 The remaining final grep gate is documentation hygiene: references to the retired names should
 only appear as historical notes saying they were deleted/retired, not as active API guidance.
 
-## 29. Kernel tower checkpoint — MoonCode facts to semantic lowering
+## 29. Kernel tower checkpoint — LalinCode facts to semantic lowering
 
-The kernel tower is now a semantic side path over `MoonCode`, not a source-tree replacement
+The kernel tower is now a semantic side path over `LalinCode`, not a source-tree replacement
 mechanism.  The intended flow is:
 
 ```text
-MoonCode
+LalinCode
   -> CodeFlowFacts   -- CFG edges, counted-loop domains, inductions, exits
   -> CodeMemFacts    -- memory bases, access lanes, alignment/bounds/trap facts
   -> CodeKernelPlan  -- semantic KernelBody facts and safety/schedule choices
@@ -1073,7 +1073,7 @@ MoonCode
 
 ### 29.1 KernelBodyCounted is the semantic core
 
-`MoonKernel` should describe executable meaning, not backend recipes.  The current core is
+`LalinKernel` should describe executable meaning, not backend recipes.  The current core is
 `KernelBodyCounted`:
 
 ```text
@@ -1178,7 +1178,7 @@ The tree-shaped vector stack was deleted, not quarantined:
 - `vec_to_back.lua`
 - `vec_inspect.lua`
 
-Public native lowering now routes through the MoonCode fact tower. Vector code generation that
+Public native lowering now routes through the LalinCode fact tower. Vector code generation that
 remains is Back-level vector command support plus `KernelBodyCounted` scheduling in
 `lower_to_back`. Any future vector-specific semantics must be expressed as Flow/Mem/Kernel
 facts and schedules, not as a competing source-tree recognizer.
@@ -1189,11 +1189,11 @@ This refactor is considered complete only when active code has no loadable retir
 backend path:
 
 - no direct Tree-to-Back module;
-- no MoonVec schema or tree-vector modules;
+- no LalinVec schema or tree-vector modules;
 - no `replacement_funcs` body-substitution API;
 - no tests or benchmarks requiring the deleted modules;
 - documentation describes the deleted modules only as removed history, not as available APIs.
 
-Current inspection result: `lua/moonlift`, `tests`, and `benchmarks` contain no references to
-`tree_to_back`, `MoonVec`, `vec_loop_facts`, `vec_loop_decide`, `vec_kernel_plan`,
+Current inspection result: `lua/lalin`, `tests`, and `benchmarks` contain no references to
+`tree_to_back`, `LalinVec`, `vec_loop_facts`, `vec_loop_decide`, `vec_kernel_plan`,
 `vec_kernel_safety`, `vec_kernel_to_back`, `vec_to_back`, or `vec_inspect`.

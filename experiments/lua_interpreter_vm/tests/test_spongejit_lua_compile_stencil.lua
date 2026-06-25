@@ -1,7 +1,7 @@
 #!/usr/bin/env luajit
 package.path = "./experiments/lua_interpreter_vm/spongejit/?.lua;./experiments/lua_interpreter_vm/spongejit/?/init.lua;./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local C = require("lua_compile")
 local T = C.schema.get()
 local S = T.Stencil
@@ -19,10 +19,10 @@ local function empty_contract()
 end
 
 local contract = empty_contract()
-local target = Plan.default_target_abi({ triple = "x86_64-unknown-linux-gnu", calling_convention = "moonlift", pointer_width = "64", endian = "little" })
+local target = Plan.default_target_abi({ triple = "x86_64-unknown-linux-gnu", calling_convention = "lalin", pointer_width = "64", endian = "little" })
 local features = Plan.default_feature_set({ arch = "x64", os = "linux", cpu_features = "baseline", codegen_version = "test-v1" })
 local placement = Plan.empty_placement()
-local variant = S.VariantKey(S.KernelStencil, T.MoonCFG.InlineSpan, contract, placement, target, features)
+local variant = S.VariantKey(S.KernelStencil, T.LalinCFG.InlineSpan, contract, placement, target, features)
 local entry = S.Symbol(S.Name("kernel_entry"), S.EntrySymbol, S.Local, 0)
 local code = S.CodeBlobRef(S.Name("kernel_blob"), 16, "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 local hole = S.PatchHole(
@@ -94,7 +94,7 @@ local bad_reloc = S.Reloc(S.Name("reloc_missing"), S.PcRel, 2, missing, 0)
 local reloc_template = S.StencilTemplate(S.Name("kernel_template"), S.KernelStencil, variant, code, {}, { bad_reloc }, { entry }, S.MaterializationPlan({}, {}, S.EntryPoint(entry, target)))
 expect_invalid("unresolved relocation", reloc_template, Validate.validate_template, "resolve")
 
-local runtime_variant = S.VariantKey(S.RuntimeBoundaryStencil, T.MoonCFG.InlineSpan, contract, placement, target, features)
+local runtime_variant = S.VariantKey(S.RuntimeBoundaryStencil, T.LalinCFG.InlineSpan, contract, placement, target, features)
 local runtime_template = S.StencilTemplate(S.Name("runtime_boundary"), S.RuntimeBoundaryStencil, runtime_variant, code, {}, {}, { entry }, S.MaterializationPlan({}, {}, S.EntryPoint(entry, target)))
 expect_invalid("runtime boundary", runtime_template, Validate.validate_template, "RuntimeBoundaryStencil")
 
@@ -114,9 +114,9 @@ end
 local bank_bytes_a = string.char(1, 2, 3, 4, 5, 6, 7, 8)
 local bank_bytes_b = string.char(9, 10, 11, 12, 13, 14, 15, 16)
 local features_b = Plan.default_feature_set({ arch = "x64", os = "linux", cpu_features = "baseline", codegen_version = "test-v2" })
-local variant_b = S.VariantKey(S.KernelStencil, T.MoonCFG.InlineSpan, contract, placement, target, features_b)
+local variant_b = S.VariantKey(S.KernelStencil, T.LalinCFG.InlineSpan, contract, placement, target, features_b)
 local features_c = Plan.default_feature_set({ arch = "x64", os = "linux", cpu_features = "baseline", codegen_version = "test-v3" })
-local variant_c = S.VariantKey(S.KernelStencil, T.MoonCFG.InlineSpan, contract, placement, target, features_c)
+local variant_c = S.VariantKey(S.KernelStencil, T.LalinCFG.InlineSpan, contract, placement, target, features_c)
 local bank_entry_a = S.Symbol(S.Name("bank_entry_a"), S.EntrySymbol, S.Local, 0)
 local bank_entry_b = S.Symbol(S.Name("bank_entry_b"), S.EntrySymbol, S.Local, 0)
 local bank_template_a = S.StencilTemplate(

@@ -1,6 +1,6 @@
 # SpongeJIT Measurement Notes
 
-SpongeJIT measurements should target the current ASDL/MoonCFG/stencil pipeline.
+SpongeJIT measurements should target the current ASDL/LalinCFG/stencil pipeline.
 
 Useful commands:
 
@@ -16,7 +16,7 @@ Current useful metrics:
 ```text
 source windows examined
 fact/evidence combinations attempted
-LuaExec/MoonCFG products generated
+LuaExec/LalinCFG products generated
 Stencil templates generated
 variant-key and bank-index sizes
 patch-hole / reloc counts
@@ -26,4 +26,4 @@ corpus full-operand window coverage
 ```
 
 Benchmarks should be named around explicit semantic CFGs, stencil bank
-selection, Moonlift copy/patch materialization, and native fast-path execution.
+selection, Lalin copy/patch materialization, and native fast-path execution.

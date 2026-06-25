@@ -1,9 +1,9 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 local llisle = require("llisle")
 
-local env = moon.family.env { scope = "env", base = {} }
+local env = lalin.family.env { scope = "env", base = {} }
 llisle.use { scope = "env", target = env, base = env, global = false }
 local chunk = assert(loadstring([[
 local scalar_rules = llisle.rules {
@@ -35,6 +35,6 @@ local zone = chunk()
 assert(#zone.items == 3, "llisle rule fragments splice into zones")
 assert(getmetatable(zone.items[2]) == llisle.RuleSpec, "first spliced item is a rule")
 assert(getmetatable(zone.items[3]) == llisle.RuleSpec, "second spliced item is a rule")
-assert(not moon.family.diagnostics(zone):has_errors(), "spliced llisle rules validate")
+assert(not lalin.family.diagnostics(zone):has_errors(), "spliced llisle rules validate")
 
 io.write("llisle fragments ok\n")

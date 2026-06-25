@@ -1,15 +1,15 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
 
 local T = pvm.context()
 A(T)
 
-local Core = T.MoonCore
-local Type = T.MoonType
-local Bind = T.MoonBind
-local Tree = T.MoonTree
+local Core = T.LalinCore
+local Type = T.LalinType
+local Bind = T.LalinBind
+local Tree = T.LalinTree
 
 local index_ty = Type.TScalar(Core.ScalarIndex)
 local ptr_index_ty = Type.TPtr(index_ty)
@@ -43,4 +43,4 @@ assert(xs_expr.ref.binding == xs_binding)
 assert(i_expr.ref.binding == i_binding)
 assert(control_expr.region.entry.label == Tree.BlockLabel("loop"))
 
-print("moonlift schema projection define ok")
+print("lalin schema projection define ok")

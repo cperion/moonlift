@@ -13,7 +13,7 @@ handled_frame`.
 Audience: a code agent that may be tempted to stop at declarations, mocks,
 test-only paths, or Lua-side substitutes.  Do not do that.
 
-Historical goal: implement the MLUI VM as a real Moonlift kernel with a portable
+Historical goal: implement the MLUI VM as a real Lalin kernel with a portable
 `UiProgram` bytecode frontend, explicit stores, region bodies, C ABI seals, and
 no hidden Lua-only runtime path.
 
@@ -100,12 +100,12 @@ return {
 }
 ```
 
-## Moonlift Syntax Hints
+## Lalin Syntax Hints
 
 Implementation files import the header:
 
 ```lua
-local H = moon.require("mlui_types") -- or "mlui_header" after rename
+local H = lalin.require("mlui_types") -- or "mlui_header" after rename
 local T = H.T
 local R = H.R
 local F = H.F
@@ -189,8 +189,8 @@ Rules that prevent common lazy-agent mistakes:
   the payload exactly as declared.
 - No hidden global caches; caches are products in `UiKernel` or named stores.
 - Top-level `.mlua` is Lua. Write `local MASK = 0x00FFFFFF`, not
-  `local MASK: u32 = ...`. Type annotations belong inside Moonlift islands.
-- Moonlift inequality is `~=`, not `!=`.
+  `local MASK: u32 = ...`. Type annotations belong inside Lalin islands.
+- Lalin inequality is `~=`, not `!=`.
 - View construction is `view(ptr, len)` or `view(ptr, len, stride)`. Do not
   write `view(u8, ptr, len, stride)`.
 - Nested places are legal and should be used directly:
@@ -239,9 +239,9 @@ luajit tests/run.lua c_backend
 C backend usage patterns:
 
 ```lua
-local moon = require("moonlift")
-local c_src = moon.emit_c_file("experiments/mlui/mlui_abi.mlua", "out.c", "mlui")
-local compiled = moon.compile_c_file("experiments/mlui/mlui_abi.mlua", {
+local lalin = require("lalin")
+local c_src = lalin.emit_c_file("experiments/mlui/mlui_abi.mlua", "out.c", "mlui")
+local compiled = lalin.compile_c_file("experiments/mlui/mlui_abi.mlua", {
     name = "mlui",
     runner = "shared",
     cc = "gcc",
@@ -579,7 +579,7 @@ Implementation law:
 - Never make allocation failure a Lua exception.
 - Use counted loops:
 
-```moonlift
+```lalin
 block loop(i: index = 0)
     if i >= n then jump copied end
     dst[i] = src[i]
@@ -1010,7 +1010,7 @@ Keep `mlui_c_api.h` synchronized with `mlui_types.mlua` and
 Implement `mlui_build_c.lua` later:
 
 - load MLUI module bundle;
-- emit C backend source with executed-module `:emit_c` or `moon.emit_c_file`;
+- emit C backend source with executed-module `:emit_c` or `lalin.emit_c_file`;
 - prepend/emit `mlui_c_api.h` declarations;
 - produce `mlui_amalgam.c`;
 - compile smoke:
@@ -1098,7 +1098,7 @@ These are not acceptable:
 - treating `UiProgramOp.kind` as a random switch outside visitor regions;
 - skipping ownership by storing raw pointers in refs;
 - making text input durable without copying;
-- making the C API depend on LuaJIT, FFI, or Moonlift host objects;
+- making the C API depend on LuaJIT, FFI, or Lalin host objects;
 - adding a generic `memo func`;
 - hiding cache invalidation in side tables;
 - adding deep folders to look organized.
@@ -1108,9 +1108,9 @@ These are not acceptable:
 The implementation is done only when:
 
 ```text
-1. every R.* region has a Moonlift body;
-2. every F.* ABI function has a Moonlift body;
-3. the C header and Moonlift ABI declarations agree;
+1. every R.* region has a Lalin body;
+2. every F.* ABI function has a Lalin body;
+3. the C header and Lalin ABI declarations agree;
 4. a C frontend can construct a UiProgram without Lua;
 5. the VM validates, loads, frames, emits view ops, reports, and events;
 6. gcc -O3 can compile the generated single-file C artifact;

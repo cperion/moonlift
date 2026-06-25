@@ -3,12 +3,12 @@
 
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
 -- Region: takes frames+stack directly, not through L.frames/L.stack
-local vm_run = moon.region [[
+local vm_run = lalin.region [[
 region vm_run(stack: ptr(Value), code: ptr(Instr), consts: ptr(Value);
               ok(nres: i32) | err(code: i32))
 entry start()
@@ -30,7 +30,7 @@ end
 ]]
 
 -- Callable func that passes thread fields to the region
-local run_fn = moon.func { vm_run = vm_run } [[
+local run_fn = lalin.func { vm_run = vm_run } [[
 run(stack: ptr(Value), code: ptr(Instr), consts: ptr(Value)): i32
     return region: i32
     entry start()

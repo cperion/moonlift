@@ -1,17 +1,17 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A2 = require("moonlift.schema_projection")
-local LinkTarget = require("moonlift.link_target_model")
-local LinkValidate = require("moonlift.link_plan_validate")
-local LinkCommand = require("moonlift.link_command_plan")
+local pvm = require("lalin.pvm")
+local A2 = require("lalin.schema_projection")
+local LinkTarget = require("lalin.link_target_model")
+local LinkValidate = require("lalin.link_plan_validate")
+local LinkCommand = require("lalin.link_command_plan")
 
 local T = pvm.context()
 A2(T)
 local LT = LinkTarget(T)
 local LV = LinkValidate(T)
 local LC = LinkCommand(T)
-local L = T.MoonLink
+local L = T.LalinLink
 
 local obj = os.tmpname() .. ".o"
 local f = assert(io.open(obj, "wb")); f:write("x"); f:close()
@@ -46,4 +46,4 @@ assert(saw_obj)
 assert(saw_out)
 assert(saw_lib)
 os.remove(obj)
-print("moonlift link_plan ok")
+print("lalin link_plan ok")

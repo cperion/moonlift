@@ -1,5 +1,5 @@
 -- Machine-readable VM contract summary.
--- Plain Lua only: no Moonlift fragments and no VM module imports.
+-- Plain Lua only: no Lalin fragments and no VM module imports.
 
 return {
     vm_abi_version = 2,

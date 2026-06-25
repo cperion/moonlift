@@ -15,7 +15,7 @@ local dap_handler = nil
 local args = {...}
 for i = 1, #args do
     if args[i] == "--debug" then
-        local DapServer = require("moonlift.dap_server")
+        local DapServer = require("lalin.dap_server")
         -- DAP handler is created lazily; the Back schema and cmds
         -- are populated when a debug session is launched.
         dap_handler = DapServer.new({})
@@ -23,6 +23,6 @@ for i = 1, #args do
     end
 end
 
-require("moonlift.rpc_stdio_loop").run({
+require("lalin.rpc_stdio_loop").run({
     dap_handler = dap_handler,
 })

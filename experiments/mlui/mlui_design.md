@@ -1,4 +1,4 @@
-# Moonlift UI Kernel Design
+# Lalin UI Kernel Design
 
 Status: superseded by
 [`experiments/mlui-llpvm/mlui_llpvm_stack_blueprint.md`](../mlui-llpvm/mlui_llpvm_stack_blueprint.md).
@@ -10,11 +10,11 @@ measured_ui -> laid_out_ui -> renderable_ui -> reported_frame ->
 handled_frame`.
 
 Historical scope: experiment design for translating `lua/ui` into a
-Moonlift-native UI kernel while preserving the existing Lua authoring taste.
+Lalin-native UI kernel while preserving the existing Lua authoring taste.
 
 This is not a replacement for `lua/ui`.  The current Lua UI library is the seed:
 it is already compiler-shaped, ASDL-first, backend-independent, and tested.  The
-Moonlift version should make the same phase boundaries explicit as typed
+Lalin version should make the same phase boundaries explicit as typed
 products and protocols so the hot kernel can become a native artifact.
 
 The native translation must not flatten the authored model into a poor widget
@@ -36,7 +36,7 @@ The mechanical implementation order is specified in
 
 ```text
 Lua authors UI.
-Moonlift owns the UI kernel protocols.
+Lalin owns the UI kernel protocols.
 Backends draw typed op streams.
 Applications own domain state.
 ```
@@ -112,7 +112,7 @@ invalidation    explicit epoch/generation boundary
 
 So the reusable units are imported node products, resolved styles, text layouts,
 measurements, solved placements, view op buffers, reports, and event reductions.
-They are not arbitrary Lua or Moonlift function calls with invisible side state.
+They are not arbitrary Lua or Lalin function calls with invisible side state.
 
 State machines are therefore optional protocol nouns, not the base rendering
 model.  Use them when the UI object has real named phases: text editing, IME,
@@ -123,7 +123,7 @@ protocols.  Do not require every widget or visual node to become an actor.
 
 ```text
 Lua owns authoring convenience and metaprogramming.
-Moonlift owns durable UI stores, ids, solved layout, view op buffers, reports, and interaction state.
+Lalin owns durable UI stores, ids, solved layout, view op buffers, reports, and interaction state.
 Backends own platform resources: windows, renderers, fonts, textures, clipboard, IME.
 Applications own app/domain state.
 ```
@@ -171,7 +171,7 @@ application
 ```
 
 The bridge is intentionally small.  The complete Lua API should not be compiled
-into Moonlift.  The compiled kernel should receive validated typed buffers and
+into Lalin.  The compiled kernel should receive validated typed buffers and
 produce typed output buffers.
 
 ## UI VM Model
@@ -257,9 +257,9 @@ validated opcode/data buffer.
 ## ASDL Coverage
 
 `lua/ui/asdl.lua` remains the checklist.  Every module has a destination in the
-Moonlift translation:
+Lalin translation:
 
-| Lua ASDL module | Moonlift destination |
+| Lua ASDL module | Lalin destination |
 | --- | --- |
 | `Core` | `UiId`, handle identity, validation protocols |
 | `Content` | `UiContent`, `UiContentStore`, retain/release protocols |
@@ -376,7 +376,7 @@ This avoids structural invalidation for paint-only or value-only changes:
 
 The kernel protocols are named after the existing Lua phases:
 
-```moonlift
+```lalin
 ui_import_auth
 ui_lower_scene
 ui_measure_node
@@ -572,7 +572,7 @@ They do not own:
 - app state;
 - layout policy.
 
-Those stay in the Moonlift UI kernel.
+Those stay in the Lalin UI kernel.
 
 ## Lua Authoring Contract
 
@@ -778,7 +778,7 @@ Dynamic paint/value data must not masquerade as structure.
 Backends consume ops and produce raw input; they do not own UI semantics.
 Public ABI status codes exist only at sealed C boundaries.
 The single-file C artifact exposes stable row buffers and an opaque kernel, not
-Moonlift internals or Lua authoring objects.
+Lalin internals or Lua authoring objects.
 UiProgram is the portable frontend contract; Lua, C, and generated tools may all
 emit it.
 ```

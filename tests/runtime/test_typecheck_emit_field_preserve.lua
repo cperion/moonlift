@@ -1,6 +1,6 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local function single(value) return { value } end
 local function as_list(values) return values end
 local function only(values)
@@ -36,16 +36,16 @@ local function flat_map(fn, values, n)
     for i = 1, n do append_all(out, fn(values[i])) end
     return out
 end
-local A = require("moonlift.schema_projection")
+local A = require("lalin.schema_projection")
 
 local T = pvm.context()
 A(T)
-local C = T.MoonCore
-local Ty = T.MoonType
-local B = T.MoonBind
-local Tr = T.MoonTree
-local Sem = T.MoonSem
-local TC = require("moonlift.tree_typecheck")(T)
+local C = T.LalinCore
+local Ty = T.LalinType
+local B = T.LalinBind
+local Tr = T.LalinTree
+local Sem = T.LalinSem
+local TC = require("lalin.tree_typecheck")(T)
 
 local function scalar(s) return Ty.TScalar(s) end
 
@@ -91,4 +91,4 @@ local layout_env = Sem.LayoutEnv({ Sem.LayoutNamed("", "Instr", { Sem.FieldLayou
 local module_result = TC.check_module(module, { layout_env = layout_env })
 assert(#module_result.issues == 0, "external layout_env should resolve source ExprDot during typecheck")
 
-print("moonlift typecheck emit field preserve ok")
+print("lalin typecheck emit field preserve ok")

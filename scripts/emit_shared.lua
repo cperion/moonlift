@@ -1,14 +1,14 @@
 #!/usr/bin/env luajit
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A2 = require("moonlift.schema_projection")
-local Pipeline = require("moonlift.frontend_pipeline")
-local Object = require("moonlift.back_object")
-local LinkTarget = require("moonlift.link_target_model")
-local LinkValidate = require("moonlift.link_plan_validate")
-local LinkCommand = require("moonlift.link_command_plan")
-local LinkExecute = require("moonlift.link_execute")
+local pvm = require("lalin.pvm")
+local A2 = require("lalin.schema_projection")
+local Pipeline = require("lalin.frontend_pipeline")
+local Object = require("lalin.back_object")
+local LinkTarget = require("lalin.link_target_model")
+local LinkValidate = require("lalin.link_plan_validate")
+local LinkCommand = require("lalin.link_command_plan")
+local LinkExecute = require("lalin.link_execute")
 
 local function usage()
     io.stderr:write("usage: luajit emit_shared.lua input.mlua -o liboutput.so [--module-name name] [--keep-object path]\n")
@@ -42,7 +42,7 @@ local LT = LinkTarget(T)
 local LV = LinkValidate(T)
 local LC = LinkCommand(T)
 local LE = LinkExecute(T)
-local Link = T.MoonLink
+local Link = T.LalinLink
 
 local function issue_list(issues)
     for j = 1, #issues do io.stderr:write(tostring(issues[j].message or issues[j]), "\n") end

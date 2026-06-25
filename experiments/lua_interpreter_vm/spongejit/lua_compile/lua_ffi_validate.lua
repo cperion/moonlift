@@ -4,7 +4,7 @@
 -- declarations/layouts. They do not parse C, call LuaJIT FFI, dlopen/dlsym,
 -- lower C ABIs, or implement C calls.
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local B = require("lua_compile.builders")
 local T = B.T
 local FFI = T.LuaFFI

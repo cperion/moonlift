@@ -1,14 +1,14 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local PhaseModel = require("moonlift.phase_model")
-local PhaseDsl = require("moonlift.phase_dsl")
-local Validate = require("moonlift.phase_validate")
+local pvm = require("lalin.pvm")
+local PhaseModel = require("lalin.phase_model")
+local PhaseDsl = require("lalin.phase_dsl")
+local Validate = require("lalin.phase_validate")
 
 local T = pvm.context()
 PhaseModel(T)
 PhaseDsl(T)
-local P = T.MoonPhase
+local P = T.LalinPhase
 
 local function package_from_source(src)
     return assert(PhaseDsl.loadstring(src, "phase_validate_test.lua"))()
@@ -16,17 +16,17 @@ end
 
 local function sample_package()
     return package_from_source([[
-return package "moonlift.compiler" {
-    world. tree [MoonTree.Module],
-    world. checked [MoonTree.TypecheckResult],
-    world. diag [MoonDiag.Report],
+return package "lalin.compiler" {
+    world. tree [LalinTree.Module],
+    world. checked [LalinTree.TypecheckResult],
+    world. diag [LalinDiag.Report],
 
-    machine. moon_typecheck {
+    machine. lalin_typecheck {
         from. tree,
         to. checked,
         diagnostics. diag,
         abi. status_returning,
-        impl. lua { module = "moonlift.tree_typecheck", func = "typecheck" },
+        impl. lua { module = "lalin.tree_typecheck", func = "typecheck" },
         capabilities { "diagnostics" },
     },
 
@@ -36,7 +36,7 @@ return package "moonlift.compiler" {
         diagnostics. diag,
         cache. identity,
         deterministic(true),
-        machine. moon_typecheck,
+        machine. lalin_typecheck,
     },
 
     root. compile {
@@ -135,7 +135,7 @@ assert(has_code(bad_impl_report, "E_BAD_IMPL"))
 local ok, err = pcall(function()
     return package_from_source([[
 return package "bad.dsl" {
-    world. tree [MoonTree.Module],
+    world. tree [LalinTree.Module],
     phase. typecheck {
         from. tree,
         to. tree,
@@ -154,11 +154,11 @@ assert(tostring(err):match("E_UNKNOWN_MACHINE"))
 local string_ok, string_err = pcall(function()
     return package_from_source([[
 return package "bad.string_type_ref" {
-    world. tree ["MoonTree.Module"],
+    world. tree ["LalinTree.Module"],
 }
 ]])
 end)
 assert(not string_ok)
 assert(tostring(string_err):match("E_BAD_SLOT"))
 
-io.write("moonlift phase_validate ok\n")
+io.write("lalin phase_validate ok\n")

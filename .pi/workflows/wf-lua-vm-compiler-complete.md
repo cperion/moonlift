@@ -1,5 +1,5 @@
 # Complete Lua VM Source Compiler 
-Finish the source compiler for experiments/lua_interpreter_vm so Lua 5.5 source programs compile into Moonlift-native VM bytecode/products and execute correctly, with PUC Lua 5.5 as oracle only and SponJIT separate.
+Finish the source compiler for experiments/lua_interpreter_vm so Lua 5.5 source programs compile into Lalin-native VM bytecode/products and execute correctly, with PUC Lua 5.5 as oracle only and SponJIT separate.
 **Workflow ID**: wf-lua-vm-compiler-complete
 **Started**: 2026-05-30 13:21:44
 ---
@@ -9,7 +9,7 @@ Finish the source compiler for experiments/lua_interpreter_vm so Lua 5.5 source 
 ## Files Retrieved
 
 1. `explicit_programming.md` (lines 1-240) — explicit-programming doctrine: all meaningful distinctions should be typed/named/visible; relevant to compiler/VM architecture expectations.
-2. `LANGUAGE_REFERENCE.md` (lines 1-220) — Moonlift layers, hosted declarations, explicit ASDL/control rules.
+2. `LANGUAGE_REFERENCE.md` (lines 1-220) — Lalin layers, hosted declarations, explicit ASDL/control rules.
 3. `experiments/lua_interpreter_vm/README.md` (lines 1-102) — experiment status; interpreter VM and SpongeJIT are separate; source/compiler pieces exist but are experimental.
 4. `experiments/lua_interpreter_vm/VM_CONTRACT.md` (lines 1-76) — VM contract/gates; source compiler complete is an explicit required gate; PUC is oracle only.
 5. `experiments/lua_interpreter_vm/src/init.lua` (lines 1-40) — module loader exports lexer/parser/codegen/compiler/runtime modules.
@@ -283,7 +283,7 @@ Segmentation fault
   Current name parsing only resolves locals and otherwise emits `UNDECLARED_NAME`. Lua source semantics require unresolved names to become environment accesses through `_ENV`/global declaration rules. This implies hidden dependencies on upvalue descriptors, closure environment construction, constants for field names, and table access opcodes.
 
 - **The apparent PUC bytecode-layout match is not a license to mirror PUC codegen.**  
-  `bytecode.lua` and `lopcodes.h` agree on packed instruction layout, but `VM_CONTRACT.md` explicitly forbids treating PUC layouts/conventions as dependencies. The stable target is Moonlift `Proto` + validator assumptions, not PUC chunks or PUC compiler output.
+  `bytecode.lua` and `lopcodes.h` agree on packed instruction layout, but `VM_CONTRACT.md` explicitly forbids treating PUC layouts/conventions as dependencies. The stable target is Lalin `Proto` + validator assumptions, not PUC chunks or PUC compiler output.
 
 - **`validate_proto` is stricter than current compiler success.**  
   `RETURN0` can leave `maxstack == 0`, which `validate_proto` rejects before execution. Also chunks with no explicit return can close without terminal return bytecode. Thus an `ok(proto)` from the compiler is not equivalent to “executable bytecode product.”
@@ -414,12 +414,12 @@ Segmentation fault
 
 2. **Lines 113-132**: Modify `compile_text` wrapper after compiler ABI changes.
    - Before:
-     ```moonlift
+     ```lalin
      compile_text(cu, b, p, bytes, n, code, locals) -> i32
        emit compile_lua_source_into(cu, b, p, bytes, n, code, 32, locals, 16; ...)
      ```
    - After:
-     ```moonlift
+     ```lalin
      compile_text(L, cu, b, p, arena, bytes, n) -> i32
        emit compile_lua_source_into(L, cu, b, p, arena, bytes, n, nil;
          ok = ok,
@@ -632,14 +632,14 @@ Segmentation fault
 **Edit blocks**
 1. **Lines 13-26**: Add size/alignment constants:
    ```lua
-   I.SIZE_INSTR = moon.int(4)
-   I.ALIGN_INSTR = moon.int(4)
-   I.SIZE_PROTO = moon.int(<ffi/product size>)
-   I.ALIGN_PROTO = moon.int(8)
-   I.SIZE_PROTOPTR = moon.int(8)
-   I.SIZE_LOCVAR = moon.int(24)
-   I.SIZE_UPVALDESC = moon.int(16)
-   I.SIZE_I32 = moon.int(4)
+   I.SIZE_INSTR = lalin.int(4)
+   I.ALIGN_INSTR = lalin.int(4)
+   I.SIZE_PROTO = lalin.int(<ffi/product size>)
+   I.ALIGN_PROTO = lalin.int(8)
+   I.SIZE_PROTOPTR = lalin.int(8)
+   I.SIZE_LOCVAR = lalin.int(24)
+   I.SIZE_UPVALDESC = lalin.int(16)
+   I.SIZE_I32 = lalin.int(4)
    ```
    - Verify sizes against `products.lua`.
 
@@ -669,11 +669,11 @@ Segmentation fault
 **Edit blocks**
 1. **Lines 5-18**: Change signature.
    - Before:
-     ```moonlift
+     ```lalin
      region compile_lua_source_into(cu, builder, out_proto, bytes, len, code, code_cap, locals, locals_cap; ...)
      ```
    - After:
-     ```moonlift
+     ```lalin
      region compile_lua_source_into(
        L: ptr(LuaThread),
        cu: ptr(CompileUnit),
@@ -696,7 +696,7 @@ Segmentation fault
    - Initialize builder vectors with nil/zero, but not final capacity.
    - Set `builder.maxstack = 1` so `RETURN0` chunks validate.
    - Set root chunk as vararg-compatible if Lua chunks require it:
-     ```moonlift
+     ```lalin
      builder.vararg_allowed = 1
      builder.flag = @{PF_VAHID} -- if runtime expects this
      ```
@@ -721,11 +721,11 @@ Segmentation fault
 **Edit blocks**
 1. **Lines 43-101 emit helpers**: Replace direct `cap` failure with vector growth.
    - Before:
-     ```moonlift
+     ```lalin
      if fs.code.len >= fs.code.cap then jump oom() end
      ```
    - After:
-     ```moonlift
+     ```lalin
      if fs.code.len >= fs.code.cap then
        emit ensure_code_capacity(cu, fs.code.len + 1; ok = code_ready, step_required = need_step, oom = out_of_mem)
      end
@@ -793,7 +793,7 @@ Segmentation fault
 
 10. **Lines 598-623 close_func_builder**:
     - Set:
-      ```moonlift
+      ```lalin
       p.lineinfo = fs.lineinfo.data
       p.lineinfo_len = fs.lineinfo.len
       p.source = cu.source_name
@@ -996,7 +996,7 @@ Segmentation fault
 
 2. **Lines 142-146 `op_pow`**:
    - Implement integer/float power using an explicit runtime helper.
-   - If Moonlift lacks intrinsic pow, add host/VM numeric helper rather than returning `ERR_ARITH`.
+   - If Lalin lacks intrinsic pow, add host/VM numeric helper rather than returning `ERR_ARITH`.
 
 3. **Lines 376-380 `op_powk`**:
    - Same as `op_pow`, constant RHS path.
@@ -1238,7 +1238,7 @@ Segmentation fault
    - Keep `regions_compiler` loaded after lexer/parser/codegen helpers.
 
 **Patterns to enforce**
-- Module order must satisfy Moonlift region symbol availability.
+- Module order must satisfy Lalin region symbol availability.
 
 **Danger zones**
 - Cyclic requires can break host region compilation.
@@ -1260,7 +1260,7 @@ Segmentation fault
   - `parser_products`
 
 #### `experiments/lua_interpreter_vm/tests/test_source_compiler_lua55_oracle.lua`
-- **Purpose**: Execute compiled Lua 5.5 source programs in Moonlift VM and compare observable results/errors against `.vendor/Lua/lua`.
+- **Purpose**: Execute compiled Lua 5.5 source programs in Lalin VM and compare observable results/errors against `.vendor/Lua/lua`.
 - **Contents sketch**:
   - shared compile/run harness using `tools/vm_ffi_schema.lua`
   - oracle runner invoking `.vendor/Lua/lua`

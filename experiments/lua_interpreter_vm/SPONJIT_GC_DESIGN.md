@@ -1,9 +1,9 @@
-# SpongeJIT / Moonlift Lua VM Garbage Collection Design
+# SpongeJIT / Lalin Lua VM Garbage Collection Design
 
 ## Purpose
 
-Design garbage collection as a first-class Moonlift subsystem for the
-Moonlift-native Lua VM, SpongeJIT semantic lowering, FFI cdata/finalizers, fact
+Design garbage collection as a first-class Lalin subsystem for the
+Lalin-native Lua VM, SpongeJIT semantic lowering, FFI cdata/finalizers, fact
 collection, and copy-and-patch stencils.
 
 GC is not an allocator detail. Allocation, barriers, finalization, weak tables,
@@ -24,8 +24,8 @@ This document follows explicit programming:
 
 ## One-sentence architecture
 
-The Lua VM owns a Moonlift GC whose typed allocation and barrier protocols are
-part of LuaExec/MoonCFG semantics; SpongeJIT facts and stencil contracts depend
+The Lua VM owns a Lalin GC whose typed allocation and barrier protocols are
+part of LuaExec/LalinCFG semantics; SpongeJIT facts and stencil contracts depend
 on GC epochs/barrier state; FFI finalizers and cdata ownership enter the same GC
 finalization protocol.
 
@@ -33,7 +33,7 @@ finalization protocol.
 Lua allocation / mutation / FFI ownership
   -> GC allocation and barrier regions
   -> object graph + epochs + finalizer queues
-  -> LuaExec/MoonCFG semantic regions
+  -> LuaExec/LalinCFG semantic regions
   -> stencil contracts/facts
   -> runtime invalidation when GC/layout/epoch facts change
 ```
@@ -46,7 +46,7 @@ Lua allocation / mutation / FFI ownership
 
 Every collectable object begins with a typed header.
 
-```moonlift
+```lalin
 union GCColor
     white0()
   | white1()
@@ -81,7 +81,7 @@ the mapping is generated from the union, not hand-commented magic numbers.
 
 ## GC state
 
-```moonlift
+```lalin
 union GCPhase
     pause()
   | propagate()
@@ -125,7 +125,7 @@ references, step the collector, or run finalizers.
 
 ## Allocator
 
-```moonlift
+```lalin
 struct Allocator
     ctx: ptr(u8)
     alloc_fn: func(ptr(u8), u64, u32) -> ptr(u8)
@@ -139,7 +139,7 @@ interface but is not hidden in allocation sites.
 
 ## Collectable object sketches
 
-```moonlift
+```lalin
 struct TString
     gc: GCHeader
     hash: u64
@@ -187,7 +187,7 @@ from explicit typed fields like these.
 
 ## TValue and GC references
 
-```moonlift
+```lalin
 union TValueTag
     nil()
   | bool()
@@ -219,7 +219,7 @@ scattered everywhere.
 
 ## Roots
 
-```moonlift
+```lalin
 union RootKind
     stack_slot(thread: ptr(LuaThread), slot: u32)
   | registry()
@@ -246,7 +246,7 @@ root/invalidation representation.
 
 ## Barriers
 
-```moonlift
+```lalin
 union BarrierKind
     object_to_object(parent: ptr(GCHeader), child: ptr(GCHeader))
   | table_slot(table: ptr(Table), value: TValue)
@@ -267,7 +267,7 @@ barrier behavior is not represented.
 
 ## Finalizers
 
-```moonlift
+```lalin
 union FinalizerKind
     lua_gc_metamethod(method: TValue)
   | ffi_c_finalizer(symbol: CSymbolId)
@@ -291,7 +291,7 @@ FFI `ffi.gc` and Lua `__gc` enter the same finalization control surface.
 
 ## GC facts for JIT/stencil selection
 
-```moonlift
+```lalin
 union GCFact
     barrier_clean(subject: FactSubject)
   | object_epoch(object: ptr(GCHeader), epoch: u64)
@@ -314,7 +314,7 @@ finalizer semantics.
 
 Allocation is a typed region with GC interaction.
 
-```moonlift
+```lalin
 region gc_alloc(
     gc: ptr(GCState),
     kind: GCObjectKind,
@@ -332,7 +332,7 @@ that continuation. It cannot silently allocate through raw libc.
 
 ## Collector stepping
 
-```moonlift
+```lalin
 region gc_step(gc: ptr(GCState), budget: u64;
     progressed(remaining_budget: u64),
     completed_cycle,
@@ -342,7 +342,7 @@ region gc_step(gc: ptr(GCState), budget: u64;
 
 The phase-specific steps are regions:
 
-```moonlift
+```lalin
 region gc_mark_roots(gc: ptr(GCState), roots: RootSet;
     marked,
     root_error(root: RootKind))
@@ -362,7 +362,7 @@ region gc_sweep_step(gc: ptr(GCState), budget: u64;
 
 ## Mark traversal
 
-```moonlift
+```lalin
 region mark_value(gc: ptr(GCState), value: TValue;
     marked,
     non_collectable)
@@ -383,7 +383,7 @@ Object-kind dispatch is a typed branch over `GCObjectKind`, not an opaque helper
 
 ## Write barriers
 
-```moonlift
+```lalin
 region gc_write_barrier(
     gc: ptr(GCState),
     barrier: BarrierKind;
@@ -399,7 +399,7 @@ specialized region with the same protocol.
 
 Specialized forms:
 
-```moonlift
+```lalin
 region table_write_barrier(gc: ptr(GCState), table: ptr(Table), value: TValue;
     clean,
     regrayed(table: ptr(Table)),
@@ -413,7 +413,7 @@ region upvalue_write_barrier(gc: ptr(GCState), upvalue: ptr(Upvalue), value: TVa
 
 ## Finalization
 
-```moonlift
+```lalin
 region enqueue_finalizer(gc: ptr(GCState), object: ptr(GCHeader), finalizer: FinalizerRef;
     enqueued,
     no_finalizer,
@@ -438,7 +438,7 @@ never hidden.
 
 ## Weak tables / ephemerons
 
-```moonlift
+```lalin
 region process_weak_table(gc: ptr(GCState), table: ptr(Table);
     processed,
     resurrected(count: u64),
@@ -468,7 +468,7 @@ These must call/emit GC allocation regions:
 - callback/thunk objects;
 - any boxed heap value.
 
-Their LuaExec/MoonCFG semantics must include allocation outcomes:
+Their LuaExec/LalinCFG semantics must include allocation outcomes:
 
 ```text
 ok / step_required / out_of_memory / error / yield if applicable
@@ -611,7 +611,7 @@ valid Lua behavior.
 # Summary
 
 GC is a semantic subsystem, not a backend detail. The design must include a
-Moonlift data tree for object headers, collector state, barriers, roots, and
+Lalin data tree for object headers, collector state, barriers, roots, and
 finalizers, plus a control tree for allocation, marking, sweeping, barriers,
 weak processing, and finalization. Facts and stencils may specialize GC-related
 paths, but they never replace GC semantics.

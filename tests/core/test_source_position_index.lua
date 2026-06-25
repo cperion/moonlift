@@ -1,12 +1,12 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local PositionIndex = require("moonlift.source_position_index")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local PositionIndex = require("lalin.source_position_index")
 
 local T = pvm.context()
 A(T)
-local S = T.MoonSource
+local S = T.LalinSource
 local P = PositionIndex(T)
 
 local function doc(text)
@@ -68,4 +68,4 @@ assert(P.offset_to_pos(bad, 2).pos.utf16_col == 2)
 local r = assert(P.range_from_offsets(idx, 0, 3))
 assert(r.start.line == 0 and r.stop.line == 1 and r.stop.byte_col == 1)
 
-print("moonlift source position index ok")
+print("lalin source position index ok")

@@ -1,15 +1,15 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.project_asdl")
-local Facts = require("moonlift.project_ready_facts")
-local Report = require("moonlift.project_report")
+local pvm = require("lalin.pvm")
+local A = require("lalin.project_asdl")
+local Facts = require("lalin.project_ready_facts")
+local Report = require("lalin.project_report")
 
 local T = pvm.context()
 A(T)
 local F = Facts(T)
 local R = Report(T)
-local P = T.MoonProject
+local P = T.LalinProject
 
 local function id(text) return P.TaskId(text) end
 local function has(xs, needle)
@@ -55,4 +55,4 @@ assert(#report.ready == 1)
 assert(#report.done == 1)
 assert(#report.deferred == 1)
 
-print("moonlift project_report ok")
+print("lalin project_report ok")

@@ -11,7 +11,7 @@
 			"id": "T001",
 			"title": "Define normalized semantic fact vocabulary",
 			"detail": "Extend the ASDL vocabulary for the first optimization slice: precise counted-loop/range facts, structured view/memory provenance, access-in-bounds/nontrap/movable facts, and dependence facts that distinguish read/read alias from write-related hazards. Keep facts semantic and reusable; avoid benchmark-specific variants.",
-			"file": "lua/moonlift/schema/flow.asdl",
+			"file": "lua/lalin/schema/flow.asdl",
 			"after": [],
 			"status": "done",
 			"order": 1,
@@ -28,14 +28,14 @@
 			"id": "T002",
 			"title": "Derive precise counted-loop range facts",
 			"detail": "Update `code_flow_facts.lua` to derive the normalized facts needed for `0 <= i < n` style loops: exact/countable domain, induction range, signedness/exclusivity notes, and no-wrap only when provable. Add focused tests in `tests/test_code_flow_facts.lua`.",
-			"file": "lua/moonlift/code_flow_facts.lua",
+			"file": "lua/lalin/code_flow_facts.lua",
 			"after": [
 				"T001"
 			],
 			"status": "done",
 			"order": 2,
 			"claimedBy": "agent-CMHN7P",
-			"evidence": "Implemented `CodeFlowFacts.semantic_facts`/`semantics` in `lua/moonlift/code_flow_facts.lua`, deriving `FlowLoopNormalizedCounted` for counted domains, conservative `FlowTripCountNonNegative` vs `FlowTripCountUnknown`, `FlowLoopInductionRange` for increasing exclusive primary inductions, and `FlowLoopInductionNoWrap` only from existing `CodeIntAssumeNoOverflow` semantics. Added focused coverage in `tests/test_code_flow_facts.lua` for normal 0<=i<n range facts, absence of invented no-wrap under wrapping semantics, and conservative inclusive-stop handling. Verified with `luajit tests/test_code_flow_facts.lua`, `luajit tests/test_schema_core.lua`, and `luajit tests/test_schema_compile_pipeline.lua`.",
+			"evidence": "Implemented `CodeFlowFacts.semantic_facts`/`semantics` in `lua/lalin/code_flow_facts.lua`, deriving `FlowLoopNormalizedCounted` for counted domains, conservative `FlowTripCountNonNegative` vs `FlowTripCountUnknown`, `FlowLoopInductionRange` for increasing exclusive primary inductions, and `FlowLoopInductionNoWrap` only from existing `CodeIntAssumeNoOverflow` semantics. Added focused coverage in `tests/test_code_flow_facts.lua` for normal 0<=i<n range facts, absence of invented no-wrap under wrapping semantics, and conservative inclusive-stop handling. Verified with `luajit tests/test_code_flow_facts.lua`, `luajit tests/test_schema_core.lua`, and `luajit tests/test_schema_compile_pipeline.lua`.",
 			"notes": [],
 			"createdAt": "2026-06-15T19:08:01.833Z",
 			"updatedAt": "2026-06-15T19:27:26.613Z"
@@ -44,14 +44,14 @@
 			"id": "T003",
 			"title": "Represent structured memory object/provenance facts",
 			"detail": "Update `code_mem_facts.lua` so memory-producing constructs are represented as generic bounded/strided memory objects and structured provenance, not strings. Views are only one witness; also cover locals/globals/data objects where available and pointer+contract objects later. Accesses should reference object/provenance/extent/stride information rather than `MemBaseDerived(..., \"view data\")` strings.",
-			"file": "lua/moonlift/code_mem_facts.lua",
+			"file": "lua/lalin/code_mem_facts.lua",
 			"after": [
 				"T001"
 			],
 			"status": "done",
 			"order": 3,
 			"claimedBy": "agent-XXCZEG",
-			"evidence": "Implemented structured memory object/provenance derivation in `lua/moonlift/code_mem_facts.lua`: new `semantic_facts`/`semantics` returns `MemSemanticFactSet` with generic `MemObjectFact`s for data, globals, locals, raw pointer params, views, addr-of/projections, ptr offsets, and value aliases; raw pointer params keep `MemExtentUnknown`; view/data meaning is no longer encoded as `MemBaseDerived(..., \"view data\")` in access bases. Extended `tests/test_code_mem_facts.lua` for raw pointer param objects, structured `MemObjectView` provenance/extent, non-view data/global object witnesses, and preservation of conservative access facts. Verified `luajit tests/test_code_mem_facts.lua`, `luajit tests/test_code_flow_facts.lua`, `luajit tests/test_schema_core.lua`, and `luajit tests/test_schema_compile_pipeline.lua`.",
+			"evidence": "Implemented structured memory object/provenance derivation in `lua/lalin/code_mem_facts.lua`: new `semantic_facts`/`semantics` returns `MemSemanticFactSet` with generic `MemObjectFact`s for data, globals, locals, raw pointer params, views, addr-of/projections, ptr offsets, and value aliases; raw pointer params keep `MemExtentUnknown`; view/data meaning is no longer encoded as `MemBaseDerived(..., \"view data\")` in access bases. Extended `tests/test_code_mem_facts.lua` for raw pointer param objects, structured `MemObjectView` provenance/extent, non-view data/global object witnesses, and preservation of conservative access facts. Verified `luajit tests/test_code_mem_facts.lua`, `luajit tests/test_code_flow_facts.lua`, `luajit tests/test_schema_core.lua`, and `luajit tests/test_schema_compile_pipeline.lua`.",
 			"notes": [
 				"Do not build a view-specific optimization path. Build structured object/provenance facts reusable by views, locals/globals/data, bounded pointer contracts, slices/windows, and future memory objects."
 			],
@@ -62,7 +62,7 @@
 			"id": "T004",
 			"title": "Normalize memory safety from flow plus bounded objects",
 			"detail": "Add a semantic normalization phase (or explicit refinement entry point) that composes loop range facts with generic bounded/strided memory-object facts to produce reusable access-interval, in-bounds, nontrap, alignment/deref, and movable facts. Raw `ptr+n` stays conservative unless represented by an explicit bounded object contract.",
-			"file": "lua/moonlift/code_mem_facts.lua",
+			"file": "lua/lalin/code_mem_facts.lua",
 			"after": [
 				"T002",
 				"T003"
@@ -70,7 +70,7 @@
 			"status": "done",
 			"order": 4,
 			"claimedBy": "agent-XXCZEG",
-			"evidence": "Extended `lua/moonlift/code_mem_facts.lua` semantic normalization: `semantic_facts(module, flow, flow_semantics)` now composes structured memory objects with flow semantic induction ranges to emit `MemAccessInterval`, `MemAccessInBounds`, `MemAccessNonTrap`, `MemAccessDerefBytes`, `MemAccessAlignKnown`, and conservative load-only `MemAccessMovable` facts. Raw pointer parameter objects still produce intervals but no in-bounds/nontrap facts because their extents remain unknown. Added generic value-object propagation through simple local descriptor stores/loads so bounded objects stored in locals (e.g. views) remain reusable without view-specific planner logic. Extended `tests/test_code_mem_facts.lua` to assert raw ptr+n remains conservative and bounded view object + loop range yields safety facts on the view access itself. Verified `luajit tests/test_code_mem_facts.lua`, `luajit tests/test_code_flow_facts.lua`, `luajit tests/test_code_kernel_plan.lua`, `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_schema_core.lua`, and `luajit tests/test_schema_compile_pipeline.lua`.",
+			"evidence": "Extended `lua/lalin/code_mem_facts.lua` semantic normalization: `semantic_facts(module, flow, flow_semantics)` now composes structured memory objects with flow semantic induction ranges to emit `MemAccessInterval`, `MemAccessInBounds`, `MemAccessNonTrap`, `MemAccessDerefBytes`, `MemAccessAlignKnown`, and conservative load-only `MemAccessMovable` facts. Raw pointer parameter objects still produce intervals but no in-bounds/nontrap facts because their extents remain unknown. Added generic value-object propagation through simple local descriptor stores/loads so bounded objects stored in locals (e.g. views) remain reusable without view-specific planner logic. Extended `tests/test_code_mem_facts.lua` to assert raw ptr+n remains conservative and bounded view object + loop range yields safety facts on the view access itself. Verified `luajit tests/test_code_mem_facts.lua`, `luajit tests/test_code_flow_facts.lua`, `luajit tests/test_code_kernel_plan.lua`, `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_schema_core.lua`, and `luajit tests/test_schema_compile_pipeline.lua`.",
 			"notes": [],
 			"createdAt": "2026-06-15T19:08:01.833Z",
 			"updatedAt": "2026-06-15T19:35:03.244Z"
@@ -79,14 +79,14 @@
 			"id": "T005",
 			"title": "Make kernel planning consume normalized memory facts",
 			"detail": "Refactor `code_kernel_plan.lua` so contracts and views are not planner-local shortcuts. Kernel planning should require normalized in-bounds/nontrap/dependence facts, relax harmless read/read aliasing, and keep explicit rejects for missing write-related dependence or raw pointer bounds.",
-			"file": "lua/moonlift/code_kernel_plan.lua",
+			"file": "lua/lalin/code_kernel_plan.lua",
 			"after": [
 				"T004"
 			],
 			"status": "done",
 			"order": 5,
 			"claimedBy": "agent-XXCZEG",
-			"evidence": "Updated `lua/moonlift/code_kernel_plan.lua` to consume optional normalized memory semantics via `plan(module, flow, memory, contracts, mem_semantics)`: memory stream acceptance now requires normalized in-bounds and nontrap proofs when semantic facts are supplied, read/read aliasing is ignored as harmless, and write-related alias/dependence still rejects unless no-alias/no-dependence facts exist. Compiler-only view descriptor local accesses are filtered out of kernel streams so structured view object facts can authorize the real data stream. Added semantic-path coverage in `tests/test_code_kernel_plan.lua`: bounded view object + flow semantics plans with `KernelSafetyProven`, while raw pointer loops with normalized semantics still reject for missing safety/dependence. Kept legacy contract fallback only when no semantic fact set is supplied for transitional compatibility. Verified `luajit tests/test_code_kernel_plan.lua`, `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_code_mem_facts.lua`, `luajit tests/test_code_flow_facts.lua`, `luajit tests/test_schema_core.lua`, and `luajit tests/test_schema_compile_pipeline.lua`.",
+			"evidence": "Updated `lua/lalin/code_kernel_plan.lua` to consume optional normalized memory semantics via `plan(module, flow, memory, contracts, mem_semantics)`: memory stream acceptance now requires normalized in-bounds and nontrap proofs when semantic facts are supplied, read/read aliasing is ignored as harmless, and write-related alias/dependence still rejects unless no-alias/no-dependence facts exist. Compiler-only view descriptor local accesses are filtered out of kernel streams so structured view object facts can authorize the real data stream. Added semantic-path coverage in `tests/test_code_kernel_plan.lua`: bounded view object + flow semantics plans with `KernelSafetyProven`, while raw pointer loops with normalized semantics still reject for missing safety/dependence. Kept legacy contract fallback only when no semantic fact set is supplied for transitional compatibility. Verified `luajit tests/test_code_kernel_plan.lua`, `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_code_mem_facts.lua`, `luajit tests/test_code_flow_facts.lua`, `luajit tests/test_schema_core.lua`, and `luajit tests/test_schema_compile_pipeline.lua`.",
 			"notes": [],
 			"createdAt": "2026-06-15T19:08:01.833Z",
 			"updatedAt": "2026-06-15T19:39:10.238Z"
@@ -95,14 +95,14 @@
 			"id": "T006",
 			"title": "Emit Back memory metadata from semantic facts",
 			"detail": "Update `lower_to_back.lua` so kernel loads/stores whose normalized facts prove safety emit `BackNonTrapping`, `BackCanMove` when legal, known dereference bytes, and known alignment where available. Do not claim flags for fallback/raw unknown accesses.",
-			"file": "lua/moonlift/lower_to_back.lua",
+			"file": "lua/lalin/lower_to_back.lua",
 			"after": [
 				"T005"
 			],
 			"status": "done",
 			"order": 6,
 			"claimedBy": "agent-XXCZEG",
-			"evidence": "Updated `lua/moonlift/lower_to_back.lua` to accept `opts.mem_semantics`/`opts.memory_semantics`, index normalized `MemAccessNonTrap`, `MemAccessMovable`, `MemAccessDerefBytes`, and `MemAccessAlignKnown` facts by access id, and use them when emitting kernel `BackMemoryInfo` for scalar/vector loads and stores. Kernel accesses without normalized semantics remain conservative (`BackMayTrap`, `BackMayNotMove`, unknown alignment). Extended `tests/test_code_lower_plan.lua` with a semantic-memory fixture proving kernel Back loads become `BackNonTrapping`/`BackCanMove`/`BackAlignKnown` only when normalized facts are supplied, and that legacy kernel lowering without semantic facts stays conservative. Verified `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_code_mem_facts.lua`, `luajit tests/test_code_flow_facts.lua`, `luajit tests/test_code_kernel_plan.lua`, `luajit tests/test_schema_core.lua`, and `luajit tests/test_schema_compile_pipeline.lua`.",
+			"evidence": "Updated `lua/lalin/lower_to_back.lua` to accept `opts.mem_semantics`/`opts.memory_semantics`, index normalized `MemAccessNonTrap`, `MemAccessMovable`, `MemAccessDerefBytes`, and `MemAccessAlignKnown` facts by access id, and use them when emitting kernel `BackMemoryInfo` for scalar/vector loads and stores. Kernel accesses without normalized semantics remain conservative (`BackMayTrap`, `BackMayNotMove`, unknown alignment). Extended `tests/test_code_lower_plan.lua` with a semantic-memory fixture proving kernel Back loads become `BackNonTrapping`/`BackCanMove`/`BackAlignKnown` only when normalized facts are supplied, and that legacy kernel lowering without semantic facts stays conservative. Verified `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_code_mem_facts.lua`, `luajit tests/test_code_flow_facts.lua`, `luajit tests/test_code_kernel_plan.lua`, `luajit tests/test_schema_core.lua`, and `luajit tests/test_schema_compile_pipeline.lua`.",
 			"notes": [],
 			"createdAt": "2026-06-15T19:08:01.833Z",
 			"updatedAt": "2026-06-15T19:41:58.259Z"
@@ -118,7 +118,7 @@
 			"status": "done",
 			"order": 7,
 			"claimedBy": "agent-XXCZEG",
-			"evidence": "Expanded `tests/test_code_mem_facts.lua` into a bounded-object semantic integration test: it now verifies raw pointer params remain conservative, non-view data/global object facts exist, a contiguous view-backed bounded object produces normalized safety facts, becomes a whole-function `KernelPlanned` with `KernelSafetyProven`, selects kernel lowering, validates through `LowerToBack`, and emits semantic Back memory metadata. Added strided view coverage asserting `MemStrideConstElems(2)` is preserved while in-bounds remains conservative until stride-aware interval proofs exist. Also fixed `lua/moonlift/lower_to_back.lua` to resolve kernel stream bases through view descriptor `CodeInstViewData`/local descriptor load-store aliases so view-backed kernel lowering validates. Verified `luajit tests/test_code_mem_facts.lua`, `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_code_kernel_plan.lua`, `luajit tests/test_code_flow_facts.lua`, `luajit tests/test_schema_core.lua`, and `luajit tests/test_schema_compile_pipeline.lua`.",
+			"evidence": "Expanded `tests/test_code_mem_facts.lua` into a bounded-object semantic integration test: it now verifies raw pointer params remain conservative, non-view data/global object facts exist, a contiguous view-backed bounded object produces normalized safety facts, becomes a whole-function `KernelPlanned` with `KernelSafetyProven`, selects kernel lowering, validates through `LowerToBack`, and emits semantic Back memory metadata. Added strided view coverage asserting `MemStrideConstElems(2)` is preserved while in-bounds remains conservative until stride-aware interval proofs exist. Also fixed `lua/lalin/lower_to_back.lua` to resolve kernel stream bases through view descriptor `CodeInstViewData`/local descriptor load-store aliases so view-backed kernel lowering validates. Verified `luajit tests/test_code_mem_facts.lua`, `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_code_kernel_plan.lua`, `luajit tests/test_code_flow_facts.lua`, `luajit tests/test_schema_core.lua`, and `luajit tests/test_schema_compile_pipeline.lua`.",
 			"notes": [
 				"Tests must include at least one non-view witness or an explicit assertion that the fact vocabulary is object-generic; avoid naming the feature as a `view_sum` fast path."
 			],
@@ -129,7 +129,7 @@
 			"id": "T008",
 			"title": "Normalize contract-derived pointer safety facts",
 			"detail": "After view semantics are working, convert `bounds`, `disjoint`/`noalias`, `readonly`, and `writeonly` contracts into the same reusable memory safety/effect/dependence facts. Preserve the rule that raw pointers without contracts do not get automatic extent/disjointness.",
-			"file": "lua/moonlift/code_mem_facts.lua",
+			"file": "lua/lalin/code_mem_facts.lua",
 			"after": [
 				"T007"
 			],
@@ -146,8 +146,8 @@
 		{
 			"id": "T009",
 			"title": "Add algebraic reduction semantics for memory-free sums",
-			"detail": "Only after the safety fact path is validated, add a small algebraic semantic fact for closed-form induction folds such as `sum_loop`. Prove exact trip count and Moonlift wrapping/integer semantics before lowering; do not add a benchmark-only recognizer.",
-			"file": "lua/moonlift/code_kernel_plan.lua",
+			"detail": "Only after the safety fact path is validated, add a small algebraic semantic fact for closed-form induction folds such as `sum_loop`. Prove exact trip count and Lalin wrapping/integer semantics before lowering; do not add a benchmark-only recognizer.",
+			"file": "lua/lalin/code_kernel_plan.lua",
 			"after": [
 				"T008"
 			],
@@ -180,14 +180,14 @@
 			"id": "T011",
 			"title": "Wire normalized semantics into public native pipeline",
 			"detail": "`T010` showed `view_sum` remains slow because semantic tests pass `mem_semantics` explicitly, but the public native/frontend path still calls `CodeKernelPlan.plan` and `LowerToBack.module` without normalized Flow/Mem semantics. Compute `CodeFlowFacts.semantic_facts`, `CodeMemFacts.semantic_facts`, pass them to kernel planning/lowering, expose them in frontend results, and update tests.",
-			"file": "lua/moonlift/frontend_pipeline.lua",
+			"file": "lua/lalin/frontend_pipeline.lua",
 			"after": [
 				"T010"
 			],
 			"status": "done",
 			"order": 11,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Wired normalized semantic facts into the public frontend/native path in `lua/moonlift/frontend_pipeline.lua`: both Back and C pipeline branches now compute `flow_semantics = CodeFlowFacts.semantic_facts(...)` and `mem_semantics = CodeMemFacts.semantic_facts(...)`, pass `mem_semantics` to `CodeKernelPlan.plan`, expose both semantic fact sets in returned frontend results, and pass `mem_semantics` to `LowerToBack.module` for Back memory metadata. Verified `luajit tests/test_schema_compile_pipeline.lua`, `tests/test_parse_kernels.lua`, `tests/test_code_mem_facts.lua`, `tests/test_code_kernel_plan.lua`, and `tests/test_code_lower_plan.lua`.",
+			"evidence": "Wired normalized semantic facts into the public frontend/native path in `lua/lalin/frontend_pipeline.lua`: both Back and C pipeline branches now compute `flow_semantics = CodeFlowFacts.semantic_facts(...)` and `mem_semantics = CodeMemFacts.semantic_facts(...)`, pass `mem_semantics` to `CodeKernelPlan.plan`, expose both semantic fact sets in returned frontend results, and pass `mem_semantics` to `LowerToBack.module` for Back memory metadata. Verified `luajit tests/test_schema_compile_pipeline.lua`, `tests/test_parse_kernels.lua`, `tests/test_code_mem_facts.lua`, `tests/test_code_kernel_plan.lua`, and `tests/test_code_lower_plan.lua`.",
 			"notes": [
 				"This is not a new optimization idea; it wires the already-implemented normalized semantic facts into the public path so the architecture is actually exercised outside focused tests."
 			],
@@ -214,14 +214,14 @@
 			"id": "T013",
 			"title": "Carry semantic facts in ASDL plans instead of sideband opts",
 			"detail": "Eliminate the current sideband `opts.mem_semantics` architecture. Extend `KernelModulePlan` (and consumers) so flow/memory semantic fact sets travel with the kernel/lower plan. `LowerToBack` should read memory semantics from `lower_module.kernels`, not from ad-hoc options. Keep optional fields only for compatibility if necessary, but the public frontend path should be ASDL-owned.",
-			"file": "lua/moonlift/schema/kernel.asdl",
+			"file": "lua/lalin/schema/kernel.asdl",
 			"after": [
 				"T012"
 			],
 			"status": "done",
 			"order": 13,
 			"claimedBy": "agent-547BAD",
-			"evidence": "Extended `lua/moonlift/schema/kernel.asdl` KernelModulePlan with ASDL-carried `flow_semantics` and `memory_semantics`; updated `code_kernel_plan.lua` to store them, `lower_to_back.lua` to prefer `lower_module.kernels.memory_semantics`, and `frontend_pipeline.lua` to stop passing sideband mem_semantics on the public Back path. Updated tests (`tests/test_schema_core.lua`, `tests/test_code_mem_facts.lua`, `tests/test_code_lower_plan.lua`) and verified with `luajit tests/test_schema_core.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_schema_compile_pipeline.lua && luajit tests/test_parse_kernels.lua`.",
+			"evidence": "Extended `lua/lalin/schema/kernel.asdl` KernelModulePlan with ASDL-carried `flow_semantics` and `memory_semantics`; updated `code_kernel_plan.lua` to store them, `lower_to_back.lua` to prefer `lower_module.kernels.memory_semantics`, and `frontend_pipeline.lua` to stop passing sideband mem_semantics on the public Back path. Updated tests (`tests/test_schema_core.lua`, `tests/test_code_mem_facts.lua`, `tests/test_code_lower_plan.lua`) and verified with `luajit tests/test_schema_core.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_schema_compile_pipeline.lua && luajit tests/test_parse_kernels.lua`.",
 			"notes": [
 				"Gap found after T012: semantic facts are still passed partly as sideband options, which violates the ASDL-as-architecture goal."
 			],
@@ -232,14 +232,14 @@
 			"id": "T014",
 			"title": "Remove planner-local contract fallback path",
 			"detail": "`code_kernel_plan.lua` still has a transitional path that treats raw contracts as local assumptions when `mem_semantics` is nil. Remove this fallback so all safety/alias/dependence reasoning goes through normalized semantic facts. Update tests/helpers to pass semantic facts rather than relying on contract shortcuts.",
-			"file": "lua/moonlift/code_kernel_plan.lua",
+			"file": "lua/lalin/code_kernel_plan.lua",
 			"after": [
 				"T013"
 			],
 			"status": "done",
 			"order": 14,
 			"claimedBy": "agent-547BAD",
-			"evidence": "Removed raw-contract planner shortcuts from `lua/moonlift/code_kernel_plan.lua`: memory safety and write-related alias/dependence now require normalized semantic facts (or existing Mem no-alias/no-dependence facts), and contract-index helper code was deleted. Updated tests/helpers to build and pass `FlowSemanticFactSet`/`MemSemanticFactSet`, changed kernel safety expectations from contract assumptions to proven normalized facts, and updated `kernel_validate.lua` so proven kernels with raw may-trap MemAccessFacts are accepted only when the ASDL-carried MemSemanticFactSet contains normalized nontrap proofs. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_compile_pipeline.lua && luajit tests/test_parse_kernels.lua`.",
+			"evidence": "Removed raw-contract planner shortcuts from `lua/lalin/code_kernel_plan.lua`: memory safety and write-related alias/dependence now require normalized semantic facts (or existing Mem no-alias/no-dependence facts), and contract-index helper code was deleted. Updated tests/helpers to build and pass `FlowSemanticFactSet`/`MemSemanticFactSet`, changed kernel safety expectations from contract assumptions to proven normalized facts, and updated `kernel_validate.lua` so proven kernels with raw may-trap MemAccessFacts are accepted only when the ASDL-carried MemSemanticFactSet contains normalized nontrap proofs. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_compile_pipeline.lua && luajit tests/test_parse_kernels.lua`.",
 			"notes": [
 				"Gap: planner-local contract shortcuts remain as a transition path. Complete architecture should route all contract meaning through normalized MemSemantic facts."
 			],
@@ -250,14 +250,14 @@
 			"id": "T015",
 			"title": "Make closed-form reductions first-class kernel semantics",
 			"detail": "The arithmetic-series result currently appears as a generic `KernelResultExpr` plus string proof. Add a first-class ASDL representation for closed-form kernel results/proofs so algebraic semantics are inspectable and not hidden in planner code. Keep it generic (`KernelResultClosedForm` or equivalent), not `sum_loop`-specific.",
-			"file": "lua/moonlift/schema/kernel.asdl",
+			"file": "lua/lalin/schema/kernel.asdl",
 			"after": [
 				"T014"
 			],
 			"status": "done",
 			"order": 15,
 			"claimedBy": "agent-547BAD",
-			"evidence": "Added first-class closed-form kernel semantics in `lua/moonlift/schema/kernel.asdl` (`KernelClosedFormKind`, `KernelProofClosedForm`, `KernelClosedForm`, and `KernelResultClosedForm`). Updated `code_kernel_plan.lua` so arithmetic-series reductions produce `KernelResultClosedForm` with an inspectable `KernelClosedFormArithmeticSeries` kind instead of a plain `KernelResultExpr`. Updated `lower_to_back.lua` to lower closed-form results and `tests/test_code_kernel_plan.lua` to assert the first-class closed-form representation. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_compile_pipeline.lua && luajit tests/test_parse_kernels.lua`.",
+			"evidence": "Added first-class closed-form kernel semantics in `lua/lalin/schema/kernel.asdl` (`KernelClosedFormKind`, `KernelProofClosedForm`, `KernelClosedForm`, and `KernelResultClosedForm`). Updated `code_kernel_plan.lua` so arithmetic-series reductions produce `KernelResultClosedForm` with an inspectable `KernelClosedFormArithmeticSeries` kind instead of a plain `KernelResultExpr`. Updated `lower_to_back.lua` to lower closed-form results and `tests/test_code_kernel_plan.lua` to assert the first-class closed-form representation. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_compile_pipeline.lua && luajit tests/test_parse_kernels.lua`.",
 			"notes": [
 				"Gap: closed-form algebra is semantically real but currently only encoded as KernelResultExpr plus string proof; make it explicit and inspectable."
 			],
@@ -268,14 +268,14 @@
 			"id": "T016",
 			"title": "Replace stringly memory projection provenance",
 			"detail": "`MemProvProjection(parent, string projection, offset)` still hides provenance kind in a string. Replace with an enum-like ASDL projection kind (field/bytes/ptr-offset/view-data/slice/window/etc.) and update `code_mem_facts.lua` plus schema tests. Do not change legacy `MemBaseDerived` compatibility in this task unless safe.",
-			"file": "lua/moonlift/schema/mem.asdl",
+			"file": "lua/lalin/schema/mem.asdl",
 			"after": [
 				"T013"
 			],
 			"status": "done",
 			"order": 16,
 			"claimedBy": "agent-547BAD",
-			"evidence": "Replaced stringly `MemProvProjection(parent, string projection, offset)` with typed `MemProjectionKind` variants in `lua/moonlift/schema/mem.asdl` and updated `code_mem_facts.lua` to emit `MemProjectField`, `MemProjectBytes`, and `MemProjectPtrOffset`. Added schema coverage in `tests/test_schema_core.lua` for typed projection provenance. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_compile_pipeline.lua && luajit tests/test_parse_kernels.lua`.",
+			"evidence": "Replaced stringly `MemProvProjection(parent, string projection, offset)` with typed `MemProjectionKind` variants in `lua/lalin/schema/mem.asdl` and updated `code_mem_facts.lua` to emit `MemProjectField`, `MemProjectBytes`, and `MemProjectPtrOffset`. Added schema coverage in `tests/test_schema_core.lua` for typed projection provenance. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_compile_pipeline.lua && luajit tests/test_parse_kernels.lua`.",
 			"notes": [
 				"Gap: memory object provenance is mostly structured, but projection kind is still stringly."
 			],
@@ -286,14 +286,14 @@
 			"id": "T017",
 			"title": "Normalize remaining contract object semantics",
 			"detail": "Normalize `window_bounds` and `same_len` into reusable bounded-object / relation facts. View parameters should expose descriptor length/stride/object facts when semantically available. Preserve raw pointer conservatism without explicit bounds.",
-			"file": "lua/moonlift/code_mem_facts.lua",
+			"file": "lua/lalin/code_mem_facts.lua",
 			"after": [
 				"T016"
 			],
 			"status": "done",
 			"order": 17,
 			"claimedBy": "agent-547BAD",
-			"evidence": "Normalized remaining contract object semantics in `lua/moonlift/code_mem_facts.lua`: `CodeContractWindowBounds` now contributes a bounded contract object extent plus `MemObjectWindowBounds` relation, `CodeContractSameLen` now emits `MemObjectsSameLen` relation facts, and view parameters can receive contract-derived extents while raw pointer params remain extent-unknown without explicit bounds/window contracts. Extended `lua/moonlift/schema/mem.asdl` with `MemObjectRelationFact` and added it to `MemSemanticFactSet`; updated constructors/tests in `tests/test_schema_core.lua`, `tests/test_code_lower_plan.lua`, and added `same_len`/`window_bounds` coverage in `tests/test_code_mem_facts.lua`. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_compile_pipeline.lua && luajit tests/test_parse_kernels.lua`.",
+			"evidence": "Normalized remaining contract object semantics in `lua/lalin/code_mem_facts.lua`: `CodeContractWindowBounds` now contributes a bounded contract object extent plus `MemObjectWindowBounds` relation, `CodeContractSameLen` now emits `MemObjectsSameLen` relation facts, and view parameters can receive contract-derived extents while raw pointer params remain extent-unknown without explicit bounds/window contracts. Extended `lua/lalin/schema/mem.asdl` with `MemObjectRelationFact` and added it to `MemSemanticFactSet`; updated constructors/tests in `tests/test_schema_core.lua`, `tests/test_code_lower_plan.lua`, and added `same_len`/`window_bounds` coverage in `tests/test_code_mem_facts.lua`. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_compile_pipeline.lua && luajit tests/test_parse_kernels.lua`.",
 			"notes": [],
 			"createdAt": "2026-06-15T20:02:15.899Z",
 			"updatedAt": "2026-06-15T20:12:32.506Z"
@@ -302,14 +302,14 @@
 			"id": "T018",
 			"title": "Add stride-aware access interval proofs",
 			"detail": "Generalize in-bounds/nontrap proof composition from unit-stride objects to bounded strided objects where interval containment is sound. This should be generic for any `MemObjectStride`, not a view-specific path. Keep unknown/dynamic stride conservative unless a proof exists.",
-			"file": "lua/moonlift/code_mem_facts.lua",
+			"file": "lua/lalin/code_mem_facts.lua",
 			"after": [
 				"T017"
 			],
 			"status": "done",
 			"order": 18,
 			"claimedBy": "agent-547BAD",
-			"evidence": "Generalized `lua/moonlift/code_mem_facts.lua` loop-range containment proof from unit-stride-only to any statically known positive `MemStrideConstElems`/unit stride object, while keeping `MemStrideValue`/unknown dynamic stride conservative. Updated `tests/test_code_mem_facts.lua` so constant strided views get in-bounds/nontrap safety facts and dynamic stride views do not. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_compile_pipeline.lua && luajit tests/test_parse_kernels.lua`.",
+			"evidence": "Generalized `lua/lalin/code_mem_facts.lua` loop-range containment proof from unit-stride-only to any statically known positive `MemStrideConstElems`/unit stride object, while keeping `MemStrideValue`/unknown dynamic stride conservative. Updated `tests/test_code_mem_facts.lua` so constant strided views get in-bounds/nontrap safety facts and dynamic stride views do not. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_compile_pipeline.lua && luajit tests/test_parse_kernels.lua`.",
 			"notes": [],
 			"createdAt": "2026-06-15T20:02:15.899Z",
 			"updatedAt": "2026-06-15T20:13:28.049Z"
@@ -318,7 +318,7 @@
 			"id": "T019",
 			"title": "Make kernel scheduling target-aware",
 			"detail": "Replace hardcoded 4-lane vector scheduling with target/capability-driven scheduling over Back target facts: supported shape, op classes, unroll/interleave preferences, scalar tail policy. Keep semantics separate from schedule choice.",
-			"file": "lua/moonlift/code_kernel_plan.lua",
+			"file": "lua/lalin/code_kernel_plan.lua",
 			"after": [
 				"T015",
 				"T018"
@@ -326,7 +326,7 @@
 			"status": "done",
 			"order": 19,
 			"claimedBy": "agent-547BAD",
-			"evidence": "Made `lua/moonlift/code_kernel_plan.lua` vector scheduling target-aware: schedule selection now reads `BackTargetModel` facts for supported vector shapes, vector op classes, and preferred unroll instead of hardcoding 4 lanes. Added default Back target model use plus `opts.target_model`/`opts.back_target_model` plumbing from `frontend_pipeline.lua`. Kept semantic plan legality separate: unsupported vector target facts fall back to scalar scheduling, not kernel rejection. Added `tests/test_code_kernel_plan.lua` coverage for default i32x4, custom i32x2/unroll=2, and scalar-only target scheduling. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_compile_pipeline.lua && luajit tests/test_parse_kernels.lua`.",
+			"evidence": "Made `lua/lalin/code_kernel_plan.lua` vector scheduling target-aware: schedule selection now reads `BackTargetModel` facts for supported vector shapes, vector op classes, and preferred unroll instead of hardcoding 4 lanes. Added default Back target model use plus `opts.target_model`/`opts.back_target_model` plumbing from `frontend_pipeline.lua`. Kept semantic plan legality separate: unsupported vector target facts fall back to scalar scheduling, not kernel rejection. Added `tests/test_code_kernel_plan.lua` coverage for default i32x4, custom i32x2/unroll=2, and scalar-only target scheduling. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_compile_pipeline.lua && luajit tests/test_parse_kernels.lua`.",
 			"notes": [],
 			"createdAt": "2026-06-15T20:02:15.899Z",
 			"updatedAt": "2026-06-15T20:16:06.589Z"
@@ -342,7 +342,7 @@
 			"status": "done",
 			"order": 20,
 			"claimedBy": "agent-547BAD",
-			"evidence": "Expanded `benchmarks/bench_c_vs_cranelift.lua` with semantic contrast cases: raw `ptr_sum` vs `ptr_sum_bounds`, local `view_sum`, bounded constant-stride `view_sum_strided`, raw `triad_store` vs `triad_store_bounds_disjoint`. Each case now prints a semantic-attribution note distinguishing missing semantics from backend/schedule limits. Ran a quick smoke benchmark with reduced settings (`MOONLIFT_BENCH_BACKEND_INNER_N=100 MOONLIFT_BENCH_BACKEND_RUNTIME_CALLS=2 MOONLIFT_BENCH_BACKEND_RUNTIME_WARMUPS=1 MOONLIFT_BENCH_BACKEND_RUNTIME_SAMPLES=1 MOONLIFT_BENCH_BACKEND_COMPILE_REPS=1 MOONLIFT_BENCH_C_RUNNER=shared luajit benchmarks/bench_c_vs_cranelift.lua quick`); all backend checksums matched after using `as(index, 2)` for the strided view stride. Also verified compiler tests earlier in this run with the standard flow/mem/kernel/lower/schema/parse suite.",
+			"evidence": "Expanded `benchmarks/bench_c_vs_cranelift.lua` with semantic contrast cases: raw `ptr_sum` vs `ptr_sum_bounds`, local `view_sum`, bounded constant-stride `view_sum_strided`, raw `triad_store` vs `triad_store_bounds_disjoint`. Each case now prints a semantic-attribution note distinguishing missing semantics from backend/schedule limits. Ran a quick smoke benchmark with reduced settings (`LALIN_BENCH_BACKEND_INNER_N=100 LALIN_BENCH_BACKEND_RUNTIME_CALLS=2 LALIN_BENCH_BACKEND_RUNTIME_WARMUPS=1 LALIN_BENCH_BACKEND_RUNTIME_SAMPLES=1 LALIN_BENCH_BACKEND_COMPILE_REPS=1 LALIN_BENCH_C_RUNNER=shared luajit benchmarks/bench_c_vs_cranelift.lua quick`); all backend checksums matched after using `as(index, 2)` for the strided view stride. Also verified compiler tests earlier in this run with the standard flow/mem/kernel/lower/schema/parse suite.",
 			"notes": [
 				"Benchmarks should distinguish semantic absence from backend quality; otherwise raw pointer cases make all gaps look the same."
 			],

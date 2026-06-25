@@ -2,11 +2,11 @@
 package.path = "./experiments/lua_interpreter_vm/spongejit/?.lua;./experiments/lua_interpreter_vm/spongejit/?/init.lua;./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local moon = require("moonlift")
+local lalin = require("lalin")
 local C = require("lua_compile")
 local ExecLower = require("lua_compile.lua_src_to_lua_exec_lower")
-local ExecToMoon = require("lua_compile.lua_exec_to_moon_cfg_lower")
-local Emit = require("lua_compile.moon_cfg_emit")
+local ExecToLalin = require("lua_compile.lua_exec_to_lalin_cfg_lower")
+local Emit = require("lua_compile.lalin_cfg_emit")
 local ValueModel = require("lua_compile.lua_rt_value_model")
 local OutcomeModel = require("lua_compile.lua_rt_outcome_model")
 local ObjectModel = require("lua_compile.lua_rt_object_model")
@@ -18,10 +18,10 @@ local function rt_name(s) return RT.Name(tostring(s)) end
 
 ffi.cdef(ValueModel.FFI_CDEF .. "\n" .. ObjectModel.FFI_CDEF)
 
-assert(ffi.offsetof("LuaRTTable", "hash") == 16, "LuaRTTable.hash offset must match Moonlift TYPE_DECL")
-assert(ffi.offsetof("LuaRTTable", "hash_capacity") == 24, "LuaRTTable.hash_capacity offset must match Moonlift TYPE_DECL")
-assert(ffi.offsetof("LuaRTTable", "hash_count") == 32, "LuaRTTable.hash_count offset must match Moonlift TYPE_DECL")
-assert(ffi.offsetof("LuaRTTable", "metatable_kind") == 40, "LuaRTTable.metatable_kind offset must match Moonlift TYPE_DECL")
+assert(ffi.offsetof("LuaRTTable", "hash") == 16, "LuaRTTable.hash offset must match Lalin TYPE_DECL")
+assert(ffi.offsetof("LuaRTTable", "hash_capacity") == 24, "LuaRTTable.hash_capacity offset must match Lalin TYPE_DECL")
+assert(ffi.offsetof("LuaRTTable", "hash_count") == 32, "LuaRTTable.hash_count offset must match Lalin TYPE_DECL")
+assert(ffi.offsetof("LuaRTTable", "metatable_kind") == 40, "LuaRTTable.metatable_kind offset must match Lalin TYPE_DECL")
 
 local function v(tag_name, payload)
   local x = ffi.new("LuaRTValue")
@@ -35,7 +35,7 @@ local function compile_outcome(events, projection, name)
   local unit = C.unit_from_events(events, {})
   local exec_kernel, exec_errors = ExecLower.lower(unit.source, unit.evidence)
   assert(exec_kernel, table.concat(exec_errors or {}, "; "))
-  local cfg, cfg_errors = ExecToMoon.lower_outcome(exec_kernel, projection)
+  local cfg, cfg_errors = ExecToLalin.lower_outcome(exec_kernel, projection)
   assert(cfg, table.concat(cfg_errors or {}, "; "))
   local src = Emit.emit(cfg, { name = name })
   assert(src:match("LuaRTTable") and src:match("LuaRTString") and src:match("LuaRTRawGetResult"), "object substrate declarations must be emitted")
@@ -162,7 +162,7 @@ local meta_call = Exec.EmitRegion(ex_name("__index_metamethod_call"), {}, {})
 local b = Exec.Block(Exec.BlockId(ex_name("entry")), {}, { meta_call }, Exec.Return(RT.ValueSeq(RT.FixedSeq, {}, RT.FixedCount(0), RT.FromLiteralValues)))
 local r = Exec.Region(ex_name("metamethod_body"), Exec.TableGetRegion, {}, {}, Exec.BlockId(ex_name("entry")), { b })
 local k = Exec.Kernel(ex_name("metamethod_kernel"), frame, r, Exec.Contract({}, {}))
-local rejected = select(1, ExecToMoon.lower_outcome(k, "kind")) == nil
-assert(rejected, "unresolved function-valued metamethod call region must not lower to executable MoonCFG")
+local rejected = select(1, ExecToLalin.lower_outcome(k, "kind")) == nil
+assert(rejected, "unresolved function-valued metamethod call region must not lower to executable LalinCFG")
 
 print("ok - SpongeJIT LuaRT object/table/string substrate")

@@ -6,15 +6,15 @@ package.path = table.concat({
   package.path,
 }, ";")
 
-local pvm = require("moonlift.pvm")
-local Asdl = require("moonlift.schema_projection")
+local pvm = require("lalin.pvm")
+local Asdl = require("lalin.schema_projection")
 
 local T = pvm.context()
 Asdl(T)
-local Back = T.MoonBack
-local C = T.MoonCore
+local Back = T.LalinBack
+local C = T.LalinCore
 
-local Interpreter = require("moonlift.debug_interpreter")
+local Interpreter = require("lalin.debug_interpreter")
 
 -- Test 1: Simple add_i32 program
 do
@@ -233,4 +233,4 @@ do
     print("test_debug_interpreter: indirect call ok")
 end
 
-print("\nmoonlift debug_interpreter ok")
+print("\nlalin debug_interpreter ok")

@@ -1,12 +1,12 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A2 = require("moonlift.schema_projection")
-local ClosureConvert = require("moonlift.closure_convert")
+local pvm = require("lalin.pvm")
+local A2 = require("lalin.schema_projection")
+local ClosureConvert = require("lalin.closure_convert")
 
 local T = pvm.context()
 A2(T)
-local C, Ty, B, Tr = T.MoonCore, T.MoonType, T.MoonBind, T.MoonTree
+local C, Ty, B, Tr = T.LalinCore, T.LalinType, T.LalinBind, T.LalinTree
 local i32 = Ty.TScalar(C.ScalarI32)
 
 local function name_ref(name)
@@ -80,4 +80,4 @@ for i = 1, #converted.items do
     end
 end
 
-print("moonlift closure conversion ok")
+print("lalin closure conversion ok")

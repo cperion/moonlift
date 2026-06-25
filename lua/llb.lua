@@ -791,7 +791,7 @@ do
 --
 --   input product + state product + named exit protocol + transition body
 --
--- Moonlift native regions, LLPVM phases, process machines, parsers, and GPS
+-- Lalin native regions, LLPVM phases, process machines, parsers, and GPS
 -- streams are lowerings/projections of this shared shape. LLB owns the
 -- semantics and the bare `region.` head; member languages consume or lower
 -- region descriptors through their own typed backends.
@@ -2565,7 +2565,7 @@ end
 -- ---------------------------------------------------------------------------
 --
 -- Generic nodes are the default normalized AST form for languages that do not
--- provide their own ASDL layer. Moonlift uses richer ASDL values, but the LLB
+-- provide their own ASDL layer. Lalin uses richer ASDL values, but the LLB
 -- core keeps this small node model for language authors and examples.
 
 local Node = {}
@@ -3013,7 +3013,7 @@ local FamilyBundle = {}; FamilyBundle.__index = FamilyBundle
 -- do not mutate environments. They answer: "these items belong to this family
 -- member language."
 --
---   moonlift { ... }  -> Zone(member="moonlift.dsl")
+--   lalin { ... }  -> Zone(member="lalin.dsl")
 --   llpvm    { ... }  -> Zone(member="llpvm.dsl")
 --
 -- Same-zone concatenation appends items. Mixed-zone concatenation creates a
@@ -5790,19 +5790,19 @@ local function append_llb_syntax_primer(out)
   out[#out + 1] = ""
   out[#out + 1] = "Core forms:"
   out[#out + 1] = ""
-  out[#out + 1] = "- `namespace.head. name` uses Lua field lookup through an LLB namespace to feed a name slot, for example `moonlift.fn. add` or `llpvm.task. compile`."
-  out[#out + 1] = "- `value [Type]` uses Lua indexing to attach a type or computed slot, for example `a [moonlift.i32]`."
+  out[#out + 1] = "- `namespace.head. name` uses Lua field lookup through an LLB namespace to feed a name slot, for example `lalin.fn. add` or `llpvm.task. compile`."
+  out[#out + 1] = "- `value [Type]` uses Lua indexing to attach a type or computed slot, for example `a [lalin.i32]`."
   out[#out + 1] = "- `head { ... }` uses Lua calls and tables to feed product, body, declaration, protocol, or record slots."
   out[#out + 1] = "- `name = value` inside a table remains native Lua record syntax and is used for record/fill/map-shaped data."
   out[#out + 1] = "- `_ (fragment)` splices a role-shaped fragment into the surrounding role."
   out[#out + 1] = "- `left .. right` concatenates compatible product/list fragments or family zones."
   out[#out + 1] = "- `left + right` composes compatible sum/protocol alternatives."
   out[#out + 1] = "- `left * right` decorates sum/protocol alternatives with product-shaped payloads when the language role supports it."
-  out[#out + 1] = "- `moonlift { ... }`, `llpvm { ... }`, `asdl { ... }`, and similar forms call LLB namespace values to create family zones: explicit language scopes inside one Lua value."
+  out[#out + 1] = "- `lalin { ... }`, `llpvm { ... }`, `asdl { ... }`, and similar forms call LLB namespace values to create family zones: explicit language scopes inside one Lua value."
   out[#out + 1] = ""
   out[#out + 1] = "In family environments, member DSLs are exposed through LLB namespace values. The namespace is a semantic owner, not just a Lua table: tools can describe it, document it, and use its call form for zones."
   out[#out + 1] = ""
-  out[#out + 1] = "The dot belongs visually to the keyword side. Canonical LLB style is `moonlift.fn. add`, not `moonlift.fn .add`: the keyword/head is the syntactic operator, while the name stays clean."
+  out[#out + 1] = "The dot belongs visually to the keyword side. Canonical LLB style is `lalin.fn. add`, not `lalin.fn .add`: the keyword/head is the syntactic operator, while the name stays clean."
   out[#out + 1] = ""
   out[#out + 1] = "There is no parser, tokenizer, antiquote layer, or string language hidden here. A source file evaluates as Lua; the resulting values already contain enough LLB metadata for diagnostics, formatting, indexing, documentation, and language-specific lowering."
   out[#out + 1] = ""
@@ -5849,7 +5849,7 @@ function Family:markdown(opts)
 
   out[#out + 1] = "## Zones"
   out[#out + 1] = ""
-  out[#out + 1] = "Zones are semantic partitions inside family values. Each member may expose a zone head such as `moonlift { ... }` or `llpvm { ... }`."
+  out[#out + 1] = "Zones are semantic partitions inside family values. Each member may expose a zone head such as `lalin { ... }` or `llpvm { ... }`."
   out[#out + 1] = ""
 
   out[#out + 1] = "## Tooling"

@@ -4,8 +4,8 @@
 -- bytecode. It consumes resolved HIR and emits through regions_codegen. HIR
 -- expression nesting is traversed with LowerFrame records, not recursive emits.
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 local pconst = require("experiments.lua_interpreter_vm.src.parser_constants")
 local codegen = require("experiments.lua_interpreter_vm.src.regions_codegen")
@@ -70,34 +70,34 @@ local V = {
     source_error_at_current = parser.source_error_at_current,
     source_error_at_span = parser.source_error_at_span,
 }
-for k, v in pairs(const.Op) do V["OP_" .. k] = moon.int(v) end
-for k, v in pairs(const.ProtoFlag) do V[k] = moon.int(v) end
-for k, v in pairs(pconst.Tok) do V["TOK_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.Kw) do V["KW_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.ParseErr) do V["PERR_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.SourcePhase) do V["SOURCE_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.HirStmtKind) do V["HSTMT_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.HirExprKind) do V["HEXPR_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.LowerFrameKind) do V["LFRAME_" .. k] = moon.int(v) end
-V.SIZE_PROTO = moon.int(136)
-V.SIZE_FUNC_BUILDER = moon.int(248)
-V.SIZE_INSTR = moon.int(4)
-V.SIZE_VALUE = moon.int(16)
-V.SIZE_UPVALDESC = moon.int(16)
-V.SIZE_PROTO_PTR = moon.int(8)
-V.SIZE_COMPILE_LOCAL = moon.int(24)
-V.CHILD_CODE_CAP = moon.int(128)
-V.CHILD_CONST_CAP = moon.int(64)
-V.CHILD_UPVAL_CAP = moon.int(16)
-V.CHILD_CHILD_CAP = moon.int(16)
-V.CHILD_LOCAL_CAP = moon.int(32)
-V.CHILD_OFF_PROTO = moon.int(248)
-V.CHILD_OFF_CODE = moon.int(384)
-V.CHILD_OFF_CONSTANTS = moon.int(896)
-V.CHILD_OFF_UPVALS = moon.int(1920)
-V.CHILD_OFF_CHILDREN = moon.int(2176)
-V.CHILD_OFF_LOCALS = moon.int(2304)
-V.CHILD_TOTAL = moon.int(3072)
+for k, v in pairs(const.Op) do V["OP_" .. k] = lalin.int(v) end
+for k, v in pairs(const.ProtoFlag) do V[k] = lalin.int(v) end
+for k, v in pairs(pconst.Tok) do V["TOK_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.Kw) do V["KW_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.ParseErr) do V["PERR_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.SourcePhase) do V["SOURCE_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.HirStmtKind) do V["HSTMT_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.HirExprKind) do V["HEXPR_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.LowerFrameKind) do V["LFRAME_" .. k] = lalin.int(v) end
+V.SIZE_PROTO = lalin.int(136)
+V.SIZE_FUNC_BUILDER = lalin.int(248)
+V.SIZE_INSTR = lalin.int(4)
+V.SIZE_VALUE = lalin.int(16)
+V.SIZE_UPVALDESC = lalin.int(16)
+V.SIZE_PROTO_PTR = lalin.int(8)
+V.SIZE_COMPILE_LOCAL = lalin.int(24)
+V.CHILD_CODE_CAP = lalin.int(128)
+V.CHILD_CONST_CAP = lalin.int(64)
+V.CHILD_UPVAL_CAP = lalin.int(16)
+V.CHILD_CHILD_CAP = lalin.int(16)
+V.CHILD_LOCAL_CAP = lalin.int(32)
+V.CHILD_OFF_PROTO = lalin.int(248)
+V.CHILD_OFF_CODE = lalin.int(384)
+V.CHILD_OFF_CONSTANTS = lalin.int(896)
+V.CHILD_OFF_UPVALS = lalin.int(1920)
+V.CHILD_OFF_CHILDREN = lalin.int(2176)
+V.CHILD_OFF_LOCALS = lalin.int(2304)
+V.CHILD_TOTAL = lalin.int(3072)
 
 local push_lower_frame = host.region(V) [[
 region push_lower_frame(cu: ptr(CompileUnit), frame: LowerFrame;

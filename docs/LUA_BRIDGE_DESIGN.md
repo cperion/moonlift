@@ -1,10 +1,10 @@
 # LuaBridge Design
 
-LuaBridge is the standard protocol boundary between Moonlift and LuaJIT.
+LuaBridge is the standard protocol boundary between Lalin and LuaJIT.
 
 It is not a convenience wrapper over the Lua C API.  It is the place where
 LuaJIT stack effects, registry references, borrowed memory, protected calls,
-and Lua errors become explicit Moonlift facts.
+and Lua errors become explicit Lalin facts.
 
 The core rule:
 
@@ -17,7 +17,7 @@ LuaBridge regions are the design.
 ## Doctrine
 
 LuaJIT is a dynamic host runtime with stack-based APIs, registry references,
-garbage-collected objects, and exception-style error transfer.  Moonlift is a
+garbage-collected objects, and exception-style error transfer.  Lalin is a
 typed, jump-first compiled language where resource obligations and control
 outcomes are explicit.
 
@@ -25,8 +25,8 @@ LuaBridge reconciles those worlds.
 
 ```text
 LuaJIT owns Lua object memory.
-Moonlift owns registry-reference obligations.
-Moonlift owns semantic handles and typed stores.
+Lalin owns registry-reference obligations.
+Lalin owns semantic handles and typed stores.
 LuaBridge owns the conversion protocol.
 ```
 
@@ -43,7 +43,7 @@ raw Lua values; they resolve through this store.
 
 Conceptually:
 
-```moonlift
+```lalin
 struct LuaBridgeStore
     states: LuaStateRecord*
     refs: LuaRefRecord*
@@ -74,17 +74,17 @@ LuaBridge store.  The protocol law remains the same.
 The boundary has three layers:
 
 ```text
-moonlift.lua_raw
+lalin.lua_raw
     raw extern declarations only
     unsafe, small, internal
     no ownership meaning
 
-moonlift.lua_bridge_model
+lalin.lua_bridge_model
     handles, records, structs, enums, and protocol signatures
     no raw Lua C API calls
     reusable by every subsystem that mentions Lua values
 
-moonlift.lua_bridge
+lalin.lua_bridge
     region implementations
     the only normal module allowed to use lua_raw
     owns stack discipline, registry references, protected calls, and errors
@@ -93,7 +93,7 @@ moonlift.lua_bridge
 Higher layers use `lua_bridge`.  They do not import `lua_raw`.
 
 ```text
-moonlift core/runtime code
+lalin core/runtime code
     uses lua_bridge
     does not call lua_raw
 
@@ -105,7 +105,7 @@ public Lua-facing APIs
 The unsafe escape hatch is explicit:
 
 ```lua
-local raw = require("moonlift.lua_raw")
+local raw = require("lalin.lua_raw")
 ```
 
 That import means the module is implementing or auditing the bridge boundary.
@@ -122,20 +122,20 @@ Lua stack value
 
 Lua registry reference
     durable Lua value identity
-    owned by Moonlift as a release obligation
+    owned by Lalin as a release obligation
 
 Lua object memory
     owned by LuaJIT and its garbage collector
-    never freed by Moonlift
+    never freed by Lalin
 
-Moonlift semantic value
-    owned by Moonlift stores and resource protocols
+Lalin semantic value
+    owned by Lalin stores and resource protocols
     may be represented in Lua only through bridge-controlled proxies
 ```
 
 The central type is:
 
-```moonlift
+```lalin
 owned LuaRef
 ```
 
@@ -152,9 +152,9 @@ or hidden behind raw integers.
 
 ## State Identity
 
-`lua_State*` is opaque.  Moonlift does not model its layout.
+`lua_State*` is opaque.  Lalin does not model its layout.
 
-```moonlift
+```lalin
 struct LuaStateRecord
     raw: ptr(u8)
     generation: u64
@@ -183,7 +183,7 @@ owns_state = false
 
 State protocols:
 
-```moonlift
+```lalin
 region lua_state_adopt(core: ptr(Core), L: ptr(u8);
     adopted(state: LuaStateRef)
   | null_state
@@ -211,7 +211,7 @@ against the wrong state is a typed outcome.
 
 Lua registry references are stored in a bridge-owned store.
 
-```moonlift
+```lalin
 struct LuaRefRecord
     state: LuaStateRef
     registry_ref: i32
@@ -231,14 +231,14 @@ where Lua semantics require it.
 The store law:
 
 ```text
-LuaRef handle identity is Moonlift-owned.
+LuaRef handle identity is Lalin-owned.
 registry_ref is an implementation field.
 Only lua_bridge may create, push, or unref registry_ref.
 ```
 
 Reference lifecycle protocols:
 
-```moonlift
+```lalin
 region lua_retain_value(core: ptr(Core), state: LuaStateRef, idx: i32;
     retained(ref: owned LuaRef)
   | invalid_index(idx: i32)
@@ -288,7 +288,7 @@ If the resource was not discharged, the continuation carries it as owned.
 The Lua stack is ambient mutable state in the raw C API.  LuaBridge turns stack
 effects into explicit protocols.
 
-```moonlift
+```lalin
 struct LuaStackMark
     top: i32
 end
@@ -301,7 +301,7 @@ end
 
 Stack protocols:
 
-```moonlift
+```lalin
 region lua_stack_mark(core: ptr(Core), state: LuaStateRef;
     mark(mark: LuaStackMark)
   | stale_state(state: LuaStateRef)
@@ -337,14 +337,14 @@ No bridge region leaves an undocumented stack effect.
 
 Stack indices returned by bridge regions are valid only under the stack
 discipline that produced them.  They are not durable identities and must never
-be stored as long-lived Moonlift values.
+be stored as long-lived Lalin values.
 
 ## Lua Kinds
 
 LuaBridge names Lua runtime kinds without turning Lua into a second static type
 system.
 
-```moonlift
+```lalin
 union LuaValueKind
     nil_value
   | boolean
@@ -361,7 +361,7 @@ end
 
 Reading the kind is a stack operation:
 
-```moonlift
+```lalin
 region lua_read_type(core: ptr(Core), state: LuaStateRef, idx: i32;
     kind(kind: LuaValueKind)
   | invalid_index(idx: i32)
@@ -376,9 +376,9 @@ traffic in `LuaValueKind`.
 ## Borrowed Strings
 
 `lua_tolstring` returns memory owned by LuaJIT.  It is borrowed memory, not a
-Moonlift allocation.
+Lalin allocation.
 
-```moonlift
+```lalin
 struct LuaStringBorrow
     data: ptr(u8)
     len: index
@@ -390,7 +390,7 @@ end
 The borrow is valid only while the stack discipline preserves the referenced
 Lua value and LuaJIT has not invalidated the pointer.
 
-```moonlift
+```lalin
 region lua_borrow_string(core: ptr(Core), state: LuaStateRef, idx: i32;
     string(s: LuaStringBorrow)
   | wrong_type(actual: LuaValueKind)
@@ -401,9 +401,9 @@ region lua_borrow_string(core: ptr(Core), state: LuaStateRef, idx: i32;
 end
 ```
 
-Durable string data must be copied into Moonlift-owned memory:
+Durable string data must be copied into Lalin-owned memory:
 
-```moonlift
+```lalin
 region lua_copy_string(core: ptr(Core), state: LuaStateRef, idx: i32;
     bytes(bytes: owned OwnedBytesRef)
   | wrong_type(actual: LuaValueKind)
@@ -420,10 +420,10 @@ ownership meanings.
 
 ## Scalar Reads
 
-Scalar reads convert stack values into Moonlift values without retaining Lua
+Scalar reads convert stack values into Lalin values without retaining Lua
 objects.
 
-```moonlift
+```lalin
 region lua_read_bool(core: ptr(Core), state: LuaStateRef, idx: i32;
     value(value: bool)
   | wrong_type(actual: LuaValueKind)
@@ -444,7 +444,7 @@ end
 Expected-type conversion belongs in named conversion protocols, not in ad hoc
 call sites.
 
-```moonlift
+```lalin
 region lua_value_to_core_value(core: ptr(Core), state: LuaStateRef, idx: i32, expected: TypeRef;
     value(value: ValueRef)
   | wrong_type(expected: TypeRef, actual: LuaValueKind)
@@ -462,7 +462,7 @@ end
 
 Pushing values into Lua must return the exact resulting stack index.
 
-```moonlift
+```lalin
 region lua_push_nil(core: ptr(Core), state: LuaStateRef;
     pushed(stack_index: i32)
   | stale_state(state: LuaStateRef)
@@ -495,7 +495,7 @@ end
 
 Reverse semantic conversion:
 
-```moonlift
+```lalin
 region core_value_to_lua(core: ptr(Core), state: LuaStateRef, value: ValueRef;
     pushed(stack_index: i32)
   | unsupported_value(kind: u8)
@@ -508,16 +508,16 @@ end
 ```
 
 LuaBridge should not standardize Lua as a second object model.  It standardizes
-the boundary between dynamic host values and Moonlift semantic values.
+the boundary between dynamic host values and Lalin semantic values.
 
 ## Protected Calls
 
-All Lua calls from Moonlift are protected calls.
+All Lua calls from Lalin are protected calls.
 
 Raw `lua_call` is not part of the bridge design.  Raw `lua_pcall` is an
 implementation pin used by LuaBridge.
 
-```moonlift
+```lalin
 struct LuaCallFrame
     mark: LuaStackMark
     fn_index: i32
@@ -529,7 +529,7 @@ end
 
 Call frame protocols:
 
-```moonlift
+```lalin
 region lua_begin_call(core: ptr(Core), state: LuaStateRef, fn: LuaRef;
     frame(frame: LuaCallFrame)
   | stale(ref: LuaRef)
@@ -562,7 +562,7 @@ end
 
 Single-region protected call:
 
-```moonlift
+```lalin
 region lua_call_protected(core: ptr(Core), state: LuaStateRef, fn: LuaRef, args: LuaStackRange, nresults: i32;
     returned(results: LuaStackRange)
   | lua_error(message: owned LuaErrorRef)
@@ -581,9 +581,9 @@ when arguments already occupy a checked stack range.
 ## Lua Errors
 
 Lua errors are values captured by protocols.  They are not unstructured host
-exceptions inside Moonlift.
+exceptions inside Lalin.
 
-```moonlift
+```lalin
 struct LuaErrorRecord
     state: LuaStateRef
     message: LuaRef
@@ -600,7 +600,7 @@ end
 `owned LuaErrorRef` is a resource obligation.  Releasing it must release any
 contained owned registry references or transfer them through a typed protocol.
 
-```moonlift
+```lalin
 region capture_lua_error(core: ptr(Core), state: LuaStateRef, err_index: i32;
     error(err: owned LuaErrorRef)
   | invalid_error_object
@@ -623,16 +623,16 @@ end
 ```
 
 At an outer hosted API boundary, a diagnostic or captured Lua error may be
-presented as a Lua exception.  Inside Moonlift, it remains a typed continuation.
+presented as a Lua exception.  Inside Lalin, it remains a typed continuation.
 
 ## Tables
 
-Lua table traversal is not a free-for-all.  Tables enter Moonlift through named
+Lua table traversal is not a free-for-all.  Tables enter Lalin through named
 import protocols that state the semantic role of the table.
 
 Examples:
 
-```moonlift
+```lalin
 region lua_import_args_table(core: ptr(Core), state: LuaStateRef, idx: i32;
     args(args: ArgsRef)
   | wrong_type(actual: LuaValueKind)
@@ -670,7 +670,7 @@ This prevents table conventions from spreading as hidden architecture.
 
 ## Userdata And Proxies
 
-Lua proxies are Lua-facing representations of Moonlift handles.  They are not
+Lua proxies are Lua-facing representations of Lalin handles.  They are not
 owners of the semantic object unless their protocol explicitly carries an owned
 handle.
 
@@ -685,7 +685,7 @@ metatable identity controlled by LuaBridge
 
 Proxy decode is a bridge protocol:
 
-```moonlift
+```lalin
 region lua_decode_proxy(core: ptr(Core), state: LuaStateRef, idx: i32, expected_kind: u8;
     proxy(value: ValueRef)
   | wrong_type(actual: LuaValueKind)
@@ -701,7 +701,7 @@ end
 
 Specific semantic proxy protocols may be layered on top:
 
-```moonlift
+```lalin
 region lua_push_core_proxy(core: ptr(Core), state: LuaStateRef, value: ValueRef;
     pushed(stack_index: i32)
   | unsupported_value(kind: u8)
@@ -757,32 +757,32 @@ No conversion should be hidden in helper callbacks or stringly metadata.
 
 ## Raw Extern Layer
 
-`moonlift.lua_raw` centralizes raw pins.  It declares only the functions required
+`lalin.lua_raw` centralizes raw pins.  It declares only the functions required
 to implement LuaBridge.
 
 Representative externs:
 
-```moonlift
-extern lua_gettop(L: ptr(u8)): i32 as "moonlift_lua_raw_gettop" end
-extern lua_settop(L: ptr(u8), idx: i32) as "moonlift_lua_raw_settop" end
-extern lua_type(L: ptr(u8), idx: i32): i32 as "moonlift_lua_raw_type" end
-extern lua_tolstring(L: ptr(u8), idx: i32, len: ptr(index)): ptr(u8) as "moonlift_lua_raw_tolstring" end
-extern lua_toboolean(L: ptr(u8), idx: i32): i32 as "moonlift_lua_raw_toboolean" end
-extern lua_tonumber(L: ptr(u8), idx: i32): f64 as "moonlift_lua_raw_tonumber" end
-extern lua_pushvalue(L: ptr(u8), idx: i32) as "moonlift_lua_raw_pushvalue" end
-extern lua_pushnil(L: ptr(u8)) as "moonlift_lua_raw_pushnil" end
-extern lua_pushboolean(L: ptr(u8), b: i32) as "moonlift_lua_raw_pushboolean" end
-extern lua_pushnumber(L: ptr(u8), n: f64) as "moonlift_lua_raw_pushnumber" end
-extern lua_pushlstring(L: ptr(u8), s: ptr(u8), len: index) as "moonlift_lua_raw_pushlstring" end
-extern lua_rawgeti(L: ptr(u8), idx: i32, n: i32) as "moonlift_lua_raw_rawgeti" end
-extern lua_rawseti(L: ptr(u8), idx: i32, n: i32) as "moonlift_lua_raw_rawseti" end
-extern luaL_ref(L: ptr(u8), t: i32): i32 as "moonlift_lua_raw_lref" end
-extern luaL_unref(L: ptr(u8), t: i32, ref: i32) as "moonlift_lua_raw_lunref" end
-extern lua_pcall(L: ptr(u8), nargs: i32, nresults: i32, errfunc: i32): i32 as "moonlift_lua_raw_pcall" end
+```lalin
+extern lua_gettop(L: ptr(u8)): i32 as "lalin_lua_raw_gettop" end
+extern lua_settop(L: ptr(u8), idx: i32) as "lalin_lua_raw_settop" end
+extern lua_type(L: ptr(u8), idx: i32): i32 as "lalin_lua_raw_type" end
+extern lua_tolstring(L: ptr(u8), idx: i32, len: ptr(index)): ptr(u8) as "lalin_lua_raw_tolstring" end
+extern lua_toboolean(L: ptr(u8), idx: i32): i32 as "lalin_lua_raw_toboolean" end
+extern lua_tonumber(L: ptr(u8), idx: i32): f64 as "lalin_lua_raw_tonumber" end
+extern lua_pushvalue(L: ptr(u8), idx: i32) as "lalin_lua_raw_pushvalue" end
+extern lua_pushnil(L: ptr(u8)) as "lalin_lua_raw_pushnil" end
+extern lua_pushboolean(L: ptr(u8), b: i32) as "lalin_lua_raw_pushboolean" end
+extern lua_pushnumber(L: ptr(u8), n: f64) as "lalin_lua_raw_pushnumber" end
+extern lua_pushlstring(L: ptr(u8), s: ptr(u8), len: index) as "lalin_lua_raw_pushlstring" end
+extern lua_rawgeti(L: ptr(u8), idx: i32, n: i32) as "lalin_lua_raw_rawgeti" end
+extern lua_rawseti(L: ptr(u8), idx: i32, n: i32) as "lalin_lua_raw_rawseti" end
+extern luaL_ref(L: ptr(u8), t: i32): i32 as "lalin_lua_raw_lref" end
+extern luaL_unref(L: ptr(u8), t: i32, ref: i32) as "lalin_lua_raw_lunref" end
+extern lua_pcall(L: ptr(u8), nargs: i32, nresults: i32, errfunc: i32): i32 as "lalin_lua_raw_pcall" end
 ```
 
 These externs are pins, not architecture.  They should not be re-exported by
-normal Moonlift modules.
+normal Lalin modules.
 
 ## Diagnostics
 
@@ -823,7 +823,7 @@ Forbidden patterns:
 storing raw stack indices in durable records
 passing registry_ref integers outside lua_bridge
 calling lua_pcall outside lua_bridge
-calling lua_call from Moonlift code
+calling lua_call from Lalin code
 using Lua errors as internal control flow
 returning borrowed string pointers as durable memory
 manual table iteration in semantic subsystems
@@ -863,7 +863,7 @@ lua_bridge_model names the boundary facts.
 lua_bridge is the only normal user of lua_raw.
 
 LuaJIT owns Lua object memory.
-Moonlift owns registry-reference obligations.
+Lalin owns registry-reference obligations.
 LuaRef is durable identity.
 owned LuaRef is exactly-one release authority.
 

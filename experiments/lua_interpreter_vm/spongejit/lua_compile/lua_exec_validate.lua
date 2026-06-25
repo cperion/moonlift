@@ -4,7 +4,7 @@
 -- structural and fail-closed; it does not interpret Lua opcodes or call helpers.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local RT, Exec = T.LuaRT, T.LuaExec
 local LuaRTValidate = require("lua_compile.lua_rt_validate")

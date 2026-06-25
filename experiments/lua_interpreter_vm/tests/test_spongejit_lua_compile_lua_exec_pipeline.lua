@@ -2,19 +2,19 @@
 package.path = "./experiments/lua_interpreter_vm/spongejit/?.lua;./experiments/lua_interpreter_vm/spongejit/?/init.lua;./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local moon = require("moonlift")
+local lalin = require("lalin")
 local C = require("lua_compile")
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local ExecLower = require("lua_compile.lua_src_to_lua_exec_lower")
-local ExecToMoon = require("lua_compile.lua_exec_to_moon_cfg_lower")
+local ExecToLalin = require("lua_compile.lua_exec_to_lalin_cfg_lower")
 local ExecValidate = require("lua_compile.lua_exec_validate")
-local CFGValidate = require("lua_compile.moon_cfg_validate")
-local Emit = require("lua_compile.moon_cfg_emit")
+local CFGValidate = require("lua_compile.lalin_cfg_validate")
+local Emit = require("lua_compile.lalin_cfg_emit")
 local OutcomeModel = require("lua_compile.lua_rt_outcome_model")
 local ValueModel = require("lua_compile.lua_rt_value_model")
-local RT, Exec, CFG, Src = T.LuaRT, T.LuaExec, T.MoonCFG, T.LuaSrc
+local RT, Exec, CFG, Src = T.LuaRT, T.LuaExec, T.LalinCFG, T.LuaSrc
 
 ffi.cdef[[
 typedef struct { int64_t tag; int64_t payload_i64; double payload_f64; } LuaRTValue;
@@ -42,12 +42,12 @@ local function contains_class(v, pred, seen)
 end
 
 local function assert_no_luasrc_or_protocol(kernel)
-  assert(not contains_class(kernel, function(cls) return Src.Op.members[cls] end), "MoonCFG output must not contain LuaSrc opcode nodes")
+  assert(not contains_class(kernel, function(cls) return Src.Op.members[cls] end), "LalinCFG output must not contain LuaSrc opcode nodes")
   assert(not contains_class(kernel, function(cls)
     local plan = cls and rawget(cls, "__plan")
     local cname = tostring((plan and plan.name) or "")
     return cname:match("ProtocolExit")
-  end), "MoonCFG output must not contain protocol-exit concepts")
+  end), "LalinCFG output must not contain protocol-exit concepts")
 end
 
 local function lower_exec(events, evidence)
@@ -56,8 +56,8 @@ local function lower_exec(events, evidence)
   assert(exec_kernel, "LuaExec lowering rejected fixture: " .. table.concat(exec_errors or {}, "; "))
   local ok, errs = ExecValidate.kernel(exec_kernel)
   assert(ok, table.concat(errs or {}, "\n"))
-  local cfg_kernel, cfg_errors = ExecToMoon.lower(exec_kernel)
-  assert(cfg_kernel, "LuaExec->MoonCFG rejected fixture: " .. table.concat(cfg_errors or {}, "; "))
+  local cfg_kernel, cfg_errors = ExecToLalin.lower(exec_kernel)
+  assert(cfg_kernel, "LuaExec->LalinCFG rejected fixture: " .. table.concat(cfg_errors or {}, "; "))
   ok, errs = CFGValidate.validate(cfg_kernel)
   assert(ok, table.concat(errs or {}, "\n"))
   assert_no_luasrc_or_protocol(cfg_kernel)
@@ -70,8 +70,8 @@ local function lower_outcome(events, evidence, projection)
   local unit = C.unit_from_events(events, evidence or {})
   local exec_kernel, exec_errors = ExecLower.lower(unit.source, unit.evidence)
   assert(exec_kernel, "LuaExec lowering rejected outcome fixture: " .. table.concat(exec_errors or {}, "; "))
-  local cfg_kernel, cfg_errors = ExecToMoon.lower_outcome(exec_kernel, projection)
-  assert(cfg_kernel, "LuaExec->MoonCFG outcome rejected fixture: " .. table.concat(cfg_errors or {}, "; "))
+  local cfg_kernel, cfg_errors = ExecToLalin.lower_outcome(exec_kernel, projection)
+  assert(cfg_kernel, "LuaExec->LalinCFG outcome rejected fixture: " .. table.concat(cfg_errors or {}, "; "))
   local ok, errs = CFGValidate.validate(cfg_kernel)
   assert(ok, table.concat(errs or {}, "\n"))
   assert_no_luasrc_or_protocol(cfg_kernel)
@@ -84,14 +84,14 @@ local function run_outcome(events, evidence, projection, name, ...)
 end
 
 local function compile_kernel(events, evidence)
-  local r = C.compile_to_moon_kernel(C.unit_from_events(events, evidence or {}))
+  local r = C.compile_to_lalin_kernel(C.unit_from_events(events, evidence or {}))
   assert(r.kind == "Ok", "compile rejected fixture")
   local k = r.product.kernel
-  assert(k.id.name.text == "lua_exec_core_kernel", "compile_to_moon_kernel should use LuaExec core path for this fixture")
+  assert(k.id.name.text == "lua_exec_core_kernel", "compile_to_lalin_kernel should use LuaExec core path for this fixture")
   return k
 end
 
-local dyn_return_public = C.compile_to_moon_kernel(C.unit_from_events({ {op="RETURN1", pc=1, a=1} }, {}))
+local dyn_return_public = C.compile_to_lalin_kernel(C.unit_from_events({ {op="RETURN1", pc=1, a=1} }, {}))
 assert(dyn_return_public.kind == "Ok", "dynamic RETURN1 should not hard-error after outcome retry")
 assert(dyn_return_public.product.kernel.id.name.text == "lua_exec_core_kernel")
 local dyn_return_src = Emit.emit(dyn_return_public.product.kernel, { name = "test_public_dynamic_return1_outcome" })
@@ -105,7 +105,7 @@ assert(contains_class(arity_exec.contract, function(cls) return cls == Exec.Prod
 function run_kernel(kernel, name, ...)
   local src = Emit.emit(kernel, { name = name })
   assert(not src:match("out_tag") and not src:match("out_event_kind"), "LuaExec path must not emit protocol ABI")
-  local fn = assert(moon.loadstring(src, "=(" .. name .. ")"))()
+  local fn = assert(lalin.loadstring(src, "=(" .. name .. ")"))()
   local native = assert(fn:compile())
   local out = native(...)
   if type(out) == "cdata" then out = tonumber(out) or tonumber(tostring(out):match("^-?%d+")) or out end
@@ -114,7 +114,7 @@ function run_kernel(kernel, name, ...)
 end
 
 -- LuaRT/LuaExec structural truthiness: nil and false are falsey, true and i64
--- are truthy. NOT is represented as NotTruthinessExpr before MoonCFG lowering.
+-- are truthy. NOT is represented as NotTruthinessExpr before LalinCFG lowering.
 local exec_nil, cfg_nil = lower_exec({
   {op="LOADNIL", pc=1, a=1, b=1},
   {op="NOT", pc=2, a=2, b=1},
@@ -134,7 +134,7 @@ local _, cfg_i64 = lower_exec({ {op="LOADI", pc=1, a=1, b=0}, {op="NOT", pc=2, a
 local r_i64 = run_kernel(cfg_i64, "test_lua_exec_not_i64_zero_truthy")
 assert(r_i64 == false, tostring(r_i64))
 
--- TEST uses LuaExec.TruthinessChoice, not a Moonlift bool-only source shortcut.
+-- TEST uses LuaExec.TruthinessChoice, not a Lalin bool-only source shortcut.
 local exec_test_nil, cfg_test_nil = lower_exec({
   {op="LOADNIL", pc=1, a=1, b=1},
   {op="TEST", pc=2, a=1, k=true},
@@ -164,7 +164,7 @@ local _, cfg_test_i64 = lower_exec({
 assert(run_kernel(cfg_test_i64, "test_lua_exec_test_i64_truthy") == 11)
 
 -- TESTSET copies the represented Lua value on the taken edge. The semantic copy
--- appears in LuaExec BranchArgs, then mechanically becomes MoonCFG BranchArgs.
+-- appears in LuaExec BranchArgs, then mechanically becomes LalinCFG BranchArgs.
 local exec_testset_i64, cfg_testset_i64 = lower_exec({
   {op="TESTSET", pc=1, a=2, b=1, k=true},
   {op="JMP", pc=2, offset=2},
@@ -180,7 +180,7 @@ local exec_testset_bool, cfg_testset_bool = lower_exec({
   {op="LOADFALSE", pc=3, a=2}, {op="RETURN1", pc=4, a=2}, {op="RETURN1", pc=5, a=2},
 }, { {slot=1,predicate="is_bool"}, {slot=2,predicate="is_bool"} })
 assert(contains_class(exec_testset_bool, function(cls) return cls == Exec.BranchArgs end), "dynamic bool TESTSET must use LuaExec.BranchArgs")
-assert(contains_class(cfg_testset_bool, function(cls) return cls == CFG.BranchArgs end), "dynamic bool TESTSET must lower to MoonCFG BranchArgs")
+assert(contains_class(cfg_testset_bool, function(cls) return cls == CFG.BranchArgs end), "dynamic bool TESTSET must lower to LalinCFG BranchArgs")
 assert(run_kernel(cfg_testset_bool, "test_lua_exec_testset_bool_true", true) == true)
 assert(run_kernel(cfg_testset_bool, "test_lua_exec_testset_bool_false", false) == false)
 
@@ -242,9 +242,9 @@ local manual_block = Exec.Block(Exec.BlockId(ex_name("entry")), {}, manual_ops, 
 local manual_region = Exec.Region(ex_name("manual_error_body"), Exec.ErrorRegion, {}, {}, Exec.BlockId(ex_name("entry")), { manual_block })
 local manual_frame = RT.Frame(fr, RT.StackRef(fr), top, RT.NoVarargs, RT.CloseChain(fr, {}), RT.Pc(44))
 local manual_kernel = Exec.Kernel(ex_name("manual_error_kernel"), manual_frame, manual_region, Exec.Contract({}, {}))
-local manual_cfg = assert(ExecToMoon.lower_outcome(manual_kernel, "error_kind"))
+local manual_cfg = assert(ExecToLalin.lower_outcome(manual_kernel, "error_kind"))
 assert(run_kernel(manual_cfg, "test_manual_lua_exec_error_outcome") == OutcomeModel.ERROR_KIND.RuntimeError)
-local manual_payload_cfg = assert(ExecToMoon.lower_outcome(manual_kernel, "error_value_payload_i64"))
+local manual_payload_cfg = assert(ExecToLalin.lower_outcome(manual_kernel, "error_value_payload_i64"))
 assert(run_kernel(manual_payload_cfg, "test_manual_lua_exec_error_payload") == 123)
 
 local empty_yield_seq = RT.ValueSeq(RT.FixedSeq, {}, RT.FixedCount(0), RT.FromLiteralValues)
@@ -252,7 +252,7 @@ local manual_yield = RT.YieldState(RT.Pc(55), top, empty_yield_seq, RT.ResumeCal
 local yield_block = Exec.Block(Exec.BlockId(ex_name("entry")), {}, {}, Exec.Yield(manual_yield))
 local yield_region = Exec.Region(ex_name("manual_yield_body"), Exec.YieldRegion, {}, {}, Exec.BlockId(ex_name("entry")), { yield_block })
 local yield_kernel = Exec.Kernel(ex_name("manual_yield_kernel"), manual_frame, yield_region, Exec.Contract({}, {}))
-local yield_cfg = assert(ExecToMoon.lower_outcome(yield_kernel, "yield_kind"))
+local yield_cfg = assert(ExecToLalin.lower_outcome(yield_kernel, "yield_kind"))
 assert(run_kernel(yield_cfg, "test_manual_lua_exec_yield_outcome") == OutcomeModel.YIELD_KIND.ResumeCall)
 
 -- Closed JMP and comparison+JMP control run through LuaExec path for supported core values.
@@ -269,7 +269,7 @@ local cfg_branch = compile_kernel({
 assert(run_kernel(cfg_branch, "test_lua_exec_compile_closed_branch", 0) == 11)
 assert(run_kernel(cfg_branch, "test_lua_exec_compile_closed_branch2", 7) == 22)
 
--- Manual MoonCFG value-substrate fixtures prove every LuaRTValue tag is
+-- Manual LalinCFG value-substrate fixtures prove every LuaRTValue tag is
 -- constructible and mechanically projectable without opaque helpers.
 local ValueModel = require("lua_compile.lua_rt_value_model")
 local function cfg_name(s) return CFG.Name(s) end

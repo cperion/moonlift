@@ -1,10 +1,10 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ll = require("llpvm")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 
 local env = {}
-require("moonlift").use { scope = "env", target = env, global = false, searcher = false }
+require("lalin").use { scope = "env", target = env, global = false, searcher = false }
 ll.use { scope = "env", target = env, global = false, searcher = false }
 
 local chunk = assert(loadstring([[

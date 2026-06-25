@@ -1,14 +1,14 @@
 -- Lua Interpreter VM — Proto validation trust boundary (Lua 5.5)
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 local bytecode = require("experiments.lua_interpreter_vm.src.bytecode")
 
 local I = {}
-for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
-for k, v in pairs(const.Op) do I["OP_" .. k] = moon.int(v) end
-for k, v in pairs(const.TM) do I["TM_" .. k] = moon.int(v) end
+for k, v in pairs(const.Err) do I["ERR_" .. k] = lalin.int(v) end
+for k, v in pairs(const.Op) do I["OP_" .. k] = lalin.int(v) end
+for k, v in pairs(const.TM) do I["TM_" .. k] = lalin.int(v) end
 
 -- validate_proto: verify Proto is safe to execute. This is the canonical
 -- interpreter/JIT trust boundary; opcode handlers may assume these facts.

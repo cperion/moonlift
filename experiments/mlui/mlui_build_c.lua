@@ -1,12 +1,12 @@
 -- mlui_build_c.lua -- Build the MLUI C amalgam from the public file API.
 --
--- .mlua files are Lua programs that produce Moonlift values.  The build
--- boundary is moon.emit_c_file, which executes the module, follows
--- moon.require dependencies, bundles the resulting values, and emits C.
+-- .mlua files are Lua programs that produce Lalin values.  The build
+-- boundary is lalin.emit_c_file, which executes the module, follows
+-- lalin.require dependencies, bundles the resulting values, and emits C.
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;experiments/mlui/?.lua;experiments/mlui/?.mlua;" .. package.path
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 
 local M = {}
 
@@ -19,7 +19,7 @@ function M.emit_c_source(opts)
     local emit_opts = {}
     for k, v in pairs(opts) do emit_opts[k] = v end
     emit_opts.site = emit_opts.site or "mlui C amalgam"
-    return moon.emit_c_file("experiments/mlui/mlui_abi.mlua", nil, opts.name or "mlui", emit_opts)
+    return lalin.emit_c_file("experiments/mlui/mlui_abi.mlua", nil, opts.name or "mlui", emit_opts)
 end
 
 function M.write_c(path, opts)

@@ -5,8 +5,8 @@ local C = require("lua_compile")
 local Schema = require("lua_compile.schema")
 local T = Schema.get()
 local RT, GC, Exec, FFI = T.LuaRT, T.LuaGC, T.LuaExec, T.LuaFFI
-local ExecToMoon = require("lua_compile.lua_exec_to_moon_cfg_lower")
-local Emit = require("lua_compile.moon_cfg_emit")
+local ExecToLalin = require("lua_compile.lua_exec_to_lalin_cfg_lower")
+local Emit = require("lua_compile.lalin_cfg_emit")
 
 local function assert_reject_contains(errors_or_result, needle, label)
   local text
@@ -19,7 +19,7 @@ local function assert_reject_contains(errors_or_result, needle, label)
 end
 
 local function compile_events(events)
-  return C.compile_to_moon_kernel(C.unit_from_events(events, {}))
+  return C.compile_to_lalin_kernel(C.unit_from_events(events, {}))
 end
 
 -- Source-level dynamic semantics still reject; complete ASDL products do not imply acceptance.
@@ -50,12 +50,12 @@ local function kernel_with(kind, ops)
   return Exec.Kernel(en("k"), frame, region, Exec.Contract({}, {}))
 end
 local function lower_rejects(kernel, needle)
-  local cfg, errs = ExecToMoon.lower(kernel, { outcome = true, outcome_projection = "kind" })
+  local cfg, errs = ExecToLalin.lower(kernel, { outcome = true, outcome_projection = "kind" })
   assert(not cfg, "kernel unexpectedly lowered")
   assert_reject_contains(errs, needle)
 end
 
--- Unsupported semantic regions reject before MoonCFG emission.
+-- Unsupported semantic regions reject before LalinCFG emission.
 lower_rejects(kernel_with(Exec.MetatableRegion, {}), "unsupported_semantic_region:MetatableRegion")
 lower_rejects(kernel_with(Exec.ClosureRegion, {}), "unsupported_semantic_region:ClosureRegion")
 lower_rejects(kernel_with(Exec.UpvalueRegion, {}), "unsupported_semantic_region:UpvalueRegion")

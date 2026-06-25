@@ -5,7 +5,7 @@ pcall(ffi.cdef, [[
 void* malloc(size_t size);
 void free(void* ptr);
 ]])
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
@@ -16,7 +16,7 @@ assert(ffi.sizeof("HirFunction") > 0, "HirFunction missing from FFI schema")
 assert(ffi.sizeof("LowerFrame") > 0, "LowerFrame missing from FFI schema")
 
 local compile_region = vm.regions_compiler.compile_lua_source_into
-local wrapper = moon.func { compile_lua_source_into = compile_region } [[
+local wrapper = lalin.func { compile_lua_source_into = compile_region } [[
 compile_text(cu: ptr(CompileUnit), b: ptr(FuncBuilder), p: ptr(Proto), bytes: ptr(u8), n: index, code: ptr(Instr), locals: ptr(CompileLocal), workspace: ptr(u8), workspace_cap: index): i32
     return region: i32
     entry start()
@@ -49,7 +49,7 @@ local realloc_cb = ffi.cast("uint64_t (*)(uint8_t*, uint64_t, uint64_t, uint64_t
         return ffi.cast("uint64_t", ffi.cast("uintptr_t", p))
     end)
 
-local runner = moon.func {
+local runner = lalin.func {
     validate_proto = vm.validate.validate_proto,
     vm_resume = vm.vm_loop.vm_resume,
 } [[

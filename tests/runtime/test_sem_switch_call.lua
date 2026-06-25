@@ -1,20 +1,20 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local Switch = require("moonlift.sem_switch_decide")
-local Call = require("moonlift.sem_call_decide")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local Switch = require("lalin.sem_switch_decide")
+local Call = require("lalin.sem_call_decide")
 
 local T = pvm.context()
 A(T)
 local S = Switch(T)
 local CallD = Call(T)
-local C = T.MoonCore
-local Ty = T.MoonType
-local O = T.MoonOpen
-local B = T.MoonBind
-local Sem = T.MoonSem
-local Tr = T.MoonTree
+local C = T.LalinCore
+local Ty = T.LalinType
+local O = T.LalinOpen
+local B = T.LalinBind
+local Sem = T.LalinSem
+local Tr = T.LalinTree
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local fn_ty = Ty.TFunc({ i32 }, i32)
@@ -67,4 +67,4 @@ local unresolved = Tr.ExprRef(Tr.ExprTyped(fn_ty), B.ValueRefName("late"))
 local r6 = CallD.decide(unresolved, fn_ty)
 assert_call_equal(r6, { kind = "unresolved", callee = unresolved })
 
-print("moonlift sem_switch_call ok")
+print("lalin sem_switch_call ok")

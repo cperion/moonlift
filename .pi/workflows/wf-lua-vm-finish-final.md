@@ -1,5 +1,5 @@
-# Finish Moonlift-native Lua VM 
-Complete experiments/lua_interpreter_vm into a final-form idiomatic Moonlift-native Lua 5.5 VM, grounded in explicit_programming.md, keeping SponJIT separate and PUC Lua as oracle only.
+# Finish Lalin-native Lua VM
+Complete experiments/lua_interpreter_vm into a final-form idiomatic Lalin-native Lua 5.5 VM, grounded in explicit_programming.md, keeping SponJIT separate and PUC Lua as oracle only.
 **Workflow ID**: wf-lua-vm-finish-final
 **Started**: 2026-05-30 09:51:58
 ---
@@ -75,7 +75,7 @@ Complete experiments/lua_interpreter_vm into a final-form idiomatic Moonlift-nat
     - `SPONJIT_FOUNDRY_SSA.md` (1-80)
     - `SPONJIT_COPY_LINK_PATCH.md` (1-120)
     - `spongejit/puc/README.md` (1-8)
-19. `lua/moonlift/back_command_binary.lua` diff around body encoder — current uncommitted backend fix for indirect-call signature IDs.
+19. `lua/lalin/back_command_binary.lua` diff around body encoder — current uncommitted backend fix for indirect-call signature IDs.
 
 ## Key Code
 
@@ -104,7 +104,7 @@ named blocks, compose with emit and seal with func, forward continuations direct
 `VM_CONTRACT.md`:
 
 ```md
-- The VM targets Lua 5.5 semantics in Moonlift-native data/control structures.
+- The VM targets Lua 5.5 semantics in Lalin-native data/control structures.
 - PUC Lua is a semantic reference only. PUC layouts, `longjmp`,
   C-stack behavior, allocator conventions, and internal bytecode/runtime
   shapes MUST NOT be treated as implementation dependencies.
@@ -168,7 +168,7 @@ bytecode.OFFSET_SC = 127
 
 `src/vm_loop.lua` reloads parent frame prototype pointers on return:
 
-```moonlift
+```lalin
 block cont_resume_parent(parent: ptr(Frame), pc: index, base: index, top: index,
                          code: ptr(Instr), constants: ptr(Value))
     let cl: ptr(LClosure) = as(ptr(LClosure), parent.closure.bits)
@@ -183,7 +183,7 @@ end
 
 `src/regions_native.lua`:
 
-```moonlift
+```lalin
 region decode_native_result(result: ptr(NativeCallResult);
                             returned: cont(nres: i32),
                             yielded: cont(nres: i32),
@@ -196,7 +196,7 @@ region decode_native_result(result: ptr(NativeCallResult);
 
 `src/vm_loop.lua` still gates successful native returns at the loop boundary:
 
-```moonlift
+```lalin
 block native_ret(nres: i32)
     -- Actual native invocation is still gated...
     jump error(code = @{ERR_RUNTIME})
@@ -207,7 +207,7 @@ end
 
 `src/regions_chunk.lua` is currently an explicit rejection boundary:
 
-```moonlift
+```lalin
 region load_lua55_binary_chunk(...;
                                ok: cont(proto: ptr(Proto)),
                                format_error: cont(err: CompileError),
@@ -221,7 +221,7 @@ end
 
 ### Current backend/repo issue affecting VM work
 
-`lua/moonlift/back_command_binary.lua` has an uncommitted fix for indirect-call signatures:
+`lua/lalin/back_command_binary.lua` has an uncommitted fix for indirect-call signatures:
 
 ```diff
 -            w4(buf, 0) -- sig_id placeholder
@@ -285,7 +285,7 @@ This is relevant because allocator/native boundary code casts stored pointers to
   - `src/regions_native.lua`
   - `src/regions_resume.lua`
   - new contract tests for bytecode/product/resume/native/allocator/compat/string/table.
-- `lua/moonlift/back_command_binary.lua` is modified for indirect-call signature IDs.
+- `lua/lalin/back_command_binary.lua` is modified for indirect-call signature IDs.
 - `.vendor/Lua` submodule status points at commit `a5522f06...`; `.vendor/Lua/lua.h` reports Lua 5.5.0.
 
 ### Test baseline observed
@@ -404,7 +404,7 @@ This is a first-order mismatch between VM `TM` constants and the Lua 5.5 oracle.
 
 ### Backend issue
 
-The uncommitted `back_command_binary.lua` change is materially relevant: current VM allocator/native paths use indirect function-pointer calls. The binary backend needed `CallIndirect` to write a per-call signature ID instead of zero. This affects finishing runtime allocation/native ABI tests and any Moonlift-native VM code using indirect calls.
+The uncommitted `back_command_binary.lua` change is materially relevant: current VM allocator/native paths use indirect function-pointer calls. The binary backend needed `CallIndirect` to write a per-call signature ID instead of zero. This affects finishing runtime allocation/native ABI tests and any Lalin-native VM code using indirect calls.
 
 ## Knowledge-builder Output — 2026-05-30 10:15:38
 
@@ -449,7 +449,7 @@ The uncommitted `back_command_binary.lua` change is materially relevant: current
 
 - Closure/upvalue support is an ordering pressure because it is not isolated to “function syntax.” Binary chunks, nested functions, captured locals, `OP_CLOSE`, TBC, returns, GC reachability, and coroutine stack suspension all depend on open/closed upvalue correctness. Current fail-loud allocation paths mean many otherwise-valid chunks cannot yet be represented.
 
-- Binary chunk rejection is a clean explicit boundary, but accepting chunks will expand the trust boundary dramatically. The loader must translate external Lua 5.5 bytecode into Moonlift-native `Proto`, `Value`, constants, upvalue descriptors, maxstack, and child proto graphs without importing PUC layout assumptions. Validator completeness becomes a prerequisite for safety, not just a test nicety.
+- Binary chunk rejection is a clean explicit boundary, but accepting chunks will expand the trust boundary dramatically. The loader must translate external Lua 5.5 bytecode into Lalin-native `Proto`, `Value`, constants, upvalue descriptors, maxstack, and child proto graphs without importing PUC layout assumptions. Validator completeness becomes a prerequisite for safety, not just a test nicety.
 
 - Source compiler tests can mask VM incompleteness. The current source slice emits only a small subset of bytecode and arithmetic patterns, so passing source/e2e tests does not imply interpreter completeness. Bytecode-level oracle tests are more revealing for VM semantics until the compiler is itself complete.
 
@@ -464,7 +464,7 @@ The uncommitted `back_command_binary.lua` change is materially relevant: current
 ### Knowledge Gaps
 
 - Exact Lua 5.5 numeric conversion rules still need pinning down for mixed int/float arithmetic, division, modulo, floor division, bitwise conversion, shifts, NaN equality, and string-to-number coercion.
-- Full Lua 5.5 binary chunk format obligations need mapping onto the Moonlift-native `Proto`/`Value` products.
+- Full Lua 5.5 binary chunk format obligations need mapping onto the Lalin-native `Proto`/`Value` products.
 - Non-table metatable representation in the current VM product tree needs clarification before metamethod completion can be judged complete.
 
 ## Scout Output — 2026-05-30 10:39:15
@@ -507,7 +507,7 @@ Dangerous current invariant:
 - `TM` order is storage/control ABI. Current order has `EQ=4`, `ADD=5`, `DIV=8`, `LEN=12`, `CLOSE=23`, no `BNOT`; all consumers assume this ordering is correct.
 
 #### `src/products.lua`
-- Imports: `moonlift`, `moonlift.host` lines 5-6.
+- Imports: `lalin`, `lalin.host` lines 5-6.
 - Core products:
   - `Value`: line 10.
   - `GCHeader`: line 13.
@@ -566,7 +566,7 @@ Dangerous invariant:
 - Validator duplicates decode expressions manually in `validate.lua` lines 41-52 rather than using `bytecode.exprs`.
 
 #### `src/validate.lua`
-- Imports: `moonlift`, `moonlift.host`, `constants`, `bytecode` lines 3-6.
+- Imports: `lalin`, `lalin.host`, `constants`, `bytecode` lines 3-6.
 - Builds `I` constants: lines 8-9.
 - `validate_proto`: lines 15-288.
 - Initial structural checks: lines 18-34.
@@ -606,7 +606,7 @@ Dangerous invariants:
 ### VM loop / resume / call / native / error / coroutine
 
 #### `src/vm_loop.lua`
-- Imports: `moonlift`, `host`, `constants` lines 5-7; opcodes lines 11-12.
+- Imports: `lalin`, `host`, `constants` lines 5-7; opcodes lines 11-12.
 - `commit_vm_state`: lines 14-24.
 - `vm_resume`: lines 27-68.
   - Empty frame runtime error: lines 41-42.
@@ -715,7 +715,7 @@ Stub/gap:
 ### Opcode dispatch and handlers
 
 #### `src/opcodes.lua`
-- Imports: `moonlift`, constants, bytecode, op_handlers lines 6-9.
+- Imports: `lalin`, constants, bytecode, op_handlers lines 6-9.
 - `VALS`: lines 11-15.
 - Bytecode decode expressions: lines 27-35.
 - Args helpers: lines 36-55.
@@ -743,7 +743,7 @@ Dangerous invariants:
 - `TFORCALL` mapped to `C_MMBIN` despite distinct iterator-call semantics.
 
 #### `src/op/_init.lua`
-- Imports: `moonlift`, `host`, constants, protocols lines 3-6.
+- Imports: `lalin`, `host`, constants, protocols lines 3-6.
 - `VALS`: lines 8-14.
 - `R(src)`: lines 16-20.
 - `H = protocols.handler_params()`: line 22.
@@ -1169,7 +1169,7 @@ Dangerous current source-slice limits:
   - `src/regions_chunk.lua`: binary chunk loader still rejects at lines 15-28.
   - `src/op/arithmetic.lua`: `MOD/IDIV/POW/MMBIN*` still error at lines 99-120 and 438-462.
   - `src/regions_upvalue.lua`: `find_upvalue`/`make_lclosure` still exit `oom` at lines 22-54.
-- Confirm `lua/moonlift/back_command_binary.lua` contains the indirect-call signature-ID fix for `T.CallIndirect`; allocator/native tests depend on it.
+- Confirm `lua/lalin/back_command_binary.lua` contains the indirect-call signature-ID fix for `T.CallIndirect`; allocator/native tests depend on it.
 - Confirm SponJIT files are not imported by `experiments/lua_interpreter_vm/src/init.lua`; no VM file should add a `spongejit` dependency.
 - Run existing baseline tests before editing:
   - `luajit experiments/lua_interpreter_vm/tests/test_vm_smoke.lua`
@@ -1360,7 +1360,7 @@ Dangerous current source-slice limits:
 
 ---
 
-#### `lua/moonlift/back_command_binary.lua`
+#### `lua/lalin/back_command_binary.lua`
 
 **Goal**: Keep indirect-call signatures correct for allocator/native function pointers.
 
@@ -1574,7 +1574,7 @@ Dangerous current source-slice limits:
 3. **Lines 106-155 `string_concat_range`**:
    - Accept strings and numbers with Lua number-to-string conversion.
    - For other operands, exit through `call_mm` rather than direct error; adjust signature:
-     ```moonlift
+     ```lalin
      call_mm: cont(lhs_index: index, rhs_index: index)
      ```
    - Free temp buffer after intern success/failure if allocator owns it.
@@ -1703,7 +1703,7 @@ Dangerous current source-slice limits:
 2. **Lines 115-130**:
    - Keep parent and child cache reload logic.
    - Factor repeated reload into blocks if helpful:
-     ```moonlift
+     ```lalin
      let cl: ptr(LClosure) = as(ptr(LClosure), frame.closure.bits)
      let code: ptr(Instr) = cl.proto.code
      let constants: ptr(Value) = cl.proto.constants
@@ -1711,7 +1711,7 @@ Dangerous current source-slice limits:
 
 3. **Lines 131-139 `do_native/native_ret`**:
    - Replace runtime error with return convergence:
-     ```moonlift
+     ```lalin
      block native_ret(nres: i32)
          emit resume_after_return/native_return_adjustment ...
      end
@@ -1946,7 +1946,7 @@ Dangerous current source-slice limits:
 
 #### `experiments/lua_interpreter_vm/src/regions_chunk.lua`
 
-**Goal**: Replace explicit rejection with a Lua 5.5 binary chunk reader that produces Moonlift-native `Proto`.
+**Goal**: Replace explicit rejection with a Lua 5.5 binary chunk reader that produces Lalin-native `Proto`.
 
 **Edit blocks**
 
@@ -2685,7 +2685,7 @@ Implemented closure/upvalue runtime semantics end-to-end:
 - `find_upvalue` now creates and links open upvalues in descending stack-index order.
 - `close_upvalues` is now exercised by returns; return paths close open upvalues for the returning frame.
 - Closed upvalues now survive after their defining frame is gone.
-- Fixed `LClosure` allocation size from `40` to `48` bytes to match the Moonlift/C-compatible layout and prevent memory corruption.
+- Fixed `LClosure` allocation size from `40` to `48` bytes to match the Lalin/C-compatible layout and prevent memory corruption.
 
 ## Files Changed
 

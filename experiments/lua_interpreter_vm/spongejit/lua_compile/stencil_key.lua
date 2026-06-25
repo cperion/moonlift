@@ -5,7 +5,7 @@
 -- Complete semantic identities (call/static-region/metatable/upvalue/GC/FFI/loop/close)
 -- are represented by typed PatchSource/CompileContract ASDL nodes, never strings.
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 
 local M = {}
 

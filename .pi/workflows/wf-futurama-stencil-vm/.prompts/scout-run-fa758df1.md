@@ -31,15 +31,15 @@ Anything that stands out — patterns, inconsistencies, interesting details. Raw
 ## Shared Workflow Context
 
 Workflow ID: wf-futurama-stencil-vm
-Workflow directory: /home/cedric/dev/moonlift/.pi/workflows/wf-futurama-stencil-vm
-Workflow context file: /home/cedric/dev/moonlift/.pi/workflows/wf-futurama-stencil-vm/context.md
-Workflow event log: /home/cedric/dev/moonlift/.pi/workflows/wf-futurama-stencil-vm/events.jsonl
+Workflow directory: /home/cedric/dev/lalin/.pi/workflows/wf-futurama-stencil-vm
+Workflow context file: /home/cedric/dev/lalin/.pi/workflows/wf-futurama-stencil-vm/context.md
+Workflow event log: /home/cedric/dev/lalin/.pi/workflows/wf-futurama-stencil-vm/events.jsonl
 
 The text below is the current shared workflow context produced by earlier agents. Use it as shared state. The parent supervisor will append your final useful output back into this context after your run.
 
 # Futurama stencil-only VM exploration
 
-Explore how Moonlift Lua VM and SponJIT would change for a stencil-only VM with Moonlift-authored semantics, saturated L0/L1, and FFI/C as stencils.
+Explore how Lalin Lua VM and SponJIT would change for a stencil-only VM with Lalin-authored semantics, saturated L0/L1, and FFI/C as stencils.
 
 **Workflow ID**: wf-futurama-stencil-vm
 **Started**: 2026-06-01 09:19:46

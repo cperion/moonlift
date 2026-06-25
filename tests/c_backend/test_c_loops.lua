@@ -1,18 +1,18 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
 
 local T = pvm.context()
 A(T)
 
-local Tr = T.MoonTree
-local lexer = require("moonlift.c.c_lexer")
-local cpp = require("moonlift.c.cpp_expand")(T)
-local vfs = require("moonlift.c.vfs")
-local c_parse = require("moonlift.c.c_parse")(T)
-local cimport_mod = require("moonlift.c.cimport")(T)
-local lower_mod = require("moonlift.c.lower_c")(T)
+local Tr = T.LalinTree
+local lexer = require("lalin.c.c_lexer")
+local cpp = require("lalin.c.cpp_expand")(T)
+local vfs = require("lalin.c.vfs")
+local c_parse = require("lalin.c.c_parse")(T)
+local cimport_mod = require("lalin.c.cimport")(T)
+local lower_mod = require("lalin.c.lower_c")(T)
 
 local function lex(src) return lexer.lex(src, "test.c") end
 
@@ -28,8 +28,8 @@ local function full_pipeline(src)
     end
     local tu, parse_issues = c_parse.parse(r.tokens, r.spans)
     local type_facts, layout_facts, extern_funcs = cimport_mod.cimport(tu.items, "test_mod")
-    local moon_module = lower_mod.lower(tu.items, type_facts, layout_facts, extern_funcs, "test_mod")
-    return moon_module, tu, { type_facts = type_facts, layout_facts = layout_facts, extern_funcs = extern_funcs }, parse_issues
+    local lalin_module = lower_mod.lower(tu.items, type_facts, layout_facts, extern_funcs, "test_mod")
+    return lalin_module, tu, { type_facts = type_facts, layout_facts = layout_facts, extern_funcs = extern_funcs }, parse_issues
 end
 
 -- Helper: collect all StmtControl/ExprControl regions from a body
@@ -198,4 +198,4 @@ do
     print("  while nested: PASS (lowered ok)")
 end
 
-print("moonlift test_c_loops ok")
+print("lalin test_c_loops ok")

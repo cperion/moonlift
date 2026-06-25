@@ -1,9 +1,9 @@
 -- Lua Interpreter VM — Data type tree (products)
--- Moonlift-native runtime products. PUC Lua is an oracle only, no PUC layouts
+-- Lalin-native runtime products. PUC Lua is an oracle only, no PUC layouts
 -- are imported here.
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 
 -- 1. Core value type. This is ABI storage, consumers decode through value
 -- protocol regions rather than switching on unvalidated tags ad hoc.
@@ -18,7 +18,7 @@ local Node = host.struct [[struct Node key: Value, value: Value, next: ptr(Node)
 -- 4. String (interned).
 local String = host.struct [[struct String gc: GCHeader, reserved: u8, hash: u32, len: index, bytes: ptr(u8) end]]
 
--- 5. Table. Weak/finalizer/cache states are represented in this Moonlift
+-- 5. Table. Weak/finalizer/cache states are represented in this Lalin
 -- product instead of hidden GC-side PUC lists.
 local Table = host.struct [[struct Table gc: GCHeader, flags: u32, array_len: index, array_cap: index, array: ptr(Value), node_mask: u32, node_count: index, nodes: ptr(Node), lastfree: ptr(Node), metatable: ptr(Table), shape_epoch: u32, weak_next: ptr(GCHeader), finalizer_state: u8, reserved: u8 end]]
 
@@ -80,7 +80,7 @@ local ProtectedFrame = host.struct [[struct ProtectedFrame status: u8, flags: u8
 -- 23. Coroutine suspended state.
 local CoroutineState = host.struct [[struct CoroutineState caller: ptr(LuaThread), nresults: i32, resume: ResumeState end]]
 
--- 24. Finalizer queues, expressed with Moonlift objects rather than PUC list names.
+-- 24. Finalizer queues, expressed with Lalin objects rather than PUC list names.
 local FinalizerQueue = host.struct [[struct FinalizerQueue eligible: ptr(GCHeader), pending: ptr(GCHeader), running: ptr(GCHeader) end]]
 
 -- 25. Call frame.

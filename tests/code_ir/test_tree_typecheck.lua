@@ -1,18 +1,18 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A2 = require("moonlift.schema_projection")
-local moon = require("moonlift")
-local Typecheck = require("moonlift.tree_typecheck")
+local pvm = require("lalin.pvm")
+local A2 = require("lalin.schema_projection")
+local lalin = require("lalin")
+local Typecheck = require("lalin.tree_typecheck")
 
 local T = pvm.context()
 A2(T)
 local TC = Typecheck(T)
 
-local C = T.MoonCore
-local Ty = T.MoonType
-local B = T.MoonBind
-local Tr = T.MoonTree
+local C = T.LalinCore
+local Ty = T.LalinType
+local B = T.LalinBind
+local Tr = T.LalinTree
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local bool = Ty.TScalar(C.ScalarBool)
@@ -55,7 +55,7 @@ assert(typed_jump.h == Tr.StmtSurface)
 assert(pvm.classof(typed_jump.args[1].value.h) == Tr.ExprTyped)
 assert(pvm.classof(typed_region.entry.body[1].cond.h) == Tr.ExprTyped)
 
-local compiled = moon.compile("TreeTypecheckSmoke", module)
+local compiled = lalin.compile("TreeTypecheckSmoke", module)
 local f = compiled.sum_typechecked
 assert(f(0) == 0)
 assert(f(1) == 0)
@@ -78,4 +78,4 @@ local control_report = Typecheck.explain_type_issue(Tr.TypeIssueInvalidControl(
 assert(control_report.code == "E0404")
 assert(control_report.primary.message:find("missing argument `code`", 1, true))
 
-print("moonlift tree_typecheck ok")
+print("lalin tree_typecheck ok")

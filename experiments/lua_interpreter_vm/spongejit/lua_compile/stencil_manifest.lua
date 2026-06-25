@@ -4,9 +4,9 @@
 -- Stencil.StencilModule values into stable plain Lua data/text for storage and
 -- debugging, and checks stored manifests against current modules plus optional
 -- caller-supplied code blob metadata. It must not inspect Lua opcodes,
--- MoonCFG semantics, protocol tags, or interpreter/helper fallbacks.
+-- LalinCFG semantics, protocol tags, or interpreter/helper fallbacks.
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local B = require("lua_compile.builders")
 local T = B.T
 local S = T.Stencil

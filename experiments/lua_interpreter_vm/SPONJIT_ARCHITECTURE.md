@@ -8,19 +8,19 @@ SpongeJIT is moving to an explicit-programming pipeline:
 LuaSrc / LuaFact
 → LuaRT / LuaExec semantic ASDL
 → CompileContract ASDL
-→ MoonCFG ASDL
+→ LalinCFG ASDL
 → Stencil ASDL backend artifacts
-→ Moonlift-native fact collection, selection, copy/patch materialization
+→ Lalin-native fact collection, selection, copy/patch materialization
 → executable native fast paths
 ```
 
-Accepted kernels are LuaExec-derived `MoonCFG.Kernel` products with `CompileContract` obligations. They must not carry retired executable payloads, semantic `out_tag` protocol ABI, or interpreter handoff exits.
+Accepted kernels are LuaExec-derived `LalinCFG.Kernel` products with `CompileContract` obligations. They must not carry retired executable payloads, semantic `out_tag` protocol ABI, or interpreter handoff exits.
 
 ## Current design documents
 
 | Document | Purpose |
 |---|---|
-| `SPONJIT_MOONLIFT_COPY_PATCH_DESIGN.md` | Moonlift-native fact collector, selector, stencil bank, and copy/patch executor. |
+| `SPONJIT_LALIN_COPY_PATCH_DESIGN.md` | Lalin-native fact collector, selector, stencil bank, and copy/patch executor. |
 | `SPONJIT_FFI_DESIGN.md` | First-class LuaJIT-quality FFI design. |
 | `SPONJIT_GC_DESIGN.md` | First-class GC, barriers, finalizers, facts, and stencil integration. |
 | `.pi/workflows/wf-b7b79a56.md` | Live curated no-interpreter design workflow and implementation plan. |

@@ -9,7 +9,7 @@ Audit current lua VM / SpongeJIT lua_compile architecture and AGENTS.md guidance
 ## Files Retrieved
 
 1. `/home/cedric/.pi/agent/AGENTS.md` (lines 1-142) - Global agent-pipeline instructions; governs all work in this harness.
-2. `AGENTS.md` (lines 1-337) - Project-root guidance; governs `experiments/lua_interpreter_vm/spongejit/lua_compile/`. It currently describes Moonlift broadly, not this LuaCompile/SpongeJIT subtree specifically.
+2. `AGENTS.md` (lines 1-337) - Project-root guidance; governs `experiments/lua_interpreter_vm/spongejit/lua_compile/`. It currently describes Lalin broadly, not this LuaCompile/SpongeJIT subtree specifically.
 3. `museum/gps.lua/AGENTS.md` (lines 1-80) - Present in repo but **not an ancestor** of the Lua VM/SpongeJIT subtree; does not govern this area.
 4. `experiments/lua_interpreter_vm/README.md` (lines 1-88) - Current top-level Lua VM + SpongeJIT direction, tests, docs, guardrails.
 5. `experiments/lua_interpreter_vm/SPONJIT_ARCHITECTURE.md` (lines 1-42) - Current high-level architecture and retired assumptions.
@@ -26,7 +26,7 @@ Audit current lua VM / SpongeJIT lua_compile architecture and AGENTS.md guidance
     - lines 1128-1392 - `LuaGC`.
     - lines 1393-1752 - `LuaExec`.
     - lines 1753-1822 - `CompileContract`.
-    - lines 1823-2037 - `MoonCFG`.
+    - lines 1823-2037 - `LalinCFG`.
     - lines 2038-2279 - `Stencil`.
     - lines 2280-2363 - `LuaCompile`.
 13. `experiments/lua_interpreter_vm/spongejit/lua_compile/schema.lua` (lines 1-79) - ASDL bootstrap; only file loading textual schema.
@@ -35,21 +35,21 @@ Audit current lua VM / SpongeJIT lua_compile architecture and AGENTS.md guidance
 16. `experiments/lua_interpreter_vm/spongejit/lua_compile/validate.lua` (lines 1-158) - Shared cross-layer validators.
 17. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_validate.lua` (lines 1-49) - Whole-pipeline boundary validators.
 18. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_unit.lua` (lines 1-31) - Source/evidence -> `LuaCompile.Unit` PVM phase.
-19. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_to_moon_kernel.lua` (lines 1-98) - Public `LuaCompile.Unit -> LuaCompile.Result` compile route through LuaExec/MoonCFG.
+19. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_to_lalin_kernel.lua` (lines 1-98) - Public `LuaCompile.Unit -> LuaCompile.Result` compile route through LuaExec/LalinCFG.
 20. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_from_puc_decode.lua` (lines 1-216) - PUC event -> `LuaSrc.Op` decoding phase.
 21. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_window_collect.lua` (lines 1-60) - Source events -> `LuaSrc.Window`.
 22. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_fact_from_runtime_observe.lua` (lines 1-252) - Runtime/foundry observation import to `LuaFact.Evidence`.
 23. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_fact_from_foundry_bundle.lua` (lines 1-51) - Foundry bundle -> evidence.
 24. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_fact_payload_lease.lua` (lines 1-95) - Payload lease construction/validation.
 25. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_to_lua_exec_lower.lua` (lines 1-220, 1080-1147) - `LuaSrc.Window + LuaFact.Evidence -> LuaExec.Kernel/Module`.
-26. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua` (lines 1-220, 1110-1158) - Mechanical `LuaExec -> MoonCFG`.
+26. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_lalin_cfg_lower.lua` (lines 1-220, 1110-1158) - Mechanical `LuaExec -> LalinCFG`.
 27. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_region_model.lua` (lines 1-140) - Region taxonomy and supported/unsupported status.
 28. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_static_region_model.lua` (lines 1-140) - Static-region validation/composition gates.
 29. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_call_static_model.lua` (lines 1-80) - Strict evidence-backed source `CALL` slice.
 30. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_closure_static_model.lua` (lines 1-80) - Strict evidence-backed source `CLOSURE` slice.
-31. `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_abi.lua` (lines 1-27) - Typed parameter helpers; no `out_tag` ABI.
-32. `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua` (lines 1-80, 1570-1593) - MoonCFG -> Moonlift source renderer and PVM phase.
-33. `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua` (lines 1-80) - MoonCFG structural honesty checks and forbidden strings.
+31. `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_abi.lua` (lines 1-27) - Typed parameter helpers; no `out_tag` ABI.
+32. `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_emit.lua` (lines 1-80, 1570-1593) - LalinCFG -> Lalin source renderer and PVM phase.
+33. `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_cfg_validate.lua` (lines 1-80) - LalinCFG structural honesty checks and forbidden strings.
 34. `experiments/lua_interpreter_vm/spongejit/lua_compile/compile_contract_validate.lua` (lines 1-80) - CompileContract structural validation.
 35. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_validate.lua` (lines 1-120) - LuaExec structural CFG validation.
 36. `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_validate.lua` (lines 1-80) - LuaRT semantic validation.
@@ -86,7 +86,7 @@ museum/gps.lua/AGENTS.md
 For the target subtree, only these govern by ancestry/context:
 
 - `/home/cedric/.pi/agent/AGENTS.md` - global harness rules.
-- `/home/cedric/dev/moonlift/AGENTS.md` - project root rules.
+- `/home/cedric/dev/lalin/AGENTS.md` - project root rules.
 
 `museum/gps.lua/AGENTS.md` is not under/above `experiments/lua_interpreter_vm/spongejit/lua_compile`.
 
@@ -98,9 +98,9 @@ For the target subtree, only these govern by ancestry/context:
 Lua bytecode / trace windows
 → LuaSrc + LuaFact
 → LuaRT / LuaExec semantic ASDL
-→ MoonCFG ASDL
+→ LalinCFG ASDL
 → Stencil ASDL backend artifacts
-→ Moonlift-native fact collection, selection, copy/patch materialization
+→ Lalin-native fact collection, selection, copy/patch materialization
 → executable native fast paths
 ```
 
@@ -110,10 +110,10 @@ Lua bytecode / trace windows
 LuaSrc / LuaFact
 → LuaRT / LuaExec semantic ASDL
 → CompileContract ASDL
-→ MoonCFG ASDL
+→ LalinCFG ASDL
 → Stencil ASDL backend artifacts
 ...
-Accepted kernels are LuaExec-derived `MoonCFG.Kernel` products with `CompileContract` obligations.
+Accepted kernels are LuaExec-derived `LalinCFG.Kernel` products with `CompileContract` obligations.
 ```
 
 Retired assumptions in `SPONJIT_ARCHITECTURE.md` lines 29-41:
@@ -140,7 +140,7 @@ Retired assumptions in `SPONJIT_ARCHITECTURE.md` lines 29-41:
 1128: module LuaGC
 1393: module LuaExec
 1753: module CompileContract
-1823: module MoonCFG
+1823: module LalinCFG
 2038: module Stencil
 2280: module LuaCompile
 ```
@@ -155,8 +155,8 @@ Doctrine lines 6-17:
 --   LuaRT           answers: what Lua runtime semantic objects/state exist.
 --   LuaExec         answers: what explicit semantic Lua CFG is executed over LuaRT.
 --   CompileContract answers: what executable-route obligations/facts/invalidation assumptions are attached.
---   MoonCFG         answers: what explicit Moonlift CFG is emitted.
---   Stencil         answers: what typed copy-and-patch backend artifact is materialized from MoonCFG.
+--   LalinCFG         answers: what explicit Lalin CFG is emitted.
+--   Stencil         answers: what typed copy-and-patch backend artifact is materialized from LalinCFG.
 ```
 
 ### PVM phase usage
@@ -169,12 +169,12 @@ lua_src_window_collect.lua:49         spongejit_lua_src_collect_window
 lua_fact_from_runtime_observe.lua:230 spongejit_lua_fact_import_evidence
 lua_compile_unit.lua:14               spongejit_lua_compile_unit_from_inputs
 lua_src_to_lua_exec_lower.lua:1108    spongejit_lua_src_to_lua_exec_lower
-lua_exec_to_moon_cfg_lower.lua:1116   spongejit_lua_exec_to_moon_cfg_lower
-lua_exec_to_moon_cfg_lower.lua:1125   spongejit_lua_exec_module_to_moon_cfg_lower
+lua_exec_to_lalin_cfg_lower.lua:1116   spongejit_lua_exec_to_lalin_cfg_lower
+lua_exec_to_lalin_cfg_lower.lua:1125   spongejit_lua_exec_module_to_lalin_cfg_lower
 lua_exec_static_region_inline.lua:189 spongejit_lua_exec_static_region_inline
-lua_compile_to_moon_kernel.lua:87     spongejit_lua_compile_to_moon_kernel
-moon_cfg_emit.lua:1579                spongejit_moon_cfg_emit
-moon_cfg_key.lua:32                   spongejit_moon_cfg_key
+lua_compile_to_lalin_kernel.lua:87     spongejit_lua_compile_to_lalin_kernel
+lalin_cfg_emit.lua:1579                spongejit_lalin_cfg_emit
+lalin_cfg_key.lua:32                   spongejit_lalin_cfg_key
 compile_contract_key.lua:43           spongejit_compile_contract_key
 stencil_key.lua:113/118/123/128       semantic/variant/template/representative keys
 stencil_materialization_plan.lua:57   spongejit_stencil_variant_for_kernel
@@ -186,18 +186,18 @@ lua_src_closure_static_model.lua:110  source CLOSURE products
 
 ### Public compile route
 
-`lua_compile_to_moon_kernel.lua` lines 70-82:
+`lua_compile_to_lalin_kernel.lua` lines 70-82:
 
 ```lua
--- Accepted MoonKernel compilation has one executable route:
--- LuaSrc.Window -> LuaExec.Kernel/LuaExec.Module -> MoonCFG.Kernel.
--- LuaExec.Module is typed static region composition inlined before MoonCFG;
+-- Accepted LalinKernel compilation has one executable route:
+-- LuaSrc.Window -> LuaExec.Kernel/LuaExec.Module -> LalinCFG.Kernel.
+-- LuaExec.Module is typed static region composition inlined before LalinCFG;
 -- unsupported source windows return diagnostics with no fallback.
 local exec_product, exec_errors = LuaExecLower.lower(unit.source, unit.evidence)
 ...
 local cfg_kernel, cfg_errors = lower_exec_to_cfg(exec_product)
 ...
-return T.LuaCompile.Ok(T.LuaCompile.MoonKernel(cfg_kernel))
+return T.LuaCompile.Ok(T.LuaCompile.LalinKernel(cfg_kernel))
 ```
 
 ### Current strict source CALL/CLOSURE gates
@@ -224,7 +224,7 @@ return T.LuaCompile.Ok(T.LuaCompile.MoonKernel(cfg_kernel))
 `Makefile` lines 1-5:
 
 ```make
-# Maintained offline foundry artifacts are MoonCFG + CompileContract +
+# Maintained offline foundry artifacts are LalinCFG + CompileContract +
 # Stencil.VariantKey representatives. The old SSA/stencil/sponbank path is
 # quarantined historical material and is not a maintained build/test path.
 ```
@@ -256,7 +256,7 @@ lua_nf
 lua_contract
 lua_place
 normal_form
-moon_cfg_closed
+lalin_cfg_closed
 ssa2
 ```
 
@@ -286,13 +286,13 @@ lua_compile_to_normal_form.lua
 lua_src_to_lua_sem_lower.lua
 lua_sem_to_lua_nf_normalize.lua
 lua_nf_to_lua_contract_derive.lua
-lua_nf_to_moon_out_lower.lua
-moon_out_abi.lua
-moon_out_emit.lua
-moon_out_validate.lua
+lua_nf_to_lalin_out_lower.lua
+lalin_out_abi.lua
+lalin_out_emit.lua
+lalin_out_validate.lua
 ```
 
-`find` returned no current files matching `*normal_form*.lua`, `*lua_sem*.lua`, `*lua_nf*.lua`, or `*moon_out*.lua` under `spongejit/lua_compile`.
+`find` returned no current files matching `*normal_form*.lua`, `*lua_sem*.lua`, `*lua_nf*.lua`, or `*lalin_out*.lua` under `spongejit/lua_compile`.
 
 ## Relationships
 
@@ -316,9 +316,9 @@ LuaCompile.Unit
   -> lua_src_to_lua_exec_lower.lua
   -> LuaExec.Kernel or LuaExec.Module
   -> lua_exec_static_region_inline.lua when module/static regions are involved
-  -> lua_exec_to_moon_cfg_lower.lua
-  -> MoonCFG.Kernel + CompileContract.Contract
-  -> moon_cfg_validate.lua / moon_cfg_emit.lua / moon_cfg_key.lua
+  -> lua_exec_to_lalin_cfg_lower.lua
+  -> LalinCFG.Kernel + CompileContract.Contract
+  -> lalin_cfg_validate.lua / lalin_cfg_emit.lua / lalin_cfg_key.lua
   -> Stencil.VariantKey / StencilTemplate metadata
   -> foundry representative artifacts
 ```
@@ -329,10 +329,10 @@ Foundry artifacts:
 opcode windows + fact bundles
   -> lua_compile_foundry.compile_window
   -> LuaCompile.Unit
-  -> MoonCFG.Kernel
+  -> LalinCFG.Kernel
   -> CompileContract key
   -> Stencil.VariantKey
-  -> representative key = MoonCFG + CompileContract + Stencil.VariantKey
+  -> representative key = LalinCFG + CompileContract + Stencil.VariantKey
   -> JSON/Markdown artifacts
 ```
 
@@ -345,9 +345,9 @@ Tests divide current scope:
 ## Observations
 
 - Only root `AGENTS.md` governs the target subtree; there is no nested `AGENTS.md` under `experiments/`.
-- Root `AGENTS.md` is broad Moonlift guidance and does not mention `experiments/lua_interpreter_vm/spongejit/lua_compile`.
-- Current code no longer has `LuaSem`, `LuaNF`, `LuaContract`, `LuaPlace`, `MoonOut`, or `NormalForm` files/types in `lua_compile/`; tests assert their absence.
-- Current final accepted compiler product is `LuaCompile.Ok(LuaCompile.MoonKernel(MoonCFG.Kernel))`, not `NormalForm` or `MoonOut`.
+- Root `AGENTS.md` is broad Lalin guidance and does not mention `experiments/lua_interpreter_vm/spongejit/lua_compile`.
+- Current code no longer has `LuaSem`, `LuaNF`, `LuaContract`, `LuaPlace`, `LalinOut`, or `NormalForm` files/types in `lua_compile/`; tests assert their absence.
+- Current final accepted compiler product is `LuaCompile.Ok(LuaCompile.LalinKernel(LalinCFG.Kernel))`, not `NormalForm` or `LalinOut`.
 - `out_tag`/`out_event_kind` appear only in guardrails/tests/validators as forbidden strings, not as accepted ABI.
 - `spongejit/src/` now contains corpus/profile utilities plus `worker_compile.lua`; old `ssa*.lua`, `stencil*.lua`, and bank builder files are absent there.
 - `spongejit/include/` and `spongejit/runtime/` are empty.

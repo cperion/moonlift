@@ -12,7 +12,7 @@ Design authority:
 - `explicit_programming.md`
 - `PVM_GUIDE.md`
 - `experiments/lua_interpreter_vm/SPONJIT_ARCHITECTURE.md`
-- `experiments/lua_interpreter_vm/SPONJIT_MOONLIFT_COPY_PATCH_DESIGN.md`
+- `experiments/lua_interpreter_vm/SPONJIT_LALIN_COPY_PATCH_DESIGN.md`
 - `experiments/lua_interpreter_vm/SPONJIT_FFI_DESIGN.md`
 - `experiments/lua_interpreter_vm/SPONJIT_GC_DESIGN.md`
 
@@ -20,7 +20,7 @@ Core rule:
 
 ```text
 Source mechanics are consumed into explicit semantic types.
-Semantic choices become ASDL/MoonCFG structure.
+Semantic choices become ASDL/LalinCFG structure.
 Stencil artifacts are generated from semantic CFGs and contracts.
 Runtime materialization is semantics-blind copy/patch/publish.
 ```
@@ -33,7 +33,7 @@ Layer questions:
 | `LuaFact` | What evidence/facts/payload leases are available? |
 | `LuaRT` / `LuaExec` | What Lua runtime semantics and control states are represented? |
 | `CompileContract` | What executable-route obligations, guarantees, and invalidation assumptions are attached? |
-| `MoonCFG` | What explicit Moonlift-compatible CFG is emitted? |
+| `LalinCFG` | What explicit Lalin-compatible CFG is emitted? |
 | `Stencil` | What compiled artifact, patch holes, relocs, and bank keys are produced? |
 | `LuaCompile` | What compile product is produced? |
 

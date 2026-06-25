@@ -1,53 +1,53 @@
-# ASDL Text + MoonCode + C Backend Full Support
+# ASDL Text + LalinCode + C Backend Full Support
 
-Intent: document and plan the combined refactor that makes compact `.asdl` files the schema source of truth, introduces `MoonCode` as the normalized typed SSA/control layer, and rebases the C backend on that layer so C output is correct, complete, and naturally optimizable by default.
+Intent: document and plan the combined refactor that makes compact `.asdl` files the schema source of truth, introduces `LalinCode` as the normalized typed SSA/control layer, and rebases the C backend on that layer so C output is correct, complete, and naturally optimizable by default.
 
 Canonical design artifact: `C_BACKEND_DESIGN.md`.
 
 
 ## Documenter Output — 2026-06-10 12:29:52
 
-## Decision Record: ASDL source-of-truth + MoonCode + C-on-MoonCode
+## Decision Record: ASDL source-of-truth + LalinCode + C-on-LalinCode
 
 ### Goal
-Make compact ASDL text the canonical schema authoring format, introduce `MoonCode` as the normalized typed SSA/control IR between typed resolver output and backends, and move C emission to consume `MoonCode` (not nested MoonTree expressions) so C output becomes correct by construction, fully covered by coverage/validation, and naturally optimizable.
+Make compact ASDL text the canonical schema authoring format, introduce `LalinCode` as the normalized typed SSA/control IR between typed resolver output and backends, and move C emission to consume `LalinCode` (not nested LalinTree expressions) so C output becomes correct by construction, fully covered by coverage/validation, and naturally optimizable.
 
 ### Incentives
-- The legacy C path in `lua/moonlift/tree_to_c.lua` lowers nested `MoonTree` directly, inventing temporary values and control shape in the translator rather than operating on a normalized IR. This is the primary source of the `tcc`-specific code-shape artifacts versus cleaner native output.
+- The legacy C path in `lua/lalin/tree_to_c.lua` lowers nested `LalinTree` directly, inventing temporary values and control shape in the translator rather than operating on a normalized IR. This is the primary source of the `tcc`-specific code-shape artifacts versus cleaner native output.
 - `C_BACKEND_DESIGN.md` already requires backend coverage classes to be `supported / phase_unreachable / language_rejected` with no silent “backend TODO” reclassification as completion; that cannot be enforced while lowering bypasses `tree_to_code`-style normalization.
 - Dual schema formats (Lua builders + ASDL text) create drift risk; current migration work must finish and harden this to keep embedded and source-tree compilation deterministic.
-- `MoonCode` is needed so both C and Cranelift-like backends can share a single semanticized representation and maintain native/C parity (especially tags, payloads, calls, places, and ABIs).
+- `LalinCode` is needed so both C and Cranelift-like backends can share a single semanticized representation and maintain native/C parity (especially tags, payloads, calls, places, and ABIs).
 
 ### Current State
 #### 1) `.asdl` source-of-truth scaffolding is in place
-- `lua/moonlift/schema/init.lua` no longer constructs schema from Lua builder modules in-tree; it reads `lua/moonlift/schema/*.asdl` via `SCHEMA_ASDL_MODULES`, using:
+- `lua/lalin/schema/init.lua` no longer constructs schema from Lua builder modules in-tree; it reads `lua/lalin/schema/*.asdl` via `SCHEMA_ASDL_MODULES`, using:
   - `AsdlText.load_text(modname, path)` → `AsdlText.parse_schema`.
   - `M.Define(T)` calls `context_define_schema.define`.
-- `lua/moonlift/schema/init.lua` currently appends only C-side schema via `moonlift.c.c_type` and `moonlift.c.c_ast` (still builder-based by design).
+- `lua/lalin/schema/init.lua` currently appends only C-side schema via `lalin.c.c_type` and `lalin.c.c_ast` (still builder-based by design).
 - `scripts/convert_schema_lua_to_asdl.lua` is a one-shot converter used to migrate existing Lua builder modules into `.asdl` (skips `init.lua`), confirming intended tooling.
-- `src/build.rs` collects `*.asdl` files and embeds them as Lua preload modules named `<module>_asdl` (e.g., `moonlift.schema.code_asdl`) via the generated `src/embedded_hosted_lua.rs`.  
+- `src/build.rs` collects `*.asdl` files and embeds them as Lua preload modules named `<module>_asdl` (e.g., `lalin.schema.code_asdl`) via the generated `src/embedded_hosted_lua.rs`.
   `asdl_text.load_text` already resolves exactly this preload first, then falls back to file read.
-- `lua/moonlift/code.asdl` defines the MoonCode layer (values, blocks, places, calls, terms, globals/data globals/relocs, validation issues), matching the migration target.
+- `lua/lalin/code.asdl` defines the LalinCode layer (values, blocks, places, calls, terms, globals/data globals/relocs, validation issues), matching the migration target.
 
-#### 2) `MoonCode` ASDL is defined but not yet used as the lowering spine
-- `MoonCode` currently exists as schema (`lua/moonlift/schema/code.asdl`) with explicit constructs for:
+#### 2) `LalinCode` ASDL is defined but not yet used as the lowering spine
+- `LalinCode` currently exists as schema (`lua/lalin/schema/code.asdl`) with explicit constructs for:
   - typed SSA values, locals, blocks, block params,
   - explicit memory access and call targets,
   - place forms and storage distinctions,
   - control terms (`jump`, `branch`, `switch`, `variant switch`, `return`, `trap`),
   - data/global init facts and validation issues.
-- There is no `lua/moonlift/tree_to_code.lua`, `lua/moonlift/code_to_c.lua`, or `lua/moonlift/code_validate.lua` in tree.
+- There is no `lua/lalin/tree_to_code.lua`, `lua/lalin/code_to_c.lua`, or `lua/lalin/code_validate.lua` in tree.
 
 #### 3) Current C frontend still uses legacy Tree-to-C modules
-- `lua/moonlift/frontend_pipeline.lua` `parse_and_lower_c` still calls `tree_to_c`.
-- `lua/moonlift/init.lua` still exports/uses `tree_to_c` and `type_to_c` in public-facing API wiring; `emit_c` builds from `c_unit = pipeline.parse_and_lower_c(...)`.
-- `lua/moonlift/host_module_values.lua` `_lower_c_unit` and `BundleValue:compile_c` still route through `lower_module_to_c` / C CUnit flow, which remains tree-based.
-- `lua/moonlift/tree_to_c.lua` remains the active C lowering module and depends on:
+- `lua/lalin/frontend_pipeline.lua` `parse_and_lower_c` still calls `tree_to_c`.
+- `lua/lalin/init.lua` still exports/uses `tree_to_c` and `type_to_c` in public-facing API wiring; `emit_c` builds from `c_unit = pipeline.parse_and_lower_c(...)`.
+- `lua/lalin/host_module_values.lua` `_lower_c_unit` and `BundleValue:compile_c` still route through `lower_module_to_c` / C CUnit flow, which remains tree-based.
+- `lua/lalin/tree_to_c.lua` remains the active C lowering module and depends on:
   `type_to_c`, `c_places`, `c_residence`, `c_cfg`, `c_data`, `c_layout`.
 
 ### Chosen Target
 #### Approach (selected)
-Use MoonTree normalization (`tree_to_code`) as the mandatory C backend front door, then emit C from MoonCode. Keep `MoonC` as the constrained C dialect and reuse existing emission/validation primitives.
+Use LalinTree normalization (`tree_to_code`) as the mandatory C backend front door, then emit C from LalinCode. Keep `LalinC` as the constrained C dialect and reuse existing emission/validation primitives.
 
 #### Architecture (mandated)
 Canonical migration pipeline:
@@ -68,72 +68,72 @@ tree_to_code -> code_validate -> code_to_back -> back_validate -> back_jit/back_
   - explicit `CodePlace` and `CodeResidence` facts,
   - explicit `CodeCallTarget` (direct/extern/indirect/closure),
   - explicit `CodeMemoryAccess` and `CodeGlobalRef` for init/reloc correctness.
-- `code_validate` is the sole source of MoonCode well-formedness enforcement (def/use, arity, type, terminator shape, pointer-vs-code class discipline).
-- `code_to_c` should drive C generation from MoonCode block/term structure; C emission quality comes from IR shape, not from late recovery in printer.
+- `code_validate` is the sole source of LalinCode well-formedness enforcement (def/use, arity, type, terminator shape, pointer-vs-code class discipline).
+- `code_to_c` should drive C generation from LalinCode block/term structure; C emission quality comes from IR shape, not from late recovery in printer.
 
 #### Tradeoffs acknowledged
 - Temporary duplication: existing tree-based `tree_to_c` path must continue as legacy until parity gates pass, but it is no longer the target architecture for final full-support milestones.
 - More migration surface in call sites/tests and host-layer bindings, but this is accepted to avoid architectural drift and to make completion explicit.
-- `MoonCode`-driven lowering should remove backend-local reconstruction but requires upfront validation and conversion discipline.
+- `LalinCode`-driven lowering should remove backend-local reconstruction but requires upfront validation and conversion discipline.
 
 #### Public APIs that stay
 Stable API surface must remain user-visible (re-routed, not removed):
-- `moon.emit_c`, `moon.compile_c`
+- `lalin.emit_c`, `lalin.compile_c`
 - `BundleValue:emit_c`, `BundleValue:compile_c`
-- C runner/toolchain files: `lua/moonlift/c_tcc.lua`, `lua/moonlift/c_validate.lua`, `lua/moonlift/c_emit.lua`, `lua/moonlift/c_helpers.lua`
-- C schema backend side: `lua/moonlift/c/c_type.lua` stays (current migration keeps C schema in Lua builder form)
+- C runner/toolchain files: `lua/lalin/c_tcc.lua`, `lua/lalin/c_validate.lua`, `lua/lalin/c_emit.lua`, `lua/lalin/c_helpers.lua`
+- C schema backend side: `lua/lalin/c/c_type.lua` stays (current migration keeps C schema in Lua builder form)
 - Harness/tests/bench assets (`tests/test_c_gcc_harness.lua`, `benchmarks/bench_c_vs_cranelift.lua`) stay as long as behavior remains stable.
 
 #### Direct Tree-to-C modules to retire (as planned target)
-`lua/moonlift/tree_to_c.lua`, `lua/moonlift/tree_control_to_c.lua`, `lua/moonlift/type_to_c.lua`,  
-`lua/moonlift/c_places.lua`, `lua/moonlift/c_residence.lua`, `lua/moonlift/c_cfg.lua`,  
-`lua/moonlift/c_data.lua`, `lua/moonlift/c_layout.lua`  
+`lua/lalin/tree_to_c.lua`, `lua/lalin/tree_control_to_c.lua`, `lua/lalin/type_to_c.lua`,
+`lua/lalin/c_places.lua`, `lua/lalin/c_residence.lua`, `lua/lalin/c_cfg.lua`,
+`lua/lalin/c_data.lua`, `lua/lalin/c_layout.lua`
 — migration goal is removal/replacement once `parse_and_lower_c` and public entry points are proven through `tree_to_code`/`code_to_*`.
 
 #### Milestone/status language (current snapshot)
 As of the current workflow (`wf-asdl-c-backend-full-support`, all tasks still pending), status is:
 - `.asdl` source-of-truth: **partially migrated** (files exist, hardening/tests still pending).
-- MoonCode normalization layer: **designed in schema, not yet implemented in pipeline**.
-- C-on-MoonCode: **not yet active** (legacy tree path still used).
+- LalinCode normalization layer: **designed in schema, not yet implemented in pipeline**.
+- C-on-LalinCode: **not yet active** (legacy tree path still used).
 - Full-completion claim: only valid at “full-support” milestone gates (see doc), not currently achieved.
 
 ### Known inconsistencies / overclaims against current code
-1. **`asdl_parser` diagnostics**: `C_BACKEND_DESIGN.md` requires file/line/column parse errors, but `lua/moonlift/asdl_parser.lua` currently reports byte-position only via `tok_start`.
+1. **`asdl_parser` diagnostics**: `C_BACKEND_DESIGN.md` requires file/line/column parse errors, but `lua/lalin/asdl_parser.lua` currently reports byte-position only via `tok_start`.
 2. **Execution-planning vs runtime**: design text includes `code_to_c` / `tree_to_code` modules and retired modules, but those files are not yet present and active in the repository; current runtime still flows through `tree_to_c`.
 3. **Status wording in design sections** should be read as the target contract, not as already-complete implementation for all layers.
 
 ## Edit-planner Output — 2026-06-10 12:44:55
 
 ### Precondition Checks
-- Confirm `lua/moonlift/schema/*.asdl` is the complete schema source set. Current mismatch to verify: `pvm_surface.asdl` exists but is not listed in `SCHEMA_ASDL_MODULES`.
+- Confirm `lua/lalin/schema/*.asdl` is the complete schema source set. Current mismatch to verify: `pvm_surface.asdl` exists but is not listed in `SCHEMA_ASDL_MODULES`.
 - Confirm no task in the main sidecar is already done before workers start; I amended r5 → r6 with all tasks still `todo`.
 - Grep before edits for forbidden imports:
-  - `moonlift.tree_to_c`
-  - `moonlift.tree_control_to_c`
-  - `moonlift.type_to_c`
-  - `moonlift.c_places`
-  - `moonlift.c_residence`
-  - `moonlift.c_cfg`
-- Confirm public APIs stay stable: `moon.emit_c`, `moon.compile_c`, `BundleValue:emit_c`, `BundleValue:compile_c`.
+  - `lalin.tree_to_c`
+  - `lalin.tree_control_to_c`
+  - `lalin.type_to_c`
+  - `lalin.c_places`
+  - `lalin.c_residence`
+  - `lalin.c_cfg`
+- Confirm public APIs stay stable: `lalin.emit_c`, `lalin.compile_c`, `BundleValue:emit_c`, `BundleValue:compile_c`.
 
 ### Files to Modify
 
-#### `lua/moonlift/schema/init.lua`
-**Goal**: Make `.asdl` files the only schema source under `lua/moonlift/schema/`.
+#### `lua/lalin/schema/init.lua`
+**Goal**: Make `.asdl` files the only schema source under `lua/lalin/schema/`.
 
 **Edit blocks**
 1. **Lines 10-29**: Modify `SCHEMA_ASDL_MODULES`
-   - Ensure list exactly matches every `lua/moonlift/schema/*.asdl`.
+   - Ensure list exactly matches every `lua/lalin/schema/*.asdl`.
    - Add or deliberately remove/handle `pvm_surface.asdl`.
 2. **Lines 32-43**: Modify schema loading loop
    - Pass source name/path to `AsdlText.parse_schema`.
    - Add assertion/helper that no schema Lua builder modules exist except `init.lua`.
-3. **Lines 45-52**: Keep C schema exception only for `lua/moonlift/c/c_type.lua` and `c_ast.lua`.
+3. **Lines 45-52**: Keep C schema exception only for `lua/lalin/c/c_type.lua` and `c_ast.lua`.
 
 **Danger zones**
-- Do not reintroduce schema builder modules under `lua/moonlift/schema/`.
+- Do not reintroduce schema builder modules under `lua/lalin/schema/`.
 
-#### `lua/moonlift/asdl_text.lua`
+#### `lua/lalin/asdl_text.lua`
 **Goal**: Harden ASDL text loading and source-aware parsing.
 
 **Edit blocks**
@@ -144,7 +144,7 @@ As of the current workflow (`wf-asdl-c-backend-full-support`, all tasks still pe
    - Keep preload `<module>_asdl` before filesystem.
    - Preserve enough source metadata for diagnostics/tests.
 
-#### `lua/moonlift/asdl_parser.lua`
+#### `lua/lalin/asdl_parser.lua`
 **Goal**: Replace byte-position-only parse errors with `file:line:column`.
 
 **Edit blocks**
@@ -160,11 +160,11 @@ As of the current workflow (`wf-asdl-c-backend-full-support`, all tasks still pe
 
 **Edit blocks**
 1. **Lines 15-31 / 33-42**: Add schema-source validation while collecting.
-2. **Lines 81-103**: After collecting Lua/ASDL modules, assert no `lua/moonlift/schema/*.lua` except `init.lua`.
+2. **Lines 81-103**: After collecting Lua/ASDL modules, assert no `lua/lalin/schema/*.lua` except `init.lua`.
 3. **Lines 105-118**: Keep `_asdl` preload generation deterministic.
 
-#### `lua/moonlift/schema/code.asdl`
-**Goal**: Finalize MoonCode before lowerers depend on it.
+#### `lua/lalin/schema/code.asdl`
+**Goal**: Finalize LalinCode before lowerers depend on it.
 
 **Edit blocks**
 1. **Whole file**: Audit/extend CodeModule, CodeFunc, CodeBlock, CodeInst, CodeTerm, CodePlace, CodeResidence, CodeMemoryAccess, CodeGlobal/Data/Reloc, CodeIssue.
@@ -172,29 +172,29 @@ As of the current workflow (`wf-asdl-c-backend-full-support`, all tasks still pe
 
 ### New Files
 
-#### `lua/moonlift/code_type.lua`
+#### `lua/lalin/code_type.lua`
 - **Purpose**: Replace `type_to_c.lua` as the backend-neutral type/signature helper.
 - **Contents sketch**:
   - `Define(T)`
-  - MoonType → MoonCode.CodeType
+  - LalinType → LalinCode.CodeType
   - CodeType → CBackend type helper for `code_to_c`
   - signature interning helpers
 - **Must not import** old Tree-to-C modules.
 
-#### `lua/moonlift/code_validate.lua`
-- **Purpose**: Sole MoonCode well-formedness validator.
+#### `lua/lalin/code_validate.lua`
+- **Purpose**: Sole LalinCode well-formedness validator.
 - **Validate**: ids, def/use, block arity/types, terminators, calls, places, memory access, reloc targets, data/code pointer separation.
 
-#### `lua/moonlift/tree_to_code.lua`
-- **Purpose**: Resolved/layout MoonTree → normalized MoonCode.
+#### `lua/lalin/tree_to_code.lua`
+- **Purpose**: Resolved/layout LalinTree → normalized LalinCode.
 - **Must produce**: flat CodeInst graph, CodeBlock/CodeTerm control, CodePlace/CodeResidence, CodeCallTarget, CodeGlobal/Data init facts.
 
-#### `lua/moonlift/code_to_c.lua`
-- **Purpose**: MoonCode → MoonC CBackendUnit.
-- **Must consume** MoonCode only; no nested MoonTree recursion.
+#### `lua/lalin/code_to_c.lua`
+- **Purpose**: LalinCode → LalinC CBackendUnit.
+- **Must consume** LalinCode only; no nested LalinTree recursion.
 
-#### `lua/moonlift/code_to_back.lua`
-- **Purpose**: MoonCode → MoonBack.BackProgram.
+#### `lua/lalin/code_to_back.lua`
+- **Purpose**: LalinCode → LalinBack.BackProgram.
 - **Note**: Any bridge is allowed only as a single refactor-step implementation detail and must fail final gates if still present.
 
 #### Tests
@@ -208,20 +208,20 @@ As of the current workflow (`wf-asdl-c-backend-full-support`, all tasks still pe
 ### Files to Replace/Delete
 
 Delete these after call sites/tests are rerouted:
-- `lua/moonlift/tree_to_c.lua`
-- `lua/moonlift/tree_control_to_c.lua`
-- `lua/moonlift/type_to_c.lua`
-- `lua/moonlift/c_places.lua`
-- `lua/moonlift/c_residence.lua`
-- `lua/moonlift/c_cfg.lua`
+- `lua/lalin/tree_to_c.lua`
+- `lua/lalin/tree_control_to_c.lua`
+- `lua/lalin/type_to_c.lua`
+- `lua/lalin/c_places.lua`
+- `lua/lalin/c_residence.lua`
+- `lua/lalin/c_cfg.lua`
 
 Rewrite or delete:
-- `lua/moonlift/c_data.lua` — may survive only as MoonCode data/global helper.
-- `lua/moonlift/c_layout.lua` — may survive only as MoonCode/CBackend layout helper.
+- `lua/lalin/c_data.lua` — may survive only as LalinCode data/global helper.
+- `lua/lalin/c_layout.lua` — may survive only as LalinCode/CBackend layout helper.
 
 ### Public API Reroute
 
-#### `lua/moonlift/frontend_pipeline.lua`
+#### `lua/lalin/frontend_pipeline.lua`
 - **Lines 55-68**: Replace old requires:
   - remove `tree_to_c`, `type_to_c`, direct `tree_to_back` from public lowering paths.
   - add `tree_to_code`, `code_validate`, `code_to_c`, `code_to_back`.
@@ -231,12 +231,12 @@ Rewrite or delete:
   - switch C path to `sem_layout_resolve -> tree_to_code -> code_validate -> code_to_c -> c_validate`.
 - **Lines 279-307**: keep `parse_and_lower_c` signature stable.
 
-#### `lua/moonlift/init.lua`
+#### `lua/lalin/init.lua`
 - **Lines 49-50**: Remove `M.type_to_c` and `M.tree_to_c`.
 - **Lines 129-160**: Keep `emit_c`/`compile_c` public behavior; internals use pipeline.
 
-#### `lua/moonlift/host_module_values.lua`
-- **Lines 307-338**: `_lower_c_unit` must return MoonCode-produced C unit.
+#### `lua/lalin/host_module_values.lua`
+- **Lines 307-338**: `_lower_c_unit` must return LalinCode-produced C unit.
 - **Lines 360-390 / 412-418**: `compile_c`/`emit_c` behavior remains stable.
 
 ### Tests/Benchmarks/Docs
@@ -253,7 +253,7 @@ Rewrite or delete:
   - `test_tree_to_c_smoke.lua` → `test_code_to_c_smoke.lua`
   - `test_tree_to_c_semantics_smoke.lua` → `test_code_to_c_semantics_smoke.lua`
   - `test_tree_to_c_logic_select.lua` → `test_code_to_c_logic_select.lua`
-- Update `lua/moonlift/c_coverage.lua`
+- Update `lua/lalin/c_coverage.lua`
   - Remove steady-state `backend_todo`.
   - Final statuses only: `supported`, `phase_unreachable`, `language_rejected`.
 - Update `tests/test_c_backend_coverage_matrix.lua`
@@ -266,7 +266,7 @@ Rewrite or delete:
 
 ### Order of Operations
 1. Freeze/harden ASDL schema loading and diagnostics.
-2. Finalize `MoonCode` ASDL.
+2. Finalize `LalinCode` ASDL.
 3. Add `code_type`, `code_validate`, `tree_to_code`.
 4. Add `code_to_back`, hard-switch native path.
 5. Add `code_to_c`, hard-switch C path.
@@ -308,11 +308,11 @@ Updated main sidecar for workflow `wf-asdl-c-backend-full-support`:
   - Build script validates schema ASDL preload naming and stale builder files.
 
 ## Files Changed
-- `lua/moonlift/schema/init.lua` - schema source guard, explicit `pvm_surface` exclusion, source-aware parsing.
-- `lua/moonlift/asdl_text.lua` - preload source metadata and test read-file override.
-- `lua/moonlift/asdl_parser.lua` - source-name API and line/column diagnostics.
-- `lua/moonlift/asdl_context.lua` - passes source names to parser.
-- `lua/moonlift/pvm_surface_model.lua` - source-aware ASDL parsing.
+- `lua/lalin/schema/init.lua` - schema source guard, explicit `pvm_surface` exclusion, source-aware parsing.
+- `lua/lalin/asdl_text.lua` - preload source metadata and test read-file override.
+- `lua/lalin/asdl_parser.lua` - source-name API and line/column diagnostics.
+- `lua/lalin/asdl_context.lua` - passes source names to parser.
+- `lua/lalin/pvm_surface_model.lua` - source-aware ASDL parsing.
 - `build.rs` - deterministic ASDL/Lua collection and schema input validation.
 - `tests/test_schema_core.lua` - guard, embedded-preload-only, and diagnostics coverage.
 
@@ -321,24 +321,24 @@ Updated main sidecar for workflow `wf-asdl-c-backend-full-support`:
 - `luajit tests/test_schema_compile_pipeline.lua`
 - `luajit tests/test_pvm_surface_builder.lua`
 - `luajit tests/test_pvm_surface_schema_values.lua`
-- `rustc --edition=2021 build.rs -o /tmp/moonlift-build-rs-check`
+- `rustc --edition=2021 build.rs -o /tmp/lalin-build-rs-check`
 - `git diff --check -- ...`
 
 ## Notes
-- Next ready task is `T005` (`lua/moonlift/schema/code.asdl` MoonCode contract).
+- Next ready task is `T005` (`lua/lalin/schema/code.asdl` LalinCode contract).
 - Pre-existing unrelated working tree changes remain untouched.
 
 ## Worker Output — 2026-06-15 07:59:34
 
 ## Completed
-- Claimed and completed `T005`: finalized `MoonCode` ASDL contract.
+- Claimed and completed `T005`: finalized `LalinCode` ASDL contract.
 - Claimed and completed `T006`: added backend-neutral CodeType helpers.
 - Updated edit-plan sidecar: now `6/35 done`; next ready task is `T007` (`code_validate.lua`).
 
 ## Files Changed
-- `lua/moonlift/schema/code.asdl` - added stable inst/term ids, typed inst/term wrappers, data/reloc facts, memory modes, typed variant refs, imported C func ptr type, expanded validation issues.
-- `lua/moonlift/code_type.lua` - new MoonType → MoonCode CodeType mapping, CodeSig interning, target helpers, CodeType → CBackend type projection.
-- `tests/test_schema_core.lua` - added MoonCode contract fixture assertions.
+- `lua/lalin/schema/code.asdl` - added stable inst/term ids, typed inst/term wrappers, data/reloc facts, memory modes, typed variant refs, imported C func ptr type, expanded validation issues.
+- `lua/lalin/code_type.lua` - new LalinType → LalinCode CodeType mapping, CodeSig interning, target helpers, CodeType → CBackend type projection.
+- `tests/test_schema_core.lua` - added LalinCode contract fixture assertions.
 - `tests/test_code_type.lua` - new focused tests for CodeType helpers.
 - `.pi/workflows/wf-asdl-c-backend-full-support.edit-plan.json` - task status updates.
 
@@ -346,7 +346,7 @@ Updated main sidecar for workflow `wf-asdl-c-backend-full-support`:
 - `luajit tests/test_code_type.lua`
 - `luajit tests/test_schema_core.lua`
 - `luajit tests/test_schema_compile_pipeline.lua`
-- `git diff --check -- lua/moonlift/schema/code.asdl lua/moonlift/code_type.lua tests/test_schema_core.lua tests/test_code_type.lua`
+- `git diff --check -- lua/lalin/schema/code.asdl lua/lalin/code_type.lua tests/test_schema_core.lua tests/test_code_type.lua`
 - grep gate confirming `code_type.lua`/test do not require retired Tree-to-C modules.
 
 ## Notes
@@ -355,13 +355,13 @@ Updated main sidecar for workflow `wf-asdl-c-backend-full-support`:
 ## Worker Output — 2026-06-15 08:14:29
 
 ## Completed
-- Completed `T007`: implemented `lua/moonlift/code_validate.lua`.
-- Completed `T025`: added focused MoonCode validator tests.
+- Completed `T007`: implemented `lua/lalin/code_validate.lua`.
+- Completed `T025`: added focused LalinCode validator tests.
 - Blocked `T008`: full `tree_to_code.lua` normalizer is too broad for this isolated pass and should be decomposed or handled as a dedicated batch.
 - Edit plan now has no ready tasks.
 
 ## Files Changed
-- `lua/moonlift/code_validate.lua` - new MoonCode validator with:
+- `lua/lalin/code_validate.lua` - new LalinCode validator with:
   - duplicate/missing id checks
   - value def/use checks
   - block transfer arity/type validation
@@ -371,7 +371,7 @@ Updated main sidecar for workflow `wf-asdl-c-backend-full-support`:
   - data reloc target checks
   - data/code pointer discipline
   - collector integration and `CodeValidationReport`
-- `tests/test_code_validate.lua` - new direct MoonCode fixtures covering valid and invalid modules.
+- `tests/test_code_validate.lua` - new direct LalinCode fixtures covering valid and invalid modules.
 - `.pi/workflows/wf-asdl-c-backend-full-support.edit-plan.json` - updated task statuses/evidence.
 
 ## Tests Run
@@ -379,7 +379,7 @@ Updated main sidecar for workflow `wf-asdl-c-backend-full-support`:
 - `luajit tests/test_code_type.lua`
 - `luajit tests/test_schema_core.lua`
 - `luajit tests/test_schema_compile_pipeline.lua`
-- `git diff --check -- lua/moonlift/code_validate.lua tests/test_code_validate.lua`
+- `git diff --check -- lua/lalin/code_validate.lua tests/test_code_validate.lua`
 
 ## Notes
 - `T008` remains the blocker for subsequent `tree_to_code -> code_validate -> code_to_*` pipeline tasks.
@@ -389,7 +389,7 @@ Updated main sidecar for workflow `wf-asdl-c-backend-full-support`:
 
 ## Completed
 - Claimed and completed `T008A`.
-- Added scalar `MoonTree -> MoonCode` scaffold:
+- Added scalar `LalinTree -> LalinCode` scaffold:
   - `Define(T).module(resolved_module, opts)`
   - deterministic lowering ids/context
   - CodeType/CodeSig integration
@@ -401,7 +401,7 @@ Updated main sidecar for workflow `wf-asdl-c-backend-full-support`:
   `parse -> open_expand/open_validate -> closure_convert -> tree_typecheck -> sem_layout_resolve -> tree_to_code -> code_validate`
 
 ## Files Changed
-- `lua/moonlift/tree_to_code.lua` - new scalar MoonCode lowering scaffold.
+- `lua/lalin/tree_to_code.lua` - new scalar LalinCode lowering scaffold.
 - `tests/test_tree_to_code.lua` - new focused scalar lowering integration test.
 - `.pi/workflows/wf-asdl-c-backend-full-support.edit-plan.json` - marked `T008A` done.
 
@@ -411,7 +411,7 @@ Updated main sidecar for workflow `wf-asdl-c-backend-full-support`:
 - `luajit tests/test_code_type.lua`
 - `luajit tests/test_schema_core.lua`
 - `luajit tests/test_schema_compile_pipeline.lua`
-- `git diff --check -- .pi/workflows/wf-asdl-c-backend-full-support.edit-plan.json lua/moonlift/tree_to_code.lua tests/test_tree_to_code.lua`
+- `git diff --check -- .pi/workflows/wf-asdl-c-backend-full-support.edit-plan.json lua/lalin/tree_to_code.lua tests/test_tree_to_code.lua`
 - exact require-grep confirming `tree_to_code.lua` / test do not require retired C modules.
 
 ## Notes
@@ -421,7 +421,7 @@ Updated main sidecar for workflow `wf-asdl-c-backend-full-support`:
 
 ## Completed
 - Claimed and completed `T008B`.
-- Extended `lua/moonlift/tree_to_code.lua` with:
+- Extended `lua/lalin/tree_to_code.lua` with:
   - mutable/address-taken local pre-scan
   - `CodeLocal` / `CodeResidence` creation
   - `CodePlaceLocal`, `CodePlaceDeref`, `CodePlaceField`, `CodePlaceIndex`
@@ -431,7 +431,7 @@ Updated main sidecar for workflow `wf-asdl-c-backend-full-support`:
 - Marked `T008B` complete in the edit plan.
 
 ## Files Changed
-- `lua/moonlift/tree_to_code.lua` - locals/place/addressability/memory lowering slice.
+- `lua/lalin/tree_to_code.lua` - locals/place/addressability/memory lowering slice.
 - `tests/test_tree_to_code.lua` - added place/memory tests and assertions.
 - `.pi/workflows/wf-asdl-c-backend-full-support.edit-plan.json` - task status update.
 
@@ -441,7 +441,7 @@ Updated main sidecar for workflow `wf-asdl-c-backend-full-support`:
 - `luajit tests/test_code_type.lua`
 - `luajit tests/test_schema_core.lua`
 - `luajit tests/test_schema_compile_pipeline.lua`
-- `git diff --check -- lua/moonlift/tree_to_code.lua tests/test_tree_to_code.lua .pi/workflows/wf-asdl-c-backend-full-support.edit-plan.json`
+- `git diff --check -- lua/lalin/tree_to_code.lua tests/test_tree_to_code.lua .pi/workflows/wf-asdl-c-backend-full-support.edit-plan.json`
 - grep check for forbidden retired C-module requires in touched files.
 
 ## Notes
@@ -451,12 +451,12 @@ Updated main sidecar for workflow `wf-asdl-c-backend-full-support`:
 ## Worker Output — 2026-06-15 08:51:22
 
 ## Completed
-- Completed `T008C`: normalized MoonTree control lowering to explicit `CodeBlock` / `CodeTerm`.
+- Completed `T008C`: normalized LalinTree control lowering to explicit `CodeBlock` / `CodeTerm`.
 - Completed `T008D`: added call/signature/extern/global-ref lowering.
 - Stopped before `T008E` because it is a broad remaining-coverage slice, not cohesive with this pass.
 
 ## Files Changed
-- `lua/moonlift/tree_to_code.lua`
+- `lua/lalin/tree_to_code.lua`
   - Added multi-block CFG builder.
   - Lowered `if`, `switch`, short-circuit logic, control regions, block params, jumps, yields, returns, traps/assert traps.
   - Added direct/extern/indirect/closure call target lowering.

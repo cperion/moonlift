@@ -1,13 +1,13 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local PositionIndex = require("moonlift.source_position_index")
-local AnchorIndex = require("moonlift.source_anchor_index")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local PositionIndex = require("lalin.source_position_index")
+local AnchorIndex = require("lalin.source_anchor_index")
 
 local T = pvm.context()
 A(T)
-local S = T.MoonSource
+local S = T.LalinSource
 local P = PositionIndex(T)
 local AIndex = AnchorIndex(T)
 
@@ -84,4 +84,4 @@ local expose_set = S.AnchorSet({
 local expose_built = AIndex.build_index(expose_set)
 assert(AIndex.lookup_by_position(expose_built, uri, 26).anchors[1].id == S.AnchorId("target.lua"))
 
-print("moonlift source anchor index ok")
+print("lalin source anchor index ok")

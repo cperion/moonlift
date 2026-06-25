@@ -1,17 +1,17 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local Abi = require("moonlift.type_abi_classify")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local Abi = require("lalin.type_abi_classify")
 
 local T = pvm.context()
 A(T)
 local L = Abi(T)
-local C = T.MoonCore
-local Ty = T.MoonType
-local B = T.MoonBack
-local Sem = T.MoonSem
-local O = T.MoonOpen
+local C = T.LalinCore
+local Ty = T.LalinType
+local B = T.LalinBack
+local Sem = T.LalinSem
+local O = T.LalinOpen
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local void = Ty.TScalar(C.ScalarVoid)
@@ -43,4 +43,4 @@ local decision = L.decide(unknown)
 assert(decision.ty == unknown)
 assert(pvm.classof(decision.class) == Ty.AbiUnknown)
 
-print("moonlift type_abi_classify ok")
+print("lalin type_abi_classify ok")

@@ -7,7 +7,7 @@ package.path = table.concat({
 }, ';')
 
 local ffi = require('ffi')
-local moon = require('moonlift')
+local lalin = require('lalin')
 
 local source = [=[
 return unit. VectorRelocRegression {
@@ -73,9 +73,9 @@ return unit. VectorRelocRegression {
 }
 ]=]
 
-local session = moon.use { scope = 'env' }
+local session = lalin.use { scope = 'env' }
 local decl = assert(session:loadstring(source, 'test_stencil_bank_vector_local_reloc.lua'))()
-local artifact = moon.emit_luajit_artifact(decl, {
+local artifact = lalin.emit_luajit_artifact(decl, {
     path = 'target/test_artifacts/test_stencil_bank_vector_local_reloc.lua',
     name = 'VectorRelocRegression',
     stem = 'test_stencil_bank_vector_local_reloc',
@@ -119,4 +119,4 @@ if saw_materialized_local then
     assert(artifact.source:match('string%.char'), 'emitted Lua artifact should contain embedded local section bytes')
 end
 
-io.write('moonlift stencil_bank vector local reloc ok\n')
+io.write('lalin stencil_bank vector local reloc ok\n')

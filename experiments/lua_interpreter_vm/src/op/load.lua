@@ -1,4 +1,4 @@
--- Moonlift VM — Load/store opcode handlers.
+-- Lalin VM — Load/store opcode handlers.
 -- Hot load paths use scalar field stores to avoid 16-byte aggregate memcpy.
 
 local B = require("experiments.lua_interpreter_vm.src.op._init")

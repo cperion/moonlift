@@ -1,12 +1,12 @@
--- Moonlift VM Design
+-- Lalin VM Design
 --
 -- A typed control-flow interpreter compiled once by Cranelift.
 -- Tapes are pure data assembled by the PVM compiler pipeline.
 --
 -- Architecture:
---   .mlua source → PVM phases → MoonTree → tree_to_tape → Tape (data)
+--   .mlua source → PVM phases → LalinTree → tree_to_tape → Tape (data)
 --                                                              ↓
---   Moonlift VM (compiled ONCE, PVM-cached forever) ←─────────┘
+--   Lalin VM (compiled ONCE, PVM-cached forever) ←─────────┘
 --        ↓
 --   Cranelift (one call, at startup)
 --
@@ -193,4 +193,4 @@
 --   Cranelift runs ONCE (compiles the VM interpreter)
 --   The VM is PVM-cached forever
 --
--- The tape is Moonlift's IR in data form. The VM IS the compiler backend.
+-- The tape is Lalin's IR in data form. The VM IS the compiler backend.

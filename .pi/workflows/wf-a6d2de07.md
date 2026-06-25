@@ -1,4 +1,4 @@
-# Moonlift UI library completion review 
+# Lalin UI library completion review
 Audit lua/ui after importing the standalone UI library, with focus on SDL3 synth UI readiness and next completion tasks.
 **Workflow ID**: wf-a6d2de07
 **Started**: 2026-06-13 21:32:16
@@ -48,7 +48,7 @@ module Interact {
 }
 ```
 
-This is well-aligned with Moonlift’s “explicit ASDL meaning” style.
+This is well-aligned with Lalin’s “explicit ASDL meaning” style.
 
 ### Render/runtime flow
 
@@ -362,11 +362,11 @@ Each produces a different completion artifact: **A** yields contracts and invari
 | **Coupling** | 2/5 | It touches many modules, but mainly to clarify boundaries between `Auth`, `Layout`, `View`, `Runtime`, `Interact`, session, and SDL glue. The goal reduces implicit coupling. |
 | **Cohesion** | 5/5 | Strong separation of responsibilities: schema, lowering, rendering, interaction, session, text lifecycle, and state propagation each become explicit contracts. |
 | **Migration cost** | 4/5 | First-class keyboard input, pointer capture, state propagation, ID invariants, and text/session fixes likely require cross-cutting changes. |
-| **Philosophy fit** | 5/5 | Best aligned with Moonlift’s ASDL-first design: explicit typed meaning, stable phase boundaries, fail-loud invariants, and testable reducers. |
+| **Philosophy fit** | 5/5 | Best aligned with Lalin’s ASDL-first design: explicit typed meaning, stable phase boundaries, fail-loud invariants, and testable reducers. |
 | **Risk** | 3/5 | Main risk is overdesigning before enough real controls exist. But the known gaps — keyboard, focus, IDs, state bridge, text registration — are already concrete. |
 | **Testability** | 5/5 | Highly testable through pure layout/render/interact fixtures, reducer tests, ID invariant checks, and backend-independent event reports. |
 
-**Verdict**: **Strong yes**  
+**Verdict**: **Strong yes**
 **Key concern**: Keep the contract grounded in actual widget needs, especially sliders/knobs/text fields/menus, so the kernel does not become abstract architecture detached from product use.
 
 ---
@@ -378,11 +378,11 @@ Each produces a different completion artifact: **A** yields contracts and invari
 | **Coupling** | 4/5 | Without stable interaction/state/input contracts, widgets will likely bind directly to current quirks in recipes, `Interact.Model`, host events, and styling conventions. |
 | **Cohesion** | 3/5 | It improves product cohesion at the widget layer, but risks mixing event routing, state ownership, styling, redraw policy, and backend assumptions inside each widget. |
 | **Migration cost** | 3/5 | Initial cost is moderate, but later correction could be expensive if many widgets bake in inconsistent contracts. |
-| **Philosophy fit** | 3/5 | Practical, but weaker fit with Moonlift’s “ASDL is the architecture” principle unless widget semantics quickly become typed and explicit. |
+| **Philosophy fit** | 3/5 | Practical, but weaker fit with Lalin’s “ASDL is the architecture” principle unless widget semantics quickly become typed and explicit. |
 | **Risk** | 4/5 | Highest risk of accumulating conventions that work in demos but become hard to reconcile across focus, keyboard, drag, popups, text, and state styling. |
 | **Testability** | 3/5 | Widget smoke/snapshot tests are useful, but without lower-level interaction contracts they may validate behavior rather than architecture. |
 
-**Verdict**: **Yes with caveats**  
+**Verdict**: **Yes with caveats**
 **Key concern**: A canonical widget contract must be established immediately; otherwise this approach will create a fragmented UI kit rather than a stable one.
 
 ---
@@ -398,14 +398,14 @@ Each produces a different completion artifact: **A** yields contracts and invari
 | **Risk** | 3/5 | Risk is spending effort polishing SDL/runtime details before the public widget and interaction model is settled. |
 | **Testability** | 4/5 | Backend conformance, paint/text/input smoke tests, and render-op fixtures are practical, though visual parity remains harder than pure reducer tests. |
 
-**Verdict**: **Yes with caveats**  
+**Verdict**: **Yes with caveats**
 **Key concern**: Backend work should not define app semantics accidentally; layers, text, input, and popups need to remain part of the typed UI contract, not SDL-only behavior.
 
 ---
 
 ### Summary
 
-- **Recommended**: **Approach A**. It best matches Moonlift’s ASDL-first architecture and addresses the real remaining blockers: input, focus, state propagation, IDs, pointer capture, text/session lifecycle, and testable phase contracts. It gives the strongest foundation for a complete general-purpose UI kit.
+- **Recommended**: **Approach A**. It best matches Lalin’s ASDL-first architecture and addresses the real remaining blockers: input, focus, state propagation, IDs, pointer capture, text/session lifecycle, and testable phase contracts. It gives the strongest foundation for a complete general-purpose UI kit.
 
 - **Dark horse**: **Approach B**. It has the most immediate product upside because users need actual controls and examples. But it should only win if the project prioritizes fast synth UI delivery over long-term architectural stability.
 
@@ -417,8 +417,8 @@ If a hybrid decision is allowed, the safest one is **A as the controlling archit
 
 # Architecture Decision: Complete `lua/ui` with a Contract-First Typed Kernel
 
-**Workflow:** `wf-a6d2de07`  
-**Status:** Decided  
+**Workflow:** `wf-a6d2de07`
+**Status:** Decided
 **Decision:** Approach A controls: contract-first typed kernel. Validate the contract with a small reference widget set from Approach B, and perform backend conformance work from Approach C where it blocks the typed contracts.
 
 ## Goal
@@ -429,7 +429,7 @@ Enable `lua/ui` to become a general-purpose UI kit by stabilizing its typed auth
 
 This matters because `lua/ui` already has a coherent compiler-like pipeline, but the remaining incompleteness is concentrated at contract boundaries rather than at isolated drawing primitives. Scout findings showed a strong `Auth → Layout → View → Runtime → Interact` flow and working SDL3 support, but also highlighted missing synth controls, thin tests, stale documentation, weak keyboard integration, and text/session footguns. Knowledge-builder analysis refined that picture: several earlier SDL3 primitive gaps have since been fixed, but the deeper risks remain around implicit UI-kit conventions — keyboard events are not first-class `Interact.Raw` ASDL values, interaction state is not automatically bridged into style state, IDs are a hidden global invariant, focus order is underspecified, text rendering/editing partly bypasses the main op stream, and examples/tests do not yet prove general-purpose readiness.
 
-The chosen path prevents a widget library from growing around unstable conventions. Sliders, knobs, menus, meters, text fields, and synth controls all depend on consistent answers for IDs, focus, keyboard routing, pointer capture, scroll state, hover/active/selected/disabled styling, redraw scheduling, and backend text/paint behavior. Stabilizing those contracts first fits Moonlift’s broader philosophy: explicit ASDL meaning, fail-loud invariants, typed phase boundaries, and testable reducers.
+The chosen path prevents a widget library from growing around unstable conventions. Sliders, knobs, menus, meters, text fields, and synth controls all depend on consistent answers for IDs, focus, keyboard routing, pointer capture, scroll state, hover/active/selected/disabled styling, redraw scheduling, and backend text/paint behavior. Stabilizing those contracts first fits Lalin’s broader philosophy: explicit ASDL meaning, fail-loud invariants, typed phase boundaries, and testable reducers.
 
 ## Current State
 
@@ -513,31 +513,31 @@ Paint support is defined in `lua/ui/paint.lua` with builders for lines, polyline
 
 The major limitations in the current state are:
 
-1. **Keyboard/input is not fully ASDL-shaped.**  
+1. **Keyboard/input is not fully ASDL-shaped.**
    Backend-normalized Lua key tables and `ui.input` constants exist, but `Interact.Raw` remains mostly pointer, wheel, and abstract focus actions. Text fields and scroll behavior handle keys through side APIs. This violates the desired explicit-ASDL boundary.
 
-2. **Interaction state does not automatically drive style state.**  
+2. **Interaction state does not automatically drive style state.**
    Style conditions include `hover`, `focus`, `active`, `selected`, and `disabled`, and authored trees can use `Auth.WithState`. `ui.interact` computes hover, focus, press, drag, and related facts. There is not yet a canonical bridge that applies `Interact.Model` to `Style.State` during lowering or rendering.
 
-3. **IDs are a hidden global invariant.**  
+3. **IDs are a hidden global invariant.**
    `Core.IdValue(string)` is used for focus, hit routing, scroll state, drag/drop surfaces, and recipe maps. Builders prevent duplicate IDs only within a single builder call, not across the full authored tree. Duplicate IDs can silently collide across independent subsystems.
 
-4. **Pointer capture and nested interaction semantics are incomplete.**  
+4. **Pointer capture and nested interaction semantics are incomplete.**
    Runtime hit selection exposes a topmost `hover_id` by default, with optional hit collection. Classification primarily uses the current frame’s report. If a pressed or dragged node disappears, moves, or reorders, semantics depend on current geometry and stable IDs rather than an explicit capture invariant.
 
-5. **Focus is stream-order only.**  
+5. **Focus is stream-order only.**
    The current model can traverse focus, but it lacks stronger contracts for disabled skipping, focus scopes, modal scopes, tab groups, or custom order. This matters for menus, text fields, dialogs, and synth panels.
 
-6. **Popups and overlays stress the tree model.**  
+6. **Popups and overlays stress the tree model.**
    The current render stream is structurally clipped by ancestry. Menus, tooltips, context menus, modals, drag previews, and overlays may need typed layer behavior so they can escape parent clipping without becoming SDL-only special cases.
 
-7. **Text lifecycle has a registration footgun.**  
+7. **Text lifecycle has a registration footgun.**
    `ui.session` creates an SDL text system, but layout can fall back to approximate measurement unless the text system is registered under the expected key. This makes text behavior depend on session options rather than an unsurprising default lifecycle contract.
 
-8. **Widgets are not yet a canonical catalog.**  
+8. **Widgets are not yet a canonical catalog.**
    The tree has recipes and text widgets, but no complete general-purpose set of controls such as button, toggle, slider, knob, fader, meter, menu, tooltip, popup, property row, or synth-specific value drag. More importantly, there is no stable widget contract for model shape, event return values, IDs, styling hooks, state ownership, or routing.
 
-9. **Tests and documentation are not yet truth-bearing enough.**  
+9. **Tests and documentation are not yet truth-bearing enough.**
    Existing UI tests are thin compared to the number of contracts involved. The README contains stale references to Love demos that do not match the current `examples/ui/` contents. A general-purpose UI kit needs tests for pure phases, reducers, layout golden cases, interaction invariants, text editing, scroll behavior, focus traversal, content-store invalidation, and backend smoke/conformance.
 
 ## Chosen Target
@@ -563,7 +563,7 @@ The decision explicitly incorporates two validating pressures:
 - From **Approach B**, build only a **small reference widget set** early enough to validate the contracts against real controls. This prevents the kernel from becoming abstract and untested by actual widget needs.
 - From **Approach C**, perform **backend conformance work where it blocks the typed contracts**, especially around text registration, input normalization, render-op semantics, layers/overlays, clipping, paint, HiDPI/env behavior, and SDL3 runtime behavior.
 
-Approach A was chosen because it best matches Moonlift’s ASDL-first architecture and directly addresses the remaining blockers identified by the workflow: keyboard/input typing, focus semantics, pointer capture, interaction-state styling, ID invariants, text/session lifecycle, and testable reducer/layout/runtime boundaries.
+Approach A was chosen because it best matches Lalin’s ASDL-first architecture and directly addresses the remaining blockers identified by the workflow: keyboard/input typing, focus semantics, pointer capture, interaction-state styling, ID invariants, text/session lifecycle, and testable reducer/layout/runtime boundaries.
 
 ### Architecture
 

@@ -6,7 +6,7 @@ It is not a source of current SpongeJIT contracts.
 Current contracts live in:
 
 - `experiments/lua_interpreter_vm/SPONJIT_ARCHITECTURE.md`
-- `experiments/lua_interpreter_vm/SPONJIT_MOONLIFT_COPY_PATCH_DESIGN.md`
+- `experiments/lua_interpreter_vm/SPONJIT_LALIN_COPY_PATCH_DESIGN.md`
 - `experiments/lua_interpreter_vm/SPONJIT_FFI_DESIGN.md`
 - `experiments/lua_interpreter_vm/SPONJIT_GC_DESIGN.md`
 - `experiments/lua_interpreter_vm/spongejit/ssa_asdl/spongejit_lua_ssa.asdl`

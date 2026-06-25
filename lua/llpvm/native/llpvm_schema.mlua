@@ -1,9 +1,9 @@
 -- llpvm_schema.mlua -- ABI, world, and op definition.
 
-local H = moon.require("llpvm_header")
+local H = lalin.require("llpvm_header")
 local T = H.T
 local R = H.R
-local Mem = moon.require("llpvm_memory")
+local Mem = lalin.require("llpvm_memory")
 
 local llpvm_symbol_index = func(ref: T.LlSymbolRef): index
     return as(index, repr(ref) - 1)

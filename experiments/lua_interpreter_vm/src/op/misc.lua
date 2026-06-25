@@ -1,4 +1,4 @@
--- Moonlift VM — Misc opcode handlers (LEN, CONCAT, CLOSE, TBC, JMP, ERRNNIL)
+-- Lalin VM — Misc opcode handlers (LEN, CONCAT, CLOSE, TBC, JMP, ERRNNIL)
 
 local B = require("experiments.lua_interpreter_vm.src.op._init")
 local R, H = B.R, B.H

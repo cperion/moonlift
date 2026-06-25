@@ -1,11 +1,11 @@
 -- lua_rt_stack_model.lua -- executable LuaRT stack/window/top/sequence/vararg substrate.
 --
--- This module centralizes the Moonlift runtime representation used for Lua
+-- This module centralizes the Lalin runtime representation used for Lua
 -- stack windows, frame top, multivalue sequences, and vararg sources.  It is
 -- representation metadata only: no interpreter dispatch, no protocol tags, and
 -- no hidden helpers live here.
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local B = require("lua_compile.builders")
 local T = B.T
 local RT = T.LuaRT

@@ -1,8 +1,8 @@
 -- llpvm_image.mlua -- Immutable LLPV program-image loading.
 
-local H = moon.require("llpvm_header")
+local H = lalin.require("llpvm_header")
 local T = H.T
-local Mem = moon.require("llpvm_memory")
+local Mem = lalin.require("llpvm_memory")
 
 local TAG_TAPE_SEQ = 102
 

@@ -1,12 +1,12 @@
 # LLB Generic Region Algebra
 
 This document defines the implemented shared region model. It is the semantic
-layer underneath LLB processes, GPS pull machines, Moonlift native regions,
+layer underneath LLB processes, GPS pull machines, Lalin native regions,
 LLPVM phase/task machines, parsers, schedulers, diagnostics, and other
 control-shaped tools.
 
 The goal is not to rename every control thing to `region`. The goal is to give
-the Moonlift family one control algebra so separate languages do not invent
+the Lalin family one control algebra so separate languages do not invent
 overlapping machines for the same semantics.
 
 ## Core Thesis
@@ -47,7 +47,7 @@ process
 parser
   region with ok/syntax/need_more protocol
 
-Moonlift region
+Lalin region
   typed native CFG realization of the region algebra
 
 LLPVM phase/task
@@ -95,18 +95,18 @@ syntax above.
 `region [SomeType]` keeps normal LLB symbol behavior and means a typed capture
 named `region`; only `region. name` starts the region head.
 
-Moonlift owns:
+Lalin owns:
 
 ```text
 native typed CFG body vocabulary
 entry/block/jump/emit body vocabulary
-Moonlift CFG lowering
+Lalin CFG lowering
 resource and lease checking inside native CFG
 ```
 
-Moonlift does not own generic region semantics. It consumes generic LLB Region
+Lalin does not own generic region semantics. It consumes generic LLB Region
 descriptors and projects them into native typed CFG declarations when the body
-uses Moonlift's entry/block/jump/emit vocabulary.
+uses Lalin's entry/block/jump/emit vocabulary.
 
 LLPVM owns:
 
@@ -129,7 +129,7 @@ LuaJIT-oriented pull lowering
 
 No language should re-own the generic concept of a resumable control machine.
 Languages may own domain names for specializations. For example, LLPVM may own
-`tape`, Moonlift may own native `block`, and LLB owns generic `region`.
+`tape`, Lalin may own native `block`, and LLB owns generic `region`.
 
 ## Protocols
 
@@ -220,10 +220,10 @@ A product must have one owner:
 LLB generic product
   role/protocol metadata and structural composition
 
-MoonSchema/ASDL product
+LalinSchema/ASDL product
   persistent typed compiler/runtime value
 
-Moonlift product
+Lalin product
   native ABI/product typed value
 
 LLPVM product
@@ -278,7 +278,7 @@ Body kind can be:
 ```text
 reflective Lua closure
 GPS plan
-Moonlift CFG
+Lalin CFG
 LLPVM phase/task graph
 generated LuaJIT source
 foreign callable
@@ -335,28 +335,28 @@ result value
 failure value
 ```
 
-### Moonlift Native Lowering
+### Lalin Native Lowering
 
-Moonlift lowering is valid when input/state/exit payload products have native
+Lalin lowering is valid when input/state/exit payload products have native
 types and the body can be expressed as typed CFG.
 
 The mapping is:
 
 ```text
 generic region input product
-  -> Moonlift region params
+  -> Lalin region params
 
 generic protocol exits
-  -> Moonlift continuation protocol
+  -> Lalin continuation protocol
 
 generic state product
   -> block params / carried loop state
 
 generic emit composition
-  -> Moonlift emit continuation wiring
+  -> Lalin emit continuation wiring
 ```
 
-Moonlift native lowering must preserve resource rules:
+Lalin native lowering must preserve resource rules:
 
 ```text
 owned values discharge exactly once
@@ -399,7 +399,7 @@ emit child_region(input)
 This is the same idea behind:
 
 ```text
-Moonlift emit
+Lalin emit
 parser combinators
 pull map/filter/take fusion
 process pipelines
@@ -444,7 +444,7 @@ as_gps
   Pull protocol -> GPS lowering
 
 as_native
-  typed region -> Moonlift CFG lowering
+  typed region -> Lalin CFG lowering
 ```
 
 Adapters must declare what they do to each exit:
@@ -596,7 +596,7 @@ Rules:
 
 ```text
 types inside [] are Lua values
-ASDL/MoonSchema types are first-class values
+ASDL/LalinSchema types are first-class values
 symbols carry semantic identity across family members
 namespaces prevent accidental collisions
 families define which type/protocol symbols are shared
@@ -677,12 +677,12 @@ The implementation should move in this order.
 2. Add region descriptors.
 3. Re-express existing LLB role/process/format/index GPS machines as regions.
 4. Add adapter/materializer descriptors.
-5. Add lowering registry: reflective, GPS, process, Moonlift, LLPVM.
+5. Add lowering registry: reflective, GPS, process, Lalin, LLPVM.
 6. Add debug metadata and reflective replay hooks.
 7. Add checks for exit coverage and exit class preservation.
 8. Add family integration and namespace policy.
 9. Add source-generated GPS codegen from region plans.
-10. Add Moonlift and LLPVM projections only after the generic descriptors are
+10. Add Lalin and LLPVM projections only after the generic descriptors are
     complete.
 
 Do not start by adding backend-specific shortcuts. The generic semantic object
@@ -700,7 +700,7 @@ Which exits are terminal, resumable, failure, blocking, or effect exits?
 What are the input, state, and exit payload products?
 Are those products canonical or projected?
 Can it lower to GPS without losing exit identity?
-Can it lower to Moonlift native CFG?
+Can it lower to Lalin native CFG?
 Can it lower to LLPVM phase/task form?
 What materializers are legal?
 What exits can be fused?

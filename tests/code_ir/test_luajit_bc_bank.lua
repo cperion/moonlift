@@ -1,13 +1,13 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local Schema = require("moonlift.schema")
-local pvm = require("moonlift.pvm")
+local Schema = require("lalin.schema")
+local pvm = require("lalin.pvm")
 
 local T = pvm.context()
 Schema(T)
 
-local LJ = T.MoonLuaJIT
-local BC = require("moonlift.luajit_bc_bank")(T)
+local LJ = T.LalinLuaJIT
+local BC = require("lalin.luajit_bc_bank")(T)
 
 local source = [[
 return function(x)

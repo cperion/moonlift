@@ -3,7 +3,7 @@
 -- This module builds typed metadata only. It does not produce object bytes and
 -- does not infer Lua semantics from backend descriptors.
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local B = require("lua_compile.builders")
 local T = B.T
 local S = T.Stencil
@@ -16,8 +16,8 @@ function M.name(s) return S.Name(tostring(s or "")) end
 function M.default_target_abi(opts)
   opts = opts or {}
   return S.TargetABI(
-    tostring(opts.triple or os.getenv("MOONLIFT_TARGET_TRIPLE") or "native-unknown"),
-    tostring(opts.calling_convention or "moonlift"),
+    tostring(opts.triple or os.getenv("LALIN_TARGET_TRIPLE") or "native-unknown"),
+    tostring(opts.calling_convention or "lalin"),
     tostring(opts.pointer_width or (ffi and ffi.abi and ffi.abi("64bit") and "64" or "64")),
     tostring(opts.endian or "little")
   )
@@ -31,7 +31,7 @@ function M.default_feature_set(opts)
     tostring(arch),
     tostring(osname),
     tostring(opts.cpu_features or "baseline"),
-    tostring(opts.codegen_version or "mooncfg-stencil-v1")
+    tostring(opts.codegen_version or "lalincfg-stencil-v1")
   )
 end
 
@@ -41,7 +41,7 @@ end
 
 local function variant_for_kernel_uncached(kernel, contract, opts)
   opts = opts or {}
-  assert(kernel and kernel.kind, "variant_for_kernel requires MoonCFG.Kernel")
+  assert(kernel and kernel.kind, "variant_for_kernel requires LalinCFG.Kernel")
   local c = contract or kernel.contract
   assert(pvm.classof(c) == T.CompileContract.Contract, "variant_for_kernel requires CompileContract.Contract")
   return S.VariantKey(
@@ -63,11 +63,11 @@ function M.variant_for_kernel(kernel, contract, opts)
 end
 
 local function patch_value_for(hole, value)
-  if value and T.Stencil.PatchValue.members[require("moonlift.pvm").classof(value)] then return value end
-  if value and T.Stencil.ImmediateOperand.members[require("moonlift.pvm").classof(value)] then return S.PatchImmediate(value) end
-  if value and require("moonlift.pvm").classof(value) == S.StackOperand then return S.PatchStack(value) end
-  if value and require("moonlift.pvm").classof(value) == S.RegisterOperand then return S.PatchRegister(value) end
-  if value and require("moonlift.pvm").classof(value) == S.Symbol then return S.PatchSymbol(value) end
+  if value and T.Stencil.PatchValue.members[require("lalin.pvm").classof(value)] then return value end
+  if value and T.Stencil.ImmediateOperand.members[require("lalin.pvm").classof(value)] then return S.PatchImmediate(value) end
+  if value and require("lalin.pvm").classof(value) == S.StackOperand then return S.PatchStack(value) end
+  if value and require("lalin.pvm").classof(value) == S.RegisterOperand then return S.PatchRegister(value) end
+  if value and require("lalin.pvm").classof(value) == S.Symbol then return S.PatchSymbol(value) end
   return S.PatchComputed(hole.id)
 end
 

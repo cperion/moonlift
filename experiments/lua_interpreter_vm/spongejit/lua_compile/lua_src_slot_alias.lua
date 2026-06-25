@@ -1,7 +1,7 @@
 -- lua_src_slot_alias.lua -- source slot inventory helpers.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local Src = T.LuaSrc
 

@@ -1,13 +1,13 @@
 -- lua_rt_outcome_model.lua -- executable Lua outcome representation.
 --
 -- This module centralizes the mapping from ASDL-visible outcome/error/yield
--- constructors to the Moonlift runtime outcome struct used by MoonCFG emission.
+-- constructors to the Lalin runtime outcome struct used by LalinCFG emission.
 -- It is representation metadata only: no protocol tags, no out params, and no
 -- host/interpreter resume dispatch live here.
 
 local B = require("lua_compile.builders")
 local T = B.T
-local CFG, RT = T.MoonCFG, T.LuaRT
+local CFG, RT = T.LalinCFG, T.LuaRT
 local ValueModel = require("lua_compile.lua_rt_value_model")
 
 local M = {}
@@ -83,7 +83,7 @@ function M.validate_against_schema()
   local missing = {}
   for member in pairs((CFG.OutcomeKind and CFG.OutcomeKind.members) or {}) do
     local name = member and member.kind
-    if name and M.OUTCOME_KIND[name] == nil then missing[#missing + 1] = "MoonCFG.OutcomeKind." .. name end
+    if name and M.OUTCOME_KIND[name] == nil then missing[#missing + 1] = "LalinCFG.OutcomeKind." .. name end
   end
   for member in pairs(RT.ErrorKind.members or {}) do
     local name = member and member.kind

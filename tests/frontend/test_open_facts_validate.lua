@@ -1,18 +1,18 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local Facts = require("moonlift.open_facts")
-local Validate = require("moonlift.open_validate")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local Facts = require("lalin.open_facts")
+local Validate = require("lalin.open_validate")
 
 local T = pvm.context()
 A(T)
 local F = Facts(T)
 local V = Validate(T)
-local C = T.MoonCore
-local Ty = T.MoonType
-local O = T.MoonOpen
-local Tr = T.MoonTree
+local C = T.LalinCore
+local Ty = T.LalinType
+local O = T.LalinOpen
+local Tr = T.LalinTree
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local lit = Tr.ExprLit(Tr.ExprTyped(i32), C.LitInt("1"))
@@ -133,4 +133,4 @@ assert(has(module_report.issues, O.IssueUnfilledTypeDeclSlot(type_decl_slot)))
 assert(has(module_report.issues, O.IssueUnfilledItemsSlot(items_slot)))
 assert(has(module_report.issues, O.IssueUnfilledModuleSlot(module_slot)))
 
-print("moonlift open_facts_validate ok")
+print("lalin open_facts_validate ok")

@@ -1,14 +1,14 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
 
 local T = pvm.context()
 A(T)
 
-local lexer = require("moonlift.c.c_lexer")
-local vfs = require("moonlift.c.vfs")
-local cpp = require("moonlift.c.cpp_expand")(T)
+local lexer = require("lalin.c.c_lexer")
+local vfs = require("lalin.c.vfs")
+local cpp = require("lalin.c.cpp_expand")(T)
 
 -- ---------------------------------------------------------------------------
 -- Helper: lex, then expand, return { tokens, spans, issues }
@@ -327,4 +327,4 @@ end
 
 print("  #if expression evaluation: PASS")
 
-print("moonlift test_cpp_expand ok")
+print("lalin test_cpp_expand ok")

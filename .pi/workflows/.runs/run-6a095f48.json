@@ -2,9 +2,9 @@
   "runId": "run-6a095f48",
   "workflowId": "wf-lua-vm-finish-final",
   "agent": "worker",
-  "task": "Continue the Moonlift-native Lua VM source compiler implementation with a substantial source compiler push. Start from current tree. Implement as much real Lua 5.5 source compiler capability end-to-end as feasible, prioritizing features that can execute on the existing VM: expanded lexer tokens/keywords, assignments, calls, local function/function expressions/closures if feasible, table constructors if feasible, varargs, if/while/numeric for if feasible. If runtime gaps block compiler tests, implement necessary minimal VM semantics. Preserve explicit discipline, PUC as oracle-only, no SponJIT. Add/adjust tests that compile source and run through VM. Report exact files/features/blockers/tests.",
-  "cwd": "/home/cedric/dev/moonlift",
-  "sessionFile": "/home/cedric/dev/moonlift/.pi/workflows/.sessions/run-6a095f48.jsonl",
+  "task": "Continue the Lalin-native Lua VM source compiler implementation with a substantial source compiler push. Start from current tree. Implement as much real Lua 5.5 source compiler capability end-to-end as feasible, prioritizing features that can execute on the existing VM: expanded lexer tokens/keywords, assignments, calls, local function/function expressions/closures if feasible, table constructors if feasible, varargs, if/while/numeric for if feasible. If runtime gaps block compiler tests, implement necessary minimal VM semantics. Preserve explicit discipline, PUC as oracle-only, no SponJIT. Add/adjust tests that compile source and run through VM. Report exact files/features/blockers/tests.",
+  "cwd": "/home/cedric/dev/lalin",
+  "sessionFile": "/home/cedric/dev/lalin/.pi/workflows/.sessions/run-6a095f48.jsonl",
   "status": "running",
   "created": "2026-05-30T12:31:19.254Z",
   "updated": "2026-05-30T12:31:19.254Z"

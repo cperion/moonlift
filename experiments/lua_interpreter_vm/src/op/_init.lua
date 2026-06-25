@@ -1,17 +1,17 @@
--- Moonlift VM — Opcode module shared boilerplate
+-- Lalin VM — Opcode module shared boilerplate
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 local protocols = require("experiments.lua_interpreter_vm.src.op.protocols")
 
 local VALS = {}
-for k, v in pairs(const.Tag)    do VALS["TAG_" .. k]    = moon.int(v) end
-for k, v in pairs(const.Err)    do VALS["ERR_" .. k]    = moon.int(v) end
-for k, v in pairs(const.Resume) do VALS["RESUME_" .. k] = moon.int(v) end
-for k, v in pairs(const.TM)     do VALS["TM_" .. k]     = moon.int(v) end
-for k, v in pairs(const.Op)     do VALS["OP_" .. k]     = moon.int(v) end
-for k, v in pairs(const.ProtoFlag) do VALS[k] = moon.int(v) end
+for k, v in pairs(const.Tag)    do VALS["TAG_" .. k]    = lalin.int(v) end
+for k, v in pairs(const.Err)    do VALS["ERR_" .. k]    = lalin.int(v) end
+for k, v in pairs(const.Resume) do VALS["RESUME_" .. k] = lalin.int(v) end
+for k, v in pairs(const.TM)     do VALS["TM_" .. k]     = lalin.int(v) end
+for k, v in pairs(const.Op)     do VALS["OP_" .. k]     = lalin.int(v) end
+for k, v in pairs(const.ProtoFlag) do VALS[k] = lalin.int(v) end
 
 local function R(src)
     src = src:match("^%s*(.+)") or src

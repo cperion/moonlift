@@ -1,10 +1,10 @@
 -- stencil_object_extract.lua -- explicit object-metadata adapter for Stencil ASDL.
 --
 -- Future object extraction can feed this adapter with real code/symbol/reloc/hole
--- metadata. This module intentionally does not invoke Cranelift/Moonlift and
+-- metadata. This module intentionally does not invoke Cranelift/Lalin and
 -- does not fabricate code blobs.
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local B = require("lua_compile.builders")
 local T = B.T
 local S = T.Stencil

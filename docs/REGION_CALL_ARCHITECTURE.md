@@ -8,9 +8,9 @@ This document captures the intended final architecture, not a phased slice.
 
 ## Core idea
 
-Moonlift regions are the primary control abstraction. A region declares a control protocol through named continuation exits:
+Lalin regions are the primary control abstraction. A region declares a control protocol through named continuation exits:
 
-```moonlift
+```lalin
 region scan(p: ptr(u8), n: index, target: u8;
             hit(pos: index),
             miss())
@@ -24,7 +24,7 @@ end
 
 The language should support two use-site modes for the same region protocol:
 
-```moonlift
+```lalin
 emit scan(p, n, target; hit = found, miss = done)
 call scan(p, n, target; hit = found, miss = done)
 ```
@@ -36,7 +36,7 @@ emit = inline CFG splice
 call = generated function boundary + packed protocol result + local dispatch
 ```
 
-`emit` remains the default Moonlift style. `call` is the explicit escape hatch for code size, sharing, ABI boundaries, and situations where inlining a large region everywhere is undesirable.
+`emit` remains the default Lalin style. `call` is the explicit escape hatch for code size, sharing, ABI boundaries, and situations where inlining a large region everywhere is undesirable.
 
 The important invariant is:
 
@@ -48,7 +48,7 @@ Same region protocol. Different cost boundary.
 
 ### `emit`
 
-```moonlift
+```lalin
 emit parse_digit(p; ok = got_digit, fail = bad)
 ```
 
@@ -60,7 +60,7 @@ splice the region CFG here; region exits jump directly to local continuation blo
 
 ### `call`
 
-```moonlift
+```lalin
 call parse_digit(p; ok = got_digit, fail = bad)
 ```
 
@@ -84,14 +84,14 @@ use call when you want a boundary
 
 Source:
 
-```moonlift
+```lalin
 call scan(p, n, target; hit = found, miss = done)
 ```
 
 lowers conceptually to:
 
-```moonlift
-let __r = __moon_region_call_scan(p, n, target)
+```lalin
+let __r = __lalin_region_call_scan(p, n, target)
 
 switch __r
 case hit(pos)
@@ -105,19 +105,19 @@ end
 
 and a generated wrapper:
 
-```moonlift
-func __moon_region_call_scan(p: ptr(u8), n: index, target: u8): __moon_region_call_scan_result
-    return region: __moon_region_call_scan_result
+```lalin
+func __lalin_region_call_scan(p: ptr(u8), n: index, target: u8): __lalin_region_call_scan_result
+    return region: __lalin_region_call_scan_result
     entry start()
         emit scan(p, n, target; hit = __ret_hit, miss = __ret_miss)
     end
 
     block __ret_hit(pos: index)
-        return __moon_region_call_scan_result.hit(pos)
+        return __lalin_region_call_scan_result.hit(pos)
     end
 
     block __ret_miss()
-        return __moon_region_call_scan_result.miss()
+        return __lalin_region_call_scan_result.miss()
     end
     end
 end
@@ -131,15 +131,15 @@ A callable region needs a real result protocol type. This must be ordinary Tree/
 
 For a region protocol:
 
-```moonlift
+```lalin
 hit(pos: index)
 miss()
 ```
 
 generate a real tagged-union-shaped type equivalent to:
 
-```moonlift
-union __moon_region_call_scan_result
+```lalin
+union __lalin_region_call_scan_result
     hit(pos: index)
   | miss()
 end
@@ -147,13 +147,13 @@ end
 
 If the existing tagged union representation requires payload structs for multi-field variants, generate real payload structs as needed:
 
-```moonlift
-struct __moon_region_call_scan_hit_payload
+```lalin
+struct __lalin_region_call_scan_hit_payload
     pos: index
 end
 
-union __moon_region_call_scan_result
-    hit(__moon_region_call_scan_hit_payload)
+union __lalin_region_call_scan_result
+    hit(__lalin_region_call_scan_hit_payload)
   | miss()
 end
 ```
@@ -166,24 +166,24 @@ The exact representation should reuse existing language-level struct/union/varia
 
 Safe implementation areas:
 
-- `lua/moonlift/schema/tree.lua`
-- `lua/moonlift/dsl/init.lua`
-- `lua/moonlift/open_expand.lua`
-- `lua/moonlift/region_normal_form.lua`
+- `lua/lalin/schema/tree.lua`
+- `lua/lalin/dsl/init.lua`
+- `lua/lalin/open_expand.lua`
+- `lua/lalin/region_normal_form.lua`
 - host/builder APIs that construct region uses
 - tests/docs/LSP keyword support
 
 Avoid backend and semantic-lowering areas:
 
-- `lua/moonlift/schema/code.lua`
-- `lua/moonlift/code_type.lua`
-- `lua/moonlift/code_validate.lua`
-- `lua/moonlift/code_to_back.lua`
-- `lua/moonlift/lower_to_back.lua`
-- `lua/moonlift/frontend_pipeline.lua` unless only adding frontend boundary checks
-- `lua/moonlift/schema/{flow,mem,kernel,lower}.lua`
-- `lua/moonlift/code_{flow,mem,kernel,lower}_*.lua`
-- `lua/moonlift/kernel_validate.lua`
+- `lua/lalin/schema/code.lua`
+- `lua/lalin/code_type.lua`
+- `lua/lalin/code_validate.lua`
+- `lua/lalin/code_to_back.lua`
+- `lua/lalin/lower_to_back.lua`
+- `lua/lalin/frontend_pipeline.lua` unless only adding frontend boundary checks
+- `lua/lalin/schema/{flow,mem,kernel,lower}.lua`
+- `lua/lalin/code_{flow,mem,kernel,lower}_*.lua`
+- `lua/lalin/kernel_validate.lua`
 
 Backend contract:
 
@@ -192,7 +192,7 @@ By the time Tree reaches Code/backend lowering, no region-call semantics remain.
 The backend sees only ordinary funcs, structs/unions, calls, switches, jumps, and traps.
 ```
 
-This was coordinated with `agent-T321D3@moonlift-95231d` for workflow `wf-440a7835`; their backend work expects exactly this boundary.
+This was coordinated with `agent-T321D3@lalin-95231d` for workflow `wf-440a7835`; their backend work expects exactly this boundary.
 
 ## Tree representation
 
@@ -207,13 +207,13 @@ Then extend region-fragment use statements:
 
 ```asdl
 StmtUseRegionFrag(
-    MoonTree.StmtHeader h,
-    MoonTree.RegionUseMode mode,
+    LalinTree.StmtHeader h,
+    LalinTree.RegionUseMode mode,
     string use_id,
-    MoonOpen.RegionFragRef frag,
-    MoonTree.Expr* args,
-    MoonOpen.SlotBinding* fills,
-    MoonOpen.ContBinding* cont_fills
+    LalinOpen.RegionFragRef frag,
+    LalinTree.Expr* args,
+    LalinOpen.SlotBinding* fills,
+    LalinOpen.ContBinding* cont_fills
 ) unique
 ```
 
@@ -225,7 +225,7 @@ DSL normalization constructs `RegionUseCall` for source `call`.
 
 `call` mirrors `emit` exactly:
 
-```moonlift
+```lalin
 call region_name(args; exit1 = label1, exit2 = label2)
 ```
 
@@ -254,7 +254,7 @@ Generated wrappers should be reused per closed region instantiation and protocol
 
 Repeated source:
 
-```moonlift
+```lalin
 call scan(a; hit = h1, miss = m1)
 call scan(b; hit = h2, miss = m2)
 ```
@@ -262,7 +262,7 @@ call scan(b; hit = h2, miss = m2)
 should generate one wrapper:
 
 ```text
-__moon_region_call_scan
+__lalin_region_call_scan
 ```
 
 and two call-site dispatches.
@@ -272,9 +272,9 @@ The reuse key should be based on the resolved closed region fragment identity an
 Generated names must be deterministic and collision-resistant. Use a reserved prefix such as:
 
 ```text
-__moon_region_call_<region>_result
-__moon_region_call_<region>_fn
-__moon_region_call_<region>_<cont>_payload
+__lalin_region_call_<region>_result
+__lalin_region_call_<region>_fn
+__lalin_region_call_<region>_<cont>_payload
 ```
 
 If necessary, include a stable specialization suffix for open/generic instantiations.
@@ -285,7 +285,7 @@ If necessary, include a stable specialization suffix for open/generic instantiat
 
 Allowed:
 
-```moonlift
+```lalin
 ok(value: i32)
 err(code: i32)
 hit(pos: index)
@@ -295,7 +295,7 @@ found(handle: Voice)
 
 Rejected:
 
-```moonlift
+```lalin
 ok(p: lease(store) ptr(T))
 ok(v: lease(store) view(T))
 ```
@@ -329,7 +329,7 @@ This aligns with the handle/store/lease model:
 
 There is no fallthrough after:
 
-```moonlift
+```lalin
 call parse(...; ok = good, err = bad)
 ```
 
@@ -341,7 +341,7 @@ Regions stay primary.
 
 A single region definition can serve both composition styles:
 
-```moonlift
+```lalin
 emit big_algorithm(...; done = local_done, fail = local_fail)
 call big_algorithm(...; done = local_done, fail = local_fail)
 ```
@@ -376,7 +376,7 @@ Required tests:
 
 1. Parser accepts:
 
-   ```moonlift
+   ```lalin
    call scan(p; hit = found, miss = done)
    ```
 
@@ -400,7 +400,7 @@ Required tests:
 
 9. Lease payload rejection:
 
-   ```moonlift
+   ```lalin
    region borrow(...; ok(p: lease(store) ptr(T)), err()) ... end
    call borrow(...; ok = use, err = fail)
    ```

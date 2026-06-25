@@ -1,18 +1,18 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 local T = pvm.context(); Schema(T)
 
-local Core = T.MoonCore
-local Ty = T.MoonType
-local Tr = T.MoonTree
-local Open = T.MoonOpen
-local Bn = T.MoonBind
-local C = T.MoonC
-local CodeType = require("moonlift.code_type")(T)
-local Helpers = require("moonlift.c_helpers")(T)
-local Validate = require("moonlift.c_validate")(T)
+local Core = T.LalinCore
+local Ty = T.LalinType
+local Tr = T.LalinTree
+local Open = T.LalinOpen
+local Bn = T.LalinBind
+local C = T.LalinC
+local CodeType = require("lalin.code_type")(T)
+local Helpers = require("lalin.c_helpers")(T)
+local Validate = require("lalin.c_validate")(T)
 
 local i32_ty = Ty.TScalar(Core.ScalarI32)
 local cctx = { target = CodeType.default_target({}), layout_env = nil, diagnostics = {}, globals = {}, global_types = {}, global_ids = {}, env = {}, locals = {}, local_types = {}, local_storage = {}, helpers = {}, helpers_by_id = {}, helper_order = {}, sigs = {}, sig_order = {}, types = {}, type_decls_by_id = {} }
@@ -35,7 +35,7 @@ local report = Validate.validate(C.CBackendUnit("m", CodeType.default_target({ d
 local saw_atomic_feature = false
 for i = 1, #report.issues do if pvm.classof(report.issues[i]) == C.CBackendIssueInvalidTargetFeature then saw_atomic_feature = true end end
 assert(saw_atomic_feature, "atomics without C11 target support should be diagnosed")
-assert(package.loaded["moonlift.tree_to_c"] == nil)
-assert(package.loaded["moonlift.c_places"] == nil)
+assert(package.loaded["lalin.tree_to_c"] == nil)
+assert(package.loaded["lalin.c_places"] == nil)
 
-io.write("moonlift c_backend_negative ok\n")
+io.write("lalin c_backend_negative ok\n")

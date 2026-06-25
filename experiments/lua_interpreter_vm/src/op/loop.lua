@@ -1,4 +1,4 @@
--- Moonlift VM — For-loop opcode handlers
+-- Lalin VM — For-loop opcode handlers
 
 local B = require("experiments.lua_interpreter_vm.src.op._init")
 local R, H = B.R, B.H

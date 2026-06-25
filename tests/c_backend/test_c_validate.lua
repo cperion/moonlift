@@ -1,15 +1,15 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 local T = pvm.context(); Schema(T)
 
-local Core = T.MoonCore
-local C = T.MoonC
-local Validate = require("moonlift.c_validate")(T)
-local Helpers = require("moonlift.c_helpers")(T)
-local CodeType = require("moonlift.code_type")(T)
-local Coverage = require("moonlift.c_coverage")
+local Core = T.LalinCore
+local C = T.LalinC
+local Validate = require("lalin.c_validate")(T)
+local Helpers = require("lalin.c_helpers")(T)
+local CodeType = require("lalin.code_type")(T)
+local Coverage = require("lalin.c_coverage")
 
 local i32 = C.CBackendScalar(Core.ScalarI32)
 local i64 = C.CBackendScalar(Core.ScalarI64)
@@ -90,10 +90,10 @@ assert(has_issue(Validate.validate(C.CBackendUnit("m", CodeType.default_target({
 local td = C.CBackendStructDecl(C.CTypeId("m", "NoAssert"), { C.CBackendField(C.CBackendName("x"), i32, 0, 4, 4) }, nil, nil)
 assert(has_issue(Validate.validate(C.CBackendUnit("m", target, {}, { td }, {}, {}, {}, {})), C.CBackendIssueLayoutAssertionMissing), "missing layout assertion reported")
 
-local saved = Coverage.all_tables()["MoonTree.Expr"].ExprLit.status
-Coverage.all_tables()["MoonTree.Expr"].ExprLit.status = "bogus"
+local saved = Coverage.all_tables()["LalinTree.Expr"].ExprLit.status
+Coverage.all_tables()["LalinTree.Expr"].ExprLit.status = "bogus"
 local cov_report = Validate.validate(unit)
-Coverage.all_tables()["MoonTree.Expr"].ExprLit.status = saved
+Coverage.all_tables()["LalinTree.Expr"].ExprLit.status = saved
 assert(has_issue(cov_report, C.CBackendIssueCoverageMissing), "coverage mismatch reported")
 
 local abi_issue = C.CBackendIssueAbiMismatch("site", sig_id, "reason")
@@ -114,4 +114,4 @@ local storage_addr = C.CBackendStorageRecord(addr_func.name, { C.CBackendLocalSt
 local addr_unit = C.CBackendUnit("m", target, { sig0 }, {}, {}, {}, {}, { addr_func })
 assert(has_issue(Validate.validate_input(C.CBackendValidationInput(addr_unit, { storage_addr }, {})), C.CBackendIssueUnmaterializedAddressTakenValue), "unmaterialized address-taken value reported")
 
-io.write("moonlift c_validate ok\n")
+io.write("lalin c_validate ok\n")

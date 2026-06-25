@@ -1,6 +1,6 @@
 -- EXPERIMENTAL PATCH PROBE ONLY.
 --
--- This tests moonlift.stencil_bank.install_binary_stencil, not production stencil
+-- This tests lalin.stencil_bank.install_binary_stencil, not production stencil
 -- extraction. The bytes are a tiny x86_64 SysV binary stencil with one immediate
 -- hole:
 --
@@ -12,8 +12,8 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 if ffi.os ~= "Linux" or ffi.arch ~= "x64" then
   error("this patch probe only runs on Linux x64 LuaJIT")
@@ -26,7 +26,7 @@ typedef struct { int32_t a; int32_t b; } DraftParam;
 
 local T = pvm.context()
 Schema(T)
-local Bank = require("moonlift.stencil_bank")(T)
+local Bank = require("lalin.stencil_bank")(T)
 
 local entry = {
   key = "draft.add_param_i32_plus_imm32",

@@ -1,18 +1,18 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
 
 local T = pvm.context()
 A(T)
 
-local Tr = T.MoonTree
-local lexer = require("moonlift.c.c_lexer")
-local cpp = require("moonlift.c.cpp_expand")(T)
-local vfs = require("moonlift.c.vfs")
-local c_parse = require("moonlift.c.c_parse")(T)
-local cimport_mod = require("moonlift.c.cimport")(T)
-local lower_mod = require("moonlift.c.lower_c")(T)
+local Tr = T.LalinTree
+local lexer = require("lalin.c.c_lexer")
+local cpp = require("lalin.c.cpp_expand")(T)
+local vfs = require("lalin.c.vfs")
+local c_parse = require("lalin.c.c_parse")(T)
+local cimport_mod = require("lalin.c.cimport")(T)
+local lower_mod = require("lalin.c.lower_c")(T)
 
 local function lex(src) return lexer.lex(src, "test.c") end
 
@@ -28,14 +28,14 @@ local function full_pipeline(src)
     end
     local tu, parse_issues = c_parse.parse(r.tokens, r.spans)
     local type_facts, layout_facts, extern_funcs = cimport_mod.cimport(tu.items, "test_mod")
-    local moon_module = lower_mod.lower(tu.items, type_facts, layout_facts, extern_funcs, "test_mod")
-    return moon_module, tu, { type_facts = type_facts, layout_facts = layout_facts, extern_funcs = extern_funcs }, parse_issues
+    local lalin_module = lower_mod.lower(tu.items, type_facts, layout_facts, extern_funcs, "test_mod")
+    return lalin_module, tu, { type_facts = type_facts, layout_facts = layout_facts, extern_funcs = extern_funcs }, parse_issues
 end
 
 -- Test: Simple function: int add(int a, int b) { return a + b; }
 do
     local src = [[int add(int a, int b) { return a + b; }]]
-    local moon_module, tu, cimports, issues = full_pipeline(src)
+    local lalin_module, tu, cimports, issues = full_pipeline(src)
 
     assert(#issues == 0, "expected 0 parse issues, got " .. #issues)
 
@@ -48,12 +48,12 @@ do
     assert(func.type_spec._variant == "CTyInt")
 
     -- Verify lower_c produced a proper ASDL Module via pvm.classof
-    assert(pvm.classof(moon_module) == Tr.Module,
-           "expected MoonTree.Module, got " .. tostring(pvm.classof(moon_module)))
-    assert(type(moon_module.items) == "table")
+    assert(pvm.classof(lalin_module) == Tr.Module,
+           "expected LalinTree.Module, got " .. tostring(pvm.classof(lalin_module)))
+    assert(type(lalin_module.items) == "table")
 
     local found_item_func = false
-    for _, item in ipairs(moon_module.items) do
+    for _, item in ipairs(lalin_module.items) do
         if pvm.classof(item) == Tr.ItemFunc then
             found_item_func = true
             assert(item.func.name == "add",
@@ -80,14 +80,14 @@ end
 -- Test: String literal
 do
     local src = [[char* get_hello(void) { return "hello"; }]]
-    local moon_module, tu, cimports, issues = full_pipeline(src)
+    local lalin_module, tu, cimports, issues = full_pipeline(src)
     assert(#issues == 0)
-    assert(pvm.classof(moon_module) == Tr.Module)
+    assert(pvm.classof(lalin_module) == Tr.Module)
 
     -- Check for ItemFunc
     local found_func = false
     local found_data = false
-    for _, item in ipairs(moon_module.items) do
+    for _, item in ipairs(lalin_module.items) do
         if pvm.classof(item) == Tr.ItemFunc then found_func = true end
         if pvm.classof(item) == Tr.ItemData then found_data = true end
     end
@@ -114,10 +114,10 @@ end
 -- Test: sizeof lowers through C type facts, not a fixed sentinel value.
 do
     local src = [[int size_i64(void) { return sizeof(long long); }]]
-    local moon_module, _, _, issues = full_pipeline(src)
+    local lalin_module, _, _, issues = full_pipeline(src)
     assert(#issues == 0)
     local ret
-    for _, item in ipairs(moon_module.items) do
+    for _, item in ipairs(lalin_module.items) do
         if pvm.classof(item) == Tr.ItemFunc and item.func.name == "size_i64" then
             ret = item.func.body[1]
         end
@@ -138,4 +138,4 @@ do
     print("  compound literal lowering rejection: PASS")
 end
 
-print("moonlift test_c_end_to_end ok")
+print("lalin test_c_end_to_end ok")

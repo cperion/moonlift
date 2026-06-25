@@ -1,19 +1,19 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local Flow = T.MoonFlow
-local Graph = T.MoonGraph
-local Value = T.MoonValue
-local Kernel = T.MoonKernel
-local Ty = T.MoonType
-local Stencil = T.MoonStencil
+local Core = T.LalinCore
+local Code = T.LalinCode
+local Flow = T.LalinFlow
+local Graph = T.LalinGraph
+local Value = T.LalinValue
+local Kernel = T.LalinKernel
+local Ty = T.LalinType
+local Stencil = T.LalinStencil
 
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)
 local sem = Code.CodeIntSemantics(Code.CodeIntWrap, Code.CodeDivTrapOnZeroOrOverflow, Code.CodeShiftMaskCount)
@@ -170,4 +170,4 @@ assert(soa_topology.field_name == "right")
 assert(soa_topology.component_index == 1)
 assert(pvm.classof(pred) == Stencil.StencilPredEqConst)
 
-io.write("moonlift schema_stencil ok\n")
+io.write("lalin schema_stencil ok\n")

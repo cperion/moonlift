@@ -1,4 +1,4 @@
-# SponJIT Copy-Link-Patch Exploration 
+# SponJIT Copy-Link-Patch Exploration
 Explore Copy-Link-Patch as a future Tier 2 stencil-fusion backend above the current Tier 1 offline bank tiler. Phase 1 should document current facts before deciding architecture or experiments.
 **Workflow ID**: wf-sponjit-copy-link-patch
 **Started**: 2026-05-29 09:06:03
@@ -577,7 +577,7 @@ Existing metadata-only inputs discovered:
 
 ### Non-Obvious Observations
 
-- The current system has **two incompatible “Stencil IR” realities**:  
+- The current system has **two incompatible “Stencil IR” realities**:
   in-memory Stencil IR/SSA can name ops, values, effects, guards, deps, exits, holes, and slotmaps; the generated bank ABI exposes mostly bytes, holes, slotmaps, pattern keys, and fact masks. A repo-grounded experiment must not treat conclusions about one layer as conclusions about the other.
 
 - The public bank is not currently a typed macro-instruction catalog. It is closer to an **opaque tile library with patch sites**. The metadata needed for Copy-Link-Patch mostly exists before `build_bank.lua`, then is discarded or compressed.
@@ -716,12 +716,12 @@ Existing metadata-only inputs discovered:
 
 ---
 
-### Approach C: Moonlift-Style Region Source ABI
+### Approach C: Lalin-Style Region Source ABI
 
-- **Core idea**: Make SpongeJIT stencils compile into Moonlift-like typed regions with named continuations, then compose those regions through typed control protocols instead of linking opaque bytes.
+- **Core idea**: Make SpongeJIT stencils compile into Lalin-like typed regions with named continuations, then compose those regions through typed control protocols instead of linking opaque bytes.
 
 - **Key changes**:
-  - Introduce a SpongeJIT region schema that maps SSA values, facts, frame slots, memory effects, and exits into Moonlift-style region signatures.
+  - Introduce a SpongeJIT region schema that maps SSA values, facts, frame slots, memory effects, and exits into Lalin-style region signatures.
   - Replace or augment `stencil_to_c.lua` with a `stencil_to_region_source.lua` / `stencil_to_backcmd.lua` backend.
   - Each stencil becomes something like:
     - entry params: frame pointer, slot bindings, abstract facts, live values
@@ -729,16 +729,16 @@ Existing metadata-only inputs discovered:
     - explicit projection obligations on non-`ok` continuations
   - Bank metadata stores typed region templates, continuation protocols, fact transfer, deps, hole bindings, and projection recipes.
   - Runtime selection produces a composed region graph; composition happens by `emit`-style splicing rather than native branch relocation.
-  - PUC runtime either invokes a Moonlift/Cranelift compilation path for hot images or uses an ahead-of-time cache of composed common regions.
+  - PUC runtime either invokes a Lalin/Cranelift compilation path for hot images or uses an ahead-of-time cache of composed common regions.
 
-- **Tradeoff**: Optimizes for typed control, explicit continuation contracts, and reuse of Moonlift’s region philosophy; sacrifices independence from Moonlift and makes Tier 2 closer to a JIT compiler than a pure copy-patch linker.
+- **Tradeoff**: Optimizes for typed control, explicit continuation contracts, and reuse of Lalin’s region philosophy; sacrifices independence from Lalin and makes Tier 2 closer to a JIT compiler than a pure copy-patch linker.
 
-- **Risk**: Dynamic Lua VM facts, payload leases, and fallback projection may not map cleanly into monomorphic Moonlift regions without adding significant host/runtime ABI machinery.
+- **Risk**: Dynamic Lua VM facts, payload leases, and fallback projection may not map cleanly into monomorphic Lalin regions without adding significant host/runtime ABI machinery.
 
 - **Rough sketch**:
-  - Define SpongeJIT-to-Moonlift type mappings for frame slots, TValue views, facts, and exits.
+  - Define SpongeJIT-to-Lalin type mappings for frame slots, TValue views, facts, and exits.
   - Generate one typed region per stencil template.
-  - Compose selected regions into a larger Moonlift region with explicit continuations.
+  - Compose selected regions into a larger Lalin region with explicit continuations.
   - Compile/cache fused regions for i64-only traces first.
   - Use typed continuation signatures to force projection completeness at compile time.
 
@@ -748,7 +748,7 @@ Existing metadata-only inputs discovered:
 
 - **Approach A** treats the region ABI as a semantic catalog first, with executable code generated later.
 - **Approach B** treats the region ABI as a native binary contract, optimized for real byte-level Copy-Link-Patch.
-- **Approach C** treats the region ABI as typed control source, aligning SpongeJIT with Moonlift-style explicit regions and continuations.
+- **Approach C** treats the region ABI as typed control source, aligning SpongeJIT with Lalin-style explicit regions and continuations.
 
 ## Critique Output — 2026-05-29 09:37:17
 
@@ -760,7 +760,7 @@ Existing metadata-only inputs discovered:
 | **Cohesion** | **4/5 good, with danger** | As a Tier 2 backend, the concept is cohesive: native fragments, explicit labels, continuation exits, clobbers, and relocations all serve Copy-Link-Patch directly. The danger is mixing semantic region facts/projection data with machine-layout metadata too early. |
 | **Migration cost** | **5/5 very high** | This is a deep replacement of `stencil_to_c.lua`, `build_bank.lua`, `sponbank.h`, generated artifacts, relocation handling, and `puc/sponjit_runtime.c`. Existing C-function tiles cannot simply become linkable fragments. |
 | **SpongeJIT philosophy fit** | **5/5** | This is the most literal realization of Copy-Link-Patch: copy native fragments, link continuations, patch data/control holes, enter once. It directly attacks the current per-tile mmap/function-call boundary. |
-| **Moonlift philosophy fit** | **3/5 mixed** | Explicit continuations and typed control edges fit Moonlift’s philosophy. Raw physical endpoint contracts, ISA-specific relocs, and low-level fragment ABI are less Moonlift-like than typed region composition. |
+| **Lalin philosophy fit** | **3/5 mixed** | Explicit continuations and typed control edges fit Lalin’s philosophy. Raw physical endpoint contracts, ISA-specific relocs, and low-level fragment ABI are less Lalin-like than typed region composition. |
 | **Correctness risk** | **5/5 high** | The hardest risks are physical endpoint soundness, projection correctness, fact/dependency fidelity, and confusing current `exit`/`fail` holes with true branch targets. Current runtime correctness assumes frame state is synchronized at exits; this approach wants to break that invariant safely. |
 | **Runtime complexity** | **5/5 high** | The runtime becomes an image linker: layout fragments, patch branches, manage projection/fallback stubs, validate facts/deps, allocate one executable region, handle W^X/cache flushing, and preserve resume semantics. |
 | **Build/foundry impact** | **5/5 high** | The foundry must preserve labels, continuation offsets, clobbers, physical ABI IDs, branch relocs, projection slices, and likely architecture-specific metadata. The current bank already has millions of descriptors; richer fragment metadata may be large. |
@@ -810,7 +810,7 @@ The cost is that it moves SpongeJIT into a much more dangerous layer: physical A
 
 # Architectural Decision: SpongeJIT Copy-Link-Patch Native Fragment ABI
 
-**Workflow:** `wf-sponjit-copy-link-patch`  
+**Workflow:** `wf-sponjit-copy-link-patch`
 **Decision:** Choose **Approach B: Native Fragment ABI with Continuation Relocations**.
 
 ## Intended repo doc update targets
@@ -971,7 +971,7 @@ Approach A, Semantic Region Bank + Late Image Compiler, would prioritize a metad
 
 ### Why Approach C was not chosen
 
-Approach C, Moonlift-Style Region Source ABI, would map SpongeJIT stencils into typed regions with named continuations and compose them through a Moonlift-like region protocol. This aligns with typed control and explicit continuation contracts, but makes Tier 2 closer to a JIT/compiler integration path than a pure copy-link-patch linker. The workflow identified risk around mapping dynamic Lua VM facts, payload leases, and fallback projection into monomorphic Moonlift regions without substantial host/runtime ABI machinery.
+Approach C, Lalin-Style Region Source ABI, would map SpongeJIT stencils into typed regions with named continuations and compose them through a Lalin-like region protocol. This aligns with typed control and explicit continuation contracts, but makes Tier 2 closer to a JIT/compiler integration path than a pure copy-link-patch linker. The workflow identified risk around mapping dynamic Lua VM facts, payload leases, and fallback projection into monomorphic Lalin regions without substantial host/runtime ABI machinery.
 
 ### Tradeoffs acknowledged
 
@@ -983,19 +983,19 @@ This cost is accepted because Approach B directly tests the central Copy-Link-Pa
 
 The chosen approach carries the risks identified in critique:
 
-1. **Projection correctness**  
+1. **Projection correctness**
    Current exits assume synchronized frame state. Store/load seam removal is unsafe unless every guard/residual exit has an exact projection recipe.
 
-2. **Physical endpoint contracts**  
+2. **Physical endpoint contracts**
    Registers, flags, scratch space, stack alignment, clobbers, and call boundaries must be explicit and enforced. C codegen no longer hides these details.
 
-3. **Control-hole ambiguity**  
+3. **Control-hole ambiguity**
    Existing `exit`/`fail` holes are not branch/link targets. Native continuation relocations need distinct semantics.
 
-4. **Fact/payload/dependency insufficiency**  
+4. **Fact/payload/dependency insufficiency**
    `SponFactSig` is too compressed for shape ids, field offsets, call targets, payload leases, and dependency epochs. Current PUC runtime refuses many payload-bearing holes.
 
-5. **Benchmark interpretation**  
+5. **Benchmark interpretation**
    Early comparisons against current per-tile mmap/function-call execution may overstate Copy-Link-Patch wins by measuring removal of implementation overhead rather than semantic fusion value.
 
 ---
@@ -2297,8 +2297,8 @@ Remaining intentional limitations:
 26. `experiments/lua_interpreter_vm/README.md` (lines 1-132) — Current VM/SpongeJIT status summary.
 27. `experiments/lua_interpreter_vm/VM_CONTRACT.md` (lines 1-87) — VM contract and SponJIT gate.
 28. `experiments/lua_interpreter_vm/src/contract.lua` (lines 1-19) — Machine-readable VM gate.
-29. `experiments/lua_interpreter_vm/src/vm_loop.lua` (lines 1-178) — Moonlift VM loop, no SpongeJIT integration.
-30. `experiments/lua_interpreter_vm/src/products.lua` (lines 1-131) — Moonlift VM product layouts.
+29. `experiments/lua_interpreter_vm/src/vm_loop.lua` (lines 1-178) — Lalin VM loop, no SpongeJIT integration.
+30. `experiments/lua_interpreter_vm/src/products.lua` (lines 1-131) — Lalin VM product layouts.
 31. `experiments/lua_interpreter_vm/src/opcodes.lua` (lines 1-230) — VM dispatch region structure.
 32. `experiments/lua_interpreter_vm/src/regions_native.lua` (lines 1-83) — Explicit native ABI boundary.
 33. `experiments/lua_interpreter_vm/src/jit/stencil_codegen.lua` (lines 1-51) — Older small StateOp stencil generator shim.
@@ -2315,7 +2315,7 @@ Remaining intentional limitations:
 44. `experiments/lua_interpreter_vm/SPONJIT_ARCHITECTURE.md` (lines 640-710) — Current native-fragment architecture notes.
 45. `experiments/lua_interpreter_vm/SPONJIT_RUNTIME_DESIGN.md` (lines 1-80) — Runtime design document, partly stale.
 46. `experiments/lua_interpreter_vm/tools/sponjit_shadow/README.md` (lines 1-202) — Older shadow simulator docs.
-47. `experiments/lua_interpreter_vm/tools/jit_harness/candidate_emit.lua` (lines 1-140) — Older Moonlift/GCC stencil kernel emitter.
+47. `experiments/lua_interpreter_vm/tools/jit_harness/candidate_emit.lua` (lines 1-140) — Older Lalin/GCC stencil kernel emitter.
 48. `experiments/lua_interpreter_vm/tools/jit_harness/candidate_compile.lua` (lines 1-160) — Older object compilation path.
 49. `experiments/lua_interpreter_vm/tools/jit_harness/lowering_plan.lua` (lines 1-160) — Older candidate/fact lowering planner.
 50. `experiments/lua_interpreter_vm/benchmarks/bench_stencil_vs_vm.lua` (lines 1-120) — Older C monolithic stencil vs VM benchmark.
@@ -2574,15 +2574,15 @@ opcode sequence + fact bundle
 
 - `sponbank.h` declares native fragment ABI structs and selectors, but the current tree has no generated `libsponbank.c`, no `build_bank.lua`, no `build_stencils.sh`, and no C implementation of the declared functions.
 
-- Moonlift interpreter VM integration is separate:
-  - `src/vm_loop.lua` dispatches bytecode through Moonlift regions.
+- Lalin interpreter VM integration is separate:
+  - `src/vm_loop.lua` dispatches bytecode through Lalin regions.
   - `src/contract.lua` has `sponjit_allowed = false`.
   - `spongejit/puc/README.md` says no maintained executable PUC integration exists until a native fragment linker exists.
   - `experiments/lua_interpreter_vm/README.md` states SpongeJIT is not the execution engine for `src/vm_loop.lua`.
 
 - Older non-current harnesses remain outside the maintained `spongejit/` path:
   - `tools/sponjit_shadow/` is a non-executing economic simulator.
-  - `tools/jit_harness/` can emit/compile Moonlift or GCC stencil kernels.
+  - `tools/jit_harness/` can emit/compile Lalin or GCC stencil kernels.
   - `benchmarks/bench_stencil_vs_vm.lua` still contains a standalone C “stencil” benchmark.
 
 ## Observations
@@ -2661,7 +2661,7 @@ No `grammar_c_code_1.c` or `grammar_holes_1.json` was produced.
 - **Projection and resume correctness**: current `SYNCED_FRAME` projection is safe but intentionally does not unlock the main Copy-Link-Patch optimization.
 - **Physical endpoint contracts**: endpoint locations, clobbers, and value residency are now the hard correctness surface.
 - **Selector identity and fact transfer**: pattern keys, fact signatures, slot remapping, and source opcode identity are not yet fully aligned.
-- **Integration gates**: SpongeJIT is currently separate from both PUC execution and the Moonlift Lua VM; the VM contract explicitly forbids SponJIT integration for now.
+- **Integration gates**: SpongeJIT is currently separate from both PUC execution and the Lalin Lua VM; the VM contract explicitly forbids SponJIT integration for now.
 - **Sequencing after the hard-yank**: the old C-function path is gone, so the design space is cleaner but has no maintained executable baseline.
 
 ---
@@ -2740,9 +2740,9 @@ No `grammar_c_code_1.c` or `grammar_holes_1.json` was produced.
 
 - Current tests validate Lua descriptors, not C ABI consumption. The most important lossy boundaries — JSON → generated arrays → C accessors → runtime linker — are untested because they do not exist yet.
 
-#### The Moonlift VM contract changes the integration constraints
+#### The Lalin VM contract changes the integration constraints
 
-- The current Moonlift Lua VM explicitly has `sponjit_allowed = false`. SponJIT integration is gated on bytecode validation, frame/cache rules, native ABI, allocator, errors, and coroutine/yield semantics.
+- The current Lalin Lua VM explicitly has `sponjit_allowed = false`. SponJIT integration is gated on bytecode validation, frame/cache rules, native ABI, allocator, errors, and coroutine/yield semantics.
 
 - PUC runtime integration was removed, but much SpongeJIT vocabulary still comes from PUC-style opcode windows and `SponExecCtx` with stack/constants/scratch/exit fields.
 
@@ -2750,7 +2750,7 @@ No `grammar_c_code_1.c` or `grammar_holes_1.json` was produced.
 
 - `SponExecCtx.exit_hole` remains even though `exit`/`fail` holes were retired as data holes. This is a small but telling legacy seam: runtime exit state still remembers the old model.
 
-- Moonlift already has explicit typed native-boundary regions and continuation protocols. That makes the physical native fragment ABI tension sharper: SpongeJIT’s fragment ABI must either remain clearly separate or eventually align with the VM’s typed control/data contracts. The current code does neither yet; it is isolated.
+- Lalin already has explicit typed native-boundary regions and continuation protocols. That makes the physical native fragment ABI tension sharper: SpongeJIT’s fragment ABI must either remain clearly separate or eventually align with the VM’s typed control/data contracts. The current code does neither yet; it is isolated.
 
 #### Current solid pieces narrow future freedom
 
@@ -2770,9 +2770,9 @@ No `grammar_c_code_1.c` or `grammar_holes_1.json` was produced.
 
 - What the canonical selector identity should be: source opcode pattern, stencil hash, fragment id, contract tuple, or some combination.
 
-- How `SponExecCtx` is supposed to relate to the Moonlift VM’s `Value`, `Frame`, `LuaThread`, allocator, error, and yield contracts.
+- How `SponExecCtx` is supposed to relate to the Lalin VM’s `Value`, `Frame`, `LuaThread`, allocator, error, and yield contracts.
 
-- Whether future executable fragments are expected to target a custom x64 emitter only, or interact with Moonlift’s existing native backend at any boundary.
+- Whether future executable fragments are expected to target a custom x64 emitter only, or interact with Lalin’s existing native backend at any boundary.
 
 - How runtime facts will be observed now that maintained PUC execution integration is gone.
 
@@ -2788,9 +2788,9 @@ No `grammar_c_code_1.c` or `grammar_holes_1.json` was produced.
   - Treat `fragment_ir.lua` + `sponbank.h` as one shared ABI contract that must be lossless.
   - Close current ABI gaps: locations, clobbers, projection resume data, index origins, fact signatures, selector identity.
   - Add a real fragment bank generator and native linker/runtime around `SponFragmentDesc`.
-  - Keep SpongeJIT isolated from Moonlift VM integration until VM gates allow it.
+  - Keep SpongeJIT isolated from Lalin VM integration until VM gates allow it.
 
-- **Tradeoff**: Optimizes for literal Copy-Link-Patch validation and clear native-fragment ownership; sacrifices portability and delays Moonlift integration.
+- **Tradeoff**: Optimizes for literal Copy-Link-Patch validation and clear native-fragment ownership; sacrifices portability and delays Lalin integration.
 
 - **Risk**: The ABI may harden too early around x64/SponExecCtx assumptions before projection, runtime facts, and VM integration are fully understood.
 
@@ -2799,19 +2799,19 @@ No `grammar_c_code_1.c` or `grammar_holes_1.json` was produced.
   - Build an executable/non-executable phase split: abstract descriptors must never be linked.
   - Add an x64 fragment emitter with explicit endpoint labels and control relocations.
   - Build a standalone fragment linker/test harness for i64/guard spans.
-  - Only later connect to PUC-like or Moonlift runtime entry points.
+  - Only later connect to PUC-like or Lalin runtime entry points.
 
 ---
 
-### Approach B: Moonlift Region Assimilation
+### Approach B: Lalin Region Assimilation
 
-- **Core idea**: Stop treating SpongeJIT fragments as a separate executable ABI and reinterpret them as Moonlift typed regions with explicit continuation protocols.
+- **Core idea**: Stop treating SpongeJIT fragments as a separate executable ABI and reinterpret them as Lalin typed regions with explicit continuation protocols.
 
 - **Key changes**:
-  - Map SpongeJIT SSA/stencil fragments into Moonlift region signatures.
-  - Put truth in Moonlift’s typed control/data contracts rather than `sponbank.h`.
+  - Map SpongeJIT SSA/stencil fragments into Lalin region signatures.
+  - Put truth in Lalin’s typed control/data contracts rather than `sponbank.h`.
   - Represent exits as typed continuations: `ok`, `guard_exit`, `residual_exit`, `boundary_exit`.
-  - Let Moonlift/Cranelift own physical ABI, register allocation, object emission, and native execution.
+  - Let Lalin/Cranelift own physical ABI, register allocation, object emission, and native execution.
   - Keep SpongeJIT as a specialization/planning frontend, not an independent native backend.
 
 - **Tradeoff**: Optimizes for typed integration, projection checking, and reuse of the existing compiler stack; sacrifices the pure “copy prebuilt native bytes and patch branches” model.
@@ -2819,10 +2819,10 @@ No `grammar_c_code_1.c` or `grammar_holes_1.json` was produced.
 - **Risk**: The project may drift from Copy-Link-Patch into “just another JIT compiler,” losing the original low-latency offline-fragment thesis.
 
 - **Rough sketch**:
-  - Define a SpongeJIT-fragment-to-Moonlift-region mapping.
+  - Define a SpongeJIT-fragment-to-Lalin-region mapping.
   - Convert endpoint locations into typed continuation parameters.
   - Convert projection recipes into required continuation arguments.
-  - Use Moonlift object/JIT emission for executable fused regions.
+  - Use Lalin object/JIT emission for executable fused regions.
   - Enable VM integration only through existing `VM_CONTRACT` gates.
 
 ---
@@ -2847,14 +2847,14 @@ No `grammar_c_code_1.c` or `grammar_holes_1.json` was produced.
   - Add projection completeness checks beyond `SYNCED_FRAME`.
   - Model store/load seam removal only when projections can reconstruct state.
   - Run corpus-scale analysis over accepted/rejected spans and projected savings.
-  - Choose native x64 or Moonlift execution only after the semantic planner stabilizes.
+  - Choose native x64 or Lalin execution only after the semantic planner stabilizes.
 
 ---
 
 ### Comparison
 
 - Pick **Approach A** if the goal is to prove real byte-level Copy-Link-Patch as originally imagined.
-- Pick **Approach B** if the goal is coherent Moonlift integration and typed execution safety.
+- Pick **Approach B** if the goal is coherent Lalin integration and typed execution safety.
 - Pick **Approach C** if the main uncertainty is still semantic correctness and whether Tier 2 has enough optimization value to justify a native backend.
 
 ## Critique Output — 2026-05-30 19:06:49
@@ -2863,31 +2863,31 @@ No `grammar_c_code_1.c` or `grammar_holes_1.json` was produced.
 
 | Dimension | Score (1-5) | Rationale |
 |-----------|-------------|-----------|
-| **Coupling** | 4/5 | Tightly binds `fragment_ir.lua`, `sponbank.h`, x64 emission, linker/runtime, relocation formats, and likely `SponExecCtx` assumptions. Keeps Moonlift isolated, but hardens a native ABI boundary. |
+| **Coupling** | 4/5 | Tightly binds `fragment_ir.lua`, `sponbank.h`, x64 emission, linker/runtime, relocation formats, and likely `SponExecCtx` assumptions. Keeps Lalin isolated, but hardens a native ABI boundary. |
 | **Cohesion** | 4/5 | Very coherent for literal Copy-Link-Patch: one fragment ABI, explicit endpoints, relocs, projection, linker. |
 | **Migration cost** | 4/5 | Requires closing ABI gaps, adding bank generator, native emitter, linker, executable tests, and runtime harness. No old C-function baseline remains. |
-| **Philosophy fit** | 4/5 | Strong SpongeJIT fit: copy bytes, link continuations, patch holes. Weaker Moonlift fit because it owns a separate physical ABI instead of typed region composition. |
+| **Philosophy fit** | 4/5 | Strong SpongeJIT fit: copy bytes, link continuations, patch holes. Weaker Lalin fit because it owns a separate physical ABI instead of typed region composition. |
 | **Risk** | 4/5 | High correctness risk around physical endpoints, projection/resume, fact identity, and premature x64/`SponExecCtx` hardening. |
 | **Testability** | 4/5 | Good if abstract/non-executable vs native/executable phases stay explicit. Can build standalone i64/guard linker experiments before VM integration. |
 
-**Verdict**: Yes with caveats  
+**Verdict**: Yes with caveats
 **Key concern**: Do not freeze the current incomplete ABI. Locations, clobbers, projection resume data, selector identity, and index origins must be lossless before executable fragments depend on them.
 
 ---
 
-### Approach B: Moonlift Region Assimilation
+### Approach B: Lalin Region Assimilation
 
 | Dimension | Score (1-5) | Rationale |
 |-----------|-------------|-----------|
-| **Coupling** | 4/5 | Strongly couples SpongeJIT planning to Moonlift region types, compiler pipeline, VM gates, and Cranelift/backend semantics. |
+| **Coupling** | 4/5 | Strongly couples SpongeJIT planning to Lalin region types, compiler pipeline, VM gates, and Cranelift/backend semantics. |
 | **Cohesion** | 3/5 | Coherent if SpongeJIT becomes a specialization frontend, but less cohesive as Copy-Link-Patch because the byte-copy/link/patch thesis largely disappears. |
-| **Migration cost** | 5/5 | Requires replacing the current fragment ABI direction with a SpongeJIT→Moonlift region mapping and waiting on VM integration gates. |
-| **Philosophy fit** | 3/5 | Excellent Moonlift fit: typed continuations, explicit control protocols, backend-owned ABI. Mixed SpongeJIT fit: it risks becoming “just another JIT compiler.” |
+| **Migration cost** | 5/5 | Requires replacing the current fragment ABI direction with a SpongeJIT→Lalin region mapping and waiting on VM integration gates. |
+| **Philosophy fit** | 3/5 | Excellent Lalin fit: typed continuations, explicit control protocols, backend-owned ABI. Mixed SpongeJIT fit: it risks becoming “just another JIT compiler.” |
 | **Risk** | 4/5 | Lowers native ABI correctness risk, but raises product/architecture risk: dynamic Lua facts, projection, payload leases, and fallback semantics may not map cleanly. |
-| **Testability** | 3/5 | Mapping/projection can be tested incrementally, but useful execution experiments depend on broader Moonlift/VM integration readiness. |
+| **Testability** | 3/5 | Mapping/projection can be tested incrementally, but useful execution experiments depend on broader Lalin/VM integration readiness. |
 
-**Verdict**: Significant concerns  
-**Key concern**: Preserve the Copy-Link-Patch thesis. If Moonlift owns physical ABI and emission, SpongeJIT may lose the thing it was supposed to prove.
+**Verdict**: Significant concerns
+**Key concern**: Preserve the Copy-Link-Patch thesis. If Lalin owns physical ABI and emission, SpongeJIT may lose the thing it was supposed to prove.
 
 ---
 
@@ -2895,14 +2895,14 @@ No `grammar_c_code_1.c` or `grammar_holes_1.json` was produced.
 
 | Dimension | Score (1-5) | Rationale |
 |-----------|-------------|-----------|
-| **Coupling** | 2/5 | Keeps native, Moonlift, and runtime boundaries loose while semantic contracts stabilize. Lowest risk of binding unrelated layers prematurely. |
+| **Coupling** | 2/5 | Keeps native, Lalin, and runtime boundaries loose while semantic contracts stabilize. Lowest risk of binding unrelated layers prematurely. |
 | **Cohesion** | 4/5 | Cohesive around current reality: abstract fragments, endpoint/projection validation, fact/dependency tracking, and seam-legality analysis. |
 | **Migration cost** | 2/5 | Builds on existing abstract fragment metadata and tests. Avoids immediate assembler/linker/runtime work. |
-| **Philosophy fit** | 4/5 | Fits Moonlift’s explicit-contract philosophy and current SpongeJIT metadata-first state, though it delays literal byte-level Copy-Link-Patch. |
+| **Philosophy fit** | 4/5 | Fits Lalin’s explicit-contract philosophy and current SpongeJIT metadata-first state, though it delays literal byte-level Copy-Link-Patch. |
 | **Risk** | 3/5 | Lower correctness risk, but higher strategic risk: it can become a verifier project with no performance proof. |
 | **Testability** | 5/5 | Best immediate experiment surface: abstract linking, projection completeness, fact flow, rejection rates, corpus-scale opportunity analysis. |
 
-**Verdict**: Yes with caveats  
+**Verdict**: Yes with caveats
 **Key concern**: Experiments must be decision-driving. If it only accumulates metadata without proving seam value or projection feasibility, it stalls Tier 2.
 
 ---
@@ -2911,14 +2911,14 @@ No `grammar_c_code_1.c` or `grammar_holes_1.json` was produced.
 
 - **Recommended**: **Approach C — Semantic Planner First**. Given the current post-hard-yank state, the largest danger is hardening the wrong ABI before projection, endpoint, selector, and runtime facts are understood. C gives the most useful near-term correctness experiments with the least boundary debt.
 - **Dark horse**: **Approach A — Fragment ABI as the Product**. It has the highest upside if the goal is true byte-level Copy-Link-Patch, but only after the ABI is made lossless and executable/non-executable phases stay strict.
-- **Avoid**: **Approach B — Moonlift Region Assimilation**, unless the project goal shifts from Copy-Link-Patch validation to Moonlift-native JIT integration.
+- **Avoid**: **Approach B — Lalin Region Assimilation**, unless the project goal shifts from Copy-Link-Patch validation to Lalin-native JIT integration.
 
 ## Documenter Output — 2026-05-30 19:10:38
 
 # SponJIT Tier 2 Semantic Fragment Planner Specification
 
-**Target file:** `experiments/lua_interpreter_vm/SPONJIT_TIER2_PLANNER_SPEC.md`  
-**Workflow:** `wf-sponjit-copy-link-patch`  
+**Target file:** `experiments/lua_interpreter_vm/SPONJIT_TIER2_PLANNER_SPEC.md`
+**Workflow:** `wf-sponjit-copy-link-patch`
 **Approved direction:** Tier 2 Semantic Fragment Planner first, before executable native x64 Copy-Link-Patch.
 
 ---
@@ -2935,7 +2935,7 @@ SponJIT has moved past the old C-function tile backend. The current maintained p
 
 However, the new risk is hardening the wrong executable ABI too early. Current fragment descriptors still have unresolved gaps around endpoint contracts, selector identity, projection resume data, index origins, fact payloads, and runtime fact observation. Current projections are safe but non-optimizing: `SYNCED_FRAME` preserves the old invariant that frame state is already interpreter-visible at exits. That does not yet prove the central Tier 2 optimization: locally removing redundant frame stores/loads and reconstructing state at exits.
 
-The approved next step is therefore **not** an x64 assembler, native linker, PUC runtime, or Moonlift VM integration. The next step is a semantic planner that operates on abstract fragments and answers whether fragment linking, fact flow, projection, and seam-removal legality are correct and valuable enough to justify the later executable backend.
+The approved next step is therefore **not** an x64 assembler, native linker, PUC runtime, or Lalin VM integration. The next step is a semantic planner that operates on abstract fragments and answers whether fragment linking, fact flow, projection, and seam-removal legality are correct and valuable enough to justify the later executable backend.
 
 ---
 
@@ -3137,7 +3137,7 @@ The maintained SpongeJIT tree currently has no executable PUC runtime integratio
 - There are no maintained SpongeJIT `.c` runtime files.
 - The old C-function tile runtime/materializer was removed or retired.
 
-The Moonlift VM contract currently forbids SponJIT integration:
+The Lalin VM contract currently forbids SponJIT integration:
 
 ```lua
 sponjit_allowed = false
@@ -3325,16 +3325,16 @@ The purpose is to decide whether Tier 2 has enough semantic optimization value t
 
 ## Required Invariants
 
-1. **Abstract fragments are not executable.**  
+1. **Abstract fragments are not executable.**
    `layout.executable = false` and `code_offsets = "abstract_zero"` must never be interpreted as native code layout.
 
-2. **No C-function tile fallback exists in maintained SpongeJIT.**  
+2. **No C-function tile fallback exists in maintained SpongeJIT.**
    The old `SponTile`, `SponHoleReloc`, `SPON_HOLE_*`, `stencil_to_c`, `grammar_c_code`, and `grammar_holes` path remains retired.
 
-3. **`exit` and `fail` are not data holes.**  
+3. **`exit` and `fail` are not data holes.**
    They are control/projection concepts.
 
-4. **Data and control relocations stay separate.**  
+4. **Data and control relocations stay separate.**
    Data roles such as `slot` and `imm` must not be used as control edges; control roles such as `guard_fail` must not be data relocs.
 
 5. **Every fragment has exactly one entry and at least one ok endpoint.**
@@ -3343,16 +3343,16 @@ The purpose is to decide whether Tier 2 has enough semantic optimization value t
 
 7. **Unsupported payload/dependency roles fail loudly.**
 
-8. **Store/load seam removal requires projection proof.**  
+8. **Store/load seam removal requires projection proof.**
    No frame desynchronization is allowed merely because a projection object exists.
 
-9. **SSA metadata must remain preserved.**  
+9. **SSA metadata must remain preserved.**
    Source PC, memory tokens, exits, and value residencies are planner inputs.
 
-10. **Planner success is not native success.**  
+10. **Planner success is not native success.**
     A valid semantic plan is a prerequisite for native linking, not evidence that native linking already works.
 
-11. **Moonlift VM integration remains gated.**  
+11. **Lalin VM integration remains gated.**
     `sponjit_allowed = false` remains authoritative until VM contract gates are satisfied.
 
 ---
@@ -3402,7 +3402,7 @@ The Tier 2 semantic planner does **not**:
 - implement a native image linker
 - implement a generated C fragment bank
 - finalize `sponbank.h` as an executable ABI
-- integrate with the Moonlift VM
+- integrate with the Lalin VM
 - resurrect the old C-function tile backend
 - claim Tier 1 floor coverage
 - support payload-heavy shape/table/call-target/barrier fragments
@@ -3433,9 +3433,9 @@ That work is not part of the planner phase.
 
 ---
 
-## Relationship to Moonlift VM Gates
+## Relationship to Lalin VM Gates
 
-SponJIT remains separate from the Moonlift interpreter VM.
+SponJIT remains separate from the Lalin interpreter VM.
 
 The VM contract currently states:
 
@@ -3445,37 +3445,37 @@ sponjit_allowed = false
 
 SponJIT must not become an execution engine for `src/vm_loop.lua` until the VM gates around validation, frame/cache semantics, native ABI, allocator behavior, errors, coroutine/yield behavior, and related runtime contracts are satisfied.
 
-The planner may produce semantic evidence useful to future VM integration, but it must not depend on PUC runtime layouts or bypass Moonlift’s VM contract.
+The planner may produce semantic evidence useful to future VM integration, but it must not depend on PUC runtime layouts or bypass Lalin’s VM contract.
 
-Approach B, Moonlift Region Assimilation, was not chosen for this phase. The planner should therefore remain a SpongeJIT semantic validation layer, not a Moonlift region compiler.
+Approach B, Lalin Region Assimilation, was not chosen for this phase. The planner should therefore remain a SpongeJIT semantic validation layer, not a Lalin region compiler.
 
 ---
 
 ## Risks
 
-1. **Verifier project risk**  
+1. **Verifier project risk**
    The planner could accumulate metadata without producing decision-driving evidence for Tier 2 value.
 
-2. **False executable confidence**  
+2. **False executable confidence**
    Abstract fragment metadata could be mistaken for a runnable native backend.
 
-3. **Projection weakness**  
+3. **Projection weakness**
    `SYNCED_FRAME` is safe but does not unlock the main Copy-Link-Patch optimization.
 
-4. **Endpoint under-specification**  
+4. **Endpoint under-specification**
    Current endpoint locations do not yet express true register-preserving value flow.
 
-5. **Fact identity gaps**  
+5. **Fact identity gaps**
    Pattern keys, source opcode identity, stencil hashes, fact signatures, and contracts are not yet fully aligned.
 
-6. **No maintained executable baseline**  
+6. **No maintained executable baseline**
    The old C-function tile path is gone, so performance comparison must wait for a future executable harness.
 
-7. **ABI hardening risk**  
+7. **ABI hardening risk**
    Freezing `sponbank.h` or x64 assumptions too early could preserve the wrong boundary.
 
-8. **VM integration risk**  
-   Moonlift VM integration remains explicitly gated and must not be assumed.
+8. **VM integration risk**
+   Lalin VM integration remains explicitly gated and must not be assumed.
 
 ---
 
@@ -4155,10 +4155,10 @@ If the spec cannot answer one of those structurally, the design still contains i
 21. `.vendor/Lua/lparser.c` (lines 1659-1725) — PUC parser/codegen layout for numeric/generic `for`.
 22. `experiments/lua_interpreter_vm/src/bytecode.lua` (lines 1-106) — Lua 5.5 bytecode field decoder/encoder.
 23. `experiments/lua_interpreter_vm/src/constants.lua` (lines 1-120, 160-168) — Opcode numbers and `RESUME_TFORLOOP_CALL`.
-24. `experiments/lua_interpreter_vm/src/opcodes.lua` (lines 1-170, 650-805) — Moonlift VM dispatch arg modes and loop opcode handler wiring.
-25. `experiments/lua_interpreter_vm/src/op/loop.lua` (lines 1-135) — Moonlift VM loop opcode handlers.
+24. `experiments/lua_interpreter_vm/src/opcodes.lua` (lines 1-170, 650-805) — Lalin VM dispatch arg modes and loop opcode handler wiring.
+25. `experiments/lua_interpreter_vm/src/op/loop.lua` (lines 1-135) — Lalin VM loop opcode handlers.
 26. `experiments/lua_interpreter_vm/src/validate.lua` (lines 300-350) — Bytecode validator loop target/window checks.
-27. `experiments/lua_interpreter_vm/src/regions_codegen.lua` (lines 970-992) and `src/regions_lower.lua` (lines 780-808) — Moonlift compiler emits `FORPREP` placeholder and patches `FORLOOP`.
+27. `experiments/lua_interpreter_vm/src/regions_codegen.lua` (lines 970-992) and `src/regions_lower.lua` (lines 780-808) — Lalin compiler emits `FORPREP` placeholder and patches `FORLOOP`.
 28. `experiments/lua_interpreter_vm/src/regions_resume.lua` (lines 1-170) — Resume protocol has `TFORLOOP_CALL`.
 29. `experiments/lua_interpreter_vm/tests/test_vm_bytecode_decoder_contract.lua` (lines 1-33) — Tests `FORLOOP` uses `Bx`.
 30. `experiments/lua_interpreter_vm/tests/test_vm_validation_contract.lua` (lines 1-210) — Tests valid `FORLOOP` target; no TFOR tests.
@@ -4270,11 +4270,11 @@ OP_TFORLOOP:
   - pc -= Bx on continue
 ```
 
-### Moonlift VM loop handlers differ from PUC oracle
+### Lalin VM loop handlers differ from PUC oracle
 
 `src/op/loop.lua` implements numeric loops as:
 
-```moonlift
+```lalin
 FORPREP:
   prepared = init - step
   R[A] = prepared
@@ -4291,7 +4291,7 @@ FORLOOP:
 
 Generic handlers:
 
-```moonlift
+```lalin
 TFORPREP: pc = pc + bx
 TFORCALL: jump error(ERR_RUNTIME)
 TFORLOOP:
@@ -4405,7 +4405,7 @@ No current `loop_backedge`, `branch_true`, `branch_false`, or `loop_exit` contro
 
 ### What Matters Most for This Problem
 
-- **Semantic oracle choice:** PUC loop semantics and Moonlift VM loop semantics are not interchangeable.
+- **Semantic oracle choice:** PUC loop semantics and Lalin VM loop semantics are not interchangeable.
 - **Control topology:** `FORPREP`/`FORLOOP` are not straight-line opcodes; they introduce normal multi-continuation edges and backedges.
 - **Slot-window correctness:** loop state spans multiple registers, but current SpongeJIT slotmaps record only `A`.
 - **Normal-form dedupe safety:** deduping by stencil hash/source-op shape can erase operand-, contract-, and topology-sensitive loop distinctions.
@@ -4421,17 +4421,17 @@ No current `loop_backedge`, `branch_true`, `branch_false`, or `loop_exit` contro
 
 - The existing fact machinery already creates numeric loop facts for `A`, `A+1`, and `A+2`, but those facts are currently not consumed by loop lowering. They only influence selector signatures. This creates a deceptive state: the foundry appears loop-aware, but the lowering layer is not.
 
-- Current loop slotmaps are under-specified. `ssa_to_stencil.lua` maps all `FOR*`/`TFOR*` ops as `{ "a" }`, but numeric loops require at least the loop register window around `A..A+2`, and Moonlift’s current handler also writes `A+3`. Any selector fact remapping using only `A` cannot safely remap facts for limit/step/control slots.
+- Current loop slotmaps are under-specified. `ssa_to_stencil.lua` maps all `FOR*`/`TFOR*` ops as `{ "a" }`, but numeric loops require at least the loop register window around `A..A+2`, and Lalin’s current handler also writes `A+3`. Any selector fact remapping using only `A` cannot safely remap facts for limit/step/control slots.
 
 - This slotmap gap can make fact signatures wrong for nonzero loop bases. A selector signature requiring facts for canonical `R0/R1/R2` cannot be remapped correctly if only the `A` occurrence is recorded.
 
 - The `loop_i64` shorthand is not equivalent to the curated slot-specific loop facts. `loop_i64` describes a value-like “loop_index” fact, while the 64-bit runtime signature only encodes slot facts for `R0..R7`. Treating these as interchangeable would silently weaken runtime selection.
 
-- PUC numeric `FORPREP` is not the simple Moonlift-style `idx = init - step`. PUC rewrites stack layout into count/step/control for integer loops, computes an unsigned iteration count, handles `step == 0`, conversion failures, mininteger edge cases, and may skip the loop. A naive i64 arithmetic lowering would be observably different.
+- PUC numeric `FORPREP` is not the simple Lalin-style `idx = init - step`. PUC rewrites stack layout into count/step/control for integer loops, computes an unsigned iteration count, handles `step == 0`, conversion failures, mininteger edge cases, and may skip the loop. A naive i64 arithmetic lowering would be observably different.
 
-- PUC `FORLOOP` also differs from the Moonlift VM handler. PUC decrements a count and updates the control variable; Moonlift’s handler increments an index and compares against a limit. These can diverge on overflow, step edge cases, and prepared-stack layout.
+- PUC `FORLOOP` also differs from the Lalin VM handler. PUC decrements a count and updates the control variable; Lalin’s handler increments an index and compares against a limit. These can diverge on overflow, step edge cases, and prepared-stack layout.
 
-- The PUC/Moonlift mismatch is not just implementation detail. It means SpongeJIT must not borrow Moonlift’s loop lowering as the semantic oracle for PUC bytecode without proving equivalence under the intended bytecode/version contract.
+- The PUC/Lalin mismatch is not just implementation detail. It means SpongeJIT must not borrow Lalin’s loop lowering as the semantic oracle for PUC bytecode without proving equivalence under the intended bytecode/version contract.
 
 - `FORPREP` has two normal continuations: enter body or skip to after the loop. Current stencil endpoints have only `ok` plus exit-like endpoints. A specialized `FORPREP` cannot be represented as a single success endpoint without losing control semantics.
 
@@ -4459,15 +4459,15 @@ No current `loop_backedge`, `branch_true`, `branch_false`, or `loop_exit` contro
 
 - Step-zero is not represented by current facts. There is a global `nonzero_i64` bit, but no slot-specific “step nonzero” fact for `A+2`. Any lowering relying only on `is_i64` still has to account for step-zero behavior.
 
-- Step sign is also absent from facts. For a Moonlift-style compare loop, sign controls branch condition. PUC’s count-based integer loop avoids repeated sign comparison, but then `FORPREP` must exactly compute count.
+- Step sign is also absent from facts. For a Lalin-style compare loop, sign controls branch condition. PUC’s count-based integer loop avoids repeated sign comparison, but then `FORPREP` must exactly compute count.
 
 - PUC `FORLOOP` calls `updatetrap(ci)`. Even a pure i64 numeric loop has an asynchronous/runtime-observation obligation. A tight Copy-Link-Patch loop that never checks trap/debug/interruption state would not match PUC behavior.
 
 - Generic `for` is qualitatively different from numeric `for`. `TFORPREP` swaps control/closing variables and creates a to-be-closed upvalue. `TFORCALL` calls the iterator and can allocate, yield, throw, and resume. `TFORLOOP` depends on call results. Treating `TFOR*` as “loop branch opcodes” like numeric `FOR*` is unsound.
 
-- PUC generic loop slot layout differs from Moonlift’s simplified handlers. PUC `TFORLOOP` checks `A+3`; Moonlift’s current handler checks `A+2` and copies into `A`. That is a concrete semantic divergence, not merely a naming difference.
+- PUC generic loop slot layout differs from Lalin’s simplified handlers. PUC `TFORLOOP` checks `A+3`; Lalin’s current handler checks `A+2` and copies into `A`. That is a concrete semantic divergence, not merely a naming difference.
 
-- `TFORCALL` interacts with Moonlift’s resume protocol (`RESUME_TFORLOOP_CALL`). SpongeJIT’s current endpoint vocabulary has no equivalent continuation type.
+- `TFORCALL` interacts with Lalin’s resume protocol (`RESUME_TFORLOOP_CALL`). SpongeJIT’s current endpoint vocabulary has no equivalent continuation type.
 
 - Current projections are `SYNCED_FRAME`. That is safe only if the frame is already in interpreter-visible state at every exit. Loop optimization pressure goes in the opposite direction: keeping loop counters/control values virtual or in registers across a backedge.
 
@@ -4485,7 +4485,7 @@ No current `loop_backedge`, `branch_true`, `branch_false`, or `loop_exit` contro
 
 ### What Must Be True Before Implementation Is Safe
 
-- The semantic target must be fixed: PUC loop semantics, Moonlift VM semantics, or an explicitly proven common subset.
+- The semantic target must be fixed: PUC loop semantics, Lalin VM semantics, or an explicitly proven common subset.
 - Loop bytecode validation must guarantee register windows, target ranges, and structural pairing needed by the chosen semantics.
 - Loop slotmaps must cover the full loop register window, not just operand `A`.
 - `Bx`/target operands must become explicit control bindings, not ordinary immediates or representative-source metadata.
@@ -4499,7 +4499,7 @@ No current `loop_backedge`, `branch_true`, `branch_false`, or `loop_exit` contro
 
 ### Knowledge Gaps
 
-- Whether SpongeJIT’s future loop lowering is intended to target PUC bytecode semantics or Moonlift VM bytecode semantics.
+- Whether SpongeJIT’s future loop lowering is intended to target PUC bytecode semantics or Lalin VM bytecode semantics.
 - Whether the validator will enforce paired numeric/generic loop structure strongly enough for JIT assumptions.
 - How current generated abstract bank artifacts handle loop aliases at full arity after dedupe.
 - Whether planner data structures are expected to support cyclic regions or only acyclic linked spans.
@@ -4513,7 +4513,7 @@ No current `loop_backedge`, `branch_true`, `branch_false`, or `loop_exit` contro
 
 - **Key changes**:
   - Add loop-specific SSA/stencil ops: `ForPrepI64Puc`, `ForLoopI64Puc`, possibly `LoopTrapCheck`.
-  - Use PUC semantics as the oracle, not Moonlift’s simplified loop handlers.
+  - Use PUC semantics as the oracle, not Lalin’s simplified loop handlers.
   - Extend endpoint/control vocabulary:
     - endpoints: `loop_body`, `loop_skip`, `loop_backedge`, `loop_done`, `loop_trap`, `loop_error`
     - relocs: `LOOP_SKIP`, `LOOP_BACKEDGE`, `LOOP_DONE`, `TRAP`, `ERROR`
@@ -4557,7 +4557,7 @@ No current `loop_backedge`, `branch_true`, `branch_false`, or `loop_exit` contro
   - Represent numeric loop state with explicit loop-carried values or phis.
   - Keep semantic dialect explicit:
     - PUC dialect for PUC bytecode streams
-    - Moonlift dialect only for Moonlift VM bytecode, never implicitly shared.
+    - Lalin dialect only for Lalin VM bytecode, never implicitly shared.
   - Generic `TFOR*` becomes a separate `GenericForRegion` class with call/yield/resume/TBC obligations, not a numeric-loop variant.
   - Endpoint vocabulary lives at planner level first:
     - `LoopEnter`
@@ -4588,7 +4588,7 @@ No current `loop_backedge`, `branch_true`, `branch_false`, or `loop_exit` contro
   - Convert paired numeric loops into semantic cyclic regions.
   - Add region-level fact-flow and projection checks.
   - Keep generic `TFOR*` as modeled call/yield regions but non-materializable.
-  - Later lower accepted loop regions into native fragments or Moonlift regions.
+  - Later lower accepted loop regions into native fragments or Lalin regions.
 
 ---
 
@@ -4655,7 +4655,7 @@ No current `loop_backedge`, `branch_true`, `branch_false`, or `loop_exit` contro
 
 ### Non-Obvious Constraints and Insights
 
-- The current pipeline is already split correctly for native bytes:  
+- The current pipeline is already split correctly for native bytes:
   `worker_compile.lua` stops at SSA normal forms, and `dedupe_normal_forms.lua` lowers each unique form once. Real x86-64 emission must live **after** this dedupe point or be content-addressed by the same dedupe key. Emitting bytes per worker/per opcode sequence would reintroduce pre-dedupe identity and break the foundry model.
 
 - The dedupe key is only `stencil_hash`; the contract is explicitly **not** part of the key. Therefore native bytes for a deduped stencil must be invariant across all source fact/opcode aliases collapsed into that form. If a fact variant changes code shape, guard presence, branch shape, or patch layout, it is no longer merely metadata and must become a distinct normal form or distinct post-dedupe native variant.
@@ -5052,7 +5052,7 @@ Remaining gaps captured by the current code/docs:
 
 - no native stencil linker/materializer
 - no copy/link/patch `LinkedImage`
-- no Moonlift VM integration
+- no Lalin VM integration
 - no maintained PUC runtime integration
 - no online Tier 2 fusion planner execution path
 - no runtime patching/execution of generated `libsponbank.so` stencils
@@ -5598,7 +5598,7 @@ Residual effects on facts:
 - “Native stencil” currently conflates two different states:
   - executable native bytes implementing opcode semantics,
   - executable native bytes that report `SPON_EXIT_RESIDUAL`.
-  
+
   A no-residual architecture would need to break that equivalence conceptually, because native executability is not the same as semantic implementability.
 
 - L0 coverage currently hides unsupported semantics behind local residual stubs. Without residuals, L0 coverage would collapse from “all opcodes” to the small subset whose semantics are actually emitted: mostly simple loads, moves, constants, returns/jumps as boundaries, and fact-proven i64 arithmetic/comparison surfaces.
@@ -5614,7 +5614,7 @@ Residual effects on facts:
 - “Residual L0” is doing two jobs at once:
   - bytecode coverage for selector completeness,
   - semantic escape for unimplemented behavior.
-  
+
   Those are different invariants. The current architecture benefits from their overlap, but no-residual Copy-Link-Patch would have to treat them as separate concerns.
 
 - Residual stencils still declare `entry`, `ok`, and `fallthrough` metadata, but their actual entry path jumps to a residual stub before normal success. That means descriptor topology can imply a success continuation even when the executable behavior never reaches it.
@@ -5636,7 +5636,7 @@ Residual effects on facts:
 - Bank statistics need two separate meanings:
   - descriptor/native-byte coverage,
   - semantic native implementation coverage.
-  
+
   Current counts mostly measure the former. A no-residual architecture would be judged by the latter.
 
 - The huge residual-containing count means many multi-op stencils are likely “partially useful prefix + residual tail” or “residual boundary included in the form.” Such stencils are valuable for graceful fallback, but weak evidence for fully fused Copy-Link-Patch regions.
@@ -7365,14 +7365,14 @@ The file manifest now matches the rewrite plan exactly: 50 planned files, no ext
 - `lua_nf_to_lua_place_plan.lua`
 - `lua_place_projection_plan.lua`
 - `lua_place_validate.lua`
-- `lua_nf_to_moon_out_lower.lua`
-- `moon_out_abi.lua`
-- `moon_out_emit.lua`
-- `moon_out_projection.lua`
-- `moon_out_validate.lua`
+- `lua_nf_to_lalin_out_lower.lua`
+- `lalin_out_abi.lua`
+- `lalin_out_emit.lua`
+- `lalin_out_projection.lua`
+- `lalin_out_validate.lua`
 - `lua_compile_unit.lua`
 - `lua_compile_to_normal_form.lua`
-- `lua_compile_to_moon_kernel.lua`
+- `lua_compile_to_lalin_kernel.lua`
 - `lua_compile_validate.lua`
 
 Removed in `lua_compile/`: none.
@@ -7386,7 +7386,7 @@ Removed in `lua_compile/`: none.
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_sem.lua`
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_nf.lua`
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_contract.lua`
-- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_out.lua`
+- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_out.lua`
 - `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_pipeline.lua`
 
 ## Verification
@@ -7723,42 +7723,42 @@ No remaining fact/evidence gaps are known for the current ASDL and the 47 semant
 
 ## Completed
 
-Replaced the MoonOut scaffold with real Moonlift source emission and validation.
+Replaced the LalinOut scaffold with real Lalin source emission and validation.
 
-What now compiles through Moonlift:
-- `ADDI + RETURN1` emits Moonlift, compiles with `moon.loadstring`, executes, and returns `42` through a typed output protocol.
+What now compiles through Lalin:
+- `ADDI + RETURN1` emits Lalin, compiles with `lalin.loadstring`, executes, and returns `42` through a typed output protocol.
 - Non-terminal slot write (`ADDI` without return) emits/compiles/executes and reports written slot/value.
 - Boundary exit (`CALL`) emits/compiles/executes and reports boundary tag/PC/reason.
 - `f64 DIV` emits/compiles/executes and returns `10.5`.
 
-Unsupported cases are now rejected before emission by `moon_out_validate.lua`, including:
-- `PowF64` (`unsupported_nf:F64.PowF64`) because Moonlift source has no exact pow primitive and no helper fallback is allowed.
+Unsupported cases are now rejected before emission by `lalin_out_validate.lua`, including:
+- `PowF64` (`unsupported_nf:F64.PowF64`) because Lalin source has no exact pow primitive and no helper fallback is allowed.
 - Dynamic TValue truthiness / `NOT` (`unsupported_nf:Bool.NotTValue...`).
-- Table/field/array/upvalue writes, barriers, and unsupported TValue forms at MoonOut.
+- Table/field/array/upvalue writes, barriers, and unsupported TValue forms at LalinOut.
 
 ## Files Changed
 
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_out_emit.lua`
-  - Emits real Moonlift source for supported `MoonOut.Kernel`.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_out_emit.lua`
+  - Emits real Lalin source for supported `LalinOut.Kernel`.
   - Emits typed output pointer protocol.
   - Handles i64 arithmetic/bit/shift/unary, f64 div, slot writes, return/boundary/jump/loop/guard protocol exits.
 
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_out_abi.lua`
-  - Replaced old compatibility ABI naming with LuaCompile/MoonOut protocol params.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_out_abi.lua`
+  - Replaced old compatibility ABI naming with LuaCompile/LalinOut protocol params.
   - Collects typed kernel inputs from LuaNF.
 
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_nf_to_moon_out_lower.lua`
-  - Uses NF-derived MoonOut ABI params.
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_nf_to_lalin_out_lower.lua`
+  - Uses NF-derived LalinOut ABI params.
 
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_out_validate.lua`
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_out_validate.lua`
   - Adds structural support validation before emission.
   - Rejects unsupported NF forms with explicit `unsupported_nf:*` reasons.
 
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/validate.lua`
   - Removed leaked old runtime ABI name.
 
-- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_out.lua`
-  - Now tests real source emission, hosted Moonlift compilation, execution, boundary output, f64 div, and structured MoonOut rejection.
+- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_out.lua`
+  - Now tests real source emission, hosted Lalin compilation, execution, boundary output, f64 div, and structured LalinOut rejection.
 
 ## Verification
 
@@ -7777,7 +7777,7 @@ ok - SpongeJIT LuaCompile LuaNF
 ok - SpongeJIT LuaCompile LuaRegion
 ok - SpongeJIT LuaCompile LuaSem (semantic/boundary/reject 47/38/0)
 ok - SpongeJIT LuaCompile LuaSrc (decode coverage 85/85)
-ok - SpongeJIT LuaCompile MoonOut (emits and compiles Moonlift source)
+ok - SpongeJIT LuaCompile LalinOut (emits and compiles Lalin source)
 ok - SpongeJIT LuaCompile pipeline
 ok - SpongeJIT LuaCompile schema
 ```
@@ -7788,50 +7788,50 @@ Forbidden old-path token check passed with no output.
 
 ## Completed
 
-Implemented honest MoonOut backend coverage beyond arithmetic for the current LuaCompile NF vocabulary.
+Implemented honest LalinOut backend coverage beyond arithmetic for the current LuaCompile NF vocabulary.
 
 Read before editing:
 - `ssa_asdl/REWRITE_PLAN.md`
 - `ssa_asdl/spongejit_lua_ssa.asdl`
-- all `moon_out_*.lua`
+- all `lalin_out_*.lua`
 - `lua_sem_to_lua_nf_normalize.lua`
 - `lua_nf_to_lua_contract_derive.lua`
 - current `test_spongejit_lua_compile_*.lua`
-- relevant Moonlift language docs for pointer/output params, bools, numeric ops, field/index syntax, and source emission validity.
+- relevant Lalin language docs for pointer/output params, bools, numeric ops, field/index syntax, and source emission validity.
 
-MoonOut support ledger:
+LalinOut support ledger:
 - Before: representative arithmetic/boundary/f64-div compiled; dynamic `NOT`, field/array/upvalue writes, barriers, opaque TValue forms rejected; `PowF64` rejected.
-- After: `45/47` semantic NF families validate + emit + Moonlift-compile.
+- After: `45/47` semantic NF families validate + emit + Lalin-compile.
 - Remaining structured blockers: `POW`, `POWK` via `unsupported_nf:F64.PowF64`.
 
 Implemented:
 - Typed protocol events for field/array/upvalue reads/writes and barriers.
 - Dynamic `NOT` / TValue truthiness over supported TValue inputs via typed value-kind/bool params.
 - Opaque TValue output protocol kinds for source slot, const, upvalue, field, array, table, closure.
-- MoonOut ABI extensions with event/address/payload tags.
+- LalinOut ABI extensions with event/address/payload tags.
 - Support ledger test covering all 47 semantic opcode families.
 
 ## Files Changed
 
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_out_abi.lua`
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_out_abi.lua`
   - Added event/address/payload protocol tags and params.
   - Added dynamic TValue input param naming.
 
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_out_emit.lua`
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_out_emit.lua`
   - Emits typed protocol code for opaque TValue values, memory events, barriers, dynamic NOT/truthiness.
   - Exposes event/address/payload enums to tests.
 
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_out_validate.lua`
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_out_validate.lua`
   - Validates field/array/upvalue writes, barriers, bounds guards, payload-backed guards, dynamic TValue bool forms.
   - Keeps `PowF64` as structured rejection: `unsupported_nf:F64.PowF64`.
 
 - `experiments/lua_interpreter_vm/spongejit/lua_compile/lua_sem_to_lua_nf_normalize.lua`
   - Fixed false boolean normalization with ASDL false/nil handling.
 
-- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_out.lua`
+- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_out.lua`
   - Reworked protocol harness for expanded ABI.
   - Added compile/execute checks for `GETFIELD`, `GETI`, `SETFIELD`, `SETI`, `SETUPVAL`, `SELF`, `NOT`.
-  - Added full 47-family MoonOut support ledger.
+  - Added full 47-family LalinOut support ledger.
 
 ## Verification
 
@@ -7844,7 +7844,7 @@ for t in experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_*.lua; 
 Output includes:
 
 ```text
-ok - SpongeJIT LuaCompile MoonOut (semantic backend ledger 45/47 compiled, 2 structured PowF64 blockers)
+ok - SpongeJIT LuaCompile LalinOut (semantic backend ledger 45/47 compiled, 2 structured PowF64 blockers)
 ```
 
 Forbidden old-path token check passed with no matches:
@@ -7858,25 +7858,25 @@ rg -n "ssa2|SponDesc|SponTile|SponStencil|stencil_desc|materialize|build_bank|sp
 ## Notes
 
 Remaining blocker is exact and intentional:
-- `PowF64` has no Moonlift source primitive and no explicit primitive-table ABI in MoonOut/contract yet.
-- It remains rejected in `moon_out_validate.lua` as `unsupported_nf:F64.PowF64`; no hidden helper/fallback was introduced.
+- `PowF64` has no Lalin source primitive and no explicit primitive-table ABI in LalinOut/contract yet.
+- It remains rejected in `lalin_out_validate.lua` as `unsupported_nf:F64.PowF64`; no hidden helper/fallback was introduced.
 
 ## Worker Output — 2026-06-01 14:49:41
 
 ## Completed
-Implemented `LuaNF.PowF64` in MoonOut using an explicit primitive function pointer ABI.
+Implemented `LuaNF.PowF64` in LalinOut using an explicit primitive function pointer ABI.
 
 - Added `lua_compile_prim_pow_f64: func(f64, f64) -> f64`
 - `PowF64(lhs, rhs)` now emits `lua_compile_prim_pow_f64(lhs, rhs)`
 - Validation requires the primitive param when `PowF64` is present
 - POW/POWK now compile and execute in tests via a LuaJIT FFI callback
-- MoonOut ledger is now `47/47 compiled, 0 structured blockers`
+- LalinOut ledger is now `47/47 compiled, 0 structured blockers`
 
 ## Files Changed
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_out_abi.lua`
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_out_emit.lua`
-- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_out_validate.lua`
-- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_out.lua`
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_out_abi.lua`
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_out_emit.lua`
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/lalin_out_validate.lua`
+- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lalin_out.lua`
 
 ## Verification
 Passed:
@@ -7894,7 +7894,7 @@ ok - SpongeJIT LuaCompile LuaNF
 ok - SpongeJIT LuaCompile LuaRegion
 ok - SpongeJIT LuaCompile LuaSem (semantic/boundary/reject 47/38/0)
 ok - SpongeJIT LuaCompile LuaSrc (decode coverage 85/85)
-ok - SpongeJIT LuaCompile MoonOut (semantic backend ledger 47/47 compiled, 0 structured blockers)
+ok - SpongeJIT LuaCompile LalinOut (semantic backend ledger 47/47 compiled, 0 structured blockers)
 ok - SpongeJIT LuaCompile pipeline
 ok - SpongeJIT LuaCompile schema
 ```
@@ -7911,7 +7911,7 @@ New maintained flow:
 opcode windows + facts/evidence
 -> LuaCompile.Unit
 -> LuaNF + LuaContract
--> MoonOut.Kernel + emitted Moonlift source
+-> LalinOut.Kernel + emitted Lalin source
 -> semantic representative key
 ```
 

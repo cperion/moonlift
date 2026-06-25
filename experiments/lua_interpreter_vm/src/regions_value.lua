@@ -1,13 +1,13 @@
 -- Lua Interpreter VM — Value protocol regions (Lua 5.5)
 -- Value dispatch: truth, type checks, integer/float split, comparisons.
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 
 local I = {}
-for k, v in pairs(const.Tag) do I["TAG_" .. k] = moon.int(v) end
-for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
+for k, v in pairs(const.Tag) do I["TAG_" .. k] = lalin.int(v) end
+for k, v in pairs(const.Err) do I["ERR_" .. k] = lalin.int(v) end
 
 -- value_truth: TAG_NIL or TAG_FALSE → falsey, else truthy
 local value_truth = host.region { TAG_NIL = I.TAG_NIL, TAG_FALSE = I.TAG_FALSE } [[

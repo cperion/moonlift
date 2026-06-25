@@ -1,6 +1,6 @@
 # LLPVM Design
 
-Status: official Moonlift API design for `lua/llpvm`.
+Status: official Lalin API design for `lua/llpvm`.
 
 LLPVM means:
 
@@ -8,7 +8,7 @@ LLPVM means:
 Low-Level PVM
 ```
 
-It is the Moonlift-native substrate for building small, typed, cacheable
+It is the Lalin-native substrate for building small, typed, cacheable
 interpreters and lowerers. PVM means PicoVM: a precise small machine that
 transforms one operation world into another:
 
@@ -18,7 +18,7 @@ source world ops
 target world ops
 ```
 
-LLPVM exists because Moonlift systems keep rediscovering the same shape:
+LLPVM exists because Lalin systems keep rediscovering the same shape:
 
 ```text
 ASDL products
@@ -28,18 +28,18 @@ memoized results
 diagnostics
 bytecode-like compact storage
 Lua no-parens authoring
-native Moonlift execution
+native Lalin execution
 ```
 
-LLPVM turns that shape into an official Moonlift standard-library API surface.
+LLPVM turns that shape into an official Lalin standard-library API surface.
 
 ## Doctrine
 
 ```text
-MoonSchema-projected typed values define meaning.
+LalinSchema-projected typed values define meaning.
 LLPVM stores and runs meaning.
 Lua authors VM families.
-Moonlift executes VM instances.
+Lalin executes VM instances.
 Phases are cache and recording boundaries.
 Tapes are pull-based machines.
 Buffers are materialized facts.
@@ -51,7 +51,7 @@ Raw execution tricks are allowed inside implementation files. They are not the
 design. The public design is worlds, ops, tapes, machines, phases, recordings,
 and reports.
 
-## Position In Moonlift
+## Position In Lalin
 
 LLPVM sits below high-level systems such as compiler phases, MLUI, LuaBridge,
 and future language work:
@@ -60,7 +60,7 @@ and future language work:
 Lua no-parens API
     -> PVM-style typed operation authoring
     -> direct LLPV bytecode image
-    -> native Moonlift VM regions
+    -> native Lalin VM regions
     -> handles / tapes / buffers / diagnostics / C ABI
 ```
 
@@ -70,7 +70,7 @@ surface and bytecode boundary.
 
 ## PVM-Style Type Authoring
 
-Free-form Moonlift remains valid and preferred for bespoke kernels, low-level
+Free-form Lalin remains valid and preferred for bespoke kernels, low-level
 stores, and system internals. LLPVM is the standard-library solution for a
 specific recurring job:
 
@@ -113,7 +113,7 @@ FastBuilders remain available for schema design, tests, and debug tooling, but
 they are not the hot runtime boundary. Literals are constructors when the
 language has the information required to construct the product directly. Do not
 invent parallel constructor APIs when the literal form is already the idiomatic
-Moonlift form.
+Lalin form.
 
 ## Core Products
 
@@ -121,7 +121,7 @@ Moonlift form.
 
 No durable semantic identity is a Lua string at runtime.
 
-```moonlift
+```lalin
 struct LlSymbol
     hash: u64
     bytes_off: index
@@ -138,7 +138,7 @@ boundary and immediately interned.
 
 ### Diagnostics
 
-```moonlift
+```lalin
 struct LlDiagnostic
     code: i32
     primary_pos: index
@@ -152,13 +152,13 @@ end
 ```
 
 No `error()` for protocol outcomes. ABI functions may return status codes, but
-inside Moonlift a failure is a typed continuation carrying diagnostics.
+inside Lalin a failure is a typed continuation carrying diagnostics.
 
 ### ABI
 
 An ABI defines an operation language.
 
-```moonlift
+```lalin
 struct LlAbi
     name: LlSymbolRef
     version: u32
@@ -179,7 +179,7 @@ resources those ops may reference.
 
 A world is a semantic layer using one ABI.
 
-```moonlift
+```lalin
 struct LlWorld
     name: LlSymbolRef
     abi: LlAbiRef
@@ -205,7 +205,7 @@ describe plumbing: `lower_scene_input`, `interact_step_input`, `args_world`.
 
 LLPVM has a compact runtime op record, but op meaning comes from ASDL/schema.
 
-```moonlift
+```lalin
 struct LlOp
     world: LlWorldRef
     kind: u16
@@ -220,7 +220,7 @@ end
 `kind` is an encoding discriminant. It is not the architecture. For each ABI,
 Lua generates a typed visitor region:
 
-```moonlift
+```lalin
 region ll_visit_example_op(vm: ptr(LlVm), op: LlOpRef;
     const_i64(value: i64)
   | add_i64
@@ -235,7 +235,7 @@ Machine bodies use these visitors instead of open-coded payload decoding.
 
 A buffer is a materialized fact.
 
-```moonlift
+```lalin
 struct LlBuffer
     world: LlWorldRef
     ops: ptr(LlOpRef)
@@ -256,7 +256,7 @@ buffer until it is sealed.
 
 A tape is a lazy pull machine.
 
-```moonlift
+```lalin
 struct LlTape
     world: LlWorldRef
     kind: u8
@@ -289,7 +289,7 @@ runtime and bytecode format can encode a sealed call envelope, but they are not
 the semantic input model. If a value changes the meaning of a phase result,
 that value belongs in the consumed world.
 
-```moonlift
+```lalin
 struct LlArgValue
     kind: u8
     payload_u64: u64
@@ -311,9 +311,9 @@ No recursive Lua table cache trie is allowed in the runtime.
 
 ### Machines
 
-A machine is executable Moonlift behavior.
+A machine is executable Lalin behavior.
 
-```moonlift
+```lalin
 struct LlMachine
     kind: u8
     name: LlSymbolRef
@@ -338,14 +338,14 @@ fused_tape_graph
 native_intrinsic
 ```
 
-There is no canonical `lua_handler` machine kind. Lua generates Moonlift
+There is no canonical `lua_handler` machine kind. Lua generates Lalin
 machines; it is not the normal execution engine.
 
 ### Phases
 
 A phase is a named machine boundary with a cache policy.
 
-```moonlift
+```lalin
 struct LlCachePolicy
     mode: u8
     args_mode: u8
@@ -387,7 +387,7 @@ put it in the input world.
 
 ### Cache Keys
 
-```moonlift
+```lalin
 struct LlPhaseKey
     phase: LlPhaseRef
     input_identity: u64
@@ -403,7 +403,7 @@ world facts that should have been modeled as typed input values.
 
 ### Recordings
 
-```moonlift
+```lalin
 struct LlRecording
     key: LlPhaseKey
     source: LlTapeRef
@@ -424,7 +424,7 @@ commits only through the recording lifecycle.
 
 ### Cache Entries
 
-```moonlift
+```lalin
 struct LlCacheEntry
     key: LlPhaseKey
     buffer: LlBufferRef
@@ -443,7 +443,7 @@ regions, not by weak-table behavior.
 
 ### Reports
 
-```moonlift
+```lalin
 struct LlPhaseReport
     phase: LlPhaseRef
     calls: u64
@@ -472,7 +472,7 @@ end
 
 ### VM Owner
 
-```moonlift
+```lalin
 struct LlVm
     memory: LlMemoryPool
     symbols: LlSymbolStore
@@ -495,7 +495,7 @@ end
 are durable identity. Leases are temporary access facts. Owned handles are
 discharge obligations.
 
-```moonlift
+```lalin
 handle LlVmRef : u32 invalid 0
     target LlVm
 end
@@ -513,7 +513,7 @@ lua/llpvm/native/llpvm_header.mlua
 
 ### VM Lifecycle
 
-```moonlift
+```lalin
 region ll_vm_open(config: LlVmConfig;
     opened(vm: LlVmRef)
   | invalid_config
@@ -526,11 +526,11 @@ region ll_vm_close(vm: LlVmRef;
   | live_recordings(count: index))
 end
 
-This is the C-facing trusted close boundary. A future purely Moonlift-internal
+This is the C-facing trusted close boundary. A future purely Lalin-internal
 owned close protocol must preserve ownership on `live_leases` and
 `live_recordings` continuations, for example:
 
-```moonlift
+```lalin
 region ll_vm_close_owned(vm: owned LlVmRef;
     closed
   | live_leases(vm: owned LlVmRef, count: index)
@@ -539,7 +539,7 @@ end
 ```
 
 The plain-handle C boundary is allowed because C owns the external handle
-obligation outside Moonlift's type system. Internal Moonlift code should prefer
+obligation outside Lalin's type system. Internal Lalin code should prefer
 the owned-preserving protocol once implemented.
 
 region ll_borrow_vm(vm: LlVmRef;
@@ -551,7 +551,7 @@ end
 
 ### Symbols And Diagnostics
 
-```moonlift
+```lalin
 region ll_intern_symbol(vm: ptr(LlVm), bytes: readonly view(u8);
     symbol(symbol: LlSymbolRef)
   | memory_exhausted(needed: index))
@@ -565,7 +565,7 @@ end
 
 ### ABI And World Definition
 
-```moonlift
+```lalin
 region ll_define_abi(
     vm: ptr(LlVm),
     name: LlSymbolRef,
@@ -591,7 +591,7 @@ end
 
 ### Op Construction
 
-```moonlift
+```lalin
 region ll_make_op(
     vm: ptr(LlVm),
     world: LlWorldRef,
@@ -610,7 +610,7 @@ primitive. Public code should not hand-assemble `kind` and `payload`.
 
 ### Buffer Lifecycle
 
-```moonlift
+```lalin
 region ll_buffer_open(vm: ptr(LlVm), world: LlWorldRef, capacity: index;
     buffer(buffer: LlBufferRef)
   | invalid_world(world: LlWorldRef)
@@ -633,7 +633,7 @@ end
 
 ### Tape Construction
 
-```moonlift
+```lalin
 region ll_tape_empty(vm: ptr(LlVm), world: LlWorldRef;
     tape(tape: LlTapeRef)
   | invalid_world(world: LlWorldRef))
@@ -660,7 +660,7 @@ end
 
 ### Pull Protocol
 
-```moonlift
+```lalin
 region ll_next_op(vm: ptr(LlVm), tape: LlTapeRef;
     op(op: LlOpRef)
   | done
@@ -688,7 +688,7 @@ recording, phase execution, cache commits, and diagnostics.
 
 ### Args
 
-```moonlift
+```lalin
 region ll_intern_args(vm: ptr(LlVm), values: readonly view(LlArgValue);
     args(args: LlArgsRef)
   | unsupported_arg(kind: u8)
@@ -699,7 +699,7 @@ end
 
 ### Machine And Phase Definition
 
-```moonlift
+```lalin
 region ll_define_region_machine(
     vm: ptr(LlVm),
     name: LlSymbolRef,
@@ -730,7 +730,7 @@ end
 
 ### Phase Application
 
-```moonlift
+```lalin
 region ll_open_phase(
     vm: ptr(LlVm),
     phase: LlPhaseRef,
@@ -760,7 +760,7 @@ end
 
 ### Recording Lifecycle
 
-```moonlift
+```lalin
 region ll_start_recording(
     vm: ptr(LlVm),
     key: LlPhaseKey,
@@ -791,7 +791,7 @@ end
 
 ### Cache
 
-```moonlift
+```lalin
 region ll_lookup_cache(vm: ptr(LlVm), key: LlPhaseKey;
     hit(cache_entry: LlCacheEntryRef)
   | miss
@@ -812,7 +812,7 @@ end
 
 ### Reports
 
-```moonlift
+```lalin
 region ll_report_phase(vm: ptr(LlVm), phase: LlPhaseRef;
     report(report: LlPhaseReport)
   | missing_phase(phase: LlPhaseRef))
@@ -949,12 +949,12 @@ local vm = ll.vm { cache_bytes = 64 * 1024 * 1024 }
 
 local Expr = vm.language "Expr"
 local ExprNode = Expr "Node"
-ExprNode.Int = { value = moon.i64 }
+ExprNode.Int = { value = lalin.i64 }
 ExprNode.Add = { left = ExprNode, right = ExprNode }
 
 local Back = vm.language "Back"
 local BackValue = Back "Value"
-BackValue.ConstI64 = { value = moon.i64 }
+BackValue.ConstI64 = { value = lalin.i64 }
 BackValue.AddI64 = {}
 
 local ExprWorld = Expr:world()
@@ -990,7 +990,7 @@ those facts instead of passing side args:
 ```lua
 local Targeted = vm.language "TargetedExpr"
 local TargetedRoot = Targeted "Root"
-TargetedRoot.Program = { target = moon.u32, opt = moon.u8, expr = ExprNode }
+TargetedRoot.Program = { target = lalin.u32, opt = lalin.u8, expr = ExprNode }
 
 local TargetedWorld = Targeted:world "targeted_expr"
 local targeted_input = TargetedWorld:seq {
@@ -1027,7 +1027,7 @@ local vm = ll.vm { cache_bytes = 64 * 1024 * 1024 }
 
 local Expr = vm.language "Expr"
 local Node = Expr "Node"
-Node.Int = { value = moon.i64 }
+Node.Int = { value = lalin.i64 }
 Node.Add = { left = Node, right = Node }
 
 local ExprWorld = Expr:world()
@@ -1044,7 +1044,7 @@ local input = ExprWorld:seq {
 
 Available type surface:
 
-```moonlift
+```lalin
 local Pair = struct Pair
     left: i32,
     right: i32
@@ -1052,11 +1052,11 @@ end
 
 Node.Pair = {
     value = Pair,
-    bytes = moon.view(moon.u8),
+    bytes = lalin.view(lalin.u8),
 }
 ```
 
-LLPVM consumes Moonlift type values and lowers them to schema ids. It does not
+LLPVM consumes Lalin type values and lowers them to schema ids. It does not
 own a second scalar/struct/pointer/view syntax.
 
 Available helpers:
@@ -1194,7 +1194,7 @@ Every tape consumer is pull-based.
 
 ## Backend Expectations
 
-LLPVM must exercise Moonlift seriously:
+LLPVM must exercise Lalin seriously:
 
 ```text
 large typed headers
@@ -1219,22 +1219,22 @@ No Lua callback hot path.
 No generic runtime visitor object model.
 No hidden object ownership in side tables.
 No "minimal v1" framing.
-No C-only design that bypasses Moonlift types.
+No C-only design that bypasses Lalin types.
 ```
 
 ## Final Card
 
 ```text
 LLPVM is the low-level typed substrate for PVMs.
-MoonSchema/LLB define each operation language.
+LalinSchema/LLB define each operation language.
 Worlds carry semantic layers.
-Machines are Moonlift regions.
+Machines are Lalin regions.
 Phases are cache boundaries.
 Tapes are pull-based.
 Buffers are facts.
 Recordings make lazy work shareable.
 Cache entries are explicit owned products.
 Lua authors families.
-Moonlift runs them.
+Lalin runs them.
 C receives a tight ABI shell.
 ```

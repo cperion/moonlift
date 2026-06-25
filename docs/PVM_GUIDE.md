@@ -85,12 +85,12 @@ for repo-internal performance code, but they are not the primary app-facing API.
 ### Using pvm
 
 ```lua
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 
--- 1. Create a context and install schema from Lua MoonSchema values.
+-- 1. Create a context and install schema from Lua LalinSchema values.
 -- The old ASDL text block API is retired.
 local T = pvm.context()
-require("moonlift.schema")(T)
+require("lalin.schema")(T)
 
 -- 2. Construct canonical handle values
 local m1 = T.Greet.Message(T.Greet.English, "world")
@@ -142,11 +142,11 @@ your domain. Every type in a pvm system is an ASDL type.
 
 ### Defining types
 
-Schema is installed from Lua MoonSchema modules, not ASDL text blocks:
+Schema is installed from Lua LalinSchema modules, not ASDL text blocks:
 
 ```lua
 local T = pvm.context()
-require("moonlift.schema")(T)
+require("lalin.schema")(T)
 ```
 
 This defines:
@@ -214,7 +214,7 @@ All three produce the same canonical interned ASDL values.
 
 A variant with no fields is a singleton — one canonical handle value:
 ```lua
--- Assume the View schema has been installed from MoonSchema Lua data.
+-- Assume the View schema has been installed from LalinSchema Lua data.
 local K_RECT = T.View.Rect      -- singleton (no parens — it IS the value)
 local K_TEXT = T.View.Text      -- singleton
 assert(K_RECT ~= K_TEXT)        -- different singleton values
@@ -239,18 +239,18 @@ identity comparison, not a string comparison.
 
 Types reference other types by qualified name:
 ```lua
--- Schema references are authored in Lua MoonSchema data and installed into T.
+-- Schema references are authored in Lua LalinSchema data and installed into T.
 ```
 
 `App.Track` is referenced by `App.Widget.TrackRow`. The context resolves
-references when MoonSchema data is installed.
+references when LalinSchema data is installed.
 
 ### Multiple schema installs
 
-You can install multiple MoonSchema modules into the same context:
+You can install multiple LalinSchema modules into the same context:
 ```lua
 local T = pvm.context()
-require("moonlift.schema")(T)
+require("lalin.schema")(T)
 -- Both App and UI are available on T
 ```
 
@@ -258,11 +258,11 @@ This lets you define layers in separate blocks or even separate files.
 
 ## Chapter 2.5: Control protocols — typing the control flow
 
-MoonSchema products and sums describe data. The same product/sum semantics
+LalinSchema products and sums describe data. The same product/sum semantics
 describe control flow.
 
 ```lua
--- Authored as MoonSchema Lua data and installed into T.
+-- Authored as LalinSchema Lua data and installed into T.
 ```
 
 The `|` operator means "or" in both contexts. In data types, it separates
@@ -290,7 +290,7 @@ Control protocols are types. They compose. They are checked. They eliminate
 an entire class of bugs — unhandled exits, mismatched parameters, incomplete
 state machines — that functions alone cannot catch.
 
-This is not Moonlift-specific. Any program, in any language, has control
+This is not Lalin-specific. Any program, in any language, has control
 protocols. A music player's transport: `Playing | Stopped | Paused`. A
 network handler: `Success | Timeout | Error`. A parser: `Ok | Err`. These
 should be declared, checked, and composed like any other type. The ASDL
@@ -1100,10 +1100,10 @@ flat type (Cmd). The rule from Chapter 10 confirms it.
 
 ## Chapter 14: Layer 1 — Widgets as ASDL Types
 
-Every widget is a MoonSchema product/sum value with `unique` semantics:
+Every widget is a LalinSchema product/sum value with `unique` semantics:
 
 ```lua
--- Authored as MoonSchema Lua data and installed into T.
+-- Authored as LalinSchema Lua data and installed into T.
 ```
 
 ### Immediate-mode authoring
@@ -1653,7 +1653,7 @@ Module.TypeName?                          -- optional
 ```lua
 -- ── Context and types ──────────────────────────────────────────────────
 pvm.context()                          → T (ASDL context)
-Schema(T)                              -> T (MoonSchema projection)
+Schema(T)                              -> T (LalinSchema projection)
 T:Builders()                           → B (safe named-field builder namespace)
 T:FastBuilders()                       → F (trusted named-field builder namespace)
 

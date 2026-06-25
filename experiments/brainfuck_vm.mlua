@@ -1,11 +1,11 @@
 -- ╔══════════════════════════════════════════════════════════════╗
--- ║  Brainfuck Interpreter — Moonlift Jump-First State Machine  ║
+-- ║  Brainfuck Interpreter — Lalin Jump-First State Machine  ║
 -- ║                                                              ║
 -- ║  No for. No while. No break. No continue.                    ║
 -- ║  Just blocks, jumps, emits, and typed continuations.         ║
 -- ║                                                              ║
 -- ║  Lua pre-computes the bracket jump table.                    ║
--- ║  Moonlift compiles the step + dispatch loop to native code.  ║
+-- ║  Lalin compiles the step + dispatch loop to native code.  ║
 -- ╚══════════════════════════════════════════════════════════════╝
 
 local ffi = require("ffi")

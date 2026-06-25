@@ -1,6 +1,6 @@
 # Stencil Family Implementation Guide
 
-This guide describes how to implement a new Moonlift stencil family after the
+This guide describes how to implement a new Lalin stencil family after the
 descriptor normalization work.
 
 The completed reference family is:
@@ -25,7 +25,7 @@ diagnostics and measurements before claiming completion
 
 Do not implement a family by adding ad hoc backend cases that rediscover meaning
 from raw loops. Backend stencils consume normalized descriptors selected from
-Moonlift facts.
+Lalin facts.
 
 ## What A Family Is
 
@@ -42,8 +42,8 @@ Memory       alias, overlap, conflict, bounds, and trap semantics
 Control      result, exit, and multi-pass behavior
 ```
 
-The current ASDL center is `MoonStencil.StencilDescriptor` in
-`lua/moonlift/schema/stencil.lua`.
+The current ASDL center is `LalinStencil.StencilDescriptor` in
+`lua/lalin/schema/stencil.lua`.
 
 A new family should usually extend one of these axes, not introduce a new
 parallel vocabulary:
@@ -140,7 +140,7 @@ Do not compensate with backend flags or string tags.
 
 ### 2. Extend ASDL First
 
-Edit `lua/moonlift/schema/stencil.lua`.
+Edit `lua/lalin/schema/stencil.lua`.
 
 Allowed schema changes:
 
@@ -171,13 +171,13 @@ A backend family must be selected from facts, not guessed from raw CFG.
 Relevant layers:
 
 ```text
-MoonCode
+LalinCode
   -> graph facts
   -> flow facts
   -> value facts
   -> memory facts
   -> effect facts
-  -> MoonKernel plan
+  -> LalinKernel plan
 ```
 
 If a family needs new facts, add them at the layer where the meaning belongs.
@@ -195,9 +195,9 @@ scatter conflicts    memory semantics
 
 Do not make LuaJIT lowering rediscover these facts by scanning instructions.
 
-### 4. Bridge Through MoonKernel
+### 4. Bridge Through LalinKernel
 
-MoonKernel is the semantic bridge from compiler facts to backend stencils.
+LalinKernel is the semantic bridge from compiler facts to backend stencils.
 
 Use existing skeletons when possible:
 
@@ -240,10 +240,10 @@ Do not route selection through a side registry that hides semantics from ASDL.
 Relevant files today:
 
 ```text
-lua/moonlift/stencil_rules.lua
-lua/moonlift/luajit_lower.lua
-lua/moonlift/code_kernel_plan.lua
-lua/moonlift/code_kernel_plan_rules.lua
+lua/lalin/stencil_rules.lua
+lua/lalin/luajit_lower.lua
+lua/lalin/code_kernel_plan.lua
+lua/lalin/code_kernel_plan_rules.lua
 ```
 
 ### 6. Generate Artifacts From Descriptors
@@ -253,13 +253,13 @@ Artifact generation consumes `StencilDescriptor`.
 For the current C stencil backend, descriptor and artifact planning lives in:
 
 ```text
-lua/moonlift/stencil_artifact_plan.lua
+lua/lalin/stencil_artifact_plan.lua
 ```
 
 C source realization lives in:
 
 ```text
-lua/moonlift/stencil_c.lua
+lua/lalin/stencil_c.lua
 ```
 
 The C implementation may derive private local records from descriptors to keep
@@ -307,7 +307,7 @@ raw artifact benchmark:
   generated stencil artifact vs direct C/GCC baseline
 
 lowered benchmark:
-  MoonCode/MoonKernel/Llisle lowered path vs raw artifact path
+  LalinCode/LalinKernel/Llisle lowered path vs raw artifact path
 ```
 
 The array family uses:
@@ -327,7 +327,7 @@ A family is complete only when all of these are true:
 ```text
 [ ] descriptor schema represents the family without ad hoc side tables
 [ ] facts express the source semantics before backend lowering
-[ ] MoonKernel carries the semantic skeleton
+[ ] LalinKernel carries the semantic skeleton
 [ ] Llisle selects or rejects the family with semantic reasons
 [ ] artifact generation consumes descriptors
 [ ] every executable instance has an explicit schedule
@@ -459,7 +459,7 @@ Current validated descriptor cuts:
 ```text
 real DSL artifact matrix, direct single-loop store/reduce families plus
 frontend-shaped skeleton families
-source-shaped Moonlift DSL reaches copy-patch LuaJIT artifacts for:
+source-shaped Lalin DSL reaches copy-patch LuaJIT artifacts for:
   reduce, copy, copy_memmove, fill, map, zip_map,
   cast, compare, zip_compare,
   gather, scatter, in_place_map,

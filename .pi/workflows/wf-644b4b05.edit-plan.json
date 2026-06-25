@@ -10,13 +10,13 @@
 		{
 			"id": "T001",
 			"title": "Add region-use mode to Tree ASDL",
-			"detail": "Add RegionUseMode = RegionUseEmit | RegionUseCall near StmtHeader and insert MoonTree.RegionUseMode mode as the second field of StmtUseRegionFrag. Regenerate nothing manually; update Lua constructors in later tasks.",
-			"file": "lua/moonlift/schema/tree.asdl",
+			"detail": "Add RegionUseMode = RegionUseEmit | RegionUseCall near StmtHeader and insert LalinTree.RegionUseMode mode as the second field of StmtUseRegionFrag. Regenerate nothing manually; update Lua constructors in later tasks.",
+			"file": "lua/lalin/schema/tree.asdl",
 			"after": [],
 			"status": "done",
 			"order": 1,
 			"claimedBy": "agent-XWJW5E",
-			"evidence": "Updated lua/moonlift/schema/tree.asdl: added RegionUseMode = RegionUseEmit | RegionUseCall and inserted MoonTree.RegionUseMode mode into StmtUseRegionFrag signature.",
+			"evidence": "Updated lua/lalin/schema/tree.asdl: added RegionUseMode = RegionUseEmit | RegionUseCall and inserted LalinTree.RegionUseMode mode into StmtUseRegionFrag signature.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:51:54.952Z",
 			"updatedAt": "2026-06-16T09:15:28.847Z"
@@ -25,14 +25,14 @@
 			"id": "T002",
 			"title": "Parse call alongside emit",
 			"detail": "Add call_kw token/keyword/ident support. Refactor parse_emit_stmt into a shared parse_region_use_stmt(mode, keyword) used by emit and call. Emit source creates RegionUseEmit and use_id prefix emit.; call source creates RegionUseCall and use_id prefix call. Do not affect emit expressions.",
-			"file": "lua/moonlift/parse.lua",
+			"file": "lua/lalin/parse.lua",
 			"after": [
 				"T001"
 			],
 			"status": "done",
 			"order": 2,
 			"claimedBy": "agent-XWJW5E",
-			"evidence": "Updated lua/moonlift/parse.lua: added call_kw token/keyword/identifier support, refactored region statement parsing into parse_region_use_stmt(mode, keyword), parse_emit_stmt now emits RegionUseEmit/use_id emit.*, parse_call_stmt emits RegionUseCall/use_id call.*, and statement dispatch accepts call after emit. parse_emit_expr left unchanged.",
+			"evidence": "Updated lua/lalin/parse.lua: added call_kw token/keyword/identifier support, refactored region statement parsing into parse_region_use_stmt(mode, keyword), parse_emit_stmt now emits RegionUseEmit/use_id emit.*, parse_call_stmt emits RegionUseCall/use_id call.*, and statement dispatch accepts call after emit. parse_emit_expr left unchanged.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:51:54.952Z",
 			"updatedAt": "2026-06-16T09:16:50.502Z"
@@ -41,14 +41,14 @@
 			"id": "T003",
 			"title": "Update host builders for region use modes",
 			"detail": "Update existing BlockBuilder:emit constructor to pass RegionUseEmit and add BlockBuilder:call with the same runtime arg and continuation fill validation but RegionUseCall/use_id call. Keep merge_region_dep behavior identical to emit.",
-			"file": "lua/moonlift/host_region_values.lua",
+			"file": "lua/lalin/host_region_values.lua",
 			"after": [
 				"T001"
 			],
 			"status": "done",
 			"order": 3,
 			"claimedBy": "agent-XWJW5E",
-			"evidence": "Updated lua/moonlift/host_region_values.lua: factored BlockBuilder region-use construction through block_region_use, existing emit now passes Tr.RegionUseEmit, and added BlockBuilder:call using Tr.RegionUseCall with identical dependency merging and continuation fill validation.",
+			"evidence": "Updated lua/lalin/host_region_values.lua: factored BlockBuilder region-use construction through block_region_use, existing emit now passes Tr.RegionUseEmit, and added BlockBuilder:call using Tr.RegionUseCall with identical dependency merging and continuation fill validation.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:51:54.952Z",
 			"updatedAt": "2026-06-16T09:17:40.696Z"
@@ -57,14 +57,14 @@
 			"id": "T004",
 			"title": "Update function builder emit and call API",
 			"detail": "Update FuncBuilder:emit constructor to pass RegionUseEmit and add FuncBuilder:call plus use_region_call alias using RegionUseCall. Preserve string/block/continuation fill handling.",
-			"file": "lua/moonlift/host_func_values.lua",
+			"file": "lua/lalin/host_func_values.lua",
 			"after": [
 				"T001"
 			],
 			"status": "done",
 			"order": 4,
 			"claimedBy": "agent-XWJW5E",
-			"evidence": "Updated lua/moonlift/host_func_values.lua: added mode-aware func_region_use helper, existing FuncBuilder:emit now constructs StmtUseRegionFrag with Tr.RegionUseEmit, added FuncBuilder:call with Tr.RegionUseCall, and added use_region_call alias while preserving string/block/continuation fill handling.",
+			"evidence": "Updated lua/lalin/host_func_values.lua: added mode-aware func_region_use helper, existing FuncBuilder:emit now constructs StmtUseRegionFrag with Tr.RegionUseEmit, added FuncBuilder:call with Tr.RegionUseCall, and added use_region_call alias while preserving string/block/continuation fill handling.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:51:54.952Z",
 			"updatedAt": "2026-06-16T09:18:33.394Z"
@@ -73,14 +73,14 @@
 			"id": "T005",
 			"title": "Implement reusable region call lowering helpers",
 			"detail": "Create a frontend helper module that builds deterministic wrapper/result names, checks continuation payload sealability, records one wrapper per closed region fragment key, builds result TypeDeclTaggedUnionSugar, builds wrapper FuncLocal using emit-only region composition, and lowers a call site to let wrapper(args) plus variant switch dispatch. No backend or Code ASDL changes.",
-			"file": "lua/moonlift/region_call_lowering.lua",
+			"file": "lua/lalin/region_call_lowering.lua",
 			"after": [
 				"T001"
 			],
 			"status": "done",
 			"order": 5,
 			"claimedBy": "agent-XWJW5E",
-			"evidence": "Created lua/moonlift/region_call_lowering.lua. It defines deterministic safe/hash names, result TypeDeclTaggedUnionSugar generation, wrapper FuncLocal generation whose body uses Tr.RegionUseEmit, one-wrapper registry with pending_wrappers/mark_emitted, lower_call_use lowering to let wrapper(args) plus variant switch/jump dispatch/default trap, and structural type_contains_lease helper for lease payload checks. Syntax checked with luajit loadfile.",
+			"evidence": "Created lua/lalin/region_call_lowering.lua. It defines deterministic safe/hash names, result TypeDeclTaggedUnionSugar generation, wrapper FuncLocal generation whose body uses Tr.RegionUseEmit, one-wrapper registry with pending_wrappers/mark_emitted, lower_call_use lowering to let wrapper(args) plus variant switch/jump dispatch/default trap, and structural type_contains_lease helper for lease payload checks. Syntax checked with luajit loadfile.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:51:54.952Z",
 			"updatedAt": "2026-06-16T09:23:45.210Z"
@@ -89,14 +89,14 @@
 			"id": "T006",
 			"title": "Integrate call lowering with open expansion and RNF",
 			"detail": "Instantiate the region_call_lowering registry in M.Define, pass lower_region_call_use/registry callbacks into region_normal_form, expand original module items while collecting wrappers, then expand generated wrapper items in deterministic order until registry is stable. Ensure RegionUseEmit path is unchanged and no RegionUseCall remains after OpenExpand for resolved fragments.",
-			"file": "lua/moonlift/open_expand.lua",
+			"file": "lua/lalin/open_expand.lua",
 			"after": [
 				"T005"
 			],
 			"status": "done",
 			"order": 6,
 			"claimedBy": "agent-XWJW5E",
-			"evidence": "Updated lua/moonlift/open_expand.lua: instantiated region_call_lowering before RNF, passed lower_region_call_use into RNF, and changed expand_module to expand original items then drain generated region-call type/function items through expand_item in deterministic pending-wrapper batches until stable. Syntax loaded open_expand.lua with luajit.",
+			"evidence": "Updated lua/lalin/open_expand.lua: instantiated region_call_lowering before RNF, passed lower_region_call_use into RNF, and changed expand_module to expand original items then drain generated region-call type/function items through expand_item in deterministic pending-wrapper batches until stable. Syntax loaded open_expand.lua with luajit.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:51:54.952Z",
 			"updatedAt": "2026-06-16T09:25:19.584Z"
@@ -105,14 +105,14 @@
 			"id": "T007",
 			"title": "Route RegionUseCall in RNF",
 			"detail": "Make normalize_stmts distinguish stmt.mode. RegionUseEmit keeps existing CFG splice behavior. RegionUseCall delegates to the callback from open_expand and appends the returned ordinary statements without hoisting emit blocks at the call site. Preserve unresolved call statements so open validation can report them.",
-			"file": "lua/moonlift/region_normal_form.lua",
+			"file": "lua/lalin/region_normal_form.lua",
 			"after": [
 				"T005"
 			],
 			"status": "done",
 			"order": 7,
 			"claimedBy": "agent-XWJW5E",
-			"evidence": "Updated lua/moonlift/region_normal_form.lua: normalize_stmts now distinguishes stmt.mode; RegionUseCall delegates to cb.lower_region_call_use and appends returned ordinary statements, while RegionUseEmit keeps the existing normalize_region_frag_use CFG splice path. Fallback preserves unresolved calls with expanded header/args. Syntax loaded region_normal_form.lua with luajit.",
+			"evidence": "Updated lua/lalin/region_normal_form.lua: normalize_stmts now distinguishes stmt.mode; RegionUseCall delegates to cb.lower_region_call_use and appends returned ordinary statements, while RegionUseEmit keeps the existing normalize_region_frag_use CFG splice path. Fallback preserves unresolved calls with expanded header/args. Syntax loaded region_normal_form.lua with luajit.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:51:54.952Z",
 			"updatedAt": "2026-06-16T09:25:19.584Z"
@@ -121,7 +121,7 @@
 			"id": "T008",
 			"title": "Polish open facts diagnostics for call remnants",
 			"detail": "Update StmtUseRegionFrag fact collection to preserve mode-aware use_ids; RegionUseCall remnants should still emit MetaFactRegionFragUse and ref slot facts. Include cont_fills if currently omitted only if needed for unfilled continuation diagnostics.",
-			"file": "lua/moonlift/open_facts.lua",
+			"file": "lua/lalin/open_facts.lua",
 			"after": [
 				"T001",
 				"T007"
@@ -129,7 +129,7 @@
 			"status": "done",
 			"order": 8,
 			"claimedBy": "agent-XWJW5E",
-			"evidence": "Updated lua/moonlift/open_facts.lua: StmtUseRegionFrag still emits MetaFactRegionFragUse(self.use_id), region-frag slot facts, arg/fill facts for both modes, and now also gathers cont_fills target-slot facts via cont_binding_facts without adding backend facts.",
+			"evidence": "Updated lua/lalin/open_facts.lua: StmtUseRegionFrag still emits MetaFactRegionFragUse(self.use_id), region-frag slot facts, arg/fill facts for both modes, and now also gathers cont_fills target-slot facts via cont_binding_facts without adding backend facts.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:51:54.952Z",
 			"updatedAt": "2026-06-16T09:26:33.156Z"
@@ -138,14 +138,14 @@
 			"id": "T009",
 			"title": "Explain unexpanded region calls clearly",
 			"detail": "When IssueUnexpandedRegionFragUse.use_id starts with call., render the primary as an unexpanded region call and note that RegionUseCall must disappear during open/RNF lowering before Code/backend lowering. Existing emit wording remains unchanged.",
-			"file": "lua/moonlift/open_validate.lua",
+			"file": "lua/lalin/open_validate.lua",
 			"after": [
 				"T008"
 			],
 			"status": "done",
 			"order": 9,
 			"claimedBy": "agent-XWJW5E",
-			"evidence": "Updated lua/moonlift/open_validate.lua: IssueUnexpandedRegionFragUse with use_id prefix call. now reports `unexpanded region call` and adds a note that region call must lower during open/RNF expansion before Code/backend lowering; non-call region fragment wording remains unchanged.",
+			"evidence": "Updated lua/lalin/open_validate.lua: IssueUnexpandedRegionFragUse with use_id prefix call. now reports `unexpanded region call` and adds a note that region call must lower during open/RNF expansion before Code/backend lowering; non-call region fragment wording remains unchanged.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:51:54.952Z",
 			"updatedAt": "2026-06-16T09:27:17.550Z"
@@ -154,12 +154,12 @@
 			"id": "T010",
 			"title": "Make trap terminate control facts",
 			"detail": "Add StmtTrap handlers: no control facts and stmt_terminates true. Required because lowered call dispatch uses default then trap and the enclosing control region must still be recognized as terminating.",
-			"file": "lua/moonlift/tree_control_facts.lua",
+			"file": "lua/lalin/tree_control_facts.lua",
 			"after": [],
 			"status": "done",
 			"order": 10,
 			"claimedBy": "agent-XWJW5E",
-			"evidence": "Updated lua/moonlift/tree_control_facts.lua: added StmtTrap to stmt_facts as producing no control facts and to stmt_terminates as true, so generated call-dispatch default traps are treated as terminating.",
+			"evidence": "Updated lua/lalin/tree_control_facts.lua: added StmtTrap to stmt_facts as producing no control facts and to stmt_terminates as true, so generated call-dispatch default traps are treated as terminating.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:51:54.952Z",
 			"updatedAt": "2026-06-16T09:27:52.701Z"
@@ -167,15 +167,15 @@
 		{
 			"id": "T011",
 			"title": "Add region call lease-payload diagnostic",
-			"detail": "For generated region-call result tagged unions (reserved __moon_region_call_ prefix), report TypeIssueInvalidUnary with raw op region call lease payload when a continuation field/payload contains Ty.TLease. Extend explain_type_issue to say cannot call region because continuation payload contains a lease and suggest using emit.",
-			"file": "lua/moonlift/tree_typecheck.lua",
+			"detail": "For generated region-call result tagged unions (reserved __lalin_region_call_ prefix), report TypeIssueInvalidUnary with raw op region call lease payload when a continuation field/payload contains Ty.TLease. Extend explain_type_issue to say cannot call region because continuation payload contains a lease and suggest using emit.",
+			"file": "lua/lalin/tree_typecheck.lua",
 			"after": [
 				"T005"
 			],
 			"status": "done",
 			"order": 11,
 			"claimedBy": "agent-XWJW5E",
-			"evidence": "Updated lua/moonlift/tree_typecheck.lua: generated TypeDeclTaggedUnionSugar names with __moon_region_call_ now emit TypeIssueInvalidUnary(\"region call lease payload\", ty) when a variant payload or field contains a lease, and explain_type_issue now reports that a region cannot be called because continuation payload contains a lease with a suggestion to use emit.",
+			"evidence": "Updated lua/lalin/tree_typecheck.lua: generated TypeDeclTaggedUnionSugar names with __lalin_region_call_ now emit TypeIssueInvalidUnary(\"region call lease payload\", ty) when a variant payload or field contains a lease, and explain_type_issue now reports that a region cannot be called because continuation payload contains a lease with a suggestion to use emit.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:51:54.952Z",
 			"updatedAt": "2026-06-16T09:28:44.306Z"
@@ -212,7 +212,7 @@
 			"claimedBy": "agent-XWJW5E",
 			"evidence": "Completed runtime portion: added hosted `call @{scan}` runtime smoke to tests/test_region_call.lua (hit returns 17, miss returns -1). Fixed frontend/native pipeline so generated region-call result layouts are merged into layout_env before Code/Back, removed the blanket CmdTrap rejection (CmdTrap is a valid terminator for generated exhaustive defaults), and fixed CodeToBack fragment sret BindEntryParams. `luajit tests/test_region_call.lua` now passes structural and hosted runtime checks.",
 			"notes": [
-				"Investigation update by agent-P9D6NA: reproduced hosted `call @{scan}` failure. Initial `unknown variant hit in type ?` was caused by bound quote expansion lowering RegionUseCall in isolation and dropping generated wrapper/result items before Bundle compile. Added deferred region-call expansion for bound quotes (open_expand Define option + chain uses defer) so final module expansion owns wrapper generation; unknown-variant issue is gone. Current hosted JIT smoke now reaches backend and fails at ordinary generated wrapper ABI shape: `code_to_back: unsupported MoonCode.CodeTyNamed` for the wrapper returning tagged-union/named result. C backend also reports CodeTyNamed identity mismatches. Focused structural tests still pass.",
+				"Investigation update by agent-P9D6NA: reproduced hosted `call @{scan}` failure. Initial `unknown variant hit in type ?` was caused by bound quote expansion lowering RegionUseCall in isolation and dropping generated wrapper/result items before Bundle compile. Added deferred region-call expansion for bound quotes (open_expand Define option + chain uses defer) so final module expansion owns wrapper generation; unknown-variant issue is gone. Current hosted JIT smoke now reaches backend and fails at ordinary generated wrapper ABI shape: `code_to_back: unsupported LalinCode.CodeTyNamed` for the wrapper returning tagged-union/named result. C backend also reports CodeTyNamed identity mismatches. Focused structural tests still pass.",
 				"Plan amendment after investigation: the original hosted `call @{scan}` unknown-variant failure is no longer the active blocker; deferring bound-quote region-call lowering to final module expansion fixed generated wrapper/result item visibility. The remaining blocker is ordinary backend/semantic lowering for functions returning generated tagged unions/named aggregates: code_to_back currently rejects CodeTyNamed in signatures, and C backend has named type identity splits. Do not change region-call lowering to source-level out-pointer wrappers; complete T017-T024 instead."
 			],
 			"createdAt": "2026-06-16T08:51:54.952Z",
@@ -222,14 +222,14 @@
 			"id": "T014",
 			"title": "Add LSP completion for call",
 			"detail": "In CompletionRegionStatement add a call keyword item with docs explaining it seals a region through a generated function boundary. Update tests/test_editor_completion_items.lua to assert call appears in region statement completions.",
-			"file": "lua/moonlift/editor_completion_items.lua",
+			"file": "lua/lalin/editor_completion_items.lua",
 			"after": [
 				"T002"
 			],
 			"status": "done",
 			"order": 14,
 			"claimedBy": "agent-XWJW5E",
-			"evidence": "Updated lua/moonlift/editor_completion_items.lua to include `call` in CompletionRegionStatement with region-call docs. Updated tests/test_editor_completion_items.lua to assert region-statement completions include call. Verified with `luajit tests/test_editor_completion_items.lua`.",
+			"evidence": "Updated lua/lalin/editor_completion_items.lua to include `call` in CompletionRegionStatement with region-call docs. Updated tests/test_editor_completion_items.lua to assert region-statement completions include call. Verified with `luajit tests/test_editor_completion_items.lua`.",
 			"notes": [],
 			"createdAt": "2026-06-16T08:51:54.952Z",
 			"updatedAt": "2026-06-16T09:41:31.838Z"
@@ -255,14 +255,14 @@
 			"id": "T017",
 			"title": "Canonicalize path named types in Code lowering",
 			"detail": "Change CodeType.type_to_code / named_type_name so a Ty.TNamed(Ty.TypeRefPath({Name})) lowered with a module context uses ctx.module_name as the CodeTyNamed.module_name instead of the empty string. Preserve TypeRefGlobal and TypeRefLocal behavior. This must make generated region-call result types, wrapper result signatures, ExprCtor owner types, and layout env entries share the final module identity. Add/adjust tests in tests/test_code_type.lua or tests/test_tree_to_code.lua to assert TypeRefPath result names lower to CodeTyNamed(final_module, name, canonical/global source type) when ctx.module_name is set.",
-			"file": "lua/moonlift/code_type.lua",
+			"file": "lua/lalin/code_type.lua",
 			"after": [
 				"T006"
 			],
 			"status": "done",
 			"order": 17,
 			"claimedBy": "agent-P9D6NA",
-			"evidence": "Updated lua/moonlift/code_type.lua: Ty.TypeRefPath named types lower with ctx.module_name as CodeTyNamed.module_name, and path source_ty is canonicalized to Ty.TypeRefGlobal(module_name,type_name) when module context exists. Added tests/test_code_type.lua regression for __moon_region_call_demo_result with ctx.module_name='Demo'. Verified `luajit tests/test_code_type.lua` and `luajit tests/test_region_call.lua` pass. Runtime region-call probe still fails later at code_to_back CodeTyNamed aggregate result ABI, as expected for remaining T018-T020.",
+			"evidence": "Updated lua/lalin/code_type.lua: Ty.TypeRefPath named types lower with ctx.module_name as CodeTyNamed.module_name, and path source_ty is canonicalized to Ty.TypeRefGlobal(module_name,type_name) when module context exists. Added tests/test_code_type.lua regression for __lalin_region_call_demo_result with ctx.module_name='Demo'. Verified `luajit tests/test_code_type.lua` and `luajit tests/test_region_call.lua` pass. Runtime region-call probe still fails later at code_to_back CodeTyNamed aggregate result ABI, as expected for remaining T018-T020.",
 			"notes": [],
 			"createdAt": "2026-06-16T10:34:31.843Z",
 			"updatedAt": "2026-06-16T17:53:17.674Z"
@@ -271,14 +271,14 @@
 			"id": "T018",
 			"title": "Add Code aggregate ABI helper",
 			"detail": "Create a small shared helper for Code semantic lowering that classifies executable ABI for Code types. It should identify scalar/pass-direct types via existing code_to_back.scalar-compatible logic and aggregate/pass-by-address types for CodeTyNamed, CodeTyArray, CodeTySlice, CodeTyView, CodeTyClosure, and other non-scalar values with known layout. It should expose functions such as is_aggregate(ty), layout(ctx, ty), param_back_scalar(ty), lowered_sig(ctx, code_sig), has_hidden_result(sig), hidden_result_ty(sig), and synthetic memory-info helpers needed by code_to_back. Keep this as ordinary Code-to-back ABI support, not region-call-specific logic.",
-			"file": "lua/moonlift/code_aggregate_abi.lua",
+			"file": "lua/lalin/code_aggregate_abi.lua",
 			"after": [
 				"T017"
 			],
 			"status": "done",
 			"order": 18,
 			"claimedBy": "agent-P9D6NA",
-			"evidence": "Added lua/moonlift/code_aggregate_abi.lua as a shared Code aggregate ABI helper. It centralizes direct scalar classification, view components, by-address aggregate classification, lowered signature/sret shape, layout lookup, size/align, and field offsets. Refactored lua/moonlift/code_to_back.lua to use the helper for component scalars, sret lowered signatures, aggregate classification, and layout-backed aggregate offsets while preserving CodeToBack.scalar aggregate-as-pointer behavior needed by LowerToBack. Verified `luajit tests/test_code_to_back.lua`, `luajit tests/test_region_call.lua`, `luajit tests/test_parse_typecheck.lua`, and `luajit tests/test_aggregate_param_abi.lua` pass.",
+			"evidence": "Added lua/lalin/code_aggregate_abi.lua as a shared Code aggregate ABI helper. It centralizes direct scalar classification, view components, by-address aggregate classification, lowered signature/sret shape, layout lookup, size/align, and field offsets. Refactored lua/lalin/code_to_back.lua to use the helper for component scalars, sret lowered signatures, aggregate classification, and layout-backed aggregate offsets while preserving CodeToBack.scalar aggregate-as-pointer behavior needed by LowerToBack. Verified `luajit tests/test_code_to_back.lua`, `luajit tests/test_region_call.lua`, `luajit tests/test_parse_typecheck.lua`, and `luajit tests/test_aggregate_param_abi.lua` pass.",
 			"notes": [],
 			"createdAt": "2026-06-16T10:34:31.843Z",
 			"updatedAt": "2026-06-16T18:58:07.381Z"
@@ -287,14 +287,14 @@
 			"id": "T019",
 			"title": "Lower aggregate Code values to addressable Back storage",
 			"detail": "Extend code_to_back with aggregate storage support before implementing aggregate calls/returns. Add ctx layout/stack-slot maps. For CodeLocal/CodeResidenceAggregate and aggregate SSA dsts from CodeInstAggregate, CodeInstArray, CodeInstVariantCtor, and aggregate CodeInstCall results, create stack slots and deterministic addresses. Implement addr_from_place for CodePlaceLocal and CodePlaceField using stack/global/deref base plus field byte offsets. Lower CodeInstAggregate/Array/VariantCtor into stores to stack slots; for tagged unions store __tag and payload bytes/field value at the layout offsets. Lower CodeInstVariantTag and CodeInstVariantPayload to loads from aggregate storage using synthetic memory info. This should also make field/index loads from named aggregate locals work through the existing CodeInstLoad path.",
-			"file": "lua/moonlift/code_to_back.lua",
+			"file": "lua/lalin/code_to_back.lua",
 			"after": [
 				"T018"
 			],
 			"status": "done",
 			"order": 19,
 			"claimedBy": "agent-P9D6NA",
-			"evidence": "lua/moonlift/code_to_back.lua now has aggregate address/storage maps, CodePlaceLocal/CodePlaceField aggregate address lowering, aggregate SSA storage creation, CodeInstAggregate storage, CodeInstArray scalar-element storage, CodeInstVariantCtor tag/payload storage, CodeInstVariantTag/Payload layout-backed loads, aggregate load/address aliasing, and aggregate local store/address mapping. Verified current executable consumers with `luajit tests/test_code_to_back.lua` and `luajit tests/test_region_call.lua`; `tests/test_host_aggregate_array_literals.lua` and `tests/test_view_aggregate_lowering.lua` still fail earlier in tree_to_code on unrelated unresolved/untyped tree cases before exercising CodeToBack.",
+			"evidence": "lua/lalin/code_to_back.lua now has aggregate address/storage maps, CodePlaceLocal/CodePlaceField aggregate address lowering, aggregate SSA storage creation, CodeInstAggregate storage, CodeInstArray scalar-element storage, CodeInstVariantCtor tag/payload storage, CodeInstVariantTag/Payload layout-backed loads, aggregate load/address aliasing, and aggregate local store/address mapping. Verified current executable consumers with `luajit tests/test_code_to_back.lua` and `luajit tests/test_region_call.lua`; `tests/test_host_aggregate_array_literals.lua` and `tests/test_view_aggregate_lowering.lua` still fail earlier in tree_to_code on unrelated unresolved/untyped tree cases before exercising CodeToBack.",
 			"notes": [],
 			"createdAt": "2026-06-16T10:34:31.843Z",
 			"updatedAt": "2026-06-16T18:59:24.060Z"
@@ -303,17 +303,17 @@
 			"id": "T020",
 			"title": "Lower aggregate function signatures calls and returns",
 			"detail": "Use the aggregate ABI helper to translate CodeSig values to Back sigs. Aggregate params lower to BackPtr by-address params. Aggregate/named results lower to a hidden out pointer parameter plus no Back result; scalar results remain unchanged. Update emit_module_prelude to create lowered Back sigs, func entry binding to include hidden result pointer and aggregate param addresses, CodeInstCall to allocate/pass an out slot for aggregate dst and emit BackCallStmt, and CodeTermReturn to copy/store aggregate return values into the hidden out pointer then CmdReturnVoid. Preserve direct scalar call/return behavior. Do not change region_call_lowering wrappers to explicit source-level out pointers.",
-			"file": "lua/moonlift/code_to_back.lua",
+			"file": "lua/lalin/code_to_back.lua",
 			"after": [
 				"T019"
 			],
 			"status": "done",
 			"order": 20,
 			"claimedBy": "agent-P9D6NA",
-			"evidence": "lua/moonlift/code_to_back.lua now uses the aggregate ABI helper to lower Code signatures: aggregate params become pointer components, named/aggregate results become hidden sret pointer + void Back result, direct scalar signatures remain scalar. CodeInstCall allocates aggregate result storage and passes the hidden out pointer; CodeTermReturn copies aggregate values to the hidden sret pointer with CmdMemcpy; full-function and fragment Code lowering bind the hidden sret entry parameter. Verified with existing sret assertion in tests/test_code_to_back.lua plus `luajit tests/test_code_to_back.lua`, `luajit tests/test_region_call.lua`, `luajit tests/test_parse_typecheck.lua`, and `luajit tests/test_aggregate_param_abi.lua`.",
+			"evidence": "lua/lalin/code_to_back.lua now uses the aggregate ABI helper to lower Code signatures: aggregate params become pointer components, named/aggregate results become hidden sret pointer + void Back result, direct scalar signatures remain scalar. CodeInstCall allocates aggregate result storage and passes the hidden out pointer; CodeTermReturn copies aggregate values to the hidden sret pointer with CmdMemcpy; full-function and fragment Code lowering bind the hidden sret entry parameter. Verified with existing sret assertion in tests/test_code_to_back.lua plus `luajit tests/test_code_to_back.lua`, `luajit tests/test_region_call.lua`, `luajit tests/test_parse_typecheck.lua`, and `luajit tests/test_aggregate_param_abi.lua`.",
 			"notes": [
-				"Current-state check by agent-P9D6NA after backend/C work: hosted region-call runtime probe still fails at `lua/moonlift/code_to_back.lua:603: code_to_back: unsupported MoonCode.CodeTyNamed` in `component_scalars` during `emit_module_prelude`, so ordinary named aggregate result ABI for Back remains incomplete.",
-				"Verification/partial fix by agent-P9D6NA after T321D3 update: parse_typecheck, aggregate_param_abi, c_backend_coverage_matrix, code_to_back, region_call structural, and region_frag_runtime_param_call pass locally. Explicit hosted `call @{scan}` runtime probe initially failed at `code_to_back: unsupported MoonCode.CodeTermVariantSwitch`; added general CodeTermVariantSwitch -> Back CmdSwitchInt lowering plus aggregate load/address mapping and per-fragment tmp offset fixes. Probe still not green.",
+				"Current-state check by agent-P9D6NA after backend/C work: hosted region-call runtime probe still fails at `lua/lalin/code_to_back.lua:603: code_to_back: unsupported LalinCode.CodeTyNamed` in `component_scalars` during `emit_module_prelude`, so ordinary named aggregate result ABI for Back remains incomplete.",
+				"Verification/partial fix by agent-P9D6NA after T321D3 update: parse_typecheck, aggregate_param_abi, c_backend_coverage_matrix, code_to_back, region_call structural, and region_frag_runtime_param_call pass locally. Explicit hosted `call @{scan}` runtime probe initially failed at `code_to_back: unsupported LalinCode.CodeTermVariantSwitch`; added general CodeTermVariantSwitch -> Back CmdSwitchInt lowering plus aggregate load/address mapping and per-fragment tmp offset fixes. Probe still not green.",
 				"Hosted region-call runtime now passes after ordinary Back aggregate ABI work plus frontend layout-env merge and CodeToBack fragment sret binding. Remaining C named identity work, if any, is separate from native runtime smoke."
 			],
 			"createdAt": "2026-06-16T10:34:31.843Z",
@@ -322,15 +322,15 @@
 		{
 			"id": "T021",
 			"title": "Fix C backend named identity for generated aggregates",
-			"detail": "Make the C backend consume canonical CodeTyNamed identities after T017. Ensure CodeSig result/param CBackendNamed ids, generated variant struct decl ids, and layout_env struct decl ids all use the same final module/type pair for generated region-call result types. Avoid producing both CTypeId('', name) and CTypeId(final_module, name). If C keeps native C aggregate returns, validate that CBackendCall dst/local types use the same CBackendNamed id; if switching to the shared hidden-out ABI for Code-to-C, route through moonlift.c_abi consistently rather than adding a region-call workaround.",
-			"file": "lua/moonlift/code_to_c.lua",
+			"detail": "Make the C backend consume canonical CodeTyNamed identities after T017. Ensure CodeSig result/param CBackendNamed ids, generated variant struct decl ids, and layout_env struct decl ids all use the same final module/type pair for generated region-call result types. Avoid producing both CTypeId('', name) and CTypeId(final_module, name). If C keeps native C aggregate returns, validate that CBackendCall dst/local types use the same CBackendNamed id; if switching to the shared hidden-out ABI for Code-to-C, route through lalin.c_abi consistently rather than adding a region-call workaround.",
+			"file": "lua/lalin/code_to_c.lua",
 			"after": [
 				"T017"
 			],
 			"status": "done",
 			"order": 21,
 			"claimedBy": "agent-P9D6NA",
-			"evidence": "Verified and fixed generated aggregate C path. T017 canonical CodeTyNamed identity now feeds code_to_c; hosted C region-call smoke using generated __moon_region_call result compiles and runs with cc, returning hit=17/miss=-1. Fixed lua/moonlift/c_emit.lua so compound/named block params and transfer temps are declared without invalid `= 0` scalar initializers, matching existing local compound handling. Verified `luajit tests/test_c_backend_coverage_matrix.lua`, `luajit tests/test_c_backend_phase_boundaries.lua`, `luajit tests/test_c_backend_transparent_api.lua`, and `luajit tests/test_region_call.lua` pass.",
+			"evidence": "Verified and fixed generated aggregate C path. T017 canonical CodeTyNamed identity now feeds code_to_c; hosted C region-call smoke using generated __lalin_region_call result compiles and runs with cc, returning hit=17/miss=-1. Fixed lua/lalin/c_emit.lua so compound/named block params and transfer temps are declared without invalid `= 0` scalar initializers, matching existing local compound handling. Verified `luajit tests/test_c_backend_coverage_matrix.lua`, `luajit tests/test_c_backend_phase_boundaries.lua`, `luajit tests/test_c_backend_transparent_api.lua`, and `luajit tests/test_region_call.lua` pass.",
 			"notes": [],
 			"createdAt": "2026-06-16T10:34:31.843Z",
 			"updatedAt": "2026-06-16T19:01:39.268Z"
@@ -338,7 +338,7 @@
 		{
 			"id": "T022",
 			"title": "Add named identity regression tests",
-			"detail": "Add focused regression coverage for generated/final-module named type identity. Include a Ty.TNamed(TypeRefPath(Name('__moon_region_call_demo_result'))) lowered with ctx.module_name = 'Demo' and assert CodeTyNamed.module_name == 'Demo'. Add a tree_to_code or code_to_c check that a generated tagged-union result type used by a wrapper function signature and by variant ctor/switch refs does not produce mixed TypeRefPath/TypeRefGlobal or empty-module C type ids.",
+			"detail": "Add focused regression coverage for generated/final-module named type identity. Include a Ty.TNamed(TypeRefPath(Name('__lalin_region_call_demo_result'))) lowered with ctx.module_name = 'Demo' and assert CodeTyNamed.module_name == 'Demo'. Add a tree_to_code or code_to_c check that a generated tagged-union result type used by a wrapper function signature and by variant ctor/switch refs does not produce mixed TypeRefPath/TypeRefGlobal or empty-module C type ids.",
 			"file": "tests/test_code_type.lua",
 			"after": [
 				"T017",
@@ -377,7 +377,7 @@
 			"status": "todo",
 			"order": 24,
 			"notes": [
-				"Hosted runtime smoke status by agent-P9D6NA: explicit `call @{scan}` probe now reaches Back program generation but fails without allow-trap because generated exhaustive dispatch default trap emits `CmdTrap` and `frontend_pipeline.assert_no_cmd_trap` rejects it. With `_G.MOONLIFT_ALLOW_TRAP=true`, it proceeds to binary encoding and fails in `back_command_binary.lua:124` from a nil id. Region call runtime is therefore still incomplete despite structural tests passing."
+				"Hosted runtime smoke status by agent-P9D6NA: explicit `call @{scan}` probe now reaches Back program generation but fails without allow-trap because generated exhaustive dispatch default trap emits `CmdTrap` and `frontend_pipeline.assert_no_cmd_trap` rejects it. With `_G.LALIN_ALLOW_TRAP=true`, it proceeds to binary encoding and fails in `back_command_binary.lua:124` from a nil id. Region call runtime is therefore still incomplete despite structural tests passing."
 			],
 			"createdAt": "2026-06-16T10:34:31.843Z",
 			"updatedAt": "2026-06-16T18:34:44.549Z"
@@ -385,7 +385,7 @@
 		{
 			"id": "T016",
 			"title": "Run focused validation commands",
-			"detail": "Run luajit tests/test_region_call.lua, luajit tests/test_parse_typecheck.lua, luajit tests/test_open_facts_validate.lua, luajit tests/test_continuation_slot_expand.lua, luajit tests/test_editor_completion_items.lua, luajit tests/test_c_backend_phase_boundaries.lua, plus new aggregate/named ABI tests from T022/T023. If native runtime smoke fails due to stale libmoonlift.so, rebuild with cargo build --release and rerun.",
+			"detail": "Run luajit tests/test_region_call.lua, luajit tests/test_parse_typecheck.lua, luajit tests/test_open_facts_validate.lua, luajit tests/test_continuation_slot_expand.lua, luajit tests/test_editor_completion_items.lua, luajit tests/test_c_backend_phase_boundaries.lua, plus new aggregate/named ABI tests from T022/T023. If native runtime smoke fails due to stale liblalin.so, rebuild with cargo build --release and rerun.",
 			"after": [
 				"T012",
 				"T013",

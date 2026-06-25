@@ -1,5 +1,5 @@
-# Complete Moonlift Lua VM before SponJIT integration 
-Audit experiments/lua_interpreter_vm current Moonlift Lua VM implementation, identify gaps, and plan completion before any SponJIT integration.
+# Complete Lalin Lua VM before SponJIT integration
+Audit experiments/lua_interpreter_vm current Lalin Lua VM implementation, identify gaps, and plan completion before any SponJIT integration.
 **Workflow ID**: wf-lua-vm-completion
 **Started**: 2026-05-29 07:11:07
 ---
@@ -59,7 +59,7 @@ Audit experiments/lua_interpreter_vm current Moonlift Lua VM implementation, ide
 49. `experiments/lua_interpreter_vm/benchmarks/bench_stencil_vs_vm.lua` (lines 1-291) - Stencil ABI mismatch benchmark.
 50. `experiments/lua_interpreter_vm/benchmarks/bench_fusion.lua` (lines 1-309) - Fusion experiment benchmark.
 51. `experiments/lua_interpreter_vm/tools/jit_harness/README.md` (lines 1-319) - VM-shaped stencil harness status; has mock pieces and Lua 5.5 corpus caveat.
-52. `experiments/lua_interpreter_vm/tools/jit_harness/compile.lua` (lines 1-260) - Harness compiler uses current Moonlift Lua VM source compiler; fallback token compiler exists.
+52. `experiments/lua_interpreter_vm/tools/jit_harness/compile.lua` (lines 1-260) - Harness compiler uses current Lalin Lua VM source compiler; fallback token compiler exists.
 53. `experiments/lua_interpreter_vm/tools/jit_harness/candidate_emit.lua` (lines 1-600) - VM-shaped candidate stencil emitter and lowering fragments.
 54. `experiments/lua_interpreter_vm/spongejit/puc/README.md` (lines 1-116) - Confirms SponJIT current real integration is PUC Lua-oriented.
 55. `experiments/lua_interpreter_vm/SPONJIT_ARCHITECTURE.md` (lines 1-120) - SponJIT architecture; read only enough to confirm separate context.
@@ -210,11 +210,11 @@ run_case("local x = 41 return x + 1", { LOADI, LOADI, ADD, MMBIN, RETURN1 }, 42)
   opcode handlers call `table_get`/`table_set`. Raw get/set exist for existing array/hash slots. Resize/allocation is missing, so table creation/growth is impossible.
 - Source compiler:
   `compile_lua_source_into` uses caller-provided buffers and emits VM bytecode directly; it has no allocator-backed constant/string/proto creation yet.
-- Tests construct VM memory manually via FFI and `moonlift_scratch_raw`; no real allocator/GC path is exercised.
+- Tests construct VM memory manually via FFI and `lalin_scratch_raw`; no real allocator/GC path is exercised.
 - SponJIT context is separate:
   - `spongejit/puc/README.md` is explicitly PUC Lua 5.5 bank/runtime integration.
   - `tools/jit_harness` has VM-shaped candidate machinery, but README admits mock parts and corpus limitations.
-  - Current Moonlift VM completion should not depend on PUC SponJIT as implementation target.
+  - Current Lalin VM completion should not depend on PUC SponJIT as implementation target.
 
 ## Observations
 
@@ -286,10 +286,10 @@ run_case("local x = 41 return x + 1", { LOADI, LOADI, ADD, MMBIN, RETURN1 }, 42)
 
 ### Boundary notes
 
-- Current VM is Moonlift-hosted regions/functions compiled by Moonlift/Cranelift.
+- Current VM is Lalin-hosted regions/functions compiled by Lalin/Cranelift.
 - Runtime memory in tests is external FFI/scratch memory; the VM’s own allocator/GC does not back objects yet.
 - Public C API is intentionally sealed, but only simple stack/type/string access works.
-- SponJIT PUC path has real bank/runtime work, but it targets vendored PUC Lua and should remain separate until Moonlift VM semantics and runtime services are complete.
+- SponJIT PUC path has real bank/runtime work, but it targets vendored PUC Lua and should remain separate until Lalin VM semantics and runtime services are complete.
 
 ## Knowledge-builder Output — 2026-05-29 08:33:59
 
@@ -299,7 +299,7 @@ run_case("local x = 41 return x + 1", { LOADI, LOADI, ADD, MMBIN, RETURN1 }, 42)
 - **Runtime service dependencies**: allocator, strings, tables, closures/upvalues, protected calls, coroutines, native calls, and GC are not independent gaps; many opcode semantics depend on several of them simultaneously.
 - **Frame/continuation correctness**: the current jump-first structure is promising, but nested calls, metamethod returns, yields, and protected unwinds create hidden invariants around cached `code/constants`, `pc`, `top`, `resume_mode`, and result placement.
 - **Trust boundary / validation**: the VM can execute manually constructed `Proto`s, but invalid bytecode can currently bypass many assumptions. This matters before any JIT consumes the same bytecode contract.
-- **Lua 5.5 compatibility vs PUC cloning**: the VM can remain Moonlift-native, but must still pin down which parts are semantic compatibility, bytecode compatibility, C API compatibility, and library compatibility.
+- **Lua 5.5 compatibility vs PUC cloning**: the VM can remain Lalin-native, but must still pin down which parts are semantic compatibility, bytecode compatibility, C API compatibility, and library compatibility.
 - **Verification scope**: current tests prove a fast arithmetic/load/return slice, not VM completeness. Future verification must cover dynamic features, malformed bytecode, and cross-feature interactions.
 
 ## Non-Obvious Observations
@@ -456,7 +456,7 @@ Implication: call/return completion needs to verify result placement for:
 - error handler callbacks
 - possible standard library bootstrap
 
-Even if the Moonlift VM is not a PUC clone, it still needs a sealed native-call convention if Lua-visible native functions exist. The current `CClosure` struct already commits to such a boundary.
+Even if the Lalin VM is not a PUC clone, it still needs a sealed native-call convention if Lua-visible native functions exist. The current `CClosure` struct already commits to such a boundary.
 
 ### 10. Table semantics currently conflate “missing storage” with “OOM”
 
@@ -533,7 +533,7 @@ This is much simpler than a linked TBC chain and may have edge cases around:
 - yields/errors during `__close`
 - interleaving with open upvalues
 
-The shape may be intentional for Moonlift-native design, but it needs semantic validation against Lua 5.5 behavior.
+The shape may be intentional for Lalin-native design, but it needs semantic validation against Lua 5.5 behavior.
 
 ### 15. Error handling lacks a single visible path from opcode error to protected unwind
 
@@ -622,7 +622,7 @@ The VM can be architecturally promising and fast while still being far from comp
 
 ### 20. SponJIT should consume a stabilized semantic VM contract, not drive the VM design
 
-The findings imply SponJIT integration should wait until the Moonlift-native VM has:
+The findings imply SponJIT integration should wait until the Lalin-native VM has:
 
 - stable value representation rules
 - stable frame/call/yield conventions
@@ -636,88 +636,88 @@ Otherwise SponJIT risks optimizing accidental scaffolding behavior, especially a
 ## Knowledge Gaps
 
 - Exact bleeding-edge Lua 5.5 semantic deltas vs Lua 5.4 need to be pinned down locally: opcode meanings, vararg behavior, TBC behavior, numeric corner cases, and debug/API expectations.
-- The intended Moonlift-native native-call ABI is not yet clear: whether it targets Lua C API compatibility, a smaller sealed ABI, or both.
+- The intended Lalin-native native-call ABI is not yet clear: whether it targets Lua C API compatibility, a smaller sealed ABI, or both.
 - The intended standard library boundary is unclear: native-hosted libs, Lua-implemented libs, or hybrid.
-- The intended bytecode compatibility level is unclear: PUC-compatible 32-bit opcode stream, Moonlift-owned bytecode with Lua 5.5 semantics, or a transitional subset.
+- The intended bytecode compatibility level is unclear: PUC-compatible 32-bit opcode stream, Lalin-owned bytecode with Lua 5.5 semantics, or a transitional subset.
 - The intended GC strategy is unclear: exact/incremental/generational/arena-first. This affects barriers, object headers, weak tables, finalization, and allocator API.
 
 ## Knowledge-builder Output — 2026-05-29 08:50:30
 
 ### What Matters Most for This Problem
 
-- **Extern/libc boundaries must not become hidden VM semantics.** Moonlift externs are typed C-ABI calls with one return path; Lua VM behavior needs explicit success/error/oom/yield protocols around them.
-- **The Lua VM runtime is not Moonlift’s runtime.** Moonlift has no GC, exceptions, dynamic dispatch, or implicit scheduler. If Lua needs GC, protected calls, coroutines, allocator failure, finalizers, or native callbacks, those are VM data/control structures.
+- **Extern/libc boundaries must not become hidden VM semantics.** Lalin externs are typed C-ABI calls with one return path; Lua VM behavior needs explicit success/error/oom/yield protocols around them.
+- **The Lua VM runtime is not Lalin’s runtime.** Lalin has no GC, exceptions, dynamic dispatch, or implicit scheduler. If Lua needs GC, protected calls, coroutines, allocator failure, finalizers, or native callbacks, those are VM data/control structures.
 - **Typed regions should be the semantic core.** Multi-outcome VM operations should expose named continuations, not status-code conventions or hidden side channels.
 - **PUC compatibility is semantic, not architectural.** PUC’s C-stack, `longjmp`, allocator, registry, and C API idioms are compatibility references, not implementation models.
 - **Host ABI stability matters early.** `Value`, `LuaThread`, `Proto`, allocator hooks, native function ABI, and API exposure must be stable before JIT/SponJIT consumes them.
-- **Explicit data/control modeling matters more than opcode count.** Lua 5.5 semantics are dynamic, but Moonlift requires every dynamic distinction to appear as tags, structs, continuations, or validation facts.
+- **Explicit data/control modeling matters more than opcode count.** Lua 5.5 semantics are dynamic, but Lalin requires every dynamic distinction to appear as tags, structs, continuations, or validation facts.
 
 ### Non-Obvious Observations
 
-- **`extern` is too weak to directly express VM runtime operations.**  
-  Moonlift extern calls are C-ABI calls to symbols. They cannot declare `oom`, `errno`, `yield`, `protected_error`, `panic`, or `longjmp` exits. Therefore libc calls such as allocation, memcpy-like operations, I/O, or native Lua callbacks cannot be treated as semantically transparent. Any hidden behavior behind a C return value would violate the explicit-programming model.
+- **`extern` is too weak to directly express VM runtime operations.**
+  Lalin extern calls are C-ABI calls to symbols. They cannot declare `oom`, `errno`, `yield`, `protected_error`, `panic`, or `longjmp` exits. Therefore libc calls such as allocation, memcpy-like operations, I/O, or native Lua callbacks cannot be treated as semantically transparent. Any hidden behavior behind a C return value would violate the explicit-programming model.
 
-- **Using libc allocation directly would smuggle in a second runtime.**  
-  Lua requires allocator-visible object lifetime, GC barriers, finalization, weak tables, string interning, and failure handling. If object creation is “just malloc,” then ownership, reachability, alignment, failure, and reclamation are outside the VM’s typed data/control tree. That conflicts with Moonlift’s rule that persistent state and transitions are explicit.
+- **Using libc allocation directly would smuggle in a second runtime.**
+  Lua requires allocator-visible object lifetime, GC barriers, finalization, weak tables, string interning, and failure handling. If object creation is “just malloc,” then ownership, reachability, alignment, failure, and reclamation are outside the VM’s typed data/control tree. That conflicts with Lalin’s rule that persistent state and transitions are explicit.
 
-- **Lua’s historical error model maps badly onto Moonlift externs.**  
-  PUC Lua relies heavily on non-local exits (`longjmp`-style protected calls). Moonlift has no exceptions and externs do not type non-local control. So protected calls, `error`, metamethod failures, `__close`, native callback failures, and coroutine yields must be represented as explicit VM control outcomes, not host unwinding.
+- **Lua’s historical error model maps badly onto Lalin externs.**
+  PUC Lua relies heavily on non-local exits (`longjmp`-style protected calls). Lalin has no exceptions and externs do not type non-local control. So protected calls, `error`, metamethod failures, `__close`, native callback failures, and coroutine yields must be represented as explicit VM control outcomes, not host unwinding.
 
-- **The current `error(code: i32)` convention is likely under-shaped.**  
+- **The current `error(code: i32)` convention is likely under-shaped.**
   Lua errors carry at least a status, an error object, stack/frame unwind obligations, possible to-be-closed variables, and protected-call target state. A single integer continuation preserves control explicitness but loses data explicitness. This becomes especially inadequate for `pcall`, `xpcall`, `__close`, native errors, and coroutine boundaries.
 
-- **The VM’s `resume_mode` fields are a pressure point for explicit modeling.**  
-  Moonlift encourages state machines as blocks/typed products. The VM currently encodes resumptions with numeric `resume_mode` plus generic `resume_a/b/c/value` fields. That may be compact, but it risks becoming exactly the “state: i32 plus scattered fields” anti-pattern unless every mode’s payload invariant is explicit and mechanically validated.
+- **The VM’s `resume_mode` fields are a pressure point for explicit modeling.**
+  Lalin encourages state machines as blocks/typed products. The VM currently encodes resumptions with numeric `resume_mode` plus generic `resume_a/b/c/value` fields. That may be compact, but it risks becoming exactly the “state: i32 plus scattered fields” anti-pattern unless every mode’s payload invariant is explicit and mechanically validated.
 
-- **Lua coroutine support should be understood as explicit suspension, not a hidden scheduler.**  
+- **Lua coroutine support should be understood as explicit suspension, not a hidden scheduler.**
   `explicit_programming.md` says suspension is a state struct plus resume tag. That aligns with the VM’s frame model, but implies that every yieldable path—Lua call, native call, metamethod, iterator, `__close`, protected call—must have a complete saved-state shape. Coroutine support cannot be bolted on as an outer wrapper.
 
-- **Native Lua functions need a Moonlift-owned ABI, not PUC’s implicit C API behavior.**  
+- **Native Lua functions need a Lalin-owned ABI, not PUC’s implicit C API behavior.**
   A `CClosure` function pointer can be monomorphic, but Lua-native functions may need to return normally, error, yield, request more stack, or trigger GC. A raw C-style `int (*)(lua_State*)` convention hides too many outcomes unless the VM defines how those outcomes are encoded in `LuaThread` state and return values.
 
-- **Host ABI and internal ABI should not be conflated.**  
-  Moonlift views have configurable host exposure policies, while the VM uses raw structs/pointers (`Value`, `Table`, `Proto`, `LuaThread`). Exposing internal VM memory through host proxies or assuming LuaJIT FFI scratch memory is not the same as defining the VM’s stable ABI. Tests that manually allocate objects do not validate runtime ownership.
+- **Host ABI and internal ABI should not be conflated.**
+  Lalin views have configurable host exposure policies, while the VM uses raw structs/pointers (`Value`, `Table`, `Proto`, `LuaThread`). Exposing internal VM memory through host proxies or assuming LuaJIT FFI scratch memory is not the same as defining the VM’s stable ABI. Tests that manually allocate objects do not validate runtime ownership.
 
-- **Pointer types do not encode nullability or lifetime.**  
-  Moonlift’s `ptr(T)` carries no null/lifetime information. For VM completion, nullability of `Proto.code`, `Table.array`, `String.bytes`, allocator returns, native closure pointers, and frame arrays must be explicit invariants. Contracts are compile-time facts, not runtime checks; violating them is UB.
+- **Pointer types do not encode nullability or lifetime.**
+  Lalin’s `ptr(T)` carries no null/lifetime information. For VM completion, nullability of `Proto.code`, `Table.array`, `String.bytes`, allocator returns, native closure pointers, and frame arrays must be explicit invariants. Contracts are compile-time facts, not runtime checks; violating them is UB.
 
-- **`noalias`/`readonly` facts are dangerous around VM state.**  
-  The Lua VM has intentional aliasing: stack slots can reference heap objects; open upvalues point into the stack; tables point to values; closures share protos/upvalues. Overusing Moonlift alias facts could let the backend optimize across mutations incorrectly. The safe facts are narrower than they may look.
+- **`noalias`/`readonly` facts are dangerous around VM state.**
+  The Lua VM has intentional aliasing: stack slots can reference heap objects; open upvalues point into the stack; tables point to values; closures share protos/upvalues. Overusing Lalin alias facts could let the backend optimize across mutations incorrectly. The safe facts are narrower than they may look.
 
-- **Lua dynamic dispatch must be explicit tag dispatch.**  
-  Moonlift has no runtime type dispatch, inheritance, or polymorphic inline caches. Lua’s dynamic behavior—value tags, metamethod lookup, callable values, numeric coercion, table/string/userdata dispatch—must remain visible as tag checks, table lookups, and named continuations. Hidden host-side dispatch tables would violate the design philosophy.
+- **Lua dynamic dispatch must be explicit tag dispatch.**
+  Lalin has no runtime type dispatch, inheritance, or polymorphic inline caches. Lua’s dynamic behavior—value tags, metamethod lookup, callable values, numeric coercion, table/string/userdata dispatch—must remain visible as tag checks, table lookups, and named continuations. Hidden host-side dispatch tables would violate the design philosophy.
 
-- **Metamethod names are runtime strings but semantic operations are not.**  
-  Lua uses names like `"__add"` and `"__index"`, but the VM should treat the semantic operation as an explicit `TM_*` event. If metamethod dispatch is driven by string conventions rather than typed/tagged events, the design becomes stringly-typed internally. Current `TM` constants are aligned with Moonlift; string interning must preserve that contract.
+- **Metamethod names are runtime strings but semantic operations are not.**
+  Lua uses names like `"__add"` and `"__index"`, but the VM should treat the semantic operation as an explicit `TM_*` event. If metamethod dispatch is driven by string conventions rather than typed/tagged events, the design becomes stringly-typed internally. Current `TM` constants are aligned with Lalin; string interning must preserve that contract.
 
-- **Bytecode validation is part of the explicit-programming boundary.**  
-  Moonlift control validation emits facts for jumps, labels, yields, etc. The Lua VM executes a separate bytecode language, so it needs an analogous explicit validation layer. Otherwise opcode handlers rely on hidden assumptions: valid registers, adjacent `MMBIN`, valid `EXTRAARG`, frame shape, constant bounds, and call/return discipline.
+- **Bytecode validation is part of the explicit-programming boundary.**
+  Lalin control validation emits facts for jumps, labels, yields, etc. The Lua VM executes a separate bytecode language, so it needs an analogous explicit validation layer. Otherwise opcode handlers rely on hidden assumptions: valid registers, adjacent `MMBIN`, valid `EXTRAARG`, frame shape, constant bounds, and call/return discipline.
 
-- **The Lua VM’s GC is a language feature, not infrastructure.**  
-  Moonlift has no GC. Lua does. Therefore GC cannot be treated as “runtime support”; it is part of the VM being implemented. Mark state, gray lists, barriers, weak modes, finalizers, object colors, allocator debt, and emergency GC paths are semantic data/control nodes.
+- **The Lua VM’s GC is a language feature, not infrastructure.**
+  Lalin has no GC. Lua does. Therefore GC cannot be treated as “runtime support”; it is part of the VM being implemented. Mark state, gray lists, barriers, weak modes, finalizers, object colors, allocator debt, and emergency GC paths are semantic data/control nodes.
 
-- **PUC’s C stack should not leak into VM design.**  
-  Moonlift region composition has no call frame; Lua call frames are explicit VM data. This is a strength, but it means nested Lua calls, tail calls, metamethod calls, native callbacks, and yields must update `LuaThread`/`Frame` state coherently. Accidentally relying on the host call stack would produce a PUC-shaped hidden runtime.
+- **PUC’s C stack should not leak into VM design.**
+  Lalin region composition has no call frame; Lua call frames are explicit VM data. This is a strength, but it means nested Lua calls, tail calls, metamethod calls, native callbacks, and yields must update `LuaThread`/`Frame` state coherently. Accidentally relying on the host call stack would produce a PUC-shaped hidden runtime.
 
-- **Extern symbol binding differs between JIT tests and standalone output.**  
-  The language reference supports `M:symbol("puts", ffi.C.puts)` for JIT binding, but standalone/object emission needs linker-visible symbols. VM completion cannot depend on LuaJIT FFI-only symbol injection if the VM is meant to be a Moonlift-native artifact.
+- **Extern symbol binding differs between JIT tests and standalone output.**
+  The language reference supports `M:symbol("puts", ffi.C.puts)` for JIT binding, but standalone/object emission needs linker-visible symbols. VM completion cannot depend on LuaJIT FFI-only symbol injection if the VM is meant to be a Lalin-native artifact.
 
-- **“Compatible with Lua 5.5” needs a semantic contract separate from PUC layout.**  
-  Moonlift should not clone PUC internals, but compatibility still requires precise choices for numeric equality, table key canonicalization, varargs, to-be-closed variables, coroutine yieldability, C API behavior, debug hooks, and bytecode/source compatibility. Without that contract, PUC behavior may be copied accidentally through hidden assumptions.
+- **“Compatible with Lua 5.5” needs a semantic contract separate from PUC layout.**
+  Lalin should not clone PUC internals, but compatibility still requires precise choices for numeric equality, table key canonicalization, varargs, to-be-closed variables, coroutine yieldability, C API behavior, debug hooks, and bytecode/source compatibility. Without that contract, PUC behavior may be copied accidentally through hidden assumptions.
 
 ### Knowledge Gaps
 
 - Exact bleeding-edge Lua 5.5 semantics and deltas from 5.4, especially around bytecode, numeric keys, TBC, varargs, coroutines, and C API.
-- Intended native-function ABI: PUC-compatible `lua_CFunction`, Moonlift-owned sealed ABI, or both.
+- Intended native-function ABI: PUC-compatible `lua_CFunction`, Lalin-owned sealed ABI, or both.
 - Intended allocator boundary: libc-backed, host-provided callback, arena-first, or VM-owned allocator protocol.
-- Whether standalone Moonlift VM must link without LuaJIT/FFI support.
+- Whether standalone Lalin VM must link without LuaJIT/FFI support.
 - Whether bytecode compatibility with PUC Lua 5.5 is required, or only source/program semantic compatibility.
 
 ## Approach-proposer Output — 2026-05-29 09:22:03
 
 ### Approach A: Runtime Object Economy First
 
-- **Core idea**: Complete the Moonlift-native heap, string/table/closure/upvalue/runtime services first, then finish opcode semantics on top of a real object economy.
+- **Core idea**: Complete the Lalin-native heap, string/table/closure/upvalue/runtime services first, then finish opcode semantics on top of a real object economy.
 - **Key changes**:
   - `src/products.lua`: firm up `GCHeader`, object structs, allocator state, string table, table layout, native closure/upvalue invariants.
   - `src/regions_gc.lua`: implement VM-owned allocation protocol, GC roots, mark/propagate/sweep or an explicit first collector.
@@ -744,9 +744,9 @@ Otherwise SponJIT risks optimizing accidental scaffolding behavior, especially a
 
 ### Approach B: Lua 5.5 Conformance Slices
 
-- **Core idea**: Drive completion from Lua-visible behavior by implementing vertical semantic slices against a Lua 5.5 oracle/test corpus while preserving Moonlift’s explicit control/data model internally.
+- **Core idea**: Drive completion from Lua-visible behavior by implementing vertical semantic slices against a Lua 5.5 oracle/test corpus while preserving Lalin’s explicit control/data model internally.
 - **Key changes**:
-  - Add a conformance harness under `experiments/lua_interpreter_vm/tests/` comparing Moonlift VM behavior with bleeding-edge Lua 5.5 behavior.
+  - Add a conformance harness under `experiments/lua_interpreter_vm/tests/` comparing Lalin VM behavior with bleeding-edge Lua 5.5 behavior.
   - Expand `src/regions_compiler.lua`, `regions_parser.lua`, `regions_codegen.lua` enough to compile representative Lua programs, not just arithmetic.
   - Implement runtime features slice-by-slice: tables + strings, functions + calls, control flow, metamethods, errors/protected calls, coroutines, libraries.
   - Strengthen `src/validate.lua` alongside every new bytecode feature.
@@ -760,7 +760,7 @@ Otherwise SponJIT risks optimizing accidental scaffolding behavior, especially a
   - No conformance test relies on PUC internals, PUC bytecode layout, `longjmp`, or hidden C-stack behavior.
 - **Rough sketch**:
   - Pin exact Lua 5.5 semantic contract locally: numeric equality, table key canonicalization, varargs, TBC, coroutine yieldability, C/native API boundary.
-  - Build differential tests that run the same Lua snippets on Moonlift VM and a Lua 5.5 reference.
+  - Build differential tests that run the same Lua snippets on Lalin VM and a Lua 5.5 reference.
   - Implement one vertical feature at a time, including parser/compiler, bytecode validation, runtime regions, and VM loop behavior.
   - Fix known semantic hazards during relevant slices: cached `code/constants` on frame switch, call result placement, metamethod scratch clobbering.
   - Add malformed-bytecode tests for every sequencing invariant: `MMBIN`, `LOADKX/EXTRAARG`, register bounds, upvalues, call/return windows.
@@ -818,7 +818,7 @@ Scale note: for **Migration cost / Risk** rows, higher = more costly/risky. For 
 | **Risk** | 4/5 | GC/table/string design can consume large effort before broad Lua conformance improves. |
 | **Testability** | 3/5 | Can be tested incrementally, but many failures will be cross-cutting once GC/allocation are introduced. |
 
-**Verdict**: Yes with caveats  
+**Verdict**: Yes with caveats
 **Key concern**: Do not let “object economy first” proceed without simultaneously preserving explicit allocation, barrier, and lifetime invariants.
 
 ---
@@ -830,15 +830,15 @@ Scale note: for **Migration cost / Risk** rows, higher = more costly/risky. For 
 | **Coupling** | 3/5 | Vertical slices naturally cross parser/compiler/runtime/validator/VM loop, which is useful but can couple layers through test pressure. |
 | **Cohesion** | 3/5 | Cohesive around observable Lua behavior, less cohesive architecturally because each slice spans many subsystems. |
 | **Migration cost** | 4/5 | Requires compiler expansion, runtime completion, validation hardening, and differential test infrastructure. |
-| **Philosophy fit** | 3/5 | Compatible with Moonlift if strict explicit boundaries are enforced; otherwise likely to invite ad-hoc compatibility bridges. |
+| **Philosophy fit** | 3/5 | Compatible with Lalin if strict explicit boundaries are enforced; otherwise likely to invite ad-hoc compatibility bridges. |
 | **Performance risk** | 2/5 | Lower immediate performance risk because features are added by behavior slice, but late architectural correction could hurt later. |
 | **Semantic compatibility risk** | 2/5 | Best at preventing “opcode-complete but semantically wrong” outcomes. |
 | **SponJIT readiness** | 3/5 | Strong semantic signal, but SponJIT still needs stable ABI/validation contracts, not just passing behavior tests. |
 | **Risk** | 3/5 | Main risk is ad-hoc implementation under conformance pressure. |
 | **Testability** | 5/5 | Best incremental validation story: source-level, bytecode-level, malformed-bytecode, and differential tests. |
 
-**Verdict**: Yes with caveats  
-**Key concern**: Conformance pressure must not override the Moonlift rule that control/data outcomes are explicit and typed.
+**Verdict**: Yes with caveats
+**Key concern**: Conformance pressure must not override the Lalin rule that control/data outcomes are explicit and typed.
 
 ---
 
@@ -849,27 +849,27 @@ Scale note: for **Migration cost / Risk** rows, higher = more costly/risky. For 
 | **Coupling** | 4/5 | Best at separating internal ABI, host ABI, bytecode validation, call protocol, error protocol, and future JIT assumptions. |
 | **Cohesion** | 5/5 | Highly cohesive around the most important pre-SponJIT question: what contract is the VM actually promising? |
 | **Migration cost** | 5/5 | Likely forces deep revisions to `Frame`, `LuaThread`, call/return, error handling, coroutine state, validation, and API surfaces. |
-| **Philosophy fit** | 5/5 | Strongest alignment with Moonlift’s explicit-programming philosophy: no hidden exceptions, C-stack behavior, implicit allocator semantics, or stringly contracts. |
+| **Philosophy fit** | 5/5 | Strongest alignment with Lalin’s explicit-programming philosophy: no hidden exceptions, C-stack behavior, implicit allocator semantics, or stringly contracts. |
 | **Performance risk** | 3/5 | May require reworking cached hot-state assumptions, but doing this before SponJIT reduces long-term performance debt. |
 | **Semantic compatibility risk** | 3/5 | Reduces structural semantic risks, but can still freeze wrong contracts if not exercised against real Lua behavior. |
 | **SponJIT readiness** | 5/5 | Best SponJIT preparation: validator, ABI, frame invariants, error/yield/call semantics become stable before optimization. |
 | **Risk** | 4/5 | High over-design risk: contracts may be specified before allocation/table/coroutine/conformance realities fully stress them. |
 | **Testability** | 4/5 | Validator and protocol invariants are testable incrementally, though some ABI choices need later semantic pressure. |
 
-**Verdict**: Strong yes, with important caveats  
+**Verdict**: Strong yes, with important caveats
 **Key concern**: Contract-first must not become contract-only. The contract needs early pressure from real object allocation and Lua-visible conformance tests before being treated as frozen.
 
 ---
 
 ### Summary
 
-- **Recommended**: **Approach C: Explicit VM Contract / ABI First**.  
-  It best matches Moonlift’s design philosophy and is the safest pre-SponJIT gate. The current VM’s deepest SponJIT hazards are contract hazards: cached `code/constants` across frame switches, underspecified result placement, weak validation, under-shaped error paths, native-call ambiguity, and coroutine/yield protocol gaps.
+- **Recommended**: **Approach C: Explicit VM Contract / ABI First**.
+  It best matches Lalin’s design philosophy and is the safest pre-SponJIT gate. The current VM’s deepest SponJIT hazards are contract hazards: cached `code/constants` across frame switches, underspecified result placement, weak validation, under-shaped error paths, native-call ambiguity, and coroutine/yield protocol gaps.
 
-- **Dark horse**: **Approach B**.  
+- **Dark horse**: **Approach B**.
   It has the most upside for semantic correctness because it keeps the project honest against real Lua 5.5 behavior. Its danger is architectural drift if conformance is pursued without strict explicit-control discipline.
 
-- **Avoid as sole path**: **Approach A**.  
+- **Avoid as sole path**: **Approach A**.
   It addresses the biggest runtime blocker, but by itself it can produce a better heap under an unstable call/error/ABI contract. That would still leave SponJIT targeting accidental behavior.
 
 Given the user’s inclination toward C: I agree. Choose C as the architectural gate before SponJIT. The caution is that C should be validated quickly against A-style runtime realities and B-style conformance evidence, otherwise it risks freezing elegant but unexercised ABI decisions.
@@ -913,7 +913,7 @@ Before edits, verify the repo still matches these anchors:
 
 1. **New file**: Add complete contract document.
    - Include sections:
-     - Scope: Moonlift-native Lua 5.5 VM contract, not SponJIT.
+     - Scope: Lalin-native Lua 5.5 VM contract, not SponJIT.
      - Internal ABI: `Value`, `Proto`, `Frame`, `LuaThread`, `GlobalState`.
      - Host ABI: sealed API functions only.
      - Native ABI: explicit native call result protocol; no hidden `longjmp`, exceptions, or allocator side channels.
@@ -961,7 +961,7 @@ Before edits, verify the repo still matches these anchors:
      ```
 
 **Patterns to enforce**
-- Plain Lua table only; no Moonlift fragments here.
+- Plain Lua table only; no Lalin fragments here.
 
 **Danger zones**
 - Do not import VM modules from this file; avoid load cycles.
@@ -1093,7 +1093,7 @@ Before edits, verify the repo still matches these anchors:
 4. **Line 69 `Frame`**: Append explicit call-result/yield fields.
    - Existing 13 fields remain first.
    - Append:
-     ```moonlift
+     ```lalin
      result_base: index;
      call_top: index;
      yieldable: u8;
@@ -1104,7 +1104,7 @@ Before edits, verify the repo still matches these anchors:
 
 5. **Line 75 `GlobalState`**: Append ABI version fields only at the end.
    - Add:
-     ```moonlift
+     ```lalin
      vm_abi_version: u32;
      native_abi_version: u32;
      ```
@@ -1113,7 +1113,7 @@ Before edits, verify the repo still matches these anchors:
 6. **Line 78 `LuaThread`**: Append coroutine/error contract fields.
    - Existing 18 fields remain first.
    - Append:
-     ```moonlift
+     ```lalin
      yieldable: i32;
      nonyieldable: i32;
      last_error_code: i32;
@@ -1142,11 +1142,11 @@ Before edits, verify the repo still matches these anchors:
 
 1. **Lines 33-60 `frame_push`**: Extend signature and initialization.
    - Before:
-     ```moonlift
+     ```lalin
      region frame_push(L, closure, base, top, wanted, resume_mode; ...)
      ```
    - After:
-     ```moonlift
+     ```lalin
      region frame_push(L, closure, base, top,
                        result_base: index,
                        call_top: index,
@@ -1156,7 +1156,7 @@ Before edits, verify the repo still matches these anchors:
                        yieldable: u8; ...)
      ```
    - Initialize:
-     ```moonlift
+     ```lalin
      f.result_base = result_base
      f.call_top = call_top
      f.yieldable = yieldable
@@ -1171,7 +1171,7 @@ Before edits, verify the repo still matches these anchors:
      - Never substitute `parent.base`.
 
 **Danger zones**
-- Moonlift blocks cannot capture local values from previous blocks unless passed as params or stored in structs.
+- Lalin blocks cannot capture local values from previous blocks unless passed as params or stored in structs.
 - Ensure all `frame_push` call sites are updated.
 
 ---
@@ -1184,14 +1184,14 @@ Before edits, verify the repo still matches these anchors:
 
 1. **Lines 21-30 `prepare_call` signature**: Add explicit call metadata.
    - Add params:
-     ```moonlift
+     ```lalin
      caller_pc: index,
      result_base: index,
      call_top: index,
      yieldable: u8
      ```
    - Update `enter_native` continuation to carry native ABI metadata:
-     ```moonlift
+     ```lalin
      enter_native: cont(cl: ptr(CClosure),
                         func_slot: index,
                         nargs: i32,
@@ -1202,11 +1202,11 @@ Before edits, verify the repo still matches these anchors:
 
 2. **Lines 45-51 C closure branch**:
    - Before:
-     ```moonlift
+     ```lalin
      jump enter_native(cl = cl)
      ```
    - After:
-     ```moonlift
+     ```lalin
      jump enter_native(cl = cl, func_slot = func_slot, nargs = nargs,
                        wanted = wanted, result_base = result_base,
                        resume_mode = resume_mode)
@@ -1223,7 +1223,7 @@ Before edits, verify the repo still matches these anchors:
 
 4. **Lines 94-105 `call_native`**:
    - Extend signature:
-     ```moonlift
+     ```lalin
      region call_native(L, cl, func_slot, nargs, wanted, result_base, resume_mode; ...)
      ```
    - Keep fail-loud implementation for now:
@@ -1234,7 +1234,7 @@ Before edits, verify the repo still matches these anchors:
 
 5. **Lines 109-188 `return_from_lua`**:
    - Before decrementing `L.frame_count`, capture from child frame:
-     ```moonlift
+     ```lalin
      let ret_result_base = frame.result_base
      let ret_wanted = frame.wanted
      let ret_resume_mode = frame.resume_mode
@@ -1250,11 +1250,11 @@ Before edits, verify the repo still matches these anchors:
    - Extend signature with captured child return metadata.
    - Switch on `resume_mode` param, not `parent.resume_mode`.
    - For `RESUME_NORMAL` and `RESUME_TAILCALL`, call:
-     ```moonlift
+     ```lalin
      emit adjust_results(L, first_result, nres, ret_wanted, ret_result_base; ...)
      ```
    - Resume at:
-     ```moonlift
+     ```lalin
      pc = ret_resume_pc + 1
      ```
    - Metamethod result cases use `ret_resume_a` and `ret_resume_pc`.
@@ -1282,14 +1282,14 @@ Before edits, verify the repo still matches these anchors:
 
 2. **Lines 33-43 `TABLE_GET_MM_BLOCKS do_mm`**:
    - Before:
-     ```moonlift
+     ```lalin
      L.stack[base] = mm
      L.stack[base + 1] = self
      L.stack[base + 2] = key
      emit prepare_call(L, base, 2, 1, ...)
      ```
    - After:
-     ```moonlift
+     ```lalin
      let scratch: index = top
      L.stack[scratch] = mm
      L.stack[scratch + 1] = self
@@ -1318,7 +1318,7 @@ Before edits, verify the repo still matches these anchors:
 
 1. **Lines 21-32 `op_call`**:
    - Update `prepare_call` emit:
-     ```moonlift
+     ```lalin
      emit prepare_call(L, func_slot, nargs, wanted,
                        as(u16, @{RESUME_NORMAL}),
                        pc, func_slot, top, as(u8, 1); ...)
@@ -1330,7 +1330,7 @@ Before edits, verify the repo still matches these anchors:
 
 3. **Lines 78-88 `op_tailcall`**:
    - Pass:
-     ```moonlift
+     ```lalin
      result_base = frame.result_base
      call_top = top
      resume_mode = RESUME_TAILCALL
@@ -1357,13 +1357,13 @@ Before edits, verify the repo still matches these anchors:
 
 2. **Lines 634-638 `cont_enter_native`**:
    - Before:
-     ```moonlift
+     ```lalin
      block cont_enter_native(cl: ptr(CClosure))
          jump enter_native(cl = cl)
      end
      ```
    - After:
-     ```moonlift
+     ```lalin
      block cont_enter_native(cl: ptr(CClosure), func_slot: index,
                              nargs: i32, wanted: i32,
                              result_base: index, resume_mode: u16)
@@ -1392,7 +1392,7 @@ Before edits, verify the repo still matches these anchors:
 1. **Lines 113-116 `cont_resume_parent`**:
    - Before: forwards `code/constants`.
    - After: reload from `parent.closure`:
-     ```moonlift
+     ```lalin
      let cl: ptr(LClosure) = as(ptr(LClosure), parent.closure.bits)
      let parent_code: ptr(Instr) = cl.proto.code
      let parent_constants: ptr(Value) = cl.proto.constants
@@ -1425,7 +1425,7 @@ Before edits, verify the repo still matches these anchors:
 **Edit blocks**
 
 1. **After lines 11-20 `build_error_object`**: Add `raise_code_error`.
-   ```moonlift
+   ```lalin
    region raise_code_error(L: ptr(LuaThread), code: i32;
                            caught: cont(frame: ptr(Frame)),
                            uncaught: cont(code: i32),
@@ -1434,7 +1434,7 @@ Before edits, verify the repo still matches these anchors:
    - Build `culprit = nil`.
    - Emit `build_error_object`.
    - Store:
-     ```moonlift
+     ```lalin
      L.err_value = err
      L.last_error_code = code
      ```
@@ -1479,11 +1479,11 @@ Before edits, verify the repo still matches these anchors:
 
 3. **Lines 25-36 `coroutine_yield`**:
    - Check:
-     ```moonlift
+     ```lalin
      if L.nonyieldable > 0 then jump not_yieldable() end
      ```
    - On allowed yield:
-     ```moonlift
+     ```lalin
      L.status = THREAD_YIELDED
      jump yielded(nres = nres)
      ```
@@ -1502,7 +1502,7 @@ Before edits, verify the repo still matches these anchors:
 
 1. **Lines 14-24 `alloc_object`**:
    - Add checks:
-     ```moonlift
+     ```lalin
      if G == nil or G.allocator == nil then jump oom() end
      ```
    - If `G.totalbytes > G.threshold`, jump `step_required`.
@@ -1534,7 +1534,7 @@ Before edits, verify the repo still matches these anchors:
 
 2. **Lines 20-29 `start`**:
    - Add pointer/shape checks:
-     ```moonlift
+     ```lalin
      if p.maxstack == 0 then invalid
      if p.code_len > 0 and p.code == nil then invalid
      if p.constants_len > 0 and p.constants == nil then invalid
@@ -1581,7 +1581,7 @@ Before edits, verify the repo still matches these anchors:
    - Use `const.Abi`.
 
 2. **After `lua_tolstring_api` around line 86**: Add:
-   ```moonlift
+   ```lalin
    lua_vm_abi_version_api() -> i32
    lua_native_abi_version_api() -> i32
    lua_status_api(L: ptr(LuaThread)) -> i32
@@ -1849,7 +1849,7 @@ Already present in the working tree before my edits:
 
 What I changed:
 - Fixed nested Lua call/return contract failure.
-- Root cause: `op_ret_resume` block params named `pc/base/top` collided with the opcode handler’s outer `pc/base/top` params, so Moonlift resolved the forwarded values to the child opcode state instead of the return continuation values. This resumed the parent at the CALL instruction and errored with `ERR_CALL`.
+- Root cause: `op_ret_resume` block params named `pc/base/top` collided with the opcode handler’s outer `pc/base/top` params, so Lalin resolved the forwarded values to the child opcode state instead of the return continuation values. This resumed the parent at the CALL instruction and errored with `ERR_CALL`.
 - Updated return resume blocks to resume using `parent.pc/base/top`, with `parent.pc` set by `handle_return_mode`.
 - Replaced temporary/debug `parent.pc = 99` in `handle_return_mode` with `parent.pc = target_pc`.
 - Made normal/tailcall/pcall next-PC calculation explicit via `let next_pc`.
@@ -1896,7 +1896,7 @@ git diff --check -- experiments/lua_interpreter_vm/src ... contract/test paths
 
 - Did not implement actual native invocation, allocator bridge, full protected-call allocation, or complete coroutine resume semantics; existing fail-loud ABI stubs remain.
 - Did not touch SponJIT despite unrelated dirty SponJIT files in the working tree.
-- Used `parent.pc` as the stable handoff point in return resume blocks to avoid Moonlift name-shadowing behavior in continuation block params.
+- Used `parent.pc` as the stable handoff point in return resume blocks to avoid Lalin name-shadowing behavior in continuation block params.
 
 ## Scout Output — 2026-05-29 18:33:33
 

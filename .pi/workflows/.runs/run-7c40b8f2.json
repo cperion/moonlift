@@ -2,9 +2,9 @@
   "runId": "run-7c40b8f2",
   "workflowId": "wf-lua-vm-finish-final",
   "agent": "worker",
-  "task": "Implement a substantial source compiler push in the existing workflow only. Do not create/reference new workflow. Work in /home/cedric/dev/moonlift. Starting current tree, expand experiments/lua_interpreter_vm source compiler beyond simple return/local arithmetic. Prioritize end-to-end compiled source executing on VM: add lexer keywords/tokens as needed, parser/codegen for assignment, call expressions/statements, if/then/else/end, while/do/end, table array constructors if feasible, local function/function expression closures if feasible by extending compiler entry preallocated child storage if needed. If blocked by VM gaps, implement minimal runtime. Preserve explicit Moonlift regions, PUC oracle-only, no SponJIT. Add tests in test_parser_compile.lua or new VM compiler tests. Report concrete features and blockers.",
-  "cwd": "/home/cedric/dev/moonlift",
-  "sessionFile": "/home/cedric/dev/moonlift/.pi/workflows/.sessions/run-7c40b8f2.jsonl",
+  "task": "Implement a substantial source compiler push in the existing workflow only. Do not create/reference new workflow. Work in /home/cedric/dev/lalin. Starting current tree, expand experiments/lua_interpreter_vm source compiler beyond simple return/local arithmetic. Prioritize end-to-end compiled source executing on VM: add lexer keywords/tokens as needed, parser/codegen for assignment, call expressions/statements, if/then/else/end, while/do/end, table array constructors if feasible, local function/function expression closures if feasible by extending compiler entry preallocated child storage if needed. If blocked by VM gaps, implement minimal runtime. Preserve explicit Lalin regions, PUC oracle-only, no SponJIT. Add tests in test_parser_compile.lua or new VM compiler tests. Report concrete features and blockers.",
+  "cwd": "/home/cedric/dev/lalin",
+  "sessionFile": "/home/cedric/dev/lalin/.pi/workflows/.sessions/run-7c40b8f2.jsonl",
   "status": "running",
   "created": "2026-05-30T13:12:34.260Z",
   "updated": "2026-05-30T13:12:34.260Z"

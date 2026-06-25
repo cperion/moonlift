@@ -1,12 +1,12 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Rules = require("moonlift.luajit_lower_rules")(T)
+local Rules = require("lalin.luajit_lower_rules")(T)
 
 local function base()
     return {
@@ -158,4 +158,4 @@ do
     assert(selection.reason == "no skeleton", "skeleton no_plan should preserve reject reason")
 end
 
-io.write("moonlift luajit_lower_rules ok\n")
+io.write("lalin luajit_lower_rules ok\n")

@@ -290,8 +290,8 @@ This is fine — it's just a two-level dispatch. But the design must accept that
 BackBodyCmd::VecSelect(dst, ty, mask, then, else) => {
     ...
     if matches!(ty.elem, BackScalar::F32 | BackScalar::F64) {
-        return Err(MoonliftError::new(format!(
-            "...Moonlift requires an explicit future float-vector select/blend command..."
+        return Err(LalinError::new(format!(
+            "...Lalin requires an explicit future float-vector select/blend command..."
         )));
     }
     let masked_then = self.builder.ins().band(mask_value, then_value);
@@ -305,7 +305,7 @@ This is the only lowering handler that has a type-based error. It rejects float 
 
 ```rust
 if current_func.is_some() {
-    return Err(MoonliftError::new("CreateSig cannot appear inside a function body".to_string()));
+    return Err(LalinError::new("CreateSig cannot appear inside a function body".to_string()));
 }
 ```
 
@@ -324,7 +324,7 @@ These would need updating if `BackBodyCmd` variants are renamed to match the sub
 
 1. **The text tape decoder** (`ffi.rs: ` around line 356, `parse_back_command_tape`) — I should verify it also emits the same `BackCmd` variants as the binary decoder. A quick check shows it does (e.g., `BackCmd::StackAddr`). No gap here.
 
-2. **The MOM encoder** (`lua/moonlift/mom/back/`) — I should verify what commands the MOM frontend actually emits, to confirm the full set of `BackCmd` variants in production use. But this is a lower priority since the Rust side is the target of the change.
+2. **The MOM encoder** (`lua/lalin/mom/back/`) — I should verify what commands the MOM frontend actually emits, to confirm the full set of `BackCmd` variants in production use. But this is a lower priority since the Rust side is the target of the change.
 
 3. **Test coverage** — Are there tests that match on specific `BackBodyCmd` variant names via string formatting or error messages? I saw `BackCmdVecSelect` in an error message. Tests that parse error messages could break if variant names change.
 
@@ -649,7 +649,7 @@ I now have a complete, verified picture of the codebase. Here is my evaluation.
 | **Coupling** | 3/5 | Tightens coupling between `BackBodyCmd` and the schema's operator-union taxonomy. But `BackBodyCmd` is defined, constructed, and consumed entirely within `src/lib.rs` — no external module references it (confirmed: zero hits in `ffi.rs`, `main.rs`, Lua files). So the coupling increase is internal to a single 2968-line file. Acceptable, but the sub-enums create intra-file dependencies that didn't exist before. |
 | **Cohesion** | 5/5 | Each sub-enum represents exactly one schema operator union. A handler method like `lower_unary_op()` matches only `ScalarUnaryOp`, which contains exactly the 4 variants that belong to the unary group. No schema-irrelevant variants can accidentally appear. This is the maximum possible cohesion. |
 | **Migration cost** | 4/5 | High: every `BackCmd::X => current_cmds.push(BackBodyCmd::X)` arm in `partition()` (all ~90 body-cmd arms) must wrap in a sub-enum constructor. The `lower_cmd()` match must be refactored into ~15 handler methods plus a dispatch layer. However, there are **zero** external consumers of `BackBodyCmd` (no tests, ffi, Lua), so the blast radius is confined to `src/lib.rs`. Within that file, the migration is mechanical and grep-reliable — every `BackBodyCmd::X` occurrence is visible with a single search. |
-| **Philosophy fit** | 5/5 | Moonlift's design principles emphasize **schema fidelity** (MOM schema → Rust types is an explicit design goal) and **fail-fast with compiler enforcement**. The nested sub-enum is the purest expression of both: the compiler enforces that `lower_int_binary_op()` can never accidentally match a `Popcount` or a `Jump`. The schema is encoded in the type system, not in comments. This aligns perfectly with the project's "explicit ASDL meaning, no hiding semantics in strings or callbacks" rule. |
+| **Philosophy fit** | 5/5 | Lalin's design principles emphasize **schema fidelity** (MOM schema → Rust types is an explicit design goal) and **fail-fast with compiler enforcement**. The nested sub-enum is the purest expression of both: the compiler enforces that `lower_int_binary_op()` can never accidentally match a `Popcount` or a `Jump`. The schema is encoded in the type system, not in comments. This aligns perfectly with the project's "explicit ASDL meaning, no hiding semantics in strings or callbacks" rule. |
 | **Risk** | 3/5 | Three concrete risks: (1) **Non-uniform field shapes** — `BoolNot` has 2 fields vs `Ineg`'s 3, `VecMaskNot` is unary while `VecMaskAnd`/`VecMaskOr` are binary. Rust handles this cleanly (sub-enum variants can differ), but the sub-enum handler must explicitly match the oddball cases rather than dispatching through a uniform helper. (2) **Address synthesis commands** — `StackAddr`, `DataAddr`, `PtrAdd` emitted by `decode_address()` are NOT memory ops and must stay in their own sub-enums. The approach proposer correctly flagged this; the risk is that a future contributor assumes they belong to `MemoryOp` and creates a semantic ordering bug. (3) **BoolNot's missing type field** — currently the decoder simply omits the `BackScalar`. The sub-enum variant `ScalarUnaryOp::BoolNot(dst, value)` has no `ty` field. Any code that wants to iterate "all unary variants with their type" needs a special case for BoolNot. |
 | **Testability** | 4/5 | Can be validated incrementally: (1) define sub-enums and verify they compile, (2) rewrite `partition()` arms one schema group at a time, (3) extract handler methods one at a time from `lower_cmd()`, (4) run the test suite after each group. The ~130 existing tests (all Lua-side, hitting Rust via JIT or object emission) provide a functional validation baseline. No rust unit tests exist for `BackBodyCmd` to break (confirmed: zero hits). |
 
@@ -665,7 +665,7 @@ I now have a complete, verified picture of the codebase. Here is my evaluation.
 | **Coupling** | 1/5 | No change. `BackBodyCmd` stays flat, `partition()` stays mechanical, `lower_cmd()` remains a single match. Zero new couplings introduced. This is the safest dimension. |
 | **Cohesion** | 2/5 | The grouping exists only in comments and physical proximity of match arms. Nothing prevents `SwitchInt` from being placed next to `Ineg` in a future edit. The compiler provides zero enforcement — the grouping is purely cosmetic. Over time, without discipline, it drifts. |
 | **Migration cost** | 1/5 | Trivial: reorder match arms into schema-group order, add comment headers. Zero functional changes. No enum redefinition, no `partition()` changes, no test breakage (no tests reference BackBodyCmd). This is the absolute minimum possible migration cost. |
-| **Philosophy fit** | 2/5 | Weak alignment. Moonlift's philosophy is "explicit ASDL meaning" and "compiler enforcement of structural invariants." Approach B encodes schema grouping in comments, not types. This is the antithesis of the project's approach to invariants — Moonlift explicitly rejects implicit conventions in favor of checked structure. The `AGENTS.md` says "no hiding semantics in strings or callbacks" — comment-based grouping is a form of this. |
+| **Philosophy fit** | 2/5 | Weak alignment. Lalin's philosophy is "explicit ASDL meaning" and "compiler enforcement of structural invariants." Approach B encodes schema grouping in comments, not types. This is the antithesis of the project's approach to invariants — Lalin explicitly rejects implicit conventions in favor of checked structure. The `AGENTS.md` says "no hiding semantics in strings or callbacks" — comment-based grouping is a form of this. |
 | **Risk** | 1/5 | Near-zero. The change is cosmetic. The only risk is that a future contributor doesn't notice the comment headers and places a new variant in the wrong group, but the compiler won't catch it, and the error is just a mislabeled section in a match — no runtime consequence. |
 | **Testability** | 5/5 | No functional change means all existing tests pass without modification. The only way to break something is a typo in the match arms themselves, which Rust compilation catches. |
 
@@ -681,7 +681,7 @@ I now have a complete, verified picture of the codebase. Here is my evaluation.
 | **Coupling** | 4/5 | The macro creates a tight coupling between macro internals, the canonical flat enum, the sub-enums, and their `TryFrom` impls. Any change to a variant's shape (adding/removing a field) must be reflected in the macro definition, which then regenerates both representations. This is a single point of truth that creates cascading dependencies — change one thing, regenerate everything. |
 | **Cohesion** | 4/5 | The macro enforces that the flat enum and the sub-enums stay in sync (they're generated from the same definition). This is excellent cohesion at the representation level. However, the *usage* of the sub-enums is optional — the lowering hot path can stay flat, meaning the sub-enum representation may never be used in practice, creating a "dead but correct" type system. |
 | **Migration cost** | 3/5 | Designing and implementing the macro is a significant upfront investment. The macro must handle: (1) variants with different field shapes within the same group (BoolNot, VecMaskNot), (2) ~15 sub-enum groups with varying variant counts, (3) `TryFrom<BackBodyCmd>` impls for each sub-enum that are exhaustive and correct, (4) a `BackBodyCmd::group()` method. However, `partition()` and `lower_cmd()` stay completely unchanged — the macro only replaces the enum definition. No test changes needed. |
-| **Philosophy fit** | 3/5 | Mixed. On one hand, having a single source of truth for operator definitions is philosophically clean. On the other hand, Moonlift's MOM compiler (the schema-side counterpart) uses Lua macros in `back_command_binary.lua` — introducing Rust macros for the same purpose creates two separate macro systems. More importantly, the approach proposer notes the sub-enums are "for external consumers (wire format, verification, documentation)" — but the flat `BackCmd` already serves the wire format (`ffi.rs`), and `BackBodyCmd` is not consumed by the wire format at all. The sub-enums would be used only by future analysis passes, making this a speculative investment. |
+| **Philosophy fit** | 3/5 | Mixed. On one hand, having a single source of truth for operator definitions is philosophically clean. On the other hand, Lalin's MOM compiler (the schema-side counterpart) uses Lua macros in `back_command_binary.lua` — introducing Rust macros for the same purpose creates two separate macro systems. More importantly, the approach proposer notes the sub-enums are "for external consumers (wire format, verification, documentation)" — but the flat `BackCmd` already serves the wire format (`ffi.rs`), and `BackBodyCmd` is not consumed by the wire format at all. The sub-enums would be used only by future analysis passes, making this a speculative investment. |
 | **Risk** | 5/5 | **High risk** for several reasons: (1) **Macro debugging difficulty** — macro errors in Rust are notoriously hard to decipher. A typo in a `tt`-fragment match can produce 50-line compiler errors referencing opaque generated code. (2) **Clone overhead in TryFrom** — `TryFrom<BackBodyCmd>` for each sub-enum must destructure the flat variant and reconstruct it in the sub-enum. For the ~90 variants, this is hundreds of lines of generated `match` arms. If the macro uses `&BackBodyCmd` to avoid cloning, it needs lifetime-aware codegen, which is harder. (3) **Macro maintenance burden** — adding a new body op means editing the macro definition instead of just adding a line to an enum. This increases friction for the most common operation (adding a new backend op). (4) **The macro may not be worth it for a single consumer** — `BackBodyCmd` is used in exactly one file by exactly one consumer (`lower_cmd`). A macro inflicts complexity proportional to a multi-module codebase for a benefit confined to a single module. |
 | **Testability** | 2/5 | The macro itself is hard to test independently. Compilation of the generated code is the only test. If the macro silently generates incorrect `TryFrom` impls (e.g., a variant is accidentally omitted from its sub-enum), the code compiles but the `TryFrom` returns `Err` at runtime for valid inputs. This would manifest as a logic bug, not a compile error. The generated code is also opaque — you can't `grep` for a specific variant's generated `TryFrom` arm without expanding the macro. |
 
@@ -702,7 +702,7 @@ I now have a complete, verified picture of the codebase. Here is my evaluation.
 | **Testability** | 4 | 5 | 2 |
 | **Average** | **4.0** | **2.0** | **3.5** |
 
-- **Recommended**: **Approach A** — It is the only approach that provides compiler-enforced schema grouping, which is the actual stated goal. The migration cost is real but bounded (one file, no external consumers). The non-uniformities (BoolNot, VecMaskNot, address synthesis) are mechanically manageable. The philosophy fit is perfect — this is exactly the kind of structural enforcement Moonlift's design demands.
+- **Recommended**: **Approach A** — It is the only approach that provides compiler-enforced schema grouping, which is the actual stated goal. The migration cost is real but bounded (one file, no external consumers). The non-uniformities (BoolNot, VecMaskNot, address synthesis) are mechanically manageable. The philosophy fit is perfect — this is exactly the kind of structural enforcement Lalin's design demands.
 
 - **Dark horse**: **Approach B** — If the project's real priority is incremental readability improvement with zero risk, Approach B delivers that cheaply. It is not a solution to the schema-alignment problem, but it is a genuine improvement to code navigation for someone reading `lower_cmd()` for the first time. It also creates zero merge conflicts with future restructuring, making it a viable first step regardless of whether Approach A is pursued later.
 
@@ -732,7 +732,7 @@ Restructure the flat `BackBodyCmd` enum (in `src/lib.rs`) into a hierarchy of ~1
 
 The following concrete problems motivated this work:
 
-1. **No compiler enforcement of schema grouping.** `BackBodyCmd` is a flat 90+ variant enum. Nothing prevents a match arm for a float operation (e.g., `Fadd`) from being placed next to a control-flow arm (e.g., `Jump`). The schema's operator unions (`BackUnaryOp`, `BackIntOp`, etc.) exist only in comments and in the wire-format encoder (`back_command_binary.lua`) — the Rust side has no type-level representation of them. This violates Moonlift's "explicit ASDL meaning" design principle (see `AGENTS.md`).
+1. **No compiler enforcement of schema grouping.** `BackBodyCmd` is a flat 90+ variant enum. Nothing prevents a match arm for a float operation (e.g., `Fadd`) from being placed next to a control-flow arm (e.g., `Jump`). The schema's operator unions (`BackUnaryOp`, `BackIntOp`, etc.) exist only in comments and in the wire-format encoder (`back_command_binary.lua`) — the Rust side has no type-level representation of them. This violates Lalin's "explicit ASDL meaning" design principle (see `AGENTS.md`).
 
 2. **Schema drift risk.** The MOM schema defines operator unions like `BackIntOp` (Iadd, Isub, Imul...) and `BackFloatOp` (Fadd, Fsub, Fmul, Fdiv...). The wire-format encoder uses these unions for binary tags. The Rust backend ignores them entirely. A new operator added to one schema union but matched in the wrong handler arm in Rust would compile correctly but produce wrong code — there is no type-level guard against this.
 
@@ -740,7 +740,7 @@ The following concrete problems motivated this work:
 
 4. **Lowering complexity.** The single `lower_cmd()` method is a 600+ line flat match. With sub-enums, each schema group gets its own dedicated handler method (`lower_unary_op`, `lower_int_binary_op`, `lower_float_binary_op`, etc.), splitting a massive function into ~15 focused methods with clear boundaries.
 
-5. **Philosophy alignment.** Moonlift's design (see `AGENTS.md`) explicitly requires "compiler enforcement of structural invariants" — "no hiding semantics in strings or callbacks." A flat enum with no type-level grouping is a form of hiding semantics: the grouping exists in the schema but is invisible to Rust's type system. Nested sub-enums encode the schema directly in Rust types.
+5. **Philosophy alignment.** Lalin's design (see `AGENTS.md`) explicitly requires "compiler enforcement of structural invariants" — "no hiding semantics in strings or callbacks." A flat enum with no type-level grouping is a form of hiding semantics: the grouping exists in the schema but is invisible to Rust's type system. Nested sub-enums encode the schema directly in Rust types.
 
 ---
 
@@ -820,14 +820,14 @@ The only logic is nesting checks (e.g., `CreateSig` cannot appear inside a funct
 ### `FunctionLowerer::lower()` and `lower_cmd()` — consumption
 
 ```rust
-fn lower(&mut self, cmds: &[BackBodyCmd]) -> Result<(), MoonliftError> {
+fn lower(&mut self, cmds: &[BackBodyCmd]) -> Result<(), LalinError> {
     for cmd in cmds {
         self.lower_cmd(cmd)?;
     }
     Ok(())
 }
 
-fn lower_cmd(&mut self, cmd: &BackBodyCmd) -> Result<(), MoonliftError> {
+fn lower_cmd(&mut self, cmd: &BackBodyCmd) -> Result<(), LalinError> {
     match cmd {
         // ~600 lines, ~90 match arms, single flat match
     }
@@ -885,7 +885,7 @@ From the knowledge-builder analysis:
 
 ### Approach: A — Nested Schema Sub-Enum (Type-Level Restructuring)
 
-**Why:** Approach A scored highest in the critique (4.0/5.0 average vs. Approach B at 2.0 and Approach C at 3.5). It provides compiler-enforced schema grouping — the stated goal — where Approach B provides only cosmetic comments. It avoids the macro complexity of Approach C, keeping the restructuring explicit and debuggable. The migration cost is bounded to `src/lib.rs` because `BackBodyCmd` has zero external consumers (confirmed: no hits in `ffi.rs`, `main.rs`, or Lua files). The philosophy fit is perfect: Moonlift's design mandates "explicit ASDL meaning" and "compiler enforcement of structural invariants" — nested sub-enums encode the schema directly in Rust types.
+**Why:** Approach A scored highest in the critique (4.0/5.0 average vs. Approach B at 2.0 and Approach C at 3.5). It provides compiler-enforced schema grouping — the stated goal — where Approach B provides only cosmetic comments. It avoids the macro complexity of Approach C, keeping the restructuring explicit and debuggable. The migration cost is bounded to `src/lib.rs` because `BackBodyCmd` has zero external consumers (confirmed: no hits in `ffi.rs`, `main.rs`, or Lua files). The philosophy fit is perfect: Lalin's design mandates "explicit ASDL meaning" and "compiler enforcement of structural invariants" — nested sub-enums encode the schema directly in Rust types.
 
 ### Architecture
 
@@ -1160,7 +1160,7 @@ The only change is the internal representation of each `BackBodyCmd` in the bodi
 
 4. **Refactor `lower_cmd()`** — The single flat match splits into a dispatch match:
    ```rust
-   fn lower_cmd(&mut self, cmd: &BackBodyCmd) -> Result<(), MoonliftError> {
+   fn lower_cmd(&mut self, cmd: &BackBodyCmd) -> Result<(), LalinError> {
        match cmd {
            BackBodyCmd::Cfg(op) => self.lower_cfg(op),
            BackBodyCmd::Address(op) => self.lower_address(op),
@@ -1198,8 +1198,8 @@ The only change is the internal representation of each `BackBodyCmd` in the bodi
 |---|---|
 | `src/ffi.rs` | Decodes `BackCmd` (not `BackBodyCmd`). Unaffected. |
 | `src/main.rs` | Uses `BackProgram::partition()`, which interface is unchanged. |
-| `lua/moonlift/back_command_binary.lua` | Encodes binary format for `BackCmd` (not `BackBodyCmd`). Unaffected. |
-| `lua/moonlift/back_command_tape.lua` | Text tape encoder for `BackCmd`. Unaffected. |
+| `lua/lalin/back_command_binary.lua` | Encodes binary format for `BackCmd` (not `BackBodyCmd`). Unaffected. |
+| `lua/lalin/back_command_tape.lua` | Text tape encoder for `BackCmd`. Unaffected. |
 | Any Lua test file | All tests go through `BackCmd` → `partition()` → `BackBodyCmd`. No test constructs `BackBodyCmd` directly. |
 
 ### Data flow specifics: Address synthesis commands
@@ -1278,7 +1278,7 @@ Before starting any edits, verify:
 
 1. **Line 466**: `#[derive(Clone, Debug, PartialEq, Eq)]` still precedes `pub enum BackBodyCmd` — confirm the derive hasn't changed.
 2. **Line 467—593**: The `BackBodyCmd` enum still has exactly the same 127 variants in the same order (flat, no sub-enums yet). Count the closing `}` at line 593.
-3. **Line 858**: The `partition()` function closes at line 857 and `MoonliftError` starts at line 860 — verify no intervening code has been added.
+3. **Line 858**: The `partition()` function closes at line 857 and `LalinError` starts at line 860 — verify no intervening code has been added.
 4. **Line 2103**: `lower_cmd()` closing `}` still at line 2103, and `} // of match` precedes `fn bind_binop`.
 5. **Line 1489—2439**: The `impl FunctionLowerer` block boundaries haven't shifted.
 6. **Line 2673—2968**: The `#[cfg(test)]` module hasn't grown new tests that reference `BackBodyCmd` directly.
@@ -1785,7 +1785,7 @@ BackCmd::Trap => current_cmds.push(BackBodyCmd::Control(ControlOp::Trap)),
 
 **Before** (lines 1498—2101):
 ```rust
-fn lower_cmd(&mut self, cmd: &BackBodyCmd) -> Result<(), MoonliftError> {
+fn lower_cmd(&mut self, cmd: &BackBodyCmd) -> Result<(), LalinError> {
     match cmd {
         BackBodyCmd::CreateBlock(id) => { /* ~13 lines */ }
         BackBodyCmd::SwitchToBlock(id) => { /* ~5 lines */ }
@@ -1798,7 +1798,7 @@ fn lower_cmd(&mut self, cmd: &BackBodyCmd) -> Result<(), MoonliftError> {
 
 **After** — Step A: Replace `lower_cmd()` with dispatch match (lines 1498—1523):
 ```rust
-fn lower_cmd(&mut self, cmd: &BackBodyCmd) -> Result<(), MoonliftError> {
+fn lower_cmd(&mut self, cmd: &BackBodyCmd) -> Result<(), LalinError> {
     match cmd {
         BackBodyCmd::Cfg(op) => self.lower_cfg(op),
         BackBodyCmd::Address(op) => self.lower_address(op),
@@ -1910,7 +1910,7 @@ Here is the content sketch for each handler, with the line count of lowering log
 1. **Derive macros**: All sub-enum types use `#[derive(Clone, Debug, PartialEq, Eq)]` — exactly matching the existing `BackBodyCmd` derive.
 2. **Naming conventions**: Sub-enum variant names use existing names (PascalCase, same as `BackCmd` / `BackBodyCmd` flat variant names). Sub-enum type names use PascalCase without `Back` or `Cmd` prefix (e.g., `CfgOp`, `AddressOp`, not `BackCfgOp`).
 3. **Handler method naming**: `lower_{sub_enum}` where `{sub_enum}` is the snake_case of the sub-enum type (e.g., `lower_cfg`, `lower_int_binary`, `lower_vec_unary`).
-4. **Handler method signature**: All take `&self` (or `&mut self`) and `op: &{SubEnum}` and return `Result<(), MoonliftError>`.
+4. **Handler method signature**: All take `&self` (or `&mut self`) and `op: &{SubEnum}` and return `Result<(), LalinError>`.
 5. **`BackBodyCmd` variant naming**: Use short names — `Cfg`, `Address`, `Const`, `Unary`, `Intrinsic`, `IntBinary`, `FloatBinary`, `Bitwise`, `Shift`, `Rotate`, `Compare`, `Cast`, `Ptr`, `Memory`, `Call`, `Control`, `VecUnary`, `VecBinary`, `VecCompare`, `VecMemory`, `Other`.
 6. **partition() arms**: Keep the original `BackCmd::X =>` arm syntax and only change the `push()` argument. Do not reorganize `partition()` arm order unless it makes the code clearer.
 7. **lower_cmd dispatch match**: No wildcard arm. Exhaustiveness is critical.
@@ -1984,7 +1984,7 @@ Incremental verification:
 | 2 | Sub-enum variant fields exactly match the original flat `BackBodyCmd` variant fields (same types, same order) | Blocks 1, 2, 3, 4 |
 | 3 | `partition()` body-cmd arms always wrap in `BackBodyCmd::Sub(SubOp::Variant(…))` — never direct `BackBodyCmd::Variant(…)` | Block 3 |
 | 4 | `lower_cmd()` has 21 dispatch arms with no wildcard — each arm calls `self.lower_{name}(op)` | Block 4 |
-| 5 | Handler methods are named `lower_{sub_enum_snake}` and take `&mut self, op: &{SubEnum}` -> `Result<(), MoonliftError>` | Block 4 |
+| 5 | Handler methods are named `lower_{sub_enum_snake}` and take `&mut self, op: &{SubEnum}` -> `Result<(), LalinError>` | Block 4 |
 | 6 | Error messages use format `"BackBodyCmd::{SubEnum}({Variant}) ..."` | Block 5 |
 | 7 | `BoolNot` has 2 fields (no BackScalar) — the only variant with different shape in `ScalarUnaryOp` | Blocks 1, 4 |
 | 8 | `Abs` type-dispatch (f32/f64 -> fabs, else -> iabs) preserved inside `lower_intrinsic` | Block 4 |

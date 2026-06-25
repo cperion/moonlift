@@ -1,14 +1,14 @@
--- Real Moonlift benchmark for JIT structural product functions.
+-- Real Lalin benchmark for JIT structural product functions.
 --
 -- This decomposes the earlier single timing into loop baseline, aggregate ABI
 -- load cost, inline flag classification, helper-call classification, and
--- aggregate helper calls.  It benchmarks compiled Moonlift only; it does not
+-- aggregate helper calls.  It benchmarks compiled Lalin only; it does not
 -- count Lua planners, LuaJIT byte probes, or fake native runners as JIT work.
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local moon = require("moonlift")
+local lalin = require("lalin")
 local jit = require("experiments.lua_interpreter_vm.src.jit")
 local C = jit.constants
 local F = jit.funcs
@@ -28,7 +28,7 @@ local base_flags = bit.bor(
 local e = ffi.new("BenchJitEffect[1]")
 e[0].flags = base_flags
 
-local counted_loop = moon.func [[
+local counted_loop = lalin.func [[
 jit_bench_counted_loop(n: index): u64
     return region: u64
     entry start()
@@ -42,7 +42,7 @@ jit_bench_counted_loop(n: index): u64
 end
 ]]
 
-local aggregate_load_loop = moon.func [[
+local aggregate_load_loop = lalin.func [[
 jit_bench_aggregate_load(e: Effect, n: index): u64
     return region: u64
     entry start()
@@ -57,20 +57,20 @@ jit_bench_aggregate_load(e: Effect, n: index): u64
 end
 ]]
 
-local scalar_inline_loop = moon.func {
-    E_ALLOC = moon.int(C.Effect.MAY_ALLOC),
-    E_GC = moon.int(C.Effect.MAY_GC),
-    E_CALL = moon.int(C.Effect.MAY_CALL_LUA),
-    E_BRANCH = moon.int(C.Effect.MAY_BRANCH),
-    E_THROW = moon.int(C.Effect.MAY_THROW),
-    P_ROOTS = moon.int(C.ProjectionReq.ROOTS),
-    P_RESUME = moon.int(C.ProjectionReq.RESUME),
-    P_TARGET = moon.int(C.ProjectionReq.TARGET),
-    P_ERROR = moon.int(C.ProjectionReq.ERROR),
-    B_ALLOC = moon.int(C.BoundaryReq.ALLOCATOR),
-    B_GC = moon.int(C.BoundaryReq.GC_SAFEPOINT),
-    B_CALL = moon.int(C.BoundaryReq.LUA_CALL),
-    B_RET = moon.int(C.BoundaryReq.VM_RETURN),
+local scalar_inline_loop = lalin.func {
+    E_ALLOC = lalin.int(C.Effect.MAY_ALLOC),
+    E_GC = lalin.int(C.Effect.MAY_GC),
+    E_CALL = lalin.int(C.Effect.MAY_CALL_LUA),
+    E_BRANCH = lalin.int(C.Effect.MAY_BRANCH),
+    E_THROW = lalin.int(C.Effect.MAY_THROW),
+    P_ROOTS = lalin.int(C.ProjectionReq.ROOTS),
+    P_RESUME = lalin.int(C.ProjectionReq.RESUME),
+    P_TARGET = lalin.int(C.ProjectionReq.TARGET),
+    P_ERROR = lalin.int(C.ProjectionReq.ERROR),
+    B_ALLOC = lalin.int(C.BoundaryReq.ALLOCATOR),
+    B_GC = lalin.int(C.BoundaryReq.GC_SAFEPOINT),
+    B_CALL = lalin.int(C.BoundaryReq.LUA_CALL),
+    B_RET = lalin.int(C.BoundaryReq.VM_RETURN),
 } [[
 jit_bench_scalar_inline(flags_in: u64, n: index): u64
     return region: u64
@@ -104,7 +104,7 @@ jit_bench_scalar_inline(flags_in: u64, n: index): u64
 end
 ]]
 
-local scalar_helper_loop = moon.func {
+local scalar_helper_loop = lalin.func {
     proj = F.jit_effect_projection_flags,
     bound = F.jit_effect_boundary_flags,
 } [[
@@ -124,7 +124,7 @@ jit_bench_scalar_helpers(flags_in: u64, n: index): u64
 end
 ]]
 
-local aggregate_helper_loop = moon.func {
+local aggregate_helper_loop = lalin.func {
     proj = F.jit_effect_projection_flags,
     bound = F.jit_effect_boundary_flags,
 } [[
@@ -144,9 +144,9 @@ jit_bench_aggregate_helpers(e: Effect, n: index): u64
 end
 ]]
 
-local aggregate_flag_call_loop = moon.func {
+local aggregate_flag_call_loop = lalin.func {
     has = F.jit_effect_has_flag,
-    E_ALLOC = moon.int(C.Effect.MAY_ALLOC),
+    E_ALLOC = lalin.int(C.Effect.MAY_ALLOC),
 } [[
 jit_bench_aggregate_flag_call(e: Effect, n: index): u64
     return region: u64
@@ -192,7 +192,7 @@ bench("scalar helper classify", function() return compiled.scalar_helpers(base_f
 bench("aggregate helper classify", function() return compiled.aggregate_helpers(e, N) end)
 bench("aggregate has-flag call", function() return compiled.aggregate_flag_call(e, N) end)
 
-print(string.format("Moonlift structural decomposition: n=%d", N))
+print(string.format("Lalin structural decomposition: n=%d", N))
 print(string.format("%-28s %12s %12s  %s", "case", "ns/iter", "net ns", "result"))
 for _, row in ipairs(rows) do
     print(string.format("%-28s %12.3f %12.3f  %s", row.name, row.ns, row.ns - base_ns, row.result))

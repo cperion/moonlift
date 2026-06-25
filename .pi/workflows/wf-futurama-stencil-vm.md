@@ -1,5 +1,5 @@
-# Futurama stencil-only VM exploration 
-Explore how Moonlift Lua VM and SponJIT would change for a stencil-only VM with Moonlift-authored semantics, saturated L0/L1, and FFI/C as stencils.
+# Futurama stencil-only VM exploration
+Explore how Lalin Lua VM and SponJIT would change for a stencil-only VM with Lalin-authored semantics, saturated L0/L1, and FFI/C as stencils.
 **Workflow ID**: wf-futurama-stencil-vm
 **Started**: 2026-06-01 09:21:28
 ---
@@ -8,7 +8,7 @@ Explore how Moonlift Lua VM and SponJIT would change for a stencil-only VM with 
 
 ## Files Retrieved
 
-1. `experiments/lua_interpreter_vm/README.md` (lines 1-156) — Directory status: Moonlift VM and SpongeJIT are separate; VM not JIT-wired.
+1. `experiments/lua_interpreter_vm/README.md` (lines 1-156) — Directory status: Lalin VM and SpongeJIT are separate; VM not JIT-wired.
 2. `experiments/lua_interpreter_vm/VM_CONTRACT.md` (lines 1-86) — Pre-SponJIT gates: validator, frame cache, native ABI, allocator, errors/yield.
 3. `experiments/lua_interpreter_vm/SPONJIT_ARCHITECTURE.md` (lines 1-247) — Native stencil vocabulary + online fusion architecture.
 4. `experiments/lua_interpreter_vm/SPONJIT_FOUNDRY_SSA.md` (lines 1-305) — Foundry/SSA atom vocabulary, L0/L1 growth, fact saturation.
@@ -17,9 +17,9 @@ Explore how Moonlift Lua VM and SponJIT would change for a stencil-only VM with 
 7. `experiments/lua_interpreter_vm/SPONJIT_TIER2_PLANNER_SPEC.md` (lines 1-1230) — Tier 2 fusion planner spec over prebuilt stencils.
 8. `experiments/lua_interpreter_vm/src/contract.lua` (lines 1-20) — Machine-readable VM gate: `sponjit_allowed = false`.
 9. `experiments/lua_interpreter_vm/src/init.lua` (lines 1-43) — VM module aggregation.
-10. `experiments/lua_interpreter_vm/src/products.lua` (lines 1-131) — Moonlift-native VM data layouts.
+10. `experiments/lua_interpreter_vm/src/products.lua` (lines 1-131) — Lalin-native VM data layouts.
 11. `experiments/lua_interpreter_vm/src/constants.lua` (lines 1-244) — Tags, opcodes 0-84, resume modes, native result statuses, ABI versions.
-12. `experiments/lua_interpreter_vm/src/vm_loop.lua` (lines 1-178) — Main Moonlift VM loop and dispatch continuations.
+12. `experiments/lua_interpreter_vm/src/vm_loop.lua` (lines 1-178) — Main Lalin VM loop and dispatch continuations.
 13. `experiments/lua_interpreter_vm/src/opcodes.lua` (lines 1-816) — Bytecode decode, inline hot opcode arms, handler dispatch.
 14. `experiments/lua_interpreter_vm/src/op_handlers.lua` (lines 1-18) — Opcode handler aggregator.
 15. `experiments/lua_interpreter_vm/src/op/_init.lua` (lines 1-138) — Shared handler parameter/protocol boilerplate.
@@ -105,7 +105,7 @@ return {
 }
 ```
 
-### Main VM loop is Moonlift-authored regions
+### Main VM loop is Lalin-authored regions
 
 ```lua
 -- experiments/lua_interpreter_vm/src/vm_loop.lua
@@ -131,7 +131,7 @@ end
 
 On parent/child frame changes it reloads cached proto pointers, matching `VM_CONTRACT.md`’s frame-cache invariant.
 
-### VM products are Moonlift-native, not PUC layouts
+### VM products are Lalin-native, not PUC layouts
 
 ```lua
 -- experiments/lua_interpreter_vm/src/products.lua
@@ -367,11 +367,11 @@ int spon_l1_project(const SponL1Op *ops, uint32_t start, uint32_t end,
 - Current runtime integration:
   - `src/vm_loop.lua` does not call SponJIT.
   - `contract.lua` and tests assert `sponjit_allowed == false`.
-  - C L1 interpreter is under `spongejit/runtime/`, tested through `make test-bank`, not wired into Moonlift VM.
+  - C L1 interpreter is under `spongejit/runtime/`, tested through `make test-bank`, not wired into Lalin VM.
 
 ## Observations
 
-- Current VM is already heavily Moonlift-authored: counted 264 `host.region`/`moon.region`/`moon.func` occurrences under `experiments/lua_interpreter_vm/src`.
+- Current VM is already heavily Lalin-authored: counted 264 `host.region`/`lalin.region`/`lalin.func` occurrences under `experiments/lua_interpreter_vm/src`.
 - Current SpongeJIT is mostly stencil infrastructure already:
   - native x64 byte emission exists for a “first surface”;
   - bank descriptors include data/control relocations, endpoint metadata, projections, fact transfer;
@@ -411,7 +411,7 @@ int spon_l1_project(const SponL1Op *ops, uint32_t start, uint32_t end,
 ### What Matters Most for This Problem
 
 - **Exhaustive semantic floor**: L0 must be complete enough to execute all validated programs, not merely “cover all opcode numbers.”
-- **Single semantic authority**: Moonlift-authored VM semantics and SpongeJIT semantic SSA currently duplicate meaning; stencil-only raises divergence risk.
+- **Single semantic authority**: Lalin-authored VM semantics and SpongeJIT semantic SSA currently duplicate meaning; stencil-only raises divergence risk.
 - **Exit/projection correctness**: without interpreter fallback, every guard, error, yield, return, call, and deopt-like edge must resume through a native floor/protocol.
 - **C/FFI conformance**: C calls cannot be old “C-function tiles”; they must either be explicit helpers with modeled effects or true stencil ABI participants.
 - **Fact/dependency soundness**: saturated L1+ atoms only work if facts, kills, payload dependencies, frame state, and invalidation are complete.
@@ -419,113 +419,113 @@ int spon_l1_project(const SponL1Op *ops, uint32_t start, uint32_t end,
 
 ### Non-Obvious Observations
 
-- **“No interpreter fallback” does not remove fallback semantics; it relocates them into L0.**  
-  Current SpongeJIT has `Boundary` / `ExitBoundary` concepts that assume some VM boundary exists. In a stencil-only VM, those exits cannot mean “go back to the Moonlift loop”; they must mean “transfer to an exact native floor continuation with sufficient projected state.” This is a semantic change to the meaning of boundary exits, not just a runtime wiring change.
+- **“No interpreter fallback” does not remove fallback semantics; it relocates them into L0.**
+  Current SpongeJIT has `Boundary` / `ExitBoundary` concepts that assume some VM boundary exists. In a stencil-only VM, those exits cannot mean “go back to the Lalin loop”; they must mean “transfer to an exact native floor continuation with sufficient projected state.” This is a semantic change to the meaning of boundary exits, not just a runtime wiring change.
 
-- **L0 coverage is larger than opcode coverage.**  
+- **L0 coverage is larger than opcode coverage.**
   The validator establishes multi-instruction invariants: `EXTRAARG` pairing, arithmetic fast-path/fallback adjacency, comparison/test followed by jump, call/return register windows, loop target windows. Therefore an “L0 stencil for every opcode” is not enough unless those stencils encode the validator-implied neighboring obligations. The true floor unit is sometimes a validated opcode phrase, not a raw opcode.
 
-- **Loop handling is the sharpest mismatch with current SpongeJIT assumptions.**  
+- **Loop handling is the sharpest mismatch with current SpongeJIT assumptions.**
   Current foundry treats `FORPREP`/`FORLOOP` and `TFOR*` as structural loop-region boundaries, not scalar fact-axis opcodes. That is fine when boundaries can hand back to an interpreter. In stencil-only execution, structural loop boundaries need native floor semantics; otherwise loops become the first place “no fallback” is violated.
 
-- **The existing Moonlift VM already contains the best semantic taxonomy for stencil endpoints.**  
+- **The existing Lalin VM already contains the best semantic taxonomy for stencil endpoints.**
   `vm_loop.lua`, `op/protocols.lua`, `regions_call.lua`, `regions_resume.lua`, `regions_error.lua`, and `regions_native.lua` already carve semantics into named continuations: finished, yielded, error, oom, native result statuses, resume modes, protected unwind, TBC handling. Those are more precise than generic “exit” categories. The opportunity is that the current VM control protocols are close to the control vocabulary a stencil-only VM needs.
 
-- **The biggest semantic risk is duplicated opcode meaning.**  
-  Current opcode handlers in `src/op/*.lua` are Moonlift-authored, while `spongejit/src/ssa_lift.lua` independently models opcode semantics for stencils. With an interpreter fallback, mismatches can be survivable if unsupported paths exit. With stencil-only execution, any divergence between Moonlift handler semantics and SSA/stencil semantics becomes VM misexecution.
+- **The biggest semantic risk is duplicated opcode meaning.**
+  Current opcode handlers in `src/op/*.lua` are Lalin-authored, while `spongejit/src/ssa_lift.lua` independently models opcode semantics for stencils. With an interpreter fallback, mismatches can be survivable if unsupported paths exit. With stencil-only execution, any divergence between Lalin handler semantics and SSA/stencil semantics becomes VM misexecution.
 
-- **The validator becomes even more central, not less.**  
+- **The validator becomes even more central, not less.**
   It is already documented as the interpreter/JIT trust boundary. In a stencil-only VM, stencils inherit every assumption currently consumed by opcode handlers. If a materialized span cuts across a validator-protected pair or ignores a validator-proven window fact, the native floor can become unsound even when individual stencil descriptors validate.
 
-- **C/FFI as “stencils/helpers” conflicts with retired C-tile terminology unless conformance is extremely explicit.**  
+- **C/FFI as “stencils/helpers” conflicts with retired C-tile terminology unless conformance is extremely explicit.**
   The docs intentionally retired C-function-shaped tiles because they are not linkable native stencils. The user direction can still fit, but only if “C/FFI stencil” means either:
   - a true native stencil with endpoints, relocations, facts, effects, and projections; or
-  - an opaque helper call whose effects, kills, yield/error behavior, and dependency invalidation are fully declared.  
+  - an opaque helper call whose effects, kills, yield/error behavior, and dependency invalidation are fully declared.
   A raw `NativeFunc.addr` call through `regions_native.lua` is not enough.
 
-- **Native calls are not just calls; they are control-producing VM events.**  
+- **Native calls are not just calls; they are control-producing VM events.**
   `NativeCallResult` can report success, yield, error, OOM/stack growth, continuation, and result counts. Treating FFI/C as stencilable means those statuses become stencil endpoints. Otherwise native calls smuggle an interpreter-shaped mini-VM back into the system.
 
-- **Fact saturation increases the importance of kill sets.**  
+- **Fact saturation increases the importance of kill sets.**
   L1+ atoms depend on fact transfer. But table ops, metatables, GC barriers, native calls, weak tables, finalizers, and helpers can invalidate facts globally or conditionally. In a no-fallback VM, conservative `killed_sig` and dependency epochs are not optimization metadata; they are safety metadata.
 
-- **The current first native surface is far narrower than the target VM.**  
+- **The current first native surface is far narrower than the target VM.**
   Existing executable stencils are strongest for i64 slots, guards, constants, simple arithmetic, and simple exits. Full Lua execution needs tables, metamethods, closures, varargs, upvalues, coroutines, errors, allocator paths, GC protocols, finalizers, weak tables, and native calls. The distance is not just opcode count; it is effect modeling and projection richness.
 
-- **Projection sufficiency is the hidden hard problem.**  
+- **Projection sufficiency is the hidden hard problem.**
   The planner spec distinguishes projection presence from projection sufficiency. In stencil-only execution, every possible exit from an optimized atom must reconstruct enough frame/stack/PC/resume state for the native floor. If atoms keep values resident in registers or elide stores, every guard/error/yield path inherits a precise repair obligation.
 
-- **Frame-cache invariants become stencil ABI invariants.**  
-  The Moonlift loop reloads cached frame/proto pointers on parent/child frame switches. Native images that inline or cache `frame`, `pc`, `base`, `top`, `code`, or `constants` must preserve the same reload points. This is especially important across calls, returns, yields, tailcalls, and native continuations.
+- **Frame-cache invariants become stencil ABI invariants.**
+  The Lalin loop reloads cached frame/proto pointers on parent/child frame switches. Native images that inline or cache `frame`, `pc`, `base`, `top`, `code`, or `constants` must preserve the same reload points. This is especially important across calls, returns, yields, tailcalls, and native continuations.
 
-- **“Floor image” needs to be cold-execution capable.**  
+- **“Floor image” needs to be cold-execution capable.**
   Runtime docs talk about active images demoting to floor. With no interpreter fallback, the floor is not merely a safe deopt target; it is also the cold start execution engine, invalidation target, and recovery target after failed planning/materialization. That makes L0 operationally equivalent to the VM.
 
-- **Bank artifacts become part of the VM release ABI.**  
+- **Bank artifacts become part of the VM release ABI.**
   `products.lua` layouts, `constants.lua` opcodes/statuses, `contract.lua` ABI versions, validator contract versions, and `sponbank.h` descriptor formats must move in lockstep. A stale bank against changed `Frame`, `Value`, `NativeCallContext`, or opcode constants is not a JIT bug; it is a broken VM binary.
 
-- **Selector “no fallback” tests are necessary but not sufficient.**  
+- **Selector “no fallback” tests are necessary but not sufficient.**
   Tests currently ensure there is no hidden selector fallback for unknown opcodes. Stencil-only needs a stronger invariant: every selector rejection, missing fact, missing payload, failed dependency, failed materialization, or unsupported helper must have a native L0 execution path or become a load-time/build-time error.
 
-- **Saturated atoms shift runtime complexity from codegen to proof selection.**  
+- **Saturated atoms shift runtime complexity from codegen to proof selection.**
   The runtime avoids arbitrary compilation, but it still performs selection over variants, endpoints, bridges, fact states, dependency constraints, and projection obligations. The complexity is not gone; it is constrained into planner/materializer legality. Bad descriptor quality makes Tier 2 collapse into direct-linking L0 atoms.
 
-- **C helper calls can silently destroy the “stencil-only” property if they become semantic black boxes.**  
+- **C helper calls can silently destroy the “stencil-only” property if they become semantic black boxes.**
   Existing native emitter calls helper primitives such as `pow_f64` and `barrier`. If helper calls are allowed without explicit memory/effect/fact contracts, the system regains hidden interpreter-like semantics under another name.
 
-- **There is a useful alignment between Moonlift’s jump-first style and stencil endpoints.**  
-  Moonlift regions already expose named continuations and explicit control edges. That maps naturally to stencil endpoint metadata, unlike callback/vtable-style interpreters. This is a non-obvious advantage of keeping Moonlift as the semantic authoring language.
+- **There is a useful alignment between Lalin’s jump-first style and stencil endpoints.**
+  Lalin regions already expose named continuations and explicit control edges. That maps naturally to stencil endpoint metadata, unlike callback/vtable-style interpreters. This is a non-obvious advantage of keeping Lalin as the semantic authoring language.
 
-- **The current VM gates remain relevant even if the interpreter loop disappears.**  
+- **The current VM gates remain relevant even if the interpreter loop disappears.**
   Gates like native return convergence, unified error unwind, explicit coroutine transfer, frame cache reloads, allocator boundaries, and GC/finalizer/weak-table protocols are not “pre-JIT cleanup”; they are exact requirements for a stencil-only VM to avoid hidden fallback paths.
 
 ### Knowledge Gaps
 
 - How complete the intended L0 floor must be at first milestone: all validated bytecode, or a restricted validated subset?
-- Whether Moonlift-authored regions are expected to remain executable artifacts, semantic source artifacts, or both.
+- Whether Lalin-authored regions are expected to remain executable artifacts, semantic source artifacts, or both.
 - How C/FFI “conforming stencils/helpers” should be classified in the descriptor schema: true native stencils vs opaque helper endpoints.
 - The intended treatment of GC, weak tables, finalizers, and allocator slow paths in a no-interpreter system.
 - Whether current bank generation size remains tractable once full Lua payload/effect axes are included.
 
 ## Approach-proposer Output — 2026-06-01 09:32:41
 
-### Approach A: Moonlift-to-Stencil Single Source
+### Approach A: Lalin-to-Stencil Single Source
 
-- **Core idea**: Treat Moonlift VM regions as the only semantic source and add a backend that lowers them directly into stencil descriptors for both L0 floor and L1+ atoms.
+- **Core idea**: Treat Lalin VM regions as the only semantic source and add a backend that lowers them directly into stencil descriptors for both L0 floor and L1+ atoms.
 
 - **Key changes**:
-  - Add a Moonlift region → Stencil IR/native descriptor lowering path.
+  - Add a Lalin region → Stencil IR/native descriptor lowering path.
   - Refactor `src/op/*.lua`, `regions_call.lua`, `regions_error.lua`, `regions_resume.lua`, `regions_native.lua` into stencil-friendly semantic regions with explicit endpoints.
-  - Retire duplicated semantic lowering in `spongejit/src/ssa_lift.lua` or make it consume generated Moonlift semantic summaries.
-  - Extend `stencil_desc.lua`, `sponbank.h`, and bank generation to understand Moonlift-derived control protocols.
+  - Retire duplicated semantic lowering in `spongejit/src/ssa_lift.lua` or make it consume generated Lalin semantic summaries.
+  - Extend `stencil_desc.lua`, `sponbank.h`, and bank generation to understand Lalin-derived control protocols.
 
 - **Tradeoff**: Optimizes for single semantic authority and minimal divergence; sacrifices short-term reuse of the existing hand-authored SponJIT semantic SSA model.
 
-- **Risk**: Moonlift-to-stencil lowering may become a second compiler backend with hard requirements around continuation endpoints, layout holes, projections, and effect metadata.
+- **Risk**: Lalin-to-stencil lowering may become a second compiler backend with hard requirements around continuation endpoints, layout holes, projections, and effect metadata.
 
 - **Rough sketch**:
-  - Define a stencil ABI projection for Moonlift continuations: `ok`, `yield`, `error`, `oom`, `return`, `native_result`, etc.
-  - Lower each opcode handler or validated opcode phrase from Moonlift region form into exact L0 stencil descriptors.
-  - Generate fact/effect summaries from the same Moonlift region lowering, not from independent opcode models.
-  - Teach the foundry to build L1+ atoms by composing Moonlift-derived semantic units.
-  - Model C/FFI calls as Moonlift-authored wrapper regions that lower to helper-call stencils with declared effects, kills, and endpoints.
+  - Define a stencil ABI projection for Lalin continuations: `ok`, `yield`, `error`, `oom`, `return`, `native_result`, etc.
+  - Lower each opcode handler or validated opcode phrase from Lalin region form into exact L0 stencil descriptors.
+  - Generate fact/effect summaries from the same Lalin region lowering, not from independent opcode models.
+  - Teach the foundry to build L1+ atoms by composing Lalin-derived semantic units.
+  - Model C/FFI calls as Lalin-authored wrapper regions that lower to helper-call stencils with declared effects, kills, and endpoints.
 
 ---
 
-### Approach B: Native Floor from Moonlift, Optimized Atoms from Subordinate SSA
+### Approach B: Native Floor from Lalin, Optimized Atoms from Subordinate SSA
 
-- **Core idea**: Keep the current SponJIT SSA/foundry pipeline for L1+ optimization, but make a complete Moonlift-derived L0 floor the mandatory semantic recovery and cold-execution target.
+- **Core idea**: Keep the current SponJIT SSA/foundry pipeline for L1+ optimization, but make a complete Lalin-derived L0 floor the mandatory semantic recovery and cold-execution target.
 
 - **Key changes**:
-  - Build an exhaustive L0 bank from current Moonlift VM regions, likely phrase-based rather than raw-opcode-based.
+  - Build an exhaustive L0 bank from current Lalin VM regions, likely phrase-based rather than raw-opcode-based.
   - Keep `spongejit/src/ssa_lift.lua`, fact axes, dedupe, and native lowering for saturated/fused L1+ atoms.
-  - Change `Boundary` / `ExitBoundary` semantics so every exit targets an exact L0 native continuation, never the Moonlift interpreter loop.
+  - Change `Boundary` / `ExitBoundary` semantics so every exit targets an exact L0 native continuation, never the Lalin interpreter loop.
   - Add projection sufficiency checks linking optimized atoms to L0 floor entry protocols.
   - Extend bank selection/materialization so missing L1 choices always demote to L0, while missing L0 is a build/load error.
 
 - **Tradeoff**: Optimizes for incremental migration and reuse of existing SponJIT infrastructure; sacrifices pure single-source semantics because L1+ SSA still duplicates meaning.
 
-- **Risk**: Semantic drift between Moonlift L0 and SponJIT L1+ atoms could cause misexecution unless conformance testing/proof obligations are strong.
+- **Risk**: Semantic drift between Lalin L0 and SponJIT L1+ atoms could cause misexecution unless conformance testing/proof obligations are strong.
 
 - **Rough sketch**:
   - First make the L0 bank complete for all validated bytecode phrases, including loop-region boundaries, calls, returns, errors, and native statuses.
@@ -538,11 +538,11 @@ int spon_l1_project(const SponL1Op *ops, uint32_t start, uint32_t end,
 
 ### Approach C: Protocol-First Stencil VM Kernel
 
-- **Core idea**: Define the VM as a small set of native stencil protocols—dispatch, call, return, resume, error, allocation, native-call—and rewrite Moonlift regions to author those protocols rather than opcode bodies directly.
+- **Core idea**: Define the VM as a small set of native stencil protocols—dispatch, call, return, resume, error, allocation, native-call—and rewrite Lalin regions to author those protocols rather than opcode bodies directly.
 
 - **Key changes**:
   - Introduce an explicit VM stencil protocol schema: endpoint kinds, frame-cache rules, resume modes, native result statuses, allocator/error/yield transitions.
-  - Refactor current Moonlift regions into protocol kernels and opcode phrases that target those kernels.
+  - Refactor current Lalin regions into protocol kernels and opcode phrases that target those kernels.
   - Generate L0 as a linked native floor image composed of protocol stencils plus opcode/phrase stencils.
   - Make SponJIT planner operate over protocol-aware atoms instead of generic `Boundary` exits.
   - Replace raw `NativeFunc.addr` calls with protocol-conforming native-call stencils.
@@ -562,6 +562,6 @@ int spon_l1_project(const SponL1Op *ops, uint32_t start, uint32_t end,
 
 ### Comparison
 
-- **Approach A** is the cleanest single-authority model: Moonlift semantics directly become stencil artifacts.
-- **Approach B** is the most incremental: complete Moonlift L0 first, then keep current SponJIT SSA for optimization under stronger conformance rules.
+- **Approach A** is the cleanest single-authority model: Lalin semantics directly become stencil artifacts.
+- **Approach B** is the most incremental: complete Lalin L0 first, then keep current SponJIT SSA for optimization under stronger conformance rules.
 - **Approach C** is the most control-protocol-centric: it formalizes VM events and endpoints first, making calls, errors, yields, allocator paths, and C/FFI behavior explicit across all tiers.

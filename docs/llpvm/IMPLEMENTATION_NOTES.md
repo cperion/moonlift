@@ -8,16 +8,16 @@ quirks. They are not philosophy.
 Use the executed-module artifact path for LLPVM:
 
 ```lua
-moon.emit_c_file_artifact("lua/llpvm/native/llpvm_abi.mlua", {
+lalin.emit_c_file_artifact("lua/llpvm/native/llpvm_abi.mlua", {
     name = "llpvm",
     combined_path = "llpvm_amalgam.c",
     h_path = "llpvm_amalgam.h",
 })
-moon.bundle_file("lua/llpvm/native/llpvm_abi.mlua", "llpvm"):emit_c_artifact()
+lalin.bundle_file("lua/llpvm/native/llpvm_abi.mlua", "llpvm"):emit_c_artifact()
 ```
 
 Do not create ad hoc source-string C APIs for LLPVM modules. LLPVM uses
-`moon.require`, so C emission must execute the module and return a full artifact
+`lalin.require`, so C emission must execute the module and return a full artifact
 with generated source, generated header, explicit support source, and combined
 translation unit.
 
@@ -25,14 +25,14 @@ translation unit.
 
 Cross-module region composition should use explicit fragment splices:
 
-```moonlift
+```lalin
 emit @{Mem.llpvm_grow_elems}(...; grown = ok, oom = bad)
 ```
 
 Self-recursive region use cannot splice itself before the value exists. Use
 `call` as the recursion boundary:
 
-```moonlift
+```lalin
 call ll_next_op(vm, tape; op = got, done = done, blocked = blocked, failed = failed)
 ```
 
@@ -40,14 +40,14 @@ call ll_next_op(vm, tape; op = got, done = done, blocked = blocked, failed = fai
 
 Views are source-level descriptors, not ordinary structs. Use:
 
-```moonlift
+```lalin
 len(v)
 v[i]
 ```
 
 Do not use:
 
-```moonlift
+```lalin
 v.len
 v.data
 ```
@@ -59,7 +59,7 @@ real product.
 
 Handle representation is opaque in safe casts. Use:
 
-```moonlift
+```lalin
 Handle.from_repr(raw)
 repr(handle)
 ```
@@ -70,11 +70,11 @@ only in trusted store code. Do not use `as(Handle, raw)`.
 
 `llpvm_close(llpvm_vm_ref)` is a C ABI boundary. It currently lowers through
 `ll_vm_close(vm: LlVmRef; ...)`, not `owned LlVmRef`, because C cannot express
-Moonlift's `owned` wrapper in its function signature.
+Lalin's `owned` wrapper in its function signature.
 
 The internal owned protocol still needs a separate preserving form:
 
-```moonlift
+```lalin
 region ll_vm_close_owned(vm: owned LlVmRef;
     closed
   | live_leases(vm: owned LlVmRef, count: index)

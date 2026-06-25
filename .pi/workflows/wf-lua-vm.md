@@ -1,5 +1,5 @@
-# Moonlift Lua Interpreter VM 
-Implement a complete PUC-Lua-compatible register-bytecode interpreter VM in Moonlift, following the final type-first design in experiments/lua_interpreter_vm/README.md
+# Lalin Lua Interpreter VM
+Implement a complete PUC-Lua-compatible register-bytecode interpreter VM in Lalin, following the final type-first design in experiments/lua_interpreter_vm/README.md
 **Started**: 2026-05-21 21:13:37
 ---
 
@@ -9,34 +9,34 @@ Now I have the complete README and sufficient context. Let me produce the archit
 
 ---
 
-# Moonlift Lua Interpreter VM — Architectural Decision Record
+# Lalin Lua Interpreter VM — Architectural Decision Record
 
-**Status**: Final — approved for implementation  
-**Workflow**: Phase 1 complete (scout → knowledge-builder → approach-proposer → critique → decision)  
-**Decision by**: User review, approving the full design from `experiments/lua_interpreter_vm/README.md`  
-**Implementation target**: `experiments/lua_interpreter_vm/src/`  
+**Status**: Final — approved for implementation
+**Workflow**: Phase 1 complete (scout → knowledge-builder → approach-proposer → critique → decision)
+**Decision by**: User review, approving the full design from `experiments/lua_interpreter_vm/README.md`
+**Implementation target**: `experiments/lua_interpreter_vm/src/`
 
 ---
 
 ## Goal
 
-Implement a complete PUC-Lua-compatible register-bytecode interpreter VM in Moonlift, following the type-first design specified in `experiments/lua_interpreter_vm/README.md`. The VM consumes validated `Proto` values and produces Lua 5.1–equivalent execution semantics through Moonlift's explicit region-graph control model. Every meaningful runtime outcome is a named continuation; every persistent shape is a typed product; every dynamic script continuation is explicit frame data. No C conventions (integer status returns, `longjmp`, out-parameters, hidden allocation paths) survive into the Moonlift implementation.
+Implement a complete PUC-Lua-compatible register-bytecode interpreter VM in Lalin, following the type-first design specified in `experiments/lua_interpreter_vm/README.md`. The VM consumes validated `Proto` values and produces Lua 5.1–equivalent execution semantics through Lalin's explicit region-graph control model. Every meaningful runtime outcome is a named continuation; every persistent shape is a typed product; every dynamic script continuation is explicit frame data. No C conventions (integer status returns, `longjmp`, out-parameters, hidden allocation paths) survive into the Lalin implementation.
 
 ---
 
 ## Incentives
 
-The Moonlift project currently has only a Cranelift backend (JIT + object emission). There is no interpreted fallback. This creates several concrete problems:
+The Lalin project currently has only a Cranelift backend (JIT + object emission). There is no interpreted fallback. This creates several concrete problems:
 
 1. **No embedded or sandboxed execution**: LuaJIT's FFI-based compilation pipeline cannot run in environments that forbid `mmap(PROT_EXEC)` — embedded systems, iOS, WebAssembly, or restricted sandboxes. An interpreter removes this constraint.
 
 2. **No incremental compilation during execution**: The Cranelift pipeline compiles whole `Proto` values to native code. There is no facility to run partially-compiled or small scripts without the full compilation overhead.
 
-3. **No self-hosted bootstrapping path**: Moonlift's metaprogramming layer runs on LuaJIT. To eventually run Moonlift's own compiler on Moonlift, an interpreter is the necessary first step — native code generation from Moonlift to Moonlift requires an intermediate runtime that is itself Moonlift code.
+3. **No self-hosted bootstrapping path**: Lalin's metaprogramming layer runs on LuaJIT. To eventually run Lalin's own compiler on Lalin, an interpreter is the necessary first step — native code generation from Lalin to Lalin requires an intermediate runtime that is itself Lalin code.
 
-4. **Pedagogical and tooling gap**: The explicit region-graph style is Moonlift's core architectural claim. A complete interpreter written in Moonlift (not C, not Lua with hybrid state) is the best possible demonstration of the pattern and the strongest test case for the compiler's region/block/jump/emit lowering.
+4. **Pedagogical and tooling gap**: The explicit region-graph style is Lalin's core architectural claim. A complete interpreter written in Lalin (not C, not Lua with hybrid state) is the best possible demonstration of the pattern and the strongest test case for the compiler's region/block/jump/emit lowering.
 
-The VM removes the LuaJIT runtime dependency for interpreted execution, provides a target for Moonlift-to-Moonlift compilation, and serves as the canonical reference implementation of the explicit-control architecture.
+The VM removes the LuaJIT runtime dependency for interpreted execution, provides a target for Lalin-to-Lalin compilation, and serves as the canonical reference implementation of the explicit-control architecture.
 
 ---
 
@@ -70,7 +70,7 @@ The document defines a complete register-bytecode VM in eleven parts:
 - **Opcode instructions are decoded products** (Instr with named fields), not packed C bitfields. A loader may read packed bytecode and decode once.
 - **All errors go through raise_error** — no longjmp, no C stack unwinding. ProtectedFrame replaces setjmp records.
 - **Quickening uses structural epochs** — table.shape_epoch increments on resize/metatable change. Quickened opcodes guard on epoch. No invalidation list, no global version counter.
-- **The control tree is grep-inspectable** — every region, block, jump, and emit is a first-class Moonlift construct.
+- **The control tree is grep-inspectable** — every region, block, jump, and emit is a first-class Lalin construct.
 
 ### Limitations and design tensions in the current state
 
@@ -86,10 +86,10 @@ The document defines a complete register-bytecode VM in eleven parts:
 
 ### Approach
 
-The **full design** from the README is adopted in its entirety. No reduced design, no temporary subset, no "implement the interpreter body only" scope limitation. The decision is to implement all 11 parts in the specified order, producing a complete Moonlift VM that is:
+The **full design** from the README is adopted in its entirety. No reduced design, no temporary subset, no "implement the interpreter body only" scope limitation. The decision is to implement all 11 parts in the specified order, producing a complete Lalin VM that is:
 
 - **PUC-Lua-compatible** at the bytecode level (Lua 5.1 instruction set)
-- **Moonlift-native** in control structure (regions, blocks, jumps, emits)
+- **Lalin-native** in control structure (regions, blocks, jumps, emits)
 - **API-sealed** at the external boundary (C-like compatible functions wrap internal regions)
 - **GC-integrated** (incremental mark-sweep, write barriers, barrier protocols)
 - **Quickening-ready** (InlineCache, structural epochs, deopt protocol — even if quickened opcodes ship later)
@@ -98,8 +98,8 @@ The approach was chosen because:
 
 1. **The design is already complete**. The README specifies every struct, enum, region signature, protocol, invariant, and composition edge. There is no ambiguity that requires a reduced prototype.
 2. **Staging without compromise**. Part XI's implementation order builds the VM layer by layer, but each layer produces final-shape code for its domain. Products built in step 1 are the same products used in step 11. No intermediate designs are discarded.
-3. **Moonlift generation handles the boilerplate**. The opcode dispatch switch, handler declarations, instruction mode tables, constant exports, and disassembler metadata are Lua-generated tables. The human writes ~30 hand-tuned opcode region bodies; Lua writes the switch and type declarations.
-4. **The critique validated the approach**: The design's explicit protocol boundaries, the frame-as-continuation-record model, the GC as explicit region calls rather than implicit barriers, and the clear separation between interpreter static control (Moonlift regions) and dynamic Lua control (frame resume fields) were all confirmed as sound. The CRC-critique-like analysis found no structural flaws that would require a reduced design.
+3. **Lalin generation handles the boilerplate**. The opcode dispatch switch, handler declarations, instruction mode tables, constant exports, and disassembler metadata are Lua-generated tables. The human writes ~30 hand-tuned opcode region bodies; Lua writes the switch and type declarations.
+4. **The critique validated the approach**: The design's explicit protocol boundaries, the frame-as-continuation-record model, the GC as explicit region calls rather than implicit barriers, and the clear separation between interpreter static control (Lalin regions) and dynamic Lua control (frame resume fields) were all confirmed as sound. The CRC-critique-like analysis found no structural flaws that would require a reduced design.
 
 ### Architecture
 
@@ -137,7 +137,7 @@ experiments/lua_interpreter_vm/src/
 
 **Value and constants** (`constants.lua`, `products.lua`)
 
-```moonlift
+```lalin
 -- ValueTag constants (u32):
 --   TAG_NIL, TAG_FALSE, TAG_TRUE, TAG_LIGHTUD, TAG_NUM, TAG_STR,
 --   TAG_TABLE, TAG_LCLOSURE, TAG_CCLOSURE, TAG_USERDATA, TAG_THREAD, TAG_PROTO
@@ -171,7 +171,7 @@ experiments/lua_interpreter_vm/src/
 --   GCSTATE_PAUSE, GCSTATE_PROPAGATE, GCSTATE_SWEEP, GCSTATE_FINALIZE
 ```
 
-```moonlift
+```lalin
 struct Value
     tag: u32
     aux: u32
@@ -427,7 +427,7 @@ dispatch_instruction in turn:
 
 #### Value protocol implementations
 
-```moonlift
+```lalin
 -- value_truth: tag-based dispatch
 emit value_truth(v;
     truthy = when_tag,
@@ -471,7 +471,7 @@ emit value_equal(L, a, b;
 
 #### Frame/call/return engine
 
-```moonlift
+```lalin
 -- stack_check: extends stack if needed_top > stack_size
 emit stack_check(L, needed_top;
     ok = have_room,
@@ -531,7 +531,7 @@ emit handle_return_mode(L, parent, first_result, nres;
 
 #### Table access chains
 
-```moonlift
+```lalin
 -- table_raw_get: direct array or hash lookup
 --   If key is integer in [1, array_len], probe array part
 --   Else hash the key and probe the node chain
@@ -567,7 +567,7 @@ emit table_set(L, obj, key, value;
 
 #### Error engine
 
-```moonlift
+```lalin
 -- raise_error: error dispatch
 --   Unwind frames looking for a ProtectedFrame
 --   If found: jump to handler with caught continuation
@@ -588,7 +588,7 @@ emit protected_call(L, func_slot, nargs, wanted, errfunc_slot;
 
 #### GC protocol chain
 
-```moonlift
+```lalin
 -- alloc_object: attempt allocation
 --   If current GC debt exceeds threshold, exit through step_required
 --   Otherwise allocate and link into allgc
@@ -616,11 +616,11 @@ emit write_barrier(G, parent, child;
 
 ### Tradeoffs acknowledged
 
-1. **Wide `handle_return_mode` continuation list (12+ exits) vs. a single "dispatch to mode handler" protocol**: The design chooses the wide list because each return mode is a real VM state with different slot adjustment semantics. A single continuation would require a second internal dispatch loop, hiding the control flow that Moonlift's region model is designed to make explicit. The cost is verbosity in the return-matching code; the compensating benefit is that every return path is grep-inspectable and individually testable.
+1. **Wide `handle_return_mode` continuation list (12+ exits) vs. a single "dispatch to mode handler" protocol**: The design chooses the wide list because each return mode is a real VM state with different slot adjustment semantics. A single continuation would require a second internal dispatch loop, hiding the control flow that Lalin's region model is designed to make explicit. The cost is verbosity in the return-matching code; the compensating benefit is that every return path is grep-inspectable and individually testable.
 
 2. **Inline resume payload in Frame vs. separate continuation stack**: Frame carries 7 resume fields (mode, a, b, c, pc, base, value). This adds ~56 bytes per frame compared to a linked-list continuation chain. The tradeoff is accepted because: (a) typical nesting depth is <20 frames, so total memory is <2KB, (b) inline payload avoids an indirection for every metamethod return, and (c) frame allocation is a single contiguous allocation.
 
-3. **Tag-based Value vs. NaN-boxing**: The 16-byte Value (tag+aux+bits) is larger than LuaJIT's NaN-boxed 8-byte representation. The design accepts this because: (a) Moonlift's pointer size is the architecture's native pointer size (no NaN-tagging trick), (b) the explicit tag simplifies value dispatch in region bodies (no bit manipulation), and (c) the aux field provides room for future specialization hints without protocol change.
+3. **Tag-based Value vs. NaN-boxing**: The 16-byte Value (tag+aux+bits) is larger than LuaJIT's NaN-boxed 8-byte representation. The design accepts this because: (a) Lalin's pointer size is the architecture's native pointer size (no NaN-tagging trick), (b) the explicit tag simplifies value dispatch in region bodies (no bit manipulation), and (c) the aux field provides room for future specialization hints without protocol change.
 
 4. **Monomorphic generated handlers vs. one generic handler with runtime parameters**: Arithmetic opcodes (ADD, SUB, etc.) each get a generated handler with a constant TM event. This duplicates handler bodies (~6 lines each for the fast-number path). The tradeoff — ~30 lines of excess code vs. a runtime "event" parameter in a shared handler — favors monomorphic handlers because: (a) the fast path for ADD only checks whether both operands are numbers, which is tag dispatch irrespective of event, (b) the metamethod event constant removes a branch from the slow path, and (c) Lua generation produces the handlers from a table, so maintenance cost is zero.
 
@@ -628,15 +628,15 @@ emit write_barrier(G, parent, child;
 
 ### Risks acknowledged
 
-1. **GC complexity in Moonlift is untested**: The README specifies full incremental mark-sweep with barriers, gray lists, sweep cursors, and finalization. No Moonlift codebase has implemented GC at this scale. The risk is that Moonlift's region/block/jump model handles GC's multi-state loop poorly — specifically the sweep phase, which iterates over a linked list and conditionally frees. Mitigation: the GC is the last implementation step (step 9), so the interpreter is functional before GC is tested. If GC regions prove awkward, a simplified stop-the-world GC can be substituted without changing any other module's interfaces (the `alloc_object`, `gc_step`, and barrier regions form a stable protocol boundary).
+1. **GC complexity in Lalin is untested**: The README specifies full incremental mark-sweep with barriers, gray lists, sweep cursors, and finalization. No Lalin codebase has implemented GC at this scale. The risk is that Lalin's region/block/jump model handles GC's multi-state loop poorly — specifically the sweep phase, which iterates over a linked list and conditionally frees. Mitigation: the GC is the last implementation step (step 9), so the interpreter is functional before GC is tested. If GC regions prove awkward, a simplified stop-the-world GC can be substituted without changing any other module's interfaces (the `alloc_object`, `gc_step`, and barrier regions form a stable protocol boundary).
 
 2. **Coroutine yield/resume through the region graph may expose continuation-representation limits**: A coroutine yield saves the full thread state (stack, frames, open upvals). The region graph's block-state representation (`frame, pc, base, top`) is designed for the fast loop, not for serialization. If yield/resume requires saving the region-graph internal state (which block we're in, which continuation we're returning to), the `LuaThread` status + `Frame.resume_mode` model already handles it — but the interaction between `coroutine_yield` and `call_native` is untested and may require the native function to declare yieldability via `NativeFunc.flags`.
 
-3. **The 12-continuation `handle_return_mode` may stress Moonlift's region generation**: Each continuation is a separate region output, meaning the handle_return_mode region has 12 named outputs. If Moonlift's region lowering or code generation has limits on continuation count, this region will be the first to find them. Mitigation: the design is faithful to Moonlift's stated capabilities; if a practical limit exists, handle_return_mode can be decomposed into a tree of 2–3 continuation regions.
+3. **The 12-continuation `handle_return_mode` may stress Lalin's region generation**: Each continuation is a separate region output, meaning the handle_return_mode region has 12 named outputs. If Lalin's region lowering or code generation has limits on continuation count, this region will be the first to find them. Mitigation: the design is faithful to Lalin's stated capabilities; if a practical limit exists, handle_return_mode can be decomposed into a tree of 2–3 continuation regions.
 
 4. **Quickening with epoch-based invalidation requires thread safety if LuaThreads share Protos**: The README assumes single-threaded access within a LuaThread. If multiple threads share a `Proto` and one quickens an instruction, the other thread may read stale cache. This is deferred — the initial implementation is single-threaded, and quickening (step 11) is the last implementation step. Thread safety for quickened code will be addressed when coroutines or multiple LuaThreads are exercised in production.
 
-5. **API sealing may need additional C ABI glue for LuaJIT interop**: The sealed API functions (`lua_type_api`, `lua_pcall_api`, etc.) are Moonlift functions that match C calling conventions. If the VM is loaded from LuaJIT FFI, these functions must be exposed as C ABI exports with the correct argument passing conventions (C struct pointers, etc.). The initial implementation can test from a Moonlift-native harness; LuaJIT FFI integration is a deployment concern.
+5. **API sealing may need additional C ABI glue for LuaJIT interop**: The sealed API functions (`lua_type_api`, `lua_pcall_api`, etc.) are Lalin functions that match C calling conventions. If the VM is loaded from LuaJIT FFI, these functions must be exposed as C ABI exports with the correct argument passing conventions (C struct pointers, etc.). The initial implementation can test from a Lalin-native harness; LuaJIT FFI integration is a deployment concern.
 
 ---
 
@@ -662,17 +662,17 @@ Each step produces final-shape code for its domain. No step writes code that mus
 
 ## Edit-planner Output — 2026-05-21 21:20:56
 
-Now I have comprehensive understanding of the Moonlift syntax, the README specification, and the project conventions. Let me produce the implementation plan.
+Now I have comprehensive understanding of the Lalin syntax, the README specification, and the project conventions. Let me produce the implementation plan.
 
 ---
 
-# Moonlift Lua Interpreter VM — Complete Implementation Plan
+# Lalin Lua Interpreter VM — Complete Implementation Plan
 
 ## Precondition Checks
 
 Before any edits begin, verify:
 1. `experiments/lua_interpreter_vm/src/` directory exists (create if not)
-2. Confirm Moonlift hosted-island parsing works in `.mlua` files at `experiments/` level (the LSP/test harness path setup includes `./experiments/?/?.lua` etc.)
+2. Confirm Lalin hosted-island parsing works in `.mlua` files at `experiments/` level (the LSP/test harness path setup includes `./experiments/?/?.lua` etc.)
 3. Check that `extern` type declarations are supported for `Allocator` (an opaque pointer type used in `GlobalState`)
 4. Verify no conflicting `struct Value` or `struct Proto` declarations exist elsewhere in the experiments directory
 
@@ -688,12 +688,12 @@ Before any edits begin, verify:
 
 #### `experiments/lua_interpreter_vm/src/constants.mlua`
 
-**Goal**: Define all scalar constants (value tags, opcodes, TM events, frame modes, thread statuses, error codes, GC colors/states) as Lua `local` values that are spliced into Moonlift source.
+**Goal**: Define all scalar constants (value tags, opcodes, TM events, frame modes, thread statuses, error codes, GC colors/states) as Lua `local` values that are spliced into Lalin source.
 
 **Edit blocks**:
 1. **Lines 1-5**: Module header
    - `-- SPDX-License-Identifier: MIT` comment
-   - `-- Lua constants for the VM. Spliced into Moonlift source via @{} splices.`
+   - `-- Lua constants for the VM. Spliced into Lalin source via @{} splices.`
 
 2. **Lines 7-60**: Value tag constants
    ```lua
@@ -804,7 +804,7 @@ Before any edits begin, verify:
 
 #### `experiments/lua_interpreter_vm/src/products.mlua`
 
-**Goal**: Define all Moonlift struct types for the VM data type tree, in dependency order (no forward references).
+**Goal**: Define all Lalin struct types for the VM data type tree, in dependency order (no forward references).
 
 **Edit blocks**:
 
@@ -815,7 +815,7 @@ Before any edits begin, verify:
    ```
 
 2. **Lines 12-25**: `Value` struct
-   ```moonlift
+   ```lalin
    struct Value
        tag: u32
        aux: u32
@@ -825,7 +825,7 @@ Before any edits begin, verify:
    Note: `Value` is a flat 16-byte product. Tag dispatch determines interpretation of `bits`.
 
 3. **Lines 27-35**: `GCHeader` struct
-   ```moonlift
+   ```lalin
    struct GCHeader
        next: ptr(GCHeader)
        tt: u8
@@ -835,7 +835,7 @@ Before any edits begin, verify:
    `tt` matches the Value tag for the object type. `marked` encodes GC color + other flags.
 
 4. **Lines 37-50**: `Node` struct (table hash chain node)
-   ```moonlift
+   ```lalin
    struct Node
        key: Value
        value: Value
@@ -844,7 +844,7 @@ Before any edits begin, verify:
    ```
 
 5. **Lines 52-70**: `String` struct
-   ```moonlift
+   ```lalin
    struct String
        gc: GCHeader
        reserved: u8
@@ -856,7 +856,7 @@ Before any edits begin, verify:
    `bytes` points to the string data allocated adjacent or separately. String interning ensures pointer equality.
 
 6. **Lines 72-88**: `Table` struct
-   ```moonlift
+   ```lalin
    struct Table
        gc: GCHeader
        flags: u32
@@ -872,7 +872,7 @@ Before any edits begin, verify:
    `node_mask` is `2^hash_power - 1`. `lastfree` is the free chain pointer for the Lua hash collision resolution.
 
 7. **Lines 90-110**: `Instr` struct
-   ```moonlift
+   ```lalin
    struct Instr
        op: u16
        a: u16
@@ -885,7 +885,7 @@ Before any edits begin, verify:
    Decoded instruction. A loader must decode packed bytecode into this shape once.
 
 8. **Lines 112-125**: `LocVar` struct
-   ```moonlift
+   ```lalin
    struct LocVar
        name: ptr(String)
        startpc: index
@@ -894,7 +894,7 @@ Before any edits begin, verify:
    ```
 
 9. **Lines 127-140**: `UpValDesc` struct
-   ```moonlift
+   ```lalin
    struct UpValDesc
        name: ptr(String)
        instack: u8
@@ -903,7 +903,7 @@ Before any edits begin, verify:
    ```
 
 10. **Lines 142-175**: `Proto` struct
-    ```moonlift
+    ```lalin
     struct Proto
         gc: GCHeader
         code: ptr(Instr)
@@ -929,7 +929,7 @@ Before any edits begin, verify:
     `children` is an array of `ptr(Proto)` — child function prototypes for CLOSURE opcodes.
 
 11. **Lines 177-190**: `UpVal` struct
-    ```moonlift
+    ```lalin
     struct UpVal
         gc: GCHeader
         v: ptr(Value)
@@ -941,7 +941,7 @@ Before any edits begin, verify:
     `v` points into the Lua stack when open, or to `&closed` when closed.
 
 12. **Lines 192-205**: `LClosure` struct
-    ```moonlift
+    ```lalin
     struct LClosure
         gc: GCHeader
         env: ptr(Table)
@@ -953,7 +953,7 @@ Before any edits begin, verify:
     `upvals` is an array of `ptr(UpVal)` pointers.
 
 13. **Lines 207-218**: `NativeFunc` struct (opaque ABI function descriptor)
-    ```moonlift
+    ```lalin
     struct NativeFunc
         addr: ptr(u8)
         flags: u32
@@ -962,7 +962,7 @@ Before any edits begin, verify:
     `addr` is the function pointer. `flags` encodes yieldability, fast-call capability.
 
 14. **Lines 220-233**: `CClosure` struct
-    ```moonlift
+    ```lalin
     struct CClosure
         gc: GCHeader
         env: ptr(Table)
@@ -973,7 +973,7 @@ Before any edits begin, verify:
     ```
 
 15. **Lines 235-255**: `UserData` struct
-    ```moonlift
+    ```lalin
     struct UserData
         gc: GCHeader
         metatable: ptr(Table)
@@ -984,7 +984,7 @@ Before any edits begin, verify:
     ```
 
 16. **Lines 257-280**: `Frame` struct
-    ```moonlift
+    ```lalin
     struct Frame
         closure: Value
         base: index
@@ -1004,7 +1004,7 @@ Before any edits begin, verify:
     The 7 `resume_*` fields encode the dynamic Lua continuation payload.
 
 17. **Lines 282-295**: `ProtectedFrame` struct
-    ```moonlift
+    ```lalin
     struct ProtectedFrame
         frame_index: index
         stack_top: index
@@ -1016,7 +1016,7 @@ Before any edits begin, verify:
     Linked list (via `previous`) replacing C `setjmp` chain.
 
 18. **Lines 297-325**: `LuaThread` struct
-    ```moonlift
+    ```lalin
     struct LuaThread
         gc: GCHeader
         status: u8
@@ -1040,7 +1040,7 @@ Before any edits begin, verify:
     Note: `global` is `ptr(GlobalState)` — a forward reference to GlobalState declared below. This is OK as long as GlobalState appears later in the same file or module.
 
 19. **Lines 327-340**: `StringTable` struct
-    ```moonlift
+    ```lalin
     struct StringTable
         buckets: ptr(ptr(String))
         bucket_count: index
@@ -1049,7 +1049,7 @@ Before any edits begin, verify:
     ```
 
 20. **Lines 342-375**: `GlobalState` struct
-    ```moonlift
+    ```lalin
     struct GlobalState
         allocator: ptr(Allocator)
         registry: Value
@@ -1076,7 +1076,7 @@ Before any edits begin, verify:
     `allocator` is `ptr(Allocator)` — an opaque extern type. Define `Allocator` as an empty struct or extern type.
 
 21. **Lines 377-390**: `InlineCache` struct
-    ```moonlift
+    ```lalin
     struct InlineCache
         epoch: u32
         aux0: u32
@@ -1087,7 +1087,7 @@ Before any edits begin, verify:
     ```
 
 22. **Lines 392-405**: `QuickInstr` struct
-    ```moonlift
+    ```lalin
     struct QuickInstr
         instr: Instr
         cache: InlineCache
@@ -1095,7 +1095,7 @@ Before any edits begin, verify:
     ```
 
 23. **Lines 407-420**: `DebugInfo` struct
-    ```moonlift
+    ```lalin
     struct DebugInfo
         event: i32
         name: ptr(String)
@@ -1109,19 +1109,19 @@ Before any edits begin, verify:
     ```
 
 24. **Lines 422-430**: `Allocator` extern type wrapper
-    ```moonlift
+    ```lalin
     -- Allocator is defined in the C runtime. It's a function pointer table.
-    -- In Moonlift, we treat it as an opaque extern struct through which allocation
+    -- In Lalin, we treat it as an opaque extern struct through which allocation
     -- functions are called.
     ```
-    Since Moonlift doesn't have opaque extern types directly, define:
-    ```moonlift
+    Since Lalin doesn't have opaque extern types directly, define:
+    ```lalin
     struct Allocator
-        -- Opaque: actual layout is in C. Moonlift accesses via extern calls.
+        -- Opaque: actual layout is in C. Lalin accesses via extern calls.
     end
     ```
     Or just reference `Allocator` as an extern name. **Danger zone**: The compiler must accept a struct with no fields. If not supported, define a single dummy field:
-    ```moonlift
+    ```lalin
     struct Allocator
         _opaque: ptr(u8)
     end
@@ -1136,13 +1136,13 @@ Before any edits begin, verify:
         ...
     }
     ```
-    This is Lua code outside the Moonlift hosted island.
+    This is Lua code outside the Lalin hosted island.
 
 **Total**: ~440 lines
 
 **Danger zones**:
-- The `ptr(ptr(Proto))` and `ptr(ptr(String))` types must be verified as valid in Moonlift (pointer-to-pointer). Check Moonlift's pointer-to-pointer support.
-- `Frame` must appear before `LuaThread` which must appear before `GlobalState` (circular via `global` pointer). Since the structs are defined in one file, Moonlift must handle forward references to later structs via pointer types. If Moonlift requires topo-order, reorder: Value, GCHeader, Node, String, Table, Instr, LocVar, UpValDesc, Proto, UpVal, LClosure, NativeFunc, CClosure, UserData, InlineCache, QuickInstr, DebugInfo, ProtectedFrame, Allocator, Frame, GlobalState, StringTable, LuaThread. `LuaThread.global` is `ptr(GlobalState)` — this works if GlobalState is defined before LuaThread in source order.
+- The `ptr(ptr(Proto))` and `ptr(ptr(String))` types must be verified as valid in Lalin (pointer-to-pointer). Check Lalin's pointer-to-pointer support.
+- `Frame` must appear before `LuaThread` which must appear before `GlobalState` (circular via `global` pointer). Since the structs are defined in one file, Lalin must handle forward references to later structs via pointer types. If Lalin requires topo-order, reorder: Value, GCHeader, Node, String, Table, Instr, LocVar, UpValDesc, Proto, UpVal, LClosure, NativeFunc, CClosure, UserData, InlineCache, QuickInstr, DebugInfo, ProtectedFrame, Allocator, Frame, GlobalState, StringTable, LuaThread. `LuaThread.global` is `ptr(GlobalState)` — this works if GlobalState is defined before LuaThread in source order.
 - **Correct order** (from leaf to root): Value, GCHeader, Node, String, Table, Instr, LocVar, UpValDesc, Proto, UpVal, LClosure, NativeFunc, CClosure, UserData, InlineCache, QuickInstr, DebugInfo, Allocator, ProtectedFrame, Frame, StringTable, GlobalState, LuaThread. This avoids all forward references.
 
 ---
@@ -1156,7 +1156,7 @@ Before any edits begin, verify:
 **Edit blocks**:
 
 1. **Lines 1-20**: `value_truth` region
-   ```moonlift
+   ```lalin
    region value_truth(v: Value;
        truthy: cont(),
        falsey: cont())
@@ -1171,7 +1171,7 @@ Before any edits begin, verify:
    Key: Boolean is two tags so falsiness is exactly two tag comparisons.
 
 2. **Lines 22-40**: `value_as_number` region
-   ```moonlift
+   ```lalin
    region value_as_number(v: Value;
        number: cont(x: f64),
        not_number: cont())
@@ -1185,7 +1185,7 @@ Before any edits begin, verify:
    ```
 
 3. **Lines 42-65**: `value_to_number` region (with string→number coercion)
-   ```moonlift
+   ```lalin
    region value_to_number(
        L: ptr(LuaThread),
        v: Value;
@@ -1213,7 +1213,7 @@ Before any edits begin, verify:
    ```
 
 4. **Lines 67-82**: `value_as_string` region
-   ```moonlift
+   ```lalin
    region value_as_string(v: Value;
        string: cont(s: ptr(String)),
        not_string: cont())
@@ -1227,7 +1227,7 @@ Before any edits begin, verify:
    ```
 
 5. **Lines 84-105**: `value_to_string` region (with coercion)
-   ```moonlift
+   ```lalin
    region value_to_string(
        L: ptr(LuaThread),
        v: Value;
@@ -1250,7 +1250,7 @@ Before any edits begin, verify:
    ```
 
 6. **Lines 107-122**: `value_as_table` region
-   ```moonlift
+   ```lalin
    region value_as_table(v: Value;
        table: cont(t: ptr(Table)),
        not_table: cont())
@@ -1264,7 +1264,7 @@ Before any edits begin, verify:
    ```
 
 7. **Lines 124-142**: `value_as_function` region
-   ```moonlift
+   ```lalin
    region value_as_function(v: Value;
        lua: cont(cl: ptr(LClosure)),
        native: cont(cl: ptr(CClosure)),
@@ -1282,7 +1282,7 @@ Before any edits begin, verify:
    ```
 
 8. **Lines 144-175**: `value_raw_equal` region
-   ```moonlift
+   ```lalin
    region value_raw_equal(
        a: Value,
        b: Value;
@@ -1319,7 +1319,7 @@ Before any edits begin, verify:
    ```
 
 9. **Lines 177-215**: `value_equal` region (with __eq metamethod)
-   ```moonlift
+   ```lalin
    region value_equal(
        L: ptr(LuaThread),
        a: Value,
@@ -1344,7 +1344,7 @@ Before any edits begin, verify:
    ```
 
 10. **Lines 217-255**: `value_less_than` region
-    ```moonlift
+    ```lalin
     region value_less_than(
         L: ptr(LuaThread),
         a: Value,
@@ -1372,7 +1372,7 @@ Before any edits begin, verify:
     ```
 
 11. **Lines 257-295**: `value_less_equal` region
-    ```moonlift
+    ```lalin
     region value_less_equal(
         L: ptr(LuaThread),
         a: Value,
@@ -1400,9 +1400,9 @@ Before any edits begin, verify:
 **Total**: ~300 lines
 
 **Interesting patterns**:
-- `as(f64, v.bits)` converts `u64` bits to `f64` — confirm Moonlift supports this bitcast conversion
+- `as(f64, v.bits)` converts `u64` bits to `f64` — confirm Lalin supports this bitcast conversion
 - Tag constants are `@{TAG_NIL}` Lua splices from the constants module
-- Switch statements must have a `default` arm per Moonlift rules
+- Switch statements must have a `default` arm per Lalin rules
 - Each block path must terminate with `jump` — no fallthrough
 
 ---
@@ -1414,7 +1414,7 @@ Before any edits begin, verify:
 **Edit blocks**:
 
 1. **Lines 1-30**: `stack_check` region
-   ```moonlift
+   ```lalin
    region stack_check(
        L: ptr(LuaThread),
        needed_top: index;
@@ -1439,7 +1439,7 @@ Before any edits begin, verify:
    ```
 
 2. **Lines 32-65**: `frame_push` region
-   ```moonlift
+   ```lalin
    region frame_push(
        L: ptr(LuaThread),
        closure: Value,
@@ -1477,10 +1477,10 @@ Before any edits begin, verify:
    end
    end
    ```
-   **Key**: Write to `L.frames + idx` (pointer arithmetic) to get frame pointer. Confirm Moonlift supports `ptr + index` arithmetic.
+   **Key**: Write to `L.frames + idx` (pointer arithmetic) to get frame pointer. Confirm Lalin supports `ptr + index` arithmetic.
 
 3. **Lines 67-85**: `frame_pop` region
-   ```moonlift
+   ```lalin
    region frame_pop(
        L: ptr(LuaThread);
        parent: cont(frame: ptr(Frame)),
@@ -1505,7 +1505,7 @@ Before any edits begin, verify:
    ```
 
 4. **Lines 87-120**: `adjust_results` region
-   ```moonlift
+   ```lalin
    region adjust_results(
        L: ptr(LuaThread),
        first_result: index,
@@ -1545,7 +1545,7 @@ Before any edits begin, verify:
    ```
 
 5. **Lines 122-155**: `adjust_varargs` region
-   ```moonlift
+   ```lalin
    region adjust_varargs(
        L: ptr(LuaThread),
        cl: ptr(LClosure),
@@ -1573,9 +1573,9 @@ Before any edits begin, verify:
 **Total**: ~160 lines
 
 **Danger zones**:
-- Pointer arithmetic on `L.frames + idx` requires Moonlift to support `ptr(T) + index`. If not, use `L.frames[idx]` array-index syntax if Moonlift supports it. **Verify this compiles.**
+- Pointer arithmetic on `L.frames + idx` requires Lalin to support `ptr(T) + index`. If not, use `L.frames[idx]` array-index syntax if Lalin supports it. **Verify this compiles.**
 - `L.stack[dst + as(index, i)]` — confirm indexing into `ptr(Value)` via `[]` syntax.
-- The `block` loops `copy_loop` and `fill_remainder` use `var` mutable bindings — this is correct Moonlift for stack-backed mutables.
+- The `block` loops `copy_loop` and `fill_remainder` use `var` mutable bindings — this is correct Lalin for stack-backed mutables.
 
 ---
 
@@ -1588,7 +1588,7 @@ Before any edits begin, verify:
 **Edit blocks**:
 
 1. **Lines 1-50**: `prepare_call` region (the central call dispatcher)
-   ```moonlift
+   ```lalin
    region prepare_call(
        L: ptr(LuaThread),
        func_slot: index,
@@ -1644,7 +1644,7 @@ Before any edits begin, verify:
    ```
 
 2. **Lines 52-80**: `try_call_metamethod` region
-   ```moonlift
+   ```lalin
    region try_call_metamethod(
        L: ptr(LuaThread),
        func_slot: index;
@@ -1663,7 +1663,7 @@ Before any edits begin, verify:
    ```
 
 3. **Lines 82-120**: `call_native` region
-   ```moonlift
+   ```lalin
    region call_native(
        L: ptr(LuaThread),
        cl: ptr(CClosure),
@@ -1686,7 +1686,7 @@ Before any edits begin, verify:
    ```
 
 4. **Lines 122-175**: `return_from_lua` region
-   ```moonlift
+   ```lalin
    region return_from_lua(
        L: ptr(LuaThread),
        frame: ptr(Frame),
@@ -1735,7 +1735,7 @@ Before any edits begin, verify:
    ```
 
 5. **Lines 177-230**: `handle_return_mode` region (the 12+ continuation switch)
-   ```moonlift
+   ```lalin
    region handle_return_mode(
        L: ptr(LuaThread),
        parent: ptr(Frame),
@@ -1947,7 +1947,7 @@ The file should be regenerated whenever `opcodes.lua` changes. The worker agent 
 **Edit blocks** (representative — each opcode handler is a region):
 
 1. **Lines 1-25**: `op_move` — copy register value
-   ```moonlift
+   ```lalin
    region op_move(
        L: ptr(LuaThread),
        frame: ptr(Frame),
@@ -1970,7 +1970,7 @@ The file should be regenerated whenever `opcodes.lua` changes. The worker agent 
    ```
 
 2. **Lines 27-45**: `op_loadk` — load constant
-   ```moonlift
+   ```lalin
    region op_loadk(
        L: ptr(LuaThread),
        frame: ptr(Frame),
@@ -2018,7 +2018,7 @@ The file should be regenerated whenever `opcodes.lua` changes. The worker agent 
    - `op_vararg` (lines 682-710)
 
 **Representative handler: `op_gettable`**:
-```moonlift
+```lalin
 region op_gettable(
     L: ptr(LuaThread),
     frame: ptr(Frame),
@@ -2114,7 +2114,7 @@ end
 **Edit blocks**:
 
 1. **Lines 1-40**: `vm_resume` — entry point from API or coroutine resume
-   ```moonlift
+   ```lalin
    region vm_resume(
        L: ptr(LuaThread),
        nargs: i32;
@@ -2154,7 +2154,7 @@ end
    ```
 
 2. **Lines 42-100**: `vm_loop` — the main interpreter loop
-   ```moonlift
+   ```lalin
    region vm_loop(
        L: ptr(LuaThread);
        finished: cont(nres: i32),
@@ -2228,7 +2228,7 @@ end
    ```
 
 3. **Lines 102-115**: `commit_vm_state` region
-   ```moonlift
+   ```lalin
    region commit_vm_state(
        L: ptr(LuaThread),
        frame: ptr(Frame),
@@ -2246,7 +2246,7 @@ end
    ```
 
 4. **Lines 117-200**: `dispatch_instruction` region (can be generated by opcodes.lua)
-   ```moonlift
+   ```lalin
    region dispatch_instruction(
        L: ptr(LuaThread),
        frame: ptr(Frame),
@@ -2271,7 +2271,7 @@ end
        let c: u16 = instr.c
        let bx: u32 = instr.bx
        let sbx: i32 = instr.sbx
-       
+
        switch instr.op
            -- Each case emits the corresponding opcode handler
            case @{OP_MOVE} then
@@ -2515,7 +2515,7 @@ end
 
 Each API function is a `func` (not a region) — it's an external boundary:
 
-```moonlift
+```lalin
 func lua_type_api(L: ptr(LuaThread), idx: i32) -> i32
     -- Decode idx, return type constant
     return as(i32, @{TAG_NIL})
@@ -2553,7 +2553,7 @@ end
 
 **Edit blocks**: ~100 lines
 
-```moonlift
+```lalin
 region validate_proto(
     L: ptr(LuaThread),
     p: ptr(Proto);
@@ -2579,7 +2579,7 @@ end
 **Edit blocks**:
 1. **Lines 1-15**: Path setup and module loading
    ```lua
-   -- Moonlift Lua Interpreter VM — Module loader
+   -- Lalin Lua Interpreter VM — Module loader
    package.path = "./experiments/lua_interpreter_vm/src/?.lua;./experiments/lua_interpreter_vm/src/?.mlua;" .. package.path
 
    local vm = {}
@@ -2603,27 +2603,27 @@ end
 
 | # | File | Type | ~Lines | Dependencies |
 |---|------|------|--------|-------------|
-| 1 | `constants.mlua` | Lua+Moonlift | 210 | None |
-| 2 | `products.mlua` | Moonlift structs | 440 | constants |
-| 3 | `regions_value.mlua` | Moonlift regions | 300 | products, constants |
-| 4 | `regions_stack.mlua` | Moonlift regions | 160 | products, constants |
-| 5 | `regions_call.mlua` | Moonlift regions | 240 | regions_value, regions_stack, regions_upvalue |
+| 1 | `constants.mlua` | Lua+Lalin | 210 | None |
+| 2 | `products.mlua` | Lalin structs | 440 | constants |
+| 3 | `regions_value.mlua` | Lalin regions | 300 | products, constants |
+| 4 | `regions_stack.mlua` | Lalin regions | 160 | products, constants |
+| 5 | `regions_call.mlua` | Lalin regions | 240 | regions_value, regions_stack, regions_upvalue |
 | 6 | `opcodes.lua` | Lua generator | 170 | constants |
-| 7 | `opcodes_gen.mlua` | Generated Moonlift | 500 | opcodes, products |
-| 8 | `op_handlers.mlua` | Moonlift regions | 720 | opcodes_gen, regions_table, regions_call |
-| 9 | `vm_loop.mlua` | Moonlift regions | 210 | opcodes_gen, op_handlers |
-| 10 | `regions_table.mlua` | Moonlift regions | 310 | products, constants |
-| 11 | `regions_string.mlua` | Moonlift regions | 180 | products, regions_table |
-| 12 | `regions_upvalue.mlua` | Moonlift regions | 150 | products, regions_stack |
-| 13 | `regions_metamethod.mlua` | Moonlift regions | 250 | regions_table, regions_call |
-| 14 | `regions_error.mlua` | Moonlift regions | 200 | regions_call |
-| 15 | `regions_coroutine.mlua` | Moonlift regions | 150 | regions_call, regions_error |
-| 16 | `regions_gc.mlua` | Moonlift regions | 200 | products, constants |
-| 17 | `gc_impl.mlua` | Moonlift regions | 300 | regions_gc |
-| 18 | `regions_api.mlua` | Moonlift regions | 200 | products, regions_stack |
-| 19 | `api.mlua` | Moonlift funcs | 250 | regions_api |
-| 20 | `quickening.mlua` | Moonlift regions | 250 | products, opcodes_gen |
-| 21 | `validate.mlua` | Moonlift regions | 100 | products |
+| 7 | `opcodes_gen.mlua` | Generated Lalin | 500 | opcodes, products |
+| 8 | `op_handlers.mlua` | Lalin regions | 720 | opcodes_gen, regions_table, regions_call |
+| 9 | `vm_loop.mlua` | Lalin regions | 210 | opcodes_gen, op_handlers |
+| 10 | `regions_table.mlua` | Lalin regions | 310 | products, constants |
+| 11 | `regions_string.mlua` | Lalin regions | 180 | products, regions_table |
+| 12 | `regions_upvalue.mlua` | Lalin regions | 150 | products, regions_stack |
+| 13 | `regions_metamethod.mlua` | Lalin regions | 250 | regions_table, regions_call |
+| 14 | `regions_error.mlua` | Lalin regions | 200 | regions_call |
+| 15 | `regions_coroutine.mlua` | Lalin regions | 150 | regions_call, regions_error |
+| 16 | `regions_gc.mlua` | Lalin regions | 200 | products, constants |
+| 17 | `gc_impl.mlua` | Lalin regions | 300 | regions_gc |
+| 18 | `regions_api.mlua` | Lalin regions | 200 | products, regions_stack |
+| 19 | `api.mlua` | Lalin funcs | 250 | regions_api |
+| 20 | `quickening.mlua` | Lalin regions | 250 | products, opcodes_gen |
+| 21 | `validate.mlua` | Lalin regions | 100 | products |
 | 22 | `init.lua` | Lua loader | 40 | All modules |
 
 **Total**: ~4,600 lines of source code
@@ -2677,8 +2677,8 @@ The worker should follow this exact sequence:
 
 ### Incremental verification after each phase:
 
-**After Phase A**: 
-- Verify all struct definitions compile by loading `products.mlua` through the Moonlift compiler
+**After Phase A**:
+- Verify all struct definitions compile by loading `products.mlua` through the Lalin compiler
 - Check that `ptr(ptr(Proto))` and `ptr(ptr(String))` types are accepted
 - Verify all constant values match Lua 5.1 opcode numbering
 
@@ -2739,7 +2739,7 @@ The worker should follow this exact sequence:
 - Splices are loaded from the `constants` module: `local TAG_NIL = const.Tag.NIL`
 
 ### Pointer arithmetic:
-- `L.frames + idx` to index into frame array (verify Moonlift support)
+- `L.frames + idx` to index into frame array (verify Lalin support)
 - `L.stack + idx` to index into value stack
 - `*ptr` to dereference
 

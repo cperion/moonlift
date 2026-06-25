@@ -1,16 +1,16 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require("moonlift")
-local pvm = require("moonlift.pvm")
-local A2 = require("moonlift.schema_projection")
-local OpenFacts = require("moonlift.open_facts")
-local OpenValidate = require("moonlift.open_validate")
-local OpenExpand = require("moonlift.open_expand")
+local lalin = require("lalin")
+local pvm = require("lalin.pvm")
+local A2 = require("lalin.schema_projection")
+local OpenFacts = require("lalin.open_facts")
+local OpenValidate = require("lalin.open_validate")
+local OpenExpand = require("lalin.open_expand")
 
 local T = pvm.context()
 A2(T)
 
-local C, Ty, B, O, Tr = T.MoonCore, T.MoonType, T.MoonBind, T.MoonOpen, T.MoonTree
+local C, Ty, B, O, Tr = T.LalinCore, T.LalinType, T.LalinBind, T.LalinOpen, T.LalinTree
 local OF = OpenFacts(T)
 local OV = OpenValidate(T)
 local OE = OpenExpand(T)
@@ -68,8 +68,8 @@ assert(saw_cont_issue, "expected unfilled continuation slot issue")
 
 local filled = make_module({ O.ContBinding("hit", O.ContTargetLabel(Tr.BlockLabel("found"))) })
 local expanded = OE.module(filled, OE.env_with_frags({ region_frag }, {}))
-local compiled = moon.compile("ContinuationSlotSmoke", expanded)
+local compiled = lalin.compile("ContinuationSlotSmoke", expanded)
 local fn = compiled.cont_slot_smoke
 assert(fn() == 42)
 
-print("moonlift continuation slot expand ok")
+print("lalin continuation slot expand ok")

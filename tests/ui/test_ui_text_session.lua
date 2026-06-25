@@ -268,7 +268,7 @@ do
     win:set_text_input(true)
     win:set_text_input_rect(2, 3, 20, 16)
     win:set_text_input(false)
-    win.host:set_clipboard_text("moonlift-ui")
+    win.host:set_clipboard_text("lalin-ui")
     assert_eq(type(win.host:get_clipboard_text()), "string", "SDL clipboard hook returns string")
 
     local layout = text.layout(style_for("SDL"), Layout.Constraint(200, 100))

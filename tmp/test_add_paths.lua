@@ -2,19 +2,19 @@
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
-ffi.cdef[[void* moonlift_scratch_raw(int,int,int);]]
+ffi.cdef[[void* lalin_scratch_raw(int,int,int);]]
 local lib
-for _,p in ipairs({"./target/release/libmoonlift.so","./target/debug/libmoonlift.so","libmoonlift"}) do
+for _,p in ipairs({"./target/release/liblalin.so","./target/debug/liblalin.so","liblalin"}) do
     local ok,l=pcall(ffi.load,p)
     if ok then lib=l; break end
 end
-if not lib then error("libmoonlift not found") end
+if not lib then error("liblalin not found") end
 local S = function(slot, esz, cnt, ct)
-    return ffi.cast(ct or "uint8_t*", lib.moonlift_scratch_raw(slot, esz, cnt))
+    return ffi.cast(ct or "uint8_t*", lib.lalin_scratch_raw(slot, esz, cnt))
 end
 
 ffi.cdef[[
@@ -76,7 +76,7 @@ local function test_add(name, r0tag, r0val, r1tag, r1val)
     end
 
     local vr=vm.vm_loop.vm_resume
-    local runner=moon.func{vr=vr}[[
+    local runner=lalin.func{vr=vr}[[
     run(L:ptr(LuaThread))->i32
     return region->i32
     entry start() emit @{vr}(L,0;ok=d,yielded=y,runtime_error=e,oom=o) end

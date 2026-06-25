@@ -4,13 +4,13 @@
 -- Walks imported auth nodes, resolves style for each, appends parallel
 -- layout+decor nodes to the scene buffer.
 
-local H = moon.require("mlui_types")
+local H = lalin.require("mlui_types")
 local T = H.T
 local R = H.R
 local F = H.F
-local Mem = moon.require("mlui_memory")
-local RS = moon.require("mlui_resource_store")
-local Style = moon.require("mlui_style_resolve")
+local Mem = lalin.require("mlui_memory")
+local RS = lalin.require("mlui_resource_store")
+local Style = lalin.require("mlui_style_resolve")
 
 local AUTH_EMPTY = 1
 local AUTH_FRAGMENT = 2

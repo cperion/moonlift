@@ -1,8 +1,8 @@
-# Moonlift
+# Lalin
 
-Moonlift is a typed, jump-first compiled language embedded in LuaJIT.
+Lalin is a typed, jump-first compiled language embedded in LuaJIT.
 
-Lua is the metaprogramming and authoring layer. Moonlift receives the
+Lua is the metaprogramming and authoring layer. Lalin receives the
 monomorphic program after Lua has expanded templates, families, schemas, and
 fragments. The runtime backend is LuaJIT bytecode copy-patch through the
 LuaTrace stencil path.
@@ -10,9 +10,9 @@ LuaTrace stencil path.
 ```text
 Lua DSL values
   -> LLB family capture
-  -> MoonSyntax / MoonTree
+  -> LalinSyntax / LalinTree
   -> typecheck
-  -> MoonCode facts, kernels, schedules
+  -> LalinCode facts, kernels, schedules
   -> LuaTrace stencil plans
   -> LuaJIT bytecode bank
   -> loaded LuaJIT module
@@ -42,27 +42,27 @@ does not require an external build system or a system C compiler.
 ## Use
 
 ```lua
-local moon = require("moonlift")
-moon.use()
+local lalin = require("lalin")
+lalin.use()
 
 local add = fn. add { a [i32], b [i32] } [i32] {
   ret (a + b),
 }
 
-local module = moon.compile("demo", { add })
+local module = lalin.compile("demo", { add })
 print(module.add(3, 4)) -- 7
 ```
 
 For isolated evaluation without installing globals:
 
 ```lua
-local moon = require("moonlift")
+local lalin = require("lalin")
 
-local module = moon.loadstring([[
+local module = lalin.loadstring([[
   local add = fn. add { a [i32], b [i32] } [i32] {
     ret (a + b),
   }
-  return moon.compile("demo", { add })
+  return lalin.compile("demo", { add })
 ]], "demo.lua")()
 
 print(module.add(3, 4))
@@ -94,20 +94,20 @@ luajit tests/pvm/test_compiler_driver.lua
 - `lua/llb.lua` - the Lua Language Builder substrate: staged heads, fragments,
   managed `use`, origins, diagnostics, streams, and family algebra.
 - `lua/llisle/` - LLB-native rewrite/rule language used by lowering passes.
-- `lua/moonlift/dsl/` - Moonlift authoring surface: `fn`, `region`, `entry`,
+- `lua/lalin/dsl/` - Lalin authoring surface: `fn`, `region`, `entry`,
   `jump`, `emit`, type heads, contracts, and fragments.
-- `lua/moonlift/schema/` - MoonSchema/ASDL family definitions for syntax,
+- `lua/lalin/schema/` - LalinSchema/ASDL family definitions for syntax,
   tree, code, stencil, LuaJIT, compiler, host, phase, and runtime objects.
-- `lua/moonlift/frontend_pipeline.lua` - frontend pipeline from DSL values to
+- `lua/lalin/frontend_pipeline.lua` - frontend pipeline from DSL values to
   checked tree/code forms.
-- `lua/moonlift/luajit_backend.lua` - LuaTrace/LuaJIT backend facade.
-- `lua/moonlift/stencil_luajit.lua` - LuaTrace stencil lowering and bytecode
+- `lua/lalin/luajit_backend.lua` - LuaTrace/LuaJIT backend facade.
+- `lua/lalin/stencil_luajit.lua` - LuaTrace stencil lowering and bytecode
   bank materialization.
-- `lua/moonlift/luajit_bc_bank.lua` - LuaJIT bytecode copy-patch bank builder
+- `lua/lalin/luajit_bc_bank.lua` - LuaJIT bytecode copy-patch bank builder
   and loader.
-- `lua/moonlift/stencil_bank.lua` - native binary copy-patch stencil bank
+- `lua/lalin/stencil_bank.lua` - native binary copy-patch stencil bank
   support for C-compiled stencils.
-- `lua/moonlift/c_backend.lua` and related modules - optional C emission path.
+- `lua/lalin/c_backend.lua` and related modules - optional C emission path.
 - `lua/llpvm/` - LLPVM family member and bytecode/task substrate.
 
 ## Backend Model
@@ -115,7 +115,7 @@ luajit tests/pvm/test_compiler_driver.lua
 The canonical runtime backend is LuaTrace bytecode copy-patch:
 
 ```text
-MoonCode
+LalinCode
   -> kernel and schedule facts
   -> StencilArtifact[]
   -> LuaTrace plan
@@ -135,7 +135,7 @@ the compiler stack at runtime.
 
 ## Language Shape
 
-Moonlift is jump-first:
+Lalin is jump-first:
 
 ```lua
 local scan = region. scan
@@ -156,18 +156,18 @@ protocols or lowerings, not separate semantic universes.
 
 ## Documentation
 
-- `docs/LANGUAGE_REFERENCE.md` - Moonlift authoring reference.
+- `docs/LANGUAGE_REFERENCE.md` - Lalin authoring reference.
 - `docs/LLB_GUIDE.md` - LLB substrate and family guide.
 - `docs/LLB_GENERIC_REGION_ALGEBRA.md` - shared region/control model.
 - `docs/LUAJIT_BYTECODE_COPY_PATCH_BACKEND.md` - LuaTrace bytecode materializer.
 - `docs/LUAJIT_LUATRACE_STENCIL_BACKEND.md` - LuaTrace stencil backend.
 - `docs/LUAJIT_COPY_PATCH_STENCIL_BACKEND.md` - native binary stencil bank.
-- `docs/MOONLIFT_FAMILY_REFERENCE.md` - family composition rules.
+- `docs/LALIN_FAMILY_REFERENCE.md` - family composition rules.
 - `docs/CONVENTIONS.md` - naming and file organization.
 
 ## Design Rules
 
-1. Lua owns genericity and staging; Moonlift receives monomorphic programs.
+1. Lua owns genericity and staging; Lalin receives monomorphic programs.
 2. Products and protocols are explicit typed structures.
 3. Regions compose control; functions seal a single-return ABI.
 4. LLB families share symbols, types, fragments, origins, diagnostics, and

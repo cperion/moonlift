@@ -16,8 +16,8 @@ build.write_artifact("llpvm_amalgam.c", { h_path = "llpvm_amalgam.h" })
 or directly:
 
 ```lua
-local moon = require "moonlift"
-moon.emit_c_file_artifact("lua/llpvm/native/llpvm_abi.mlua", {
+local lalin = require "lalin"
+lalin.emit_c_file_artifact("lua/llpvm/native/llpvm_abi.mlua", {
     name = "llpvm",
     combined_path = "llpvm_amalgam.c",
     h_path = "llpvm_amalgam.h",
@@ -26,7 +26,7 @@ moon.emit_c_file_artifact("lua/llpvm/native/llpvm_abi.mlua", {
 ```
 
 The support source is explicit artifact input. The default LLPVM builder embeds
-the current extern pin layer used by the emitted Moonlift code:
+the current extern pin layer used by the emitted Lalin code:
 
 ```text
 default_malloc/default_realloc/default_free
@@ -58,13 +58,13 @@ that allocation.
 
 Known C-emission constraints:
 
-- Use `moon.emit_c_file_artifact(...)` or
-  `moon.bundle_file(...):emit_c_artifact(...)` for LLPVM `.mlua` modules.
+- Use `lalin.emit_c_file_artifact(...)` or
+  `lalin.bundle_file(...):emit_c_artifact(...)` for LLPVM `.mlua` modules.
 - Region fragments emitted across files should use `emit @{Module.region}(...)`
   so bundle lowering sees the fragment value.
 - Self-recursive region use must use `call region_name(...)` as a recursion
   boundary; a region cannot splice itself before its value exists.
-- View values use `len(v)` and `v[i]` in Moonlift source. They are not source
+- View values use `len(v)` and `v[i]` in Lalin source. They are not source
   structs with `.len` or `.data` fields.
 - Handle construction from raw integers must use `Handle.from_repr(raw)` inside
   trusted store code. Ordinary `as(Handle, raw)` is rejected by design.

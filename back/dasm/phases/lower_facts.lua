@@ -4,7 +4,7 @@
 -- LISLE is reserved for complex instruction selection (rules_x64.lisle).
 
 local bit = require("bit")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local Mx = require("back.dasm.model")
 
 local function vreg_of(D, v)
@@ -416,7 +416,7 @@ local function lowering_phase()
     if PHASE_LOWER then return PHASE_LOWER end
     local D = Mx.dasm()
 
-    PHASE_LOWER = pvm.phase("moonlift_dasm_lower_facts", {
+    PHASE_LOWER = pvm.phase("lalin_dasm_lower_facts", {
         [D.DFactSet] = function(facts)
             local cmd_by_index = {}
             for i = 1, #(facts.cmds or {}) do
@@ -451,7 +451,7 @@ return {
     run = function(fact_set)
         local D = Mx.dasm()
         if pvm.classof(fact_set) ~= D.DFactSet then
-            error("lower_facts.run expects MoonDasm.DFactSet", 2)
+            error("lower_facts.run expects LalinDasm.DFactSet", 2)
         end
         return pvm.one(lowering_phase()(fact_set))
     end,

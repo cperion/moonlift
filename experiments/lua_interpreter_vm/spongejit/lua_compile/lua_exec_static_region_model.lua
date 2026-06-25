@@ -5,7 +5,7 @@
 -- it does not dispatch to the VM, call helpers, or make source CALL executable.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local RT, Exec = T.LuaRT, T.LuaExec
 local RegionModel = require("lua_compile.lua_exec_region_model")

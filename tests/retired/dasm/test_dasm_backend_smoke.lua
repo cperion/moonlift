@@ -4,16 +4,16 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lib/?.lua;" 
                "./.vendor/LuaJIT/dynasm/?.lua;" .. package.path
 
 local ffi       = require("ffi")
-local pvm       = require("moonlift.pvm")
-local A2        = require("moonlift.schema_projection")
+local pvm       = require("lalin.pvm")
+local A2        = require("lalin.schema_projection")
 local dasm_init = require("back.dasm")
 
 local T = pvm.context()
 A2(T)
 local dasm_api = dasm_init(T)
 
-local B2 = T.MoonBack
-local C2 = T.MoonCore
+local B2 = T.LalinBack
+local C2 = T.LalinCore
 
 local function sid(text) return B2.BackSigId(text) end
 local function fid(text) return B2.BackFuncId(text) end

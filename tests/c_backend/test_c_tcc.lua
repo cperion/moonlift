@@ -1,6 +1,6 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local c_tcc = require("moonlift.c_tcc")
+local c_tcc = require("lalin.c_tcc")
 
 local ok, why = c_tcc.available()
 assert(type(ok) == "boolean", "available returns boolean")
@@ -10,7 +10,7 @@ if not ok then
     local session, err = c_tcc.compile("int answer(void) { return 42; }\n")
     assert(session == nil, "compile should not return a session when libtcc is absent")
     assert(type(err) == "table" and err.skip == true and err.message:match("libtcc"), "compile absence diagnostic should be clear")
-    io.write("libtcc not available; moonlift.c_tcc optional binding skip ok\n")
+    io.write("libtcc not available; lalin.c_tcc optional binding skip ok\n")
     os.exit(0)
 end
 
@@ -29,4 +29,4 @@ assert(add(20, 22) == 42, "module-level symbol should use last session")
 session:free()
 local missing, sym_err = session:symbol("answer", "int (*)(void)")
 assert(missing == nil and sym_err.code == "session_freed", "freed session should reject symbols")
-io.write("moonlift.c_tcc libtcc compile-run ok\n")
+io.write("lalin.c_tcc libtcc compile-run ok\n")

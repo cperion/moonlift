@@ -11,7 +11,7 @@
 --   layers, overlays, modal barriers, focus scopes.
 -- Selects topmost hover_id, cursor_id, scroll_id by pointer position.
 
-local H = moon.require("mlui_types")
+local H = lalin.require("mlui_types")
 local T = H.T
 local R = H.R
 local F = H.F
@@ -42,7 +42,7 @@ local VIEW_MODAL_BARRIER = 21
 
 local MAX_STACK = 64
 
--- Moonlift helpers callable from region bodies.
+-- Lalin helpers callable from region bodies.
 -- rect_intersect: returns a zero-sized rect if disjoint.
 local mlui_rect_intersect = func(ax: f64, ay: f64, aw: f64, ah: f64,
                                   bx: f64, by: f64, bw: f64, bh: f64): T.UiRect

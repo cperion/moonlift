@@ -1,6 +1,6 @@
 -- llpvm_memory.mlua -- Allocation and byte-buffer primitives for LLPVM.
 
-local H = moon.require("llpvm_header")
+local H = lalin.require("llpvm_header")
 local T = H.T
 
 local default_malloc = extern default_malloc(size: index): ptr(u8) end

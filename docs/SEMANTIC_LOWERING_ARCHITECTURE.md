@@ -1,4 +1,4 @@
-# Moonlift Semantic Lowering Architecture
+# Lalin Semantic Lowering Architecture
 
 Status: design decision. This document is intentionally concrete. It names the
 ASDL modules, the phase tree, the lowering contracts, the metadata that may cross
@@ -11,21 +11,21 @@ version removes those hidden choices.
 
 ## 0. The decision in one page
 
-Moonlift native performance will not be built from recognizers.
+Lalin native performance will not be built from recognizers.
 
 The compiler will lower through this fixed tree:
 
 ```text
-MoonTree
-  -> MoonCode
-  -> MoonGraph
-  -> MoonFlow
-  -> MoonValue
-  -> MoonMem
-  -> MoonEffect
-  -> MoonKernel
-  -> MoonSchedule
-  -> MoonLower
+LalinTree
+  -> LalinCode
+  -> LalinGraph
+  -> LalinFlow
+  -> LalinValue
+  -> LalinMem
+  -> LalinEffect
+  -> LalinKernel
+  -> LalinSchedule
+  -> LalinLower
   -> LuaTrace / C / native stencil bank realization
 ```
 
@@ -63,8 +63,8 @@ in the planning layers and does not cross the backend boundary.
 
 ## 1. Non-negotiable rules
 
-1. **MoonCode is the executable meaning boundary.** Backends do not recurse into
-   MoonTree for semantics.
+1. **LalinCode is the executable meaning boundary.** Backends do not recurse into
+   LalinTree for semantics.
 2. **No hidden compiler state as architecture.** Lua maps may be caches, but any
    meaning needed by another phase must be an ASDL value.
 3. **No whole-function performance cliff.** Whole-function kernel lowering is a
@@ -90,33 +90,33 @@ in the planning layers and does not cross the backend boundary.
 The target schema tree is:
 
 ```text
-lua/moonlift/schema/code.lua       existing; canonical Code, extended for leases/views
-lua/moonlift/schema/graph.lua      new; Code graph indices
-lua/moonlift/schema/flow.lua       existing; loop/control facts, tightened
-lua/moonlift/schema/value.lua      new; symbolic values, affine/reduction/algebra facts
-lua/moonlift/schema/mem.lua        existing; memory objects/access/safety/lease facts
-lua/moonlift/schema/effect.lua     new; calls, invalidation, noescape, trap/effect summaries
-lua/moonlift/schema/kernel.lua     existing; semantic kernels only, no schedules
-lua/moonlift/schema/schedule.lua   new; target-specific schedules/profitability
-lua/moonlift/schema/lower.lua      replace; compositional function fragment plan
-lua/moonlift/schema/back.lua       existing; executable Back only, no decorative facts
+lua/lalin/schema/code.lua       existing; canonical Code, extended for leases/views
+lua/lalin/schema/graph.lua      new; Code graph indices
+lua/lalin/schema/flow.lua       existing; loop/control facts, tightened
+lua/lalin/schema/value.lua      new; symbolic values, affine/reduction/algebra facts
+lua/lalin/schema/mem.lua        existing; memory objects/access/safety/lease facts
+lua/lalin/schema/effect.lua     new; calls, invalidation, noescape, trap/effect summaries
+lua/lalin/schema/kernel.lua     existing; semantic kernels only, no schedules
+lua/lalin/schema/schedule.lua   new; target-specific schedules/profitability
+lua/lalin/schema/lower.lua      replace; compositional function fragment plan
+lua/lalin/schema/back.lua       existing; executable Back only, no decorative facts
 ```
 
 Implementation modules mirror the schema tree:
 
 ```text
-lua/moonlift/tree_to_code.lua
-lua/moonlift/code_graph.lua
-lua/moonlift/code_flow_facts.lua
-lua/moonlift/code_value_facts.lua
-lua/moonlift/code_mem_facts.lua
-lua/moonlift/code_effect_facts.lua
-lua/moonlift/code_kernel_plan.lua
-lua/moonlift/code_kernel_plan_rules.lua
-lua/moonlift/code_schedule_plan.lua
-lua/moonlift/code_schedule_plan_rules.lua
-lua/moonlift/code_lower_plan.lua
-lua/moonlift/lower_to_back.lua
+lua/lalin/tree_to_code.lua
+lua/lalin/code_graph.lua
+lua/lalin/code_flow_facts.lua
+lua/lalin/code_value_facts.lua
+lua/lalin/code_mem_facts.lua
+lua/lalin/code_effect_facts.lua
+lua/lalin/code_kernel_plan.lua
+lua/lalin/code_kernel_plan_rules.lua
+lua/lalin/code_schedule_plan.lua
+lua/lalin/code_schedule_plan_rules.lua
+lua/lalin/code_lower_plan.lua
+lua/lalin/lower_to_back.lua
 ```
 
 `code_to_back.lua` remains only as the internal implementation of
@@ -147,9 +147,9 @@ vocabularies back into a single opaque lowering pass.
 
 ---
 
-## 4. MoonCode commitments
+## 4. LalinCode commitments
 
-MoonCode remains the canonical executable IR. It must explicitly represent the
+LalinCode remains the canonical executable IR. It must explicitly represent the
 values that later phases need.
 
 ### 4.1 Views are explicit Code values
@@ -161,15 +161,15 @@ meaning:
 
 ```asdl
 CodeInst = ...
-    | CodeInstViewMake(MoonCode.CodeValueId dst,
-                       MoonCode.CodeType elem_ty,
-                       MoonCode.CodeValueId data,
-                       MoonCode.CodeValueId len,
-                       MoonCode.CodeValueId stride,
-                       MoonCode.CodeOrigin origin) unique
-    | CodeInstViewData(MoonCode.CodeValueId dst, MoonCode.CodeValueId view, MoonCode.CodeOrigin origin) unique
-    | CodeInstViewLen(MoonCode.CodeValueId dst, MoonCode.CodeValueId view, MoonCode.CodeOrigin origin) unique
-    | CodeInstViewStride(MoonCode.CodeValueId dst, MoonCode.CodeValueId view, MoonCode.CodeOrigin origin) unique
+    | CodeInstViewMake(LalinCode.CodeValueId dst,
+                       LalinCode.CodeType elem_ty,
+                       LalinCode.CodeValueId data,
+                       LalinCode.CodeValueId len,
+                       LalinCode.CodeValueId stride,
+                       LalinCode.CodeOrigin origin) unique
+    | CodeInstViewData(LalinCode.CodeValueId dst, LalinCode.CodeValueId view, LalinCode.CodeOrigin origin) unique
+    | CodeInstViewLen(LalinCode.CodeValueId dst, LalinCode.CodeValueId view, LalinCode.CodeOrigin origin) unique
+    | CodeInstViewStride(LalinCode.CodeValueId dst, LalinCode.CodeValueId view, LalinCode.CodeOrigin origin) unique
 ```
 
 A view may still lower to multiple machine values, but the decomposition is Code,
@@ -181,17 +181,17 @@ Lease-ness is not a machine representation, but it is Code meaning.
 
 ```asdl
 CodeType = ...
-    | CodeTyLease(MoonCode.CodeType base, MoonType.Type source_ty) unique
+    | CodeTyLease(LalinCode.CodeType base, LalinType.Type source_ty) unique
 ```
 
-Lowering may erase `CodeTyLease(base)` to `base` only after `MoonEffect` proves
+Lowering may erase `CodeTyLease(base)` to `base` only after `LalinEffect` proves
 no escape and no invalidating same-store operation crosses the live range.
 
 ### 4.3 Handles remain opaque Code values
 
 ```asdl
 CodeType = ...
-    | CodeTyHandle(MoonCode.CodeType repr, MoonType.Type source_ty) unique
+    | CodeTyHandle(LalinCode.CodeType repr, LalinType.Type source_ty) unique
 ```
 
 Allowed Code operations on handles:
@@ -216,34 +216,34 @@ may inspect raw source contract syntax.
 
 ---
 
-## 5. MoonGraph ASDL
+## 5. LalinGraph ASDL
 
-`MoonGraph` is the shared index over Code. It is deliberately non-semantic.
+`LalinGraph` is the shared index over Code. It is deliberately non-semantic.
 
 ```asdl
-module MoonGraph {
-    GraphBlockId = (MoonCode.CodeFuncId func, MoonCode.CodeBlockId block) unique
-    GraphInstRef = (MoonCode.CodeFuncId func, MoonCode.CodeBlockId block, MoonCode.CodeInstId inst) unique
-    GraphEdge = (MoonGraph.GraphBlockId from, MoonGraph.GraphBlockId to, string kind) unique
+module LalinGraph {
+    GraphBlockId = (LalinCode.CodeFuncId func, LalinCode.CodeBlockId block) unique
+    GraphInstRef = (LalinCode.CodeFuncId func, LalinCode.CodeBlockId block, LalinCode.CodeInstId inst) unique
+    GraphEdge = (LalinGraph.GraphBlockId from, LalinGraph.GraphBlockId to, string kind) unique
 
-    GraphUse = (MoonCode.CodeValueId value, MoonGraph.GraphInstRef? inst, MoonGraph.GraphBlockId? term_block, string role) unique
-    GraphDef = (MoonCode.CodeValueId value, MoonGraph.GraphInstRef? inst, MoonCode.CodeParamId? param) unique
+    GraphUse = (LalinCode.CodeValueId value, LalinGraph.GraphInstRef? inst, LalinGraph.GraphBlockId? term_block, string role) unique
+    GraphDef = (LalinCode.CodeValueId value, LalinGraph.GraphInstRef? inst, LalinCode.CodeParamId? param) unique
 
     GraphLoopId = (string text) unique
-    GraphLoop = (MoonGraph.GraphLoopId id,
-                 MoonCode.CodeFuncId func,
-                 MoonGraph.GraphBlockId header,
-                 MoonGraph.GraphBlockId* body,
-                 MoonGraph.GraphEdge* latches,
-                 MoonGraph.GraphEdge* exits) unique
+    GraphLoop = (LalinGraph.GraphLoopId id,
+                 LalinCode.CodeFuncId func,
+                 LalinGraph.GraphBlockId header,
+                 LalinGraph.GraphBlockId* body,
+                 LalinGraph.GraphEdge* latches,
+                 LalinGraph.GraphEdge* exits) unique
 
-    CodeFuncGraph = (MoonCode.CodeFuncId func,
-                     MoonGraph.GraphEdge* edges,
-                     MoonGraph.GraphDef* defs,
-                     MoonGraph.GraphUse* uses,
-                     MoonGraph.GraphLoop* loops) unique
+    CodeFuncGraph = (LalinCode.CodeFuncId func,
+                     LalinGraph.GraphEdge* edges,
+                     LalinGraph.GraphDef* defs,
+                     LalinGraph.GraphUse* uses,
+                     LalinGraph.GraphLoop* loops) unique
 
-    CodeGraph = (MoonCode.CodeModuleId module, MoonGraph.CodeFuncGraph* funcs) unique
+    CodeGraph = (LalinCode.CodeModuleId module, LalinGraph.CodeFuncGraph* funcs) unique
 }
 ```
 
@@ -252,9 +252,9 @@ required graph vocabulary is edges, defs, uses, loops.
 
 ---
 
-## 6. MoonFlow ASDL tightening
+## 6. LalinFlow ASDL tightening
 
-MoonFlow owns control domains. Existing loop facts remain, but the subject type
+LalinFlow owns control domains. Existing loop facts remain, but the subject type
 must align with Graph loops.
 
 Required additions/standardization:
@@ -262,12 +262,12 @@ Required additions/standardization:
 ```asdl
 FlowDomainId = (string text) unique
 
-FlowDomain = FlowDomainLoop(MoonGraph.GraphLoopId loop) unique
-    | FlowDomainBlockRange(MoonCode.CodeFuncId func, MoonCode.CodeBlockId entry, MoonCode.CodeBlockId exit) unique
-    | FlowDomainFunction(MoonCode.CodeFuncId func) unique
+FlowDomain = FlowDomainLoop(LalinGraph.GraphLoopId loop) unique
+    | FlowDomainBlockRange(LalinCode.CodeFuncId func, LalinCode.CodeBlockId entry, LalinCode.CodeBlockId exit) unique
+    | FlowDomainFunction(LalinCode.CodeFuncId func) unique
 
-FlowTripCount = FlowTripCountExact(MoonCode.CodeValueId count, MoonMem.MemProof? proof) unique
-    | FlowTripCountNonNegative(MoonCode.CodeValueId count, MoonMem.MemProof? proof) unique
+FlowTripCount = FlowTripCountExact(LalinCode.CodeValueId count, LalinMem.MemProof? proof) unique
+    | FlowTripCountNonNegative(LalinCode.CodeValueId count, LalinMem.MemProof? proof) unique
     | FlowTripCountUnknown(string reason) unique
 ```
 
@@ -276,64 +276,64 @@ non-negative as exact.
 
 ---
 
-## 7. MoonValue / MoonAlgebra ASDL
+## 7. LalinValue / LalinAlgebra ASDL
 
 This is the largest missing layer. It removes algebra from Kernel recognizers.
 
 ```asdl
-module MoonValue {
+module LalinValue {
     ValueFactId = (string text) unique
     AlgebraFactId = (string text) unique
 
-    ValueExpr = ValueExprConst(MoonCode.CodeConst const) unique
-        | ValueExprValue(MoonCode.CodeValueId value) unique
-        | ValueExprAdd(MoonValue.ValueExpr a, MoonValue.ValueExpr b, MoonCode.CodeType ty, MoonCode.CodeIntSemantics? sem) unique
-        | ValueExprSub(MoonValue.ValueExpr a, MoonValue.ValueExpr b, MoonCode.CodeType ty, MoonCode.CodeIntSemantics? sem) unique
-        | ValueExprMul(MoonValue.ValueExpr a, MoonValue.ValueExpr b, MoonCode.CodeType ty, MoonCode.CodeIntSemantics? sem) unique
-        | ValueExprDiv(MoonValue.ValueExpr a, MoonValue.ValueExpr b, MoonCode.CodeType ty, MoonCode.CodeIntSemantics? sem) unique
-        | ValueExprSelect(MoonValue.ValueExpr cond, MoonValue.ValueExpr t, MoonValue.ValueExpr f) unique
-        | ValueExprCmp(MoonCore.CmpOp op, MoonCode.CodeType ty, MoonValue.ValueExpr a, MoonValue.ValueExpr b) unique
-        | ValueExprAffine(MoonValue.AffineExpr affine) unique
+    ValueExpr = ValueExprConst(LalinCode.CodeConst const) unique
+        | ValueExprValue(LalinCode.CodeValueId value) unique
+        | ValueExprAdd(LalinValue.ValueExpr a, LalinValue.ValueExpr b, LalinCode.CodeType ty, LalinCode.CodeIntSemantics? sem) unique
+        | ValueExprSub(LalinValue.ValueExpr a, LalinValue.ValueExpr b, LalinCode.CodeType ty, LalinCode.CodeIntSemantics? sem) unique
+        | ValueExprMul(LalinValue.ValueExpr a, LalinValue.ValueExpr b, LalinCode.CodeType ty, LalinCode.CodeIntSemantics? sem) unique
+        | ValueExprDiv(LalinValue.ValueExpr a, LalinValue.ValueExpr b, LalinCode.CodeType ty, LalinCode.CodeIntSemantics? sem) unique
+        | ValueExprSelect(LalinValue.ValueExpr cond, LalinValue.ValueExpr t, LalinValue.ValueExpr f) unique
+        | ValueExprCmp(LalinCore.CmpOp op, LalinCode.CodeType ty, LalinValue.ValueExpr a, LalinValue.ValueExpr b) unique
+        | ValueExprAffine(LalinValue.AffineExpr affine) unique
 
-    AffineTerm = (MoonCode.CodeValueId value, string coeff) unique
-    AffineExpr = (string constant, MoonValue.AffineTerm* terms, MoonCode.CodeType ty, MoonCode.CodeIntSemantics? sem) unique
+    AffineTerm = (LalinCode.CodeValueId value, string coeff) unique
+    AffineExpr = (string constant, LalinValue.AffineTerm* terms, LalinCode.CodeType ty, LalinCode.CodeIntSemantics? sem) unique
 
     ValueRange = ValueRangeUnknown(string reason) unique
-        | ValueRangeInt(MoonCode.CodeValueId value, MoonValue.ValueExpr lo, MoonValue.ValueExpr hi, bool inclusive_hi, MoonValue.AlgebraProof proof) unique
+        | ValueRangeInt(LalinCode.CodeValueId value, LalinValue.ValueExpr lo, LalinValue.ValueExpr hi, bool inclusive_hi, LalinValue.AlgebraProof proof) unique
 
     ReductionKind = ReductionAdd | ReductionMul | ReductionMin | ReductionMax | ReductionAnd | ReductionOr | ReductionXor
 
-    ReductionFact = (MoonValue.AlgebraFactId id,
-                     MoonFlow.FlowDomain domain,
-                     MoonCode.CodeValueId accumulator,
-                     MoonValue.ReductionKind kind,
-                     MoonValue.ValueExpr init,
-                     MoonValue.ValueExpr contribution,
-                     MoonCode.CodeType ty,
-                     MoonCode.CodeIntSemantics? int_semantics,
-                     MoonCode.CodeFloatMode? float_mode,
-                     MoonValue.AlgebraProof proof) unique
+    ReductionFact = (LalinValue.AlgebraFactId id,
+                     LalinFlow.FlowDomain domain,
+                     LalinCode.CodeValueId accumulator,
+                     LalinValue.ReductionKind kind,
+                     LalinValue.ValueExpr init,
+                     LalinValue.ValueExpr contribution,
+                     LalinCode.CodeType ty,
+                     LalinCode.CodeIntSemantics? int_semantics,
+                     LalinCode.CodeFloatMode? float_mode,
+                     LalinValue.AlgebraProof proof) unique
 
-    ClosedFormFact = (MoonValue.AlgebraFactId id,
-                      MoonValue.ReductionFact reduction,
-                      MoonValue.ValueExpr expr,
-                      MoonValue.AlgebraProof proof) unique
+    ClosedFormFact = (LalinValue.AlgebraFactId id,
+                      LalinValue.ReductionFact reduction,
+                      LalinValue.ValueExpr expr,
+                      LalinValue.AlgebraProof proof) unique
 
-    AlgebraProof = AlgebraProofFlow(MoonFlow.FlowDomain domain, string reason) unique
-        | AlgebraProofNoWrap(MoonCode.CodeValueId value, string reason) unique
+    AlgebraProof = AlgebraProofFlow(LalinFlow.FlowDomain domain, string reason) unique
+        | AlgebraProofNoWrap(LalinCode.CodeValueId value, string reason) unique
         | AlgebraProofIdentity(string reason) unique
-        | AlgebraProofReduction(MoonValue.ReductionFact fact, string reason) unique
-        | AlgebraProofComposite(MoonValue.AlgebraProof* proofs, string reason) unique
+        | AlgebraProofReduction(LalinValue.ReductionFact fact, string reason) unique
+        | AlgebraProofComposite(LalinValue.AlgebraProof* proofs, string reason) unique
 
-    ValueFact = ValueExprFact(MoonCode.CodeValueId value, MoonValue.ValueExpr expr, MoonValue.AlgebraProof proof) unique
-        | ValueRangeFact(MoonValue.ValueRange range) unique
-        | ValueNoWrapFact(MoonCode.CodeValueId value, MoonCode.CodeIntSemantics sem, MoonValue.AlgebraProof proof) unique
-        | ValueFloatModeFact(MoonCode.CodeValueId value, MoonCode.CodeFloatMode mode, MoonValue.AlgebraProof proof) unique
+    ValueFact = ValueExprFact(LalinCode.CodeValueId value, LalinValue.ValueExpr expr, LalinValue.AlgebraProof proof) unique
+        | ValueRangeFact(LalinValue.ValueRange range) unique
+        | ValueNoWrapFact(LalinCode.CodeValueId value, LalinCode.CodeIntSemantics sem, LalinValue.AlgebraProof proof) unique
+        | ValueFloatModeFact(LalinCode.CodeValueId value, LalinCode.CodeFloatMode mode, LalinValue.AlgebraProof proof) unique
 
-    ValueFactSet = (MoonCode.CodeModuleId module,
-                    MoonValue.ValueFact* values,
-                    MoonValue.ReductionFact* reductions,
-                    MoonValue.ClosedFormFact* closed_forms) unique
+    ValueFactSet = (LalinCode.CodeModuleId module,
+                    LalinValue.ValueFact* values,
+                    LalinValue.ReductionFact* reductions,
+                    LalinValue.ClosedFormFact* closed_forms) unique
 }
 ```
 
@@ -345,9 +345,9 @@ Decisions:
 
 ---
 
-## 8. MoonMem additions
+## 8. LalinMem additions
 
-MoonMem already exists. The missing concrete decisions are lease grants, object
+LalinMem already exists. The missing concrete decisions are lease grants, object
 relations, and backend-consumable metadata.
 
 Required additions:
@@ -355,28 +355,28 @@ Required additions:
 ```asdl
 MemLeaseId = (string text) unique
 
-MemLeaseGrant = (MoonMem.MemLeaseId id,
-                 MoonFlow.FlowDomain? domain,
-                 MoonCode.CodeValueId lease_value,
-                 MoonCode.CodeValueId? handle,
-                 MoonMem.MemObjectId object,
-                 MoonMem.MemBase base,
-                 MoonMem.MemObjectExtent extent,
-                 MoonMem.MemObjectStride stride,
-                 MoonMem.MemProof proof) unique
+MemLeaseGrant = (LalinMem.MemLeaseId id,
+                 LalinFlow.FlowDomain? domain,
+                 LalinCode.CodeValueId lease_value,
+                 LalinCode.CodeValueId? handle,
+                 LalinMem.MemObjectId object,
+                 LalinMem.MemBase base,
+                 LalinMem.MemObjectExtent extent,
+                 LalinMem.MemObjectStride stride,
+                 LalinMem.MemProof proof) unique
 
-MemObjectRelation = MemObjectsSameLen(MoonMem.MemObjectId a, MoonMem.MemObjectId b, MoonMem.MemProof proof) unique
-    | MemObjectWindowOf(MoonMem.MemObjectId window, MoonMem.MemObjectId parent, MoonCode.CodeValueId start, MoonCode.CodeValueId len, MoonMem.MemProof proof) unique
-    | MemObjectSliceOf(MoonMem.MemObjectId slice, MoonMem.MemObjectId parent, MoonCode.CodeValueId start, MoonCode.CodeValueId len, MoonMem.MemProof proof) unique
-    | MemObjectSameStore(MoonMem.MemObjectId a, MoonMem.MemObjectId b, MoonMem.MemProof proof) unique
+MemObjectRelation = MemObjectsSameLen(LalinMem.MemObjectId a, LalinMem.MemObjectId b, LalinMem.MemProof proof) unique
+    | MemObjectWindowOf(LalinMem.MemObjectId window, LalinMem.MemObjectId parent, LalinCode.CodeValueId start, LalinCode.CodeValueId len, LalinMem.MemProof proof) unique
+    | MemObjectSliceOf(LalinMem.MemObjectId slice, LalinMem.MemObjectId parent, LalinCode.CodeValueId start, LalinCode.CodeValueId len, LalinMem.MemProof proof) unique
+    | MemObjectSameStore(LalinMem.MemObjectId a, LalinMem.MemObjectId b, LalinMem.MemProof proof) unique
 
-MemBackendAccessInfo = (MoonMem.MemAccessId access,
-                        MoonMem.MemTrap trap,
-                        MoonMem.MemAlignment alignment,
-                        MoonMem.MemBounds bounds,
+MemBackendAccessInfo = (LalinMem.MemAccessId access,
+                        LalinMem.MemTrap trap,
+                        LalinMem.MemAlignment alignment,
+                        LalinMem.MemBounds bounds,
                         number? deref_bytes,
                         bool movable,
-                        MoonMem.MemProof* proofs) unique
+                        LalinMem.MemProof* proofs) unique
 ```
 
 Decision: `MemBackendAccessInfo` is the canonical bridge from Mem facts to Back
@@ -387,41 +387,41 @@ lease, or trusted boundary fact creates an object.
 
 ---
 
-## 9. MoonEffect ASDL
+## 9. LalinEffect ASDL
 
 Effects are not optional. Without them, real programs cannot move, vectorize, or
 protect leases correctly.
 
 ```asdl
-module MoonEffect {
+module LalinEffect {
     EffectId = (string text) unique
 
-    EffectObject = EffectObjectMem(MoonMem.MemObjectId object) unique
-        | EffectObjectStore(MoonCode.CodeValueId store_value) unique
+    EffectObject = EffectObjectMem(LalinMem.MemObjectId object) unique
+        | EffectObjectStore(LalinCode.CodeValueId store_value) unique
         | EffectObjectUnknown(string reason) unique
 
-    OpEffect = EffectRead(MoonEffect.EffectObject object, MoonMem.MemProof? proof) unique
-        | EffectWrite(MoonEffect.EffectObject object, MoonMem.MemProof? proof) unique
-        | EffectInvalidate(MoonEffect.EffectObject object, string reason) unique
-        | EffectRetain(MoonCode.CodeValueId value, string reason) unique
-        | EffectNoEscape(MoonCode.CodeValueId value, string reason) unique
+    OpEffect = EffectRead(LalinEffect.EffectObject object, LalinMem.MemProof? proof) unique
+        | EffectWrite(LalinEffect.EffectObject object, LalinMem.MemProof? proof) unique
+        | EffectInvalidate(LalinEffect.EffectObject object, string reason) unique
+        | EffectRetain(LalinCode.CodeValueId value, string reason) unique
+        | EffectNoEscape(LalinCode.CodeValueId value, string reason) unique
         | EffectMayTrap(string reason) unique
         | EffectNoTrap(string reason) unique
         | EffectVolatile(string reason) unique
         | EffectAtomic(string ordering) unique
         | EffectUnknown(string reason) unique
 
-    CallSummary = (MoonCode.CodeFuncId? callee,
+    CallSummary = (LalinCode.CodeFuncId? callee,
                    string? extern_name,
-                   MoonEffect.OpEffect* effects) unique
+                   LalinEffect.OpEffect* effects) unique
 
-    InstEffect = (MoonCode.CodeInstId inst, MoonEffect.OpEffect* effects) unique
-    TermEffect = (MoonCode.CodeBlockId block, MoonEffect.OpEffect* effects) unique
+    InstEffect = (LalinCode.CodeInstId inst, LalinEffect.OpEffect* effects) unique
+    TermEffect = (LalinCode.CodeBlockId block, LalinEffect.OpEffect* effects) unique
 
-    EffectFactSet = (MoonCode.CodeModuleId module,
-                     MoonEffect.CallSummary* calls,
-                     MoonEffect.InstEffect* insts,
-                     MoonEffect.TermEffect* terms) unique
+    EffectFactSet = (LalinCode.CodeModuleId module,
+                     LalinEffect.CallSummary* calls,
+                     LalinEffect.InstEffect* insts,
+                     LalinEffect.TermEffect* terms) unique
 }
 ```
 
@@ -434,72 +434,72 @@ Decisions:
 
 ---
 
-## 10. MoonKernel ASDL rewrite
+## 10. LalinKernel ASDL rewrite
 
 Kernel no longer contains schedules. Kernel no longer implies function
 replacement.
 
 ```asdl
-module MoonKernel {
+module LalinKernel {
     KernelId = (string text) unique
 
-    KernelSubject = KernelSubjectFunction(MoonCode.CodeFuncId func) unique
-        | KernelSubjectLoop(MoonGraph.GraphLoopId loop) unique
-        | KernelSubjectDomain(MoonFlow.FlowDomain domain) unique
-        | KernelSubjectFragment(MoonCode.CodeFuncId func, MoonCode.CodeBlockId entry, MoonCode.CodeBlockId exit) unique
+    KernelSubject = KernelSubjectFunction(LalinCode.CodeFuncId func) unique
+        | KernelSubjectLoop(LalinGraph.GraphLoopId loop) unique
+        | KernelSubjectDomain(LalinFlow.FlowDomain domain) unique
+        | KernelSubjectFragment(LalinCode.CodeFuncId func, LalinCode.CodeBlockId entry, LalinCode.CodeBlockId exit) unique
 
-    KernelDomain = KernelDomainFlow(MoonFlow.FlowDomain domain,
-                                    MoonFlow.FlowTripCount trip_count,
-                                    MoonCode.CodeValueId? counter) unique
+    KernelDomain = KernelDomainFlow(LalinFlow.FlowDomain domain,
+                                    LalinFlow.FlowTripCount trip_count,
+                                    LalinCode.CodeValueId? counter) unique
 
-    KernelLane = (MoonKernel.KernelLaneId id,
-                    MoonMem.MemObjectId object,
-                    MoonMem.MemAccessId* accesses,
-                    MoonMem.MemBase base,
-                    MoonCode.CodeType elem_ty,
-                    MoonMem.MemAccessPattern pattern,
-                    MoonMem.MemBackendAccessInfo* backend_info) unique
+    KernelLane = (LalinKernel.KernelLaneId id,
+                    LalinMem.MemObjectId object,
+                    LalinMem.MemAccessId* accesses,
+                    LalinMem.MemBase base,
+                    LalinCode.CodeType elem_ty,
+                    LalinMem.MemAccessPattern pattern,
+                    LalinMem.MemBackendAccessInfo* backend_info) unique
 
-    KernelExpr = KernelExprValue(MoonCode.CodeValueId value) unique
-        | KernelExprAlgebra(MoonValue.ValueExpr expr) unique
-        | KernelExprLaneLoad(MoonKernel.KernelLane lane, MoonValue.ValueExpr index) unique
-        | KernelExprKernelValue(MoonKernel.KernelValueId value) unique
+    KernelExpr = KernelExprValue(LalinCode.CodeValueId value) unique
+        | KernelExprAlgebra(LalinValue.ValueExpr expr) unique
+        | KernelExprLaneLoad(LalinKernel.KernelLane lane, LalinValue.ValueExpr index) unique
+        | KernelExprKernelValue(LalinKernel.KernelValueId value) unique
 
-    KernelBinding = (MoonKernel.KernelValueId id, MoonCode.CodeType ty, MoonKernel.KernelExpr expr) unique
+    KernelBinding = (LalinKernel.KernelValueId id, LalinCode.CodeType ty, LalinKernel.KernelExpr expr) unique
 
-    KernelEffect = KernelEffectStore(MoonKernel.KernelLane dst, MoonValue.ValueExpr index, MoonKernel.KernelExpr value) unique
-        | KernelEffectScan(MoonKernel.KernelLane dst, MoonValue.ValueExpr index, MoonValue.ReductionFact reduction, MoonStencil.StencilScanMode mode) unique
-        | KernelEffectPartition(MoonKernel.KernelLane dst, MoonKernel.KernelExpr src, MoonStencil.StencilPredicate pred, MoonStencil.StencilPartitionSemantics semantics) unique
-        | KernelEffectCopy(MoonKernel.KernelLane dst, MoonKernel.KernelExpr src, MoonStencil.StencilCopySemantics semantics) unique
-        | KernelEffectFold(MoonValue.ReductionFact reduction) unique
-        | KernelEffectCall(MoonEffect.CallSummary call) unique
+    KernelEffect = KernelEffectStore(LalinKernel.KernelLane dst, LalinValue.ValueExpr index, LalinKernel.KernelExpr value) unique
+        | KernelEffectScan(LalinKernel.KernelLane dst, LalinValue.ValueExpr index, LalinValue.ReductionFact reduction, LalinStencil.StencilScanMode mode) unique
+        | KernelEffectPartition(LalinKernel.KernelLane dst, LalinKernel.KernelExpr src, LalinStencil.StencilPredicate pred, LalinStencil.StencilPartitionSemantics semantics) unique
+        | KernelEffectCopy(LalinKernel.KernelLane dst, LalinKernel.KernelExpr src, LalinStencil.StencilCopySemantics semantics) unique
+        | KernelEffectFold(LalinValue.ReductionFact reduction) unique
+        | KernelEffectCall(LalinEffect.CallSummary call) unique
 
     KernelResult = KernelResultVoid
-        | KernelResultValue(MoonKernel.KernelExpr expr) unique
-        | KernelResultFind(MoonKernel.KernelExpr src, MoonStencil.StencilPredicate pred, MoonValue.ValueExpr not_found) unique
-        | KernelResultReduction(MoonValue.ReductionFact reduction) unique
-        | KernelResultClosedForm(MoonValue.ClosedFormFact closed_form) unique
+        | KernelResultValue(LalinKernel.KernelExpr expr) unique
+        | KernelResultFind(LalinKernel.KernelExpr src, LalinStencil.StencilPredicate pred, LalinValue.ValueExpr not_found) unique
+        | KernelResultReduction(LalinValue.ReductionFact reduction) unique
+        | KernelResultClosedForm(LalinValue.ClosedFormFact closed_form) unique
         | KernelResultOriginalControl(string reason) unique
 
-    KernelEquivalence = KernelEquivalenceProof(MoonKernel.KernelProof* proofs) unique
-        | KernelEquivalenceRejected(MoonKernel.KernelReject* rejects) unique
+    KernelEquivalence = KernelEquivalenceProof(LalinKernel.KernelProof* proofs) unique
+        | KernelEquivalenceRejected(LalinKernel.KernelReject* rejects) unique
 
-    KernelBody = (MoonKernel.KernelDomain domain,
-                  MoonKernel.KernelLane* lanes,
-                  MoonKernel.KernelBinding* bindings,
-                  MoonKernel.KernelEffect* effects,
-                  MoonKernel.KernelResult result,
-                  MoonKernel.KernelEquivalence equivalence) unique
+    KernelBody = (LalinKernel.KernelDomain domain,
+                  LalinKernel.KernelLane* lanes,
+                  LalinKernel.KernelBinding* bindings,
+                  LalinKernel.KernelEffect* effects,
+                  LalinKernel.KernelResult result,
+                  LalinKernel.KernelEquivalence equivalence) unique
 
-    KernelPlan = KernelNoPlan(MoonKernel.KernelSubject subject, MoonKernel.KernelReject* rejects) unique
-        | KernelPlanned(MoonKernel.KernelId id, MoonKernel.KernelSubject subject, MoonKernel.KernelBody body) unique
+    KernelPlan = KernelNoPlan(LalinKernel.KernelSubject subject, LalinKernel.KernelReject* rejects) unique
+        | KernelPlanned(LalinKernel.KernelId id, LalinKernel.KernelSubject subject, LalinKernel.KernelBody body) unique
 
-    KernelModulePlan = (MoonCode.CodeModuleId module,
-                        MoonFlow.FlowFactSet flow,
-                        MoonValue.ValueFactSet value,
-                        MoonMem.MemSemanticFactSet mem,
-                        MoonEffect.EffectFactSet effect,
-                        MoonKernel.KernelPlan* plans) unique
+    KernelModulePlan = (LalinCode.CodeModuleId module,
+                        LalinFlow.FlowFactSet flow,
+                        LalinValue.ValueFactSet value,
+                        LalinMem.MemSemanticFactSet mem,
+                        LalinEffect.EffectFactSet effect,
+                        LalinKernel.KernelPlan* plans) unique
 }
 ```
 
@@ -518,11 +518,11 @@ Decisions:
 - Early-exit primary-index searches are `KernelResultFind`.
 - Stable partition is represented as a function-level two-pass semantic
   fragment with `KernelEffectPartition`, because it is not a single-loop store.
-- `KernelResultClosedForm` cites `MoonValue.ClosedFormFact`.
+- `KernelResultClosedForm` cites `LalinValue.ClosedFormFact`.
 - Kernel has equivalence proof/rejects, not only safety.
 - Kernel plans are many-per-module and many-per-function.
 - Kernel plan selection is a Llisle relation. `code_kernel_plan` builds the
-  candidate facts and final MoonKernel values; `code_kernel_plan_rules` owns
+  candidate facts and final LalinKernel values; `code_kernel_plan_rules` owns
   no-plan rejection priority, result priority, and the proof bit for
   closed-form plans whose Flow trip count is unknown.
 - Stencil descriptor planning is split into Llisle plan and selector relations.
@@ -536,18 +536,18 @@ Decisions:
 
 ---
 
-## 11. MoonSchedule ASDL
+## 11. LalinSchedule ASDL
 
 Schedule is target-specific and separate.
 
 ```asdl
-module MoonSchedule {
+module LalinSchedule {
     ScheduleId = (string text) unique
 
-    ScheduleTarget = (MoonBack.BackTargetModel target) unique
+    ScheduleTarget = (LalinBack.BackTargetModel target) unique
 
     LaneShape = LaneScalar
-        | LaneVector(MoonCode.CodeType elem_ty, number lanes) unique
+        | LaneVector(LalinCode.CodeType elem_ty, number lanes) unique
 
     TailPlan = TailNone
         | TailScalar
@@ -556,12 +556,12 @@ module MoonSchedule {
 
     ScheduleKind = ScheduleScalarIndex
         | ScheduleScalarPointer
-        | ScheduleVector(MoonSchedule.LaneShape lanes, number unroll, number interleave, MoonSchedule.TailPlan tail) unique
+        | ScheduleVector(LalinSchedule.LaneShape lanes, number unroll, number interleave, LalinSchedule.TailPlan tail) unique
         | ScheduleClosedForm
 
     ScheduleProof = ScheduleProofTarget(string reason) unique
-        | ScheduleProofMemory(MoonMem.MemProof proof) unique
-        | ScheduleProofAlgebra(MoonValue.AlgebraProof proof) unique
+        | ScheduleProofMemory(LalinMem.MemProof proof) unique
+        | ScheduleProofAlgebra(LalinValue.AlgebraProof proof) unique
         | ScheduleProofProfit(string reason) unique
 
     ScheduleReject = ScheduleRejectTarget(string reason) unique
@@ -569,16 +569,16 @@ module MoonSchedule {
         | ScheduleRejectAlgebra(string reason) unique
         | ScheduleRejectProfit(string reason) unique
 
-    KernelSchedule = ScheduleNoPlan(MoonKernel.KernelId kernel, MoonSchedule.ScheduleReject* rejects) unique
-        | SchedulePlanned(MoonSchedule.ScheduleId id,
-                          MoonKernel.KernelId kernel,
-                          MoonSchedule.ScheduleKind kind,
-                          MoonSchedule.ScheduleProof* proofs,
-                          MoonSchedule.ScheduleReject* rejected_alternatives) unique
+    KernelSchedule = ScheduleNoPlan(LalinKernel.KernelId kernel, LalinSchedule.ScheduleReject* rejects) unique
+        | SchedulePlanned(LalinSchedule.ScheduleId id,
+                          LalinKernel.KernelId kernel,
+                          LalinSchedule.ScheduleKind kind,
+                          LalinSchedule.ScheduleProof* proofs,
+                          LalinSchedule.ScheduleReject* rejected_alternatives) unique
 
-    ScheduleModulePlan = (MoonCode.CodeModuleId module,
-                          MoonSchedule.ScheduleTarget target,
-                          MoonSchedule.KernelSchedule* schedules) unique
+    ScheduleModulePlan = (LalinCode.CodeModuleId module,
+                          LalinSchedule.ScheduleTarget target,
+                          LalinSchedule.KernelSchedule* schedules) unique
 }
 ```
 
@@ -588,56 +588,56 @@ Decisions:
 - unroll/interleave/tail are explicit choices with proofs/rejects.
 - profitability is a proof/reject fact, even when primitive.
 - Schedule selection is a Llisle relation. `code_schedule_plan` builds schedule
-  candidates and final MoonSchedule values; `code_schedule_plan_rules` owns
+  candidates and final LalinSchedule values; `code_schedule_plan_rules` owns
   vector-first priority, scalar/closed-form fallback, rejected vector
   alternatives, and no-plan rejection.
 
 ---
 
-## 12. MoonLower ASDL replacement
+## 12. LalinLower ASDL replacement
 
 This replaces coarse `LowerFuncCode` / `LowerFuncKernel`.
 
 ```asdl
-module MoonLower {
+module LalinLower {
     LowerFragmentId = (string text) unique
 
     LowerTarget = LowerTargetBack
         | LowerTargetC
 
-    LowerCover = LowerCoverFunction(MoonCode.CodeFuncId func) unique
-        | LowerCoverLoop(MoonGraph.GraphLoopId loop) unique
-        | LowerCoverBlock(MoonCode.CodeFuncId func, MoonCode.CodeBlockId block) unique
-        | LowerCoverBlockRange(MoonCode.CodeFuncId func, MoonCode.CodeBlockId entry, MoonCode.CodeBlockId exit) unique
+    LowerCover = LowerCoverFunction(LalinCode.CodeFuncId func) unique
+        | LowerCoverLoop(LalinGraph.GraphLoopId loop) unique
+        | LowerCoverBlock(LalinCode.CodeFuncId func, LalinCode.CodeBlockId block) unique
+        | LowerCoverBlockRange(LalinCode.CodeFuncId func, LalinCode.CodeBlockId entry, LalinCode.CodeBlockId exit) unique
 
     LowerStrategy = LowerStrategyCode(string reason) unique
-        | LowerStrategyKernel(MoonKernel.KernelId kernel, MoonSchedule.ScheduleId schedule) unique
-        | LowerStrategyClosedForm(MoonKernel.KernelId kernel, MoonValue.ClosedFormFact fact) unique
+        | LowerStrategyKernel(LalinKernel.KernelId kernel, LalinSchedule.ScheduleId schedule) unique
+        | LowerStrategyClosedForm(LalinKernel.KernelId kernel, LalinValue.ClosedFormFact fact) unique
 
-    LowerFragment = (MoonLower.LowerFragmentId id,
-                     MoonLower.LowerCover cover,
-                     MoonLower.LowerStrategy strategy,
-                     MoonLower.LowerProof* proofs,
-                     MoonLower.LowerIssue* issues) unique
+    LowerFragment = (LalinLower.LowerFragmentId id,
+                     LalinLower.LowerCover cover,
+                     LalinLower.LowerStrategy strategy,
+                     LalinLower.LowerProof* proofs,
+                     LalinLower.LowerIssue* issues) unique
 
-    LowerFuncPlan = (MoonCode.CodeFuncId func,
-                     MoonLower.LowerFragment* fragments) unique
+    LowerFuncPlan = (LalinCode.CodeFuncId func,
+                     LalinLower.LowerFragment* fragments) unique
 
     LowerProof = LowerProofCoverage(string reason) unique
-        | LowerProofKernel(MoonKernel.KernelId kernel, string reason) unique
-        | LowerProofSchedule(MoonSchedule.ScheduleId schedule, string reason) unique
+        | LowerProofKernel(LalinKernel.KernelId kernel, string reason) unique
+        | LowerProofSchedule(LalinSchedule.ScheduleId schedule, string reason) unique
         | LowerProofFallback(string reason) unique
 
-    LowerIssue = LowerIssueOverlap(MoonLower.LowerFragmentId a, MoonLower.LowerFragmentId b) unique
-        | LowerIssueGap(MoonCode.CodeFuncId func, string reason) unique
-        | LowerIssueFallback(MoonLower.LowerCover cover, string reason) unique
+    LowerIssue = LowerIssueOverlap(LalinLower.LowerFragmentId a, LalinLower.LowerFragmentId b) unique
+        | LowerIssueGap(LalinCode.CodeFuncId func, string reason) unique
+        | LowerIssueFallback(LalinLower.LowerCover cover, string reason) unique
 
-    LowerModule = (MoonCode.CodeModuleId module,
-                   MoonLower.LowerTarget target,
-                   MoonKernel.KernelModulePlan kernels,
-                   MoonSchedule.ScheduleModulePlan schedules,
-                   MoonLower.LowerFuncPlan* funcs,
-                   MoonLower.LowerIssue* issues) unique
+    LowerModule = (LalinCode.CodeModuleId module,
+                   LalinLower.LowerTarget target,
+                   LalinKernel.KernelModulePlan kernels,
+                   LalinSchedule.ScheduleModulePlan schedules,
+                   LalinLower.LowerFuncPlan* funcs,
+                   LalinLower.LowerIssue* issues) unique
 }
 ```
 
@@ -740,7 +740,7 @@ Decision: ordinary Code lowering is fact-aware by construction.
 3. Hidden view decomposition tables in Back lowering.
 4. Semantic-only facts in executable Back.
 5. Planner-local contract shortcuts that bypass normalized Mem facts.
-6. Kernel-local algebra recognizers that do not emit `MoonValue` facts.
+6. Kernel-local algebra recognizers that do not emit `LalinValue` facts.
 7. Target assumptions not represented in Schedule facts.
 8. Fallback without `LowerIssueFallback` or equivalent diagnostic.
 9. Unknown alias/dependence silently treated as safe.
@@ -826,7 +826,7 @@ The rewrite is not complete until these are true.
    Kernel.
 3. A load in ordinary Code lowering receives nontrap/alignment/movable metadata
    from Mem facts.
-4. A closed-form reduction is represented as `MoonValue.ClosedFormFact` before
+4. A closed-form reduction is represented as `LalinValue.ClosedFormFact` before
    Kernel sees it.
 5. Removing a bounds contract changes the Mem facts and causes the relevant
    schedule/lowering choice to be rejected or fall back explicitly.
@@ -844,7 +844,7 @@ The rewrite is not complete until these are true.
 The architecture is:
 
 ```text
-MoonCode is meaning.
+LalinCode is meaning.
 Graph indexes meaning.
 Flow describes control domains.
 Value describes algebra.

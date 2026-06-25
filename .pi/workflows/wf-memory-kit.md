@@ -1,5 +1,5 @@
-# Moonlift Memory Kit — Architecture Exploration 
-Explore, design, and implement a coherent memory primitives kit for Moonlift: sizeof/alignof, null/is_null, memcpy/memset/trap, allocator ABI, arena allocator, typed containers (Buffer, Vec), and view helpers. Three-phase rollout: primitives → ABI → generated stdlib.
+# Lalin Memory Kit — Architecture Exploration
+Explore, design, and implement a coherent memory primitives kit for Lalin: sizeof/alignof, null/is_null, memcpy/memset/trap, allocator ABI, arena allocator, typed containers (Buffer, Vec), and view helpers. Three-phase rollout: primitives → ABI → generated stdlib.
 **Started**: 2026-05-21 12:19:10
 ---
 
@@ -11,31 +11,31 @@ Now I have a thorough picture. Let me compile the full report.
 
 ## Files Retrieved
 
-1. **`lua/moonlift/schema/back.lua`** (lines 1-1400) — ASDL schema for all BackCmd variants, MemoryInfo, Address, PointerProvenance, PointerBounds, Alignment, Dereference, Trap, Motion facts
+1. **`lua/lalin/schema/back.lua`** (lines 1-1400) — ASDL schema for all BackCmd variants, MemoryInfo, Address, PointerProvenance, PointerBounds, Alignment, Dereference, Trap, Motion facts
 2. **`src/decode.rs`** (lines 1-600) — Rust Cranelift backend: wire format decoder, all memory op lowering (Load/Store/Atomic/Memcpy/Memset/StackAddr/PtrOffset/Trap)
 3. **`src/wire_tags.rs`** (lines 1-200) — WireTag enum defining all 70+ wire op codes including memory ops
-4. **`lua/moonlift/back_command_binary.lua`** (lines 1-400) — Lua-side binary encoder: maps ASDL BackCmd to Flatline wire bytes
-5. **`lua/moonlift/tree_to_back.lua`** (lines 340-2100) — Tree-to-backend lowering: elem_size, elem_align, load/store/memcpy/struct/array lowering
-6. **`lua/moonlift/type_size_align.lua`** (full) — Type layout computation: scalar, pointer, array sizes/alignments
-7. **`lua/moonlift/frontend_pipeline.lua`** (lines 10-140) — Pipeline orchestration: asserts no CmdTrap survives to final emission
-8. **`lua/moonlift/moonlift_sar.lua`** (full, ~800 lines) — Scope/Arena/Resource runtime allocation layer (LuaJIT FFI-based)
-9. **`lua/moonlift/buffer_view.lua`** (lines 1-200+) — LuaJIT FFI typed record/view wrappers with sizeof/alignof via ffi
-10. **`lua/moonlift/host_arena_abi.lua`** (lines 1-220+) — Host session arena ABI: ffi.sizeof/alignof computed records
-11. **`lua/moonlift/host_expr_values.lua`** (lines 170-270) — Lua builder API: load, store, atomic operations, addr_of, intrinsic
-12. **`lua/moonlift/host_session.lua`** (lines 1-130) — Session API: size_align, layout_of, classify_type, abi_of
-13. **`lua/moonlift/host.lua`** (lines 1-120) — High-level API surface: exposes ptr, view, load, store, size_align, memcpy, memset
+4. **`lua/lalin/back_command_binary.lua`** (lines 1-400) — Lua-side binary encoder: maps ASDL BackCmd to Flatline wire bytes
+5. **`lua/lalin/tree_to_back.lua`** (lines 340-2100) — Tree-to-backend lowering: elem_size, elem_align, load/store/memcpy/struct/array lowering
+6. **`lua/lalin/type_size_align.lua`** (full) — Type layout computation: scalar, pointer, array sizes/alignments
+7. **`lua/lalin/frontend_pipeline.lua`** (lines 10-140) — Pipeline orchestration: asserts no CmdTrap survives to final emission
+8. **`lua/lalin/lalin_sar.lua`** (full, ~800 lines) — Scope/Arena/Resource runtime allocation layer (LuaJIT FFI-based)
+9. **`lua/lalin/buffer_view.lua`** (lines 1-200+) — LuaJIT FFI typed record/view wrappers with sizeof/alignof via ffi
+10. **`lua/lalin/host_arena_abi.lua`** (lines 1-220+) — Host session arena ABI: ffi.sizeof/alignof computed records
+11. **`lua/lalin/host_expr_values.lua`** (lines 170-270) — Lua builder API: load, store, atomic operations, addr_of, intrinsic
+12. **`lua/lalin/host_session.lua`** (lines 1-130) — Session API: size_align, layout_of, classify_type, abi_of
+13. **`lua/lalin/host.lua`** (lines 1-120) — High-level API surface: exposes ptr, view, load, store, size_align, memcpy, memset
 14. **`src/host_arena.rs`** (lines 1-100+) — Rust-side host session arena: typed allocation with Rust's alloc API
-15. **`lua/moonlift/host_arena_native.lua`** — Lua-side host arena allocation API (alloc_record, alloc_records, free)
-16. **`lua/moonlift/parse.lua`** (line ~45, ~740, ~834, ~924, ~1379) — Parser tokens for view, atomic_load, atomic_store
+15. **`lua/lalin/host_arena_native.lua`** — Lua-side host arena allocation API (alloc_record, alloc_records, free)
+16. **`lua/lalin/parse.lua`** (line ~45, ~740, ~834, ~924, ~1379) — Parser tokens for view, atomic_load, atomic_store
 17. **`LANGUAGE_REFERENCE.md`** (lines 442-450, 540-660, 3296-3360) — Language reference: intrinsics, views, memory ops, atomics
-18. **`AUTHORING_WITH_MOONLIFT.md`** (lines 688-718) — Authoring guide: alloc/free syntax (conceptual, not implemented)
+18. **`AUTHORING_WITH_LALIN.md`** (lines 688-718) — Authoring guide: alloc/free syntax (conceptual, not implemented)
 19. **`BACK_WIRE_FORMAT.md`** (lines 196-364) — Wire format spec: all memory op tags and slot layouts
 20. **`back/dasm/isel_x64.lua`** (lines 977-1010) — DynASM x64 instruction selection for memcpy, memset (rep movsb/stosb)
 21. **`back/dasm/rules_x64.lisle`** (lines 34-36, 170-172) — DynASM pattern matching rules for CmdTrap, CmdMemcpy, CmdMemset
-22. **`lua/moonlift/host_layout_facts.lua`** (lines 23-320) — Host layout facts: pointer sizing, view descriptor layout (24 bytes)
-23. **`lua/moonlift/vec_kernel_safety.lua`** — Vector kernel memory access safety proofs
-24. **`lua/moonlift/vec_kernel_to_back.lua`** — Vector kernel to backend: generates memory info with trap/alignment facts
-25. **`lua/moonlift/back_validate.lua`** — Backend validation: checks BackNonTrapping + deref consistency
+22. **`lua/lalin/host_layout_facts.lua`** (lines 23-320) — Host layout facts: pointer sizing, view descriptor layout (24 bytes)
+23. **`lua/lalin/vec_kernel_safety.lua`** — Vector kernel memory access safety proofs
+24. **`lua/lalin/vec_kernel_to_back.lua`** — Vector kernel to backend: generates memory info with trap/alignment facts
+25. **`lua/lalin/back_validate.lua`** — Backend validation: checks BackNonTrapping + deref consistency
 
 ---
 
@@ -130,7 +130,7 @@ pub struct HostSession { session_id, generation, blocks: Vec<HostBlock> }
 // Allocates via alloc_zeroed, frees via dealloc on Drop
 ```
 
-### LuaJIT SAR Arena (moonlift_sar.lua, lines 500-600)
+### LuaJIT SAR Arena (lalin_sar.lua, lines 500-600)
 
 ```lua
 function Arena:_alloc_raw(n, align) -- bump allocation from pre-reserved cdata block
@@ -159,7 +159,7 @@ function Arena:byte(n) -- raw byte buffer
 
 5. **Backend (DynASM) → x64**: CmdMemcpy → `rep movsb`, CmdMemset → `rep stosb`, CmdTrap → `int3`. If a branch is missing, `select_mir.lua` inserts `DTermTrap` as fallback terminator.
 
-6. **Lua builder API → ASDL**: `moon.load(addr, T)`, `moon.store(addr, value)`, `moon.memcpy(dst, src, len)`, `moon.memset(dst, byte, len)` construct `Tr.ExprLoad`/`Tr.StmtStore`/`CmdMemcpy`/`CmdMemset` ASDL. `moon.size_align(ty)` calls `type_size_align` at Lua level.
+6. **Lua builder API → ASDL**: `lalin.load(addr, T)`, `lalin.store(addr, value)`, `lalin.memcpy(dst, src, len)`, `lalin.memset(dst, byte, len)` construct `Tr.ExprLoad`/`Tr.StmtStore`/`CmdMemcpy`/`CmdMemset` ASDL. `lalin.size_align(ty)` calls `type_size_align` at Lua level.
 
 ---
 
@@ -174,13 +174,13 @@ function Arena:byte(n) -- raw byte buffer
 | Load `*p` | ✅ | ✅ | ✅ | ✅ CmdLoad | ✅ | ✅ |
 | Store `*p = v` | ✅ | ✅ | ✅ | ✅ CmdStore | ✅ | ✅ |
 | Ptr arithmetic `p+n` | ✅ | ✅ | ✅ | ✅ CmdPtrOffset | ✅ | ✅ |
-| Null `null` | ❌ no keyword | ❌ | ❌ | ✅ ConstNull=0 | ✅ | ✅ `moon.nil_lit()` |
-| memcpy | ❌ no syntax | ❌ | ❌ | 🔴 **NO-OP** | ✅ rep movsb | ✅ `moon.memcpy()` |
-| memset | ❌ no syntax | ❌ | ❌ | 🔴 **NO-OP** | ✅ rep stosb | ✅ `moon.memset()` |
+| Null `null` | ❌ no keyword | ❌ | ❌ | ✅ ConstNull=0 | ✅ | ✅ `lalin.nil_lit()` |
+| memcpy | ❌ no syntax | ❌ | ❌ | 🔴 **NO-OP** | ✅ rep movsb | ✅ `lalin.memcpy()` |
+| memset | ❌ no syntax | ❌ | ❌ | 🔴 **NO-OP** | ✅ rep stosb | ✅ `lalin.memset()` |
 | trap | ❌ no syntax | ❌ | ❌ | ✅ `trap(user 1)` | ✅ int3 | ❌ (intrinsic only) |
 | Alloca/stack slot | ❌ no syntax | ❌ | ❌ | ✅ CmdCreateStackSlot | ✅ | ✅ (via builder) |
 | Atomic ops | ✅ source forms | ✅ | ✅ | ✅ all Cranelift | ❌ (unsupported) | ✅ |
-| sizeof(type) | ❌ no syntax | ❌ | ❌ | ❌ | ❌ | ✅ `moon.size_align()` |
+| sizeof(type) | ❌ no syntax | ❌ | ❌ | ❌ | ❌ | ✅ `lalin.size_align()` |
 | alignof(type) | ❌ no syntax | ❌ | ❌ | ❌ | ❌ | ✅ (via `size_align()`) |
 | is_null(ptr) | ❌ no syntax | ❌ | ❌ | ❌ | ❌ | ❌ |
 | alloc(count) | ❌ no syntax | ❌ | ❌ | ❌ | ❌ | ❌ (SAR only in Lua) |
@@ -188,17 +188,17 @@ function Arena:byte(n) -- raw byte buffer
 
 ### Key Gaps:
 
-1. **sizeof/alignof**: `type_size_align.lua` computes these at **compile time** (Lua PVM phase). There is no Moonlift source syntax for `sizeof(T)` or `alignof(T)` — you must use `moon.size_align(ty)` in Lua metaprogramming. The info is available in the compiler but not exposed to the object language.
+1. **sizeof/alignof**: `type_size_align.lua` computes these at **compile time** (Lua PVM phase). There is no Lalin source syntax for `sizeof(T)` or `alignof(T)` — you must use `lalin.size_align(ty)` in Lua metaprogramming. The info is available in the compiler but not exposed to the object language.
 
-2. **null/is_null**: `BackLitNull` exists in the backend schema and the Rust decoder emits `iconst(ptr_ty, 0)`. But there's no `null` keyword in the Moonlift parser. The builder API has `moon.nil_lit()` which produces a `LitNil` → `BackLitNull`. `is_null(ptr)` does not exist at any level.
+2. **null/is_null**: `BackLitNull` exists in the backend schema and the Rust decoder emits `iconst(ptr_ty, 0)`. But there's no `null` keyword in the Lalin parser. The builder API has `lalin.nil_lit()` which produces a `LitNil` → `BackLitNull`. `is_null(ptr)` does not exist at any level.
 
 3. **memcpy/memset in Cranelift path (CRITICAL)**: The Rust decoder (`src/decode.rs` lines 601-602) has explicit `/* no-op */` comments for Memcpy/Memset. These commands are **silently skipped** when using the Cranelift JIT/object backend. Only the DynASM x64 backend (`isel_x64.lua:977-1008`) has actual implementations (rep movsb/stosb). The Cranelift `builder.call_memcpy()`/`builder.call_memset()` APIs are not used.
 
 4. **trap**: `CmdTrap` exists end-to-end: schema → encoder → decoder → Cranelift `trap(TrapCode::unwrap_user(1))` → DynASM `int3`. But there is no source-level syntax. The frontend pipeline **actively asserts** no `CmdTrap` survives to emission (`assert_no_cmd_trap`). trap is only reachable through the builder API as an intrinsic, and even then the pipeline would catch it and error.
 
-5. **alloc/free/dealloc**: There is NO Moonlift source-level allocation. The `AUTHORING_WITH_MOONLIFT.md` shows `alloc(count)` / `free(p)` in a conceptual example, but the parser has no such keywords. Allocation exists only on the Lua side: `moonlift_sar.lua` (SAR scope/arena) and `host_arena_abi.lua`/`host_arena_native.lua` (host session typed allocation) and `src/host_arena.rs` (Rust-side bump arena for FFI records).
+5. **alloc/free/dealloc**: There is NO Lalin source-level allocation. The `AUTHORING_WITH_LALIN.md` shows `alloc(count)` / `free(p)` in a conceptual example, but the parser has no such keywords. Allocation exists only on the Lua side: `lalin_sar.lua` (SAR scope/arena) and `host_arena_abi.lua`/`host_arena_native.lua` (host session typed allocation) and `src/host_arena.rs` (Rust-side bump arena for FFI records).
 
-6. **Typed containers (Buffer, Vec)**: There is no standard library `Buffer` or `Vec` in compiled Moonlift. `buffer_view.lua` provides LuaJIT FFI record/view wrappers for Lua-side use. `vec_kernel_*.lua` is about **auto-vectorization** of memory copy/compute kernels, not about a `Vec<T>` container. The `moonlift_sar.lua` `Arena:array()` function provides typed array allocation on the Lua side only.
+6. **Typed containers (Buffer, Vec)**: There is no standard library `Buffer` or `Vec` in compiled Lalin. `buffer_view.lua` provides LuaJIT FFI record/view wrappers for Lua-side use. `vec_kernel_*.lua` is about **auto-vectorization** of memory copy/compute kernels, not about a `Vec<T>` container. The `lalin_sar.lua` `Arena:array()` function provides typed array allocation on the Lua side only.
 
 7. **View helper functions**: `view(data_ptr, count)` and `view(data_ptr, count, stride)` exist as source syntax for constructing view descriptors. The parser tokenizes `view` as a keyword. `len(v)` works on views. There is no `view_from_ptr` builder function visible.
 
@@ -208,9 +208,9 @@ function Arena:byte(n) -- raw byte buffer
 
 10. **trap/assume as intrinsics**: The LANGUAGE_REFERENCE says `trap` and `assume` are "ordinary calls" at the parser level — they are NOT reserved keywords, NOT parsed specially, and NOT lowered to backend trap/assume from source. They only exist if constructed through the ASDL builder API as `ExprIntrinsic`. The intrinsic op values exist in the schema but the parser has no special handling.
 
-11. **Extern memory functions**: There are NO built-in `extern` declarations for `malloc`, `free`, `realloc`, `memcpy`, `memset` from libc. Users who want these must declare their own `extern` blocks. The builder API's `moon.memcpy()`/`moon.memset()` go through `CmdMemcpy`/`CmdMemset` backend commands, NOT through libc calls.
+11. **Extern memory functions**: There are NO built-in `extern` declarations for `malloc`, `free`, `realloc`, `memcpy`, `memset` from libc. Users who want these must declare their own `extern` blocks. The builder API's `lalin.memcpy()`/`lalin.memset()` go through `CmdMemcpy`/`CmdMemset` backend commands, NOT through libc calls.
 
-12. **Cranelift alloca vs stack slot**: The Cranelift path uses `create_sized_stack_slot(StackSlotKind::ExplicitSlot)` which is Cranelift's stack slot, NOT `alloca` (dynamic stack allocation). Dynamic alloca would require Cranelift's `stack_load`/`stack_store` or a libc `alloca` call. Moonlift currently has no dynamic stack allocation — all stack slots are fixed-size at compile time.
+12. **Cranelift alloca vs stack slot**: The Cranelift path uses `create_sized_stack_slot(StackSlotKind::ExplicitSlot)` which is Cranelift's stack slot, NOT `alloca` (dynamic stack allocation). Dynamic alloca would require Cranelift's `stack_load`/`stack_store` or a libc `alloca` call. Lalin currently has no dynamic stack allocation — all stack slots are fixed-size at compile time.
 
 ## Knowledge-builder Output — 2026-05-21 12:24:30
 
@@ -218,7 +218,7 @@ Now I have sufficient depth. Let me produce the analysis.
 
 ---
 
-# Second-Order Observations: Moonlift Memory Landscape
+# Second-Order Observations: Lalin Memory Landscape
 
 ## What Matters Most for This Problem
 
@@ -245,11 +245,11 @@ The scout found that memcpy/memset are NO-OPs in Rust/Cranelift but work in DynA
 - **Cranelift** (`decode.rs`): Has `builder.call_memcpy()` and `builder.call_memset()` APIs. But these APIs expect libc-style function calls, not raw `rep movsb`. To use them properly, the decoder would need to:
   1. Set up the calling convention
   2. Emit libc import declarations
-  3. Map Moonlift's wire tag into a proper external call
+  3. Map Lalin's wire tag into a proper external call
 
-The NO-OP comment says "need proper Cranelift call_memcpy" — but this **cannot be fixed** by simply emitting Cranelift IR instructions. Cranelift's `call_memcpy` is a *library call* (it calls out to libc or a user-provided memcpy), while Moonlift's `CmdMemcpy` is a *semantic operation* (a raw byte copy). These are fundamentally different abstractions.
+The NO-OP comment says "need proper Cranelift call_memcpy" — but this **cannot be fixed** by simply emitting Cranelift IR instructions. Cranelift's `call_memcpy` is a *library call* (it calls out to libc or a user-provided memcpy), while Lalin's `CmdMemcpy` is a *semantic operation* (a raw byte copy). These are fundamentally different abstractions.
 
-**The tension**: Moonlift's backend command set treats memcpy/memset as primitive operations (like Add or Load). But Cranelift treats them as library calls. DynASM lets Moonlift emit raw machine instructions, so it can treat them as primitives. The wire format encodes them as primitives. The Cranelift decoder has no way to implement them as primitives without either (a) calling into libc, which breaks the no-dependency model, or (b) emitting a Cranelift-supported intrinsic pattern, which doesn't exist for block memory ops.
+**The tension**: Lalin's backend command set treats memcpy/memset as primitive operations (like Add or Load). But Cranelift treats them as library calls. DynASM lets Lalin emit raw machine instructions, so it can treat them as primitives. The wire format encodes them as primitives. The Cranelift decoder has no way to implement them as primitives without either (a) calling into libc, which breaks the no-dependency model, or (b) emitting a Cranelift-supported intrinsic pattern, which doesn't exist for block memory ops.
 
 **What this means for new memory primitives**: Any new bulk memory operation (memcmp, memmove, memset_pattern, etc.) faces the exact same dilemma. The architecture forces a decision: either bulk memory ops are primitives (DynASM path only) or they're library calls (Cranelift path only). There is no middle ground in the current wire format.
 
@@ -293,17 +293,17 @@ The assertion is currently in the **pipeline orchestration**, not in the backend
 - `Sem.LayoutEnv` — a table of named layouts resolved from struct/union declarations
 - `classify_api.classify()` — which maps types to their type class
 
-Making sizeof/alignof available to Moonlift source code requires crossing the **PVM phase boundary**: the typechecker would need to call `type_size_align` during typechecking (which it currently doesn't — the scout noted the typechecker does NOT track sizes/alignments). The results would need to be injected as compile-time constants into the tree IR.
+Making sizeof/alignof available to Lalin source code requires crossing the **PVM phase boundary**: the typechecker would need to call `type_size_align` during typechecking (which it currently doesn't — the scout noted the typechecker does NOT track sizes/alignments). The results would need to be injected as compile-time constants into the tree IR.
 
 But here's the non-obvious constraint: **size/alignment of a struct depends on layout resolution, which happens during sem_layout_resolve.lua, which runs AFTER typechecking**. The phases are:
 1. Parse → Tree
-2. Typecheck → CheckedTree  
+2. Typecheck → CheckedTree
 3. Layout resolution → ResolvedTree (adds offsets, sizes, aligns)
 4. Lowering → BackCmd[]
 
 So `sizeof(StructType)` cannot be computed during typechecking — it requires layout resolution first. This means `sizeof` would need to be a **deferred expression** that gets evaluated after layout resolution, similar to how `field_offset` is resolved. This is feasible but requires a new ASDL variant (an "expression that will be a constant after layout").
 
-For runtime `sizeof` (as in C's `sizeof` evaluating to a runtime value for VLA), Moonlift doesn't need it — all types are monomorphic, so all sizes are compile-time constants. But the AST needs a way to represent "this expression is a compile-time constant from the layout phase."
+For runtime `sizeof` (as in C's `sizeof` evaluating to a runtime value for VLA), Lalin doesn't need it — all types are monomorphic, so all sizes are compile-time constants. But the AST needs a way to represent "this expression is a compile-time constant from the layout phase."
 
 ### 4. The Backend Asymmetry Is Structural, Not Accidental
 
@@ -345,12 +345,12 @@ The scout noted `BackLitNull` exists end-to-end but has no source syntax. Lookin
 [Sem.ConstNil] = function() return pvm.once(Back.BackLitNull) end,
 ```
 
-`C.LitNil` is a parser token? Let me check — `LitNil` comes from the parser's core literal types. In Moonlift's source, you can write `nil` in Lua metaprogramming (which becomes `LitNil` in the ASDL), but you cannot write `nil` in Moonlift object-language source because `nil` is not a Moonlift keyword.
+`C.LitNil` is a parser token? Let me check — `LitNil` comes from the parser's core literal types. In Lalin's source, you can write `nil` in Lua metaprogramming (which becomes `LitNil` in the ASDL), but you cannot write `nil` in Lalin object-language source because `nil` is not a Lalin keyword.
 
-This reveals a critical design choice: **Moonlift's object language has no explicit null/nil literal**. The only way to get a null pointer is through zero initialization or the Lua builder API's `moon.nil_lit()`. This is intentional — it means all pointer values in Moonlift source are non-null by construction, unless explicitly constructed by metaprogramming.
+This reveals a critical design choice: **Lalin's object language has no explicit null/nil literal**. The only way to get a null pointer is through zero initialization or the Lua builder API's `lalin.nil_lit()`. This is intentional — it means all pointer values in Lalin source are non-null by construction, unless explicitly constructed by metaprogramming.
 
-**The pattern repeats for other literals**: There's no `true`/`false` in Moonlift source either (booleans come from comparisons). No string literals. No float literals with unusual syntax. Moonlift's source syntax is minimal: only integer and float numeric literals, identifiers, and compound constructs. Everything else is accessed through:
-1. The Lua builder API (`moon.nil_lit()`, `moon.bool_lit(true)`)
+**The pattern repeats for other literals**: There's no `true`/`false` in Lalin source either (booleans come from comparisons). No string literals. No float literals with unusual syntax. Lalin's source syntax is minimal: only integer and float numeric literals, identifiers, and compound constructs. Everything else is accessed through:
+1. The Lua builder API (`lalin.nil_lit()`, `lalin.bool_lit(true)`)
 2. ASDL construction in metaprogramming
 3. Implicit initialization (zero)
 
@@ -358,27 +358,27 @@ This means adding `null` as a source keyword is a **parser change AND a typechec
 
 ### 6. The Existing Memory Philosophy Aligns Partially With the Proposal
 
-Moonlift's current design already reveals a clear memory philosophy, whether intentional or emergent:
+Lalin's current design already reveals a clear memory philosophy, whether intentional or emergent:
 
 **Already aligned with explicit-allocator, explicit-pointers philosophy:**
 - `ptr(T)` as an explicit pointer type — no GC, no borrow checker, no lifetime tracking
 - `view(T)` as an explicit (data, len, stride) descriptor — raw memory management
 - Stack slots for locals — explicit `CmdCreateStackSlot` + `CmdStackAddr`, no hidden allocas
 - Every load/store carries explicit `BackMemoryInfo` — alignment, deref size, trap behavior, aliasing
-- The SAR arena (`moonlift_sar.lua`) provides explicit bump allocation — no GC, no free
+- The SAR arena (`lalin_sar.lua`) provides explicit bump allocation — no GC, no free
 - The host arena (`host_arena_abi.lua`) provides typed allocation — `alloc_record`, `alloc_records`, `free`
 
 **Pulling in a different direction:**
-- **All allocation is on the Lua side**. Compiled Moonlift code cannot allocate. There's no `alloc()` or `free()` in compiled output. This means any compiled Moonlift function that needs dynamic memory must receive pre-allocated buffers as arguments.
+- **All allocation is on the Lua side**. Compiled Lalin code cannot allocate. There's no `alloc()` or `free()` in compiled output. This means any compiled Lalin function that needs dynamic memory must receive pre-allocated buffers as arguments.
 - **No ownership model**. Pointers are copied freely, aliased promiscuously. The `BackAliasFact` exists in the fact structure but is barely used (only `CmdAliasFact` in the backend).
-- **No destructor/free tracking**. The builder API has `moon.free()` for compiled artifacts, but that's the Lua-side memory management. For compiled Moonlift code, there's no mechanism to ensure a pointer is freed exactly once.
+- **No destructor/free tracking**. The builder API has `lalin.free()` for compiled artifacts, but that's the Lua-side memory management. For compiled Lalin code, there's no mechanism to ensure a pointer is freed exactly once.
 - **View descriptors are fat pointers** (24 bytes: ptr+len+stride). This is a high-level abstraction that conflicts with raw pointer semantics. A view is not just a pointer — it's a pointer with metadata.
 
 The tension is between "raw memory management" (pointers, alignof, memcpy) and "structured memory management" (views, typed containers, arena lifetimes). The proposal wants both — and they sometimes conflict.
 
-### 7. Bringing Allocation Into Compiled Moonlift Requires New Infrastructure at Every Level
+### 7. Bringing Allocation Into Compiled Lalin Requires New Infrastructure at Every Level
 
-Currently, allocation happens in Lua and the compiled Moonlift code receives already-allocated buffers. To bring allocation into the compiled path:
+Currently, allocation happens in Lua and the compiled Lalin code receives already-allocated buffers. To bring allocation into the compiled path:
 
 **Compilation infrastructure needed:**
 1. **Source syntax**: `alloc(T, count)` or `alloc(size)` — new expression forms in the parser
@@ -386,11 +386,11 @@ Currently, allocation happens in Lua and the compiled Moonlift code receives alr
 3. **Lowering**: `tree_to_back.lua` would need a new lowering path. Currently there's no "call malloc" pattern in the backend — there are no extern declarations for libc. You'd need either:
    - An `extern malloc(size: index) -> ptr(u8)` that's implicitly imported
    - A new `CmdAlloc` / `CmdFree` backend command
-   - A runtime allocator compiled into every Moonlift program
+   - A runtime allocator compiled into every Lalin program
 4. **Backend**: If you add `CmdAlloc`/`CmdFree`, you need wire tags, encoder entries, and decoder implementations. Both Cranelift and DynASM.
 5. **Runtime**: The allocator needs a runtime component. Currently the SAR arena is in Lua. You'd need a compiled allocator (bump, slab, or general-purpose) embedded in the output program.
 
-**The most critical gap**: Moonlift has no concept of a "heap" in compiled code. All memory is either:
+**The most critical gap**: Lalin has no concept of a "heap" in compiled code. All memory is either:
 - Stack (via `CmdCreateStackSlot`)
 - Global data (via `DataInit` / `DataAddr`)
 - Pre-allocated (received as function argument)
@@ -402,17 +402,17 @@ Adding a heap means adding a runtime memory manager. The SAR arena could be port
 The builder API (`host.lua` / `host_expr_values.lua`) already has:
 
 ```lua
-moon.memcpy(dst, src, len)     -- → Tr.Stmt built, lowered to CmdMemcpy
-moon.memset(dst, byte, len)    -- → Tr.Stmt built, lowered to CmdMemset
-moon.nil_lit()                 -- → Tr.ExprLit built, lowered to BackLitNull  
-moon.size_align(ty, env)       -- → calls type_size_align.result() in Lua, returns now
-moon.load(addr, T)             -- → Tr.ExprLoad built, lowered to CmdLoadInfo
+lalin.memcpy(dst, src, len)     -- → Tr.Stmt built, lowered to CmdMemcpy
+lalin.memset(dst, byte, len)    -- → Tr.Stmt built, lowered to CmdMemset
+lalin.nil_lit()                 -- → Tr.ExprLit built, lowered to BackLitNull
+lalin.size_align(ty, env)       -- → calls type_size_align.result() in Lua, returns now
+lalin.load(addr, T)             -- → Tr.ExprLoad built, lowered to CmdLoadInfo
 ```
 
 The pattern is: **the builder API constructs ASDL nodes directly, then the existing lowering pipeline handles them**. This means:
 
-1. You can add `moon.alloc(count, T)` that constructs appropriate ASDL (extern call to malloc, or a new ASDL node)
-2. You can add `moon.free(ptr)` the same way
+1. You can add `lalin.alloc(count, T)` that constructs appropriate ASDL (extern call to malloc, or a new ASDL node)
+2. You can add `lalin.free(ptr)` the same way
 3. If it maps to an existing ASDL pattern (like an extern call), no backend changes needed
 4. If it needs new ASDL nodes, you need the full pipeline
 
@@ -429,12 +429,12 @@ For each new backend command, the required changes are:
 
 | File | Change | Complexity |
 |------|--------|------------|
-| `lua/moonlift/schema/back.lua` | Add ASDL variant | 3-10 lines |
-| `lua/moonlift/back_command_binary.lua` | Add wire tag constant (if new) + encode case | 2-5 lines |
+| `lua/lalin/schema/back.lua` | Add ASDL variant | 3-10 lines |
+| `lua/lalin/back_command_binary.lua` | Add wire tag constant (if new) + encode case | 2-5 lines |
 | `src/wire_tags.rs` | Add WireTag variant + TAG_SLOTS entry | 2-5 lines |
 | `src/decode.rs` | Add decode case | 5-30 lines (Cranelift IR) |
 | `back/dasm/isel_x64.lua` | Add instruction selection | 5-50 lines (asm) |
-| `lua/moonlift/back_validate.lua` | Add fact extraction + validation | 3-10 lines |
+| `lua/lalin/back_validate.lua` | Add fact extraction + validation | 3-10 lines |
 
 For ops that DON'T need new Cranelift IR (because they map to existing Cranelift ops via existing wire tags), you might skip `src/decode.rs`. For example, `null` already works through `WireTag::ConstNull`. Adding source `null` would just be parser + typechecker changes.
 
@@ -459,7 +459,7 @@ This means someone **already planned for memcmp** and added validation support, 
 
 **The `BackMemoryInfo` fact structure is mostly ignored in Cranelift**: The Lua frontend constructs rich `BackMemoryInfo` with alignment, dereference size, trap behavior, motion, and access mode. But the binary wire format compresses this into a 3-bit `memflags` field:
 - Bit 0: notrap
-- Bit 1: aligned  
+- Bit 1: aligned
 - Bit 2: can_move
 
 The alignment bytes, dereference bytes, specific trap reason, etc. — all dropped. This means **the Cranelift backend operates with less information than the frontend computes**. Optimizations that could use alignment info (like vectorizing aligned loads) are impossible because the information is lost.
@@ -469,7 +469,7 @@ The alignment bytes, dereference bytes, specific trap reason, etc. — all dropp
 - But DynASM can't USE the facts for optimization
 - And Cranelift can't USE the full facts because they're compressed
 
-**The `view` type is designed for the host ABI, not for compiled Moonlift**: View descriptors are 24 bytes (ptr + len + stride) and are constructed for Lua→Moonlift FFI boundaries. In compiled Moonlift code, views are stored on the stack and accessed via field loads (loading .data, .len, .stride separately). There is no "view register" or "view as a first-class value" in the backend — views are decomposed into scalar operations. This means view operations (like bounds-checked indexing) are compiled into multiple backend commands, not a single `CmdViewLoad`.
+**The `view` type is designed for the host ABI, not for compiled Lalin**: View descriptors are 24 bytes (ptr + len + stride) and are constructed for Lua→Lalin FFI boundaries. In compiled Lalin code, views are stored on the stack and accessed via field loads (loading .data, .len, .stride separately). There is no "view register" or "view as a first-class value" in the backend — views are decomposed into scalar operations. This means view operations (like bounds-checked indexing) are compiled into multiple backend commands, not a single `CmdViewLoad`.
 
 **The `BackMemoryInfo` access ID is a string tag, not an interned reference**: `Back.BackAccessId(access_text)` creates a string-based identifier. These are used as labels in validation diagnostics but carry no semantic meaning for optimization. The access ID is "tree:agg:field.name" — purely for human debugging. This means the fact structure has no machine-readable aliasing information, despite `BackAliasFact` existing in the fact sum type. Alias analysis is schematic but unimplemented.
 
@@ -517,13 +517,13 @@ Fix the broken Cranelift memcpy/memset by changing bulk memory ops from primitiv
 - `frontend_pipeline.lua`: Remove or gate `assert_no_cmd_trap` behind a debug flag. Trap is now a valid lowering output.
 
 **Phase 3 — Tier 2/3 (heap + stdlib)**
-- A minimal Rust runtime (`src/rt.rs`): bump allocator linked into every Moonlift program, exported via `extern` symbols (`rt_alloc`, `rt_free`). The linker includes `moonlift_rt.o` unconditionally (few KB).
+- A minimal Rust runtime (`src/rt.rs`): bump allocator linked into every Lalin program, exported via `extern` symbols (`rt_alloc`, `rt_free`). The linker includes `lalin_rt.o` unconditionally (few KB).
 - Source syntax `alloc(T, n)` / `free(p)` lower to `CmdCall` to these runtime externs.
-- `Buffer(T)` / `Vec(T)` written as compiled Moonlift region libraries in a `stdlib/` directory, using the new built-in allocator and pointer primitives.
+- `Buffer(T)` / `Vec(T)` written as compiled Lalin region libraries in a `stdlib/` directory, using the new built-in allocator and pointer primitives.
 
 ### Developer experience
 
-```moonlift
+```lalin
 func sum(p: ptr(i32), n: index) -> i32
     let buf = alloca(i32, n)      -- dynamic stack allocation
     memcpy(buf, p, n * sizeof(i32)) -- calls compiler-builtin extern
@@ -546,7 +546,7 @@ end
 
 ### Tradeoff
 - **Optimizes for:** Backend parity — both Cranelift and DynASM implement memory ops identically (as calls). No more DynASM-only features. The wire format becomes cleaner (no primitive bulk ops). Future bulk ops (memcmp, memmove) follow the same call-based pattern.
-- **Sacrifices:** Runtime dependency — every compiled Moonlift program now links `moonlift_rt.o` with libc memcpy/memset. The `rep movsb` optimization (fast for small copies on x64) is lost unless Cranelift's codegen recovers it. Wire format churn: existing wire-format consumers break.
+- **Sacrifices:** Runtime dependency — every compiled Lalin program now links `lalin_rt.o` with libc memcpy/memset. The `rep movsb` optimization (fast for small copies on x64) is lost unless Cranelift's codegen recovers it. Wire format churn: existing wire-format consumers break.
 - **Risk:** The small-runtime link dependency may be unpalatable for the "zero runtime deps" philosophy. Cranelift's `call` to memcpy may be slower than inline `rep movsb` for small copies. DynASM backend changes break existing working paths.
 
 ### Rough sketch
@@ -558,7 +558,7 @@ end
 6. Add `CmdAlloca`, `CmdMemcmp`, `CmdIsNull` to schema → wire → decoder → DynASM → validation
 7. Add source syntax for all new keywords in parse.lua
 8. Remove `assert_no_cmd_trap` from frontend_pipeline.lua
-9. Write stdlib Buffer/Vec in compiled Moonlift
+9. Write stdlib Buffer/Vec in compiled Lalin
 
 ---
 
@@ -570,17 +570,17 @@ Make zero changes to the Cranelift/DynASM backends and wire format. Everything i
 ### Key changes
 
 **Phase 0 — Builder API expansion (Lua only, no Rust changes)**
-- `host_expr_values.lua`: Add `moon.sizeof(ty)` → returns the compile-time constant from `type_size_align.result()` by calling it *in Lua* and wrapping the result as a `Tr.ExprLit(C.LitInt(raw))`. No Moonlift source evaluation needed — the constant is resolved in Lua.
-- `host_expr_values.lua`: Add `moon.null(ty)` → generates `Tr.ExprLit(C.LitNil)` which already lowers to `BackLitNull` → ConstNull wire tag. Already works.
-- `host_expr_values.lua`: Add `moon.is_null(ptr)` → generates `Tr.ExprIntrinsic(IntrinsicIsNull, [ptr])` or just `expr:eq(moon.null(ptr.ty))`. Lower `ExprIntrinsic(IsNull)` in `tree_to_back.lua` as an `icmp(IntCC::Equal, ptr, 0)` — no new backend commands.
-- `host.lua`: Add `moon.memcpy(dst, src, len)` — already exists, documented as "works on DynASM, NO-OP on Cranelift". Accept this asymmetry. Add a warning when called on the Cranelift path.
-- `host.lua`: Add `moon.memcmp(left, right, len)` → generate a `CmdCall` to an `extern memcmp` that the user must declare, or use a loop of `load(u8, left[i]) == load(u8, right[i])` in compiled Moonlift.
-- `host.lua`: Add `moon.trap()` → generates `Tr.StmtTrap` which lowers to `CmdTrap`. Document that this requires removing `assert_no_cmd_trap` (a one-line change in `frontend_pipeline.lua`).
-- `host.lua`: Add `moon.alloca(T, n)` → generates stack slot creation + stack address. Already works through `CmdCreateStackSlot` + `CmdStackAddr` — just need a builder helper.
+- `host_expr_values.lua`: Add `lalin.sizeof(ty)` → returns the compile-time constant from `type_size_align.result()` by calling it *in Lua* and wrapping the result as a `Tr.ExprLit(C.LitInt(raw))`. No Lalin source evaluation needed — the constant is resolved in Lua.
+- `host_expr_values.lua`: Add `lalin.null(ty)` → generates `Tr.ExprLit(C.LitNil)` which already lowers to `BackLitNull` → ConstNull wire tag. Already works.
+- `host_expr_values.lua`: Add `lalin.is_null(ptr)` → generates `Tr.ExprIntrinsic(IntrinsicIsNull, [ptr])` or just `expr:eq(lalin.null(ptr.ty))`. Lower `ExprIntrinsic(IsNull)` in `tree_to_back.lua` as an `icmp(IntCC::Equal, ptr, 0)` — no new backend commands.
+- `host.lua`: Add `lalin.memcpy(dst, src, len)` — already exists, documented as "works on DynASM, NO-OP on Cranelift". Accept this asymmetry. Add a warning when called on the Cranelift path.
+- `host.lua`: Add `lalin.memcmp(left, right, len)` → generate a `CmdCall` to an `extern memcmp` that the user must declare, or use a loop of `load(u8, left[i]) == load(u8, right[i])` in compiled Lalin.
+- `host.lua`: Add `lalin.trap()` → generates `Tr.StmtTrap` which lowers to `CmdTrap`. Document that this requires removing `assert_no_cmd_trap` (a one-line change in `frontend_pipeline.lua`).
+- `host.lua`: Add `lalin.alloca(T, n)` → generates stack slot creation + stack address. Already works through `CmdCreateStackSlot` + `CmdStackAddr` — just need a builder helper.
 
 **Phase 1 — Heap allocation (Lua-FFI bridge, no compiled allocator)**
-- The SAR arena (`moonlift_sar.lua`) and host arena are already Lua-side allocators. Wrap them as `moon.alloc(T, n, arena)` → calls `arena:array(T, n)` via FFI, returns a `ptr(T)` that's valid for the arena's lifetime.
-- For compiled Moonlift functions that need allocation: receive the arena as a `ptr(u8)` argument. Use `moon.alloc` from the Lua side to pre-allocate buffers.
+- The SAR arena (`lalin_sar.lua`) and host arena are already Lua-side allocators. Wrap them as `lalin.alloc(T, n, arena)` → calls `arena:array(T, n)` via FFI, returns a `ptr(T)` that's valid for the arena's lifetime.
+- For compiled Lalin functions that need allocation: receive the arena as a `ptr(u8)` argument. Use `lalin.alloc` from the Lua side to pre-allocate buffers.
 - No heap in compiled code. Allocation is always orchestrated from Lua.
 
 **Phase 2 — Source syntax (optional, deferred)**
@@ -588,44 +588,44 @@ Make zero changes to the Cranelift/DynASM backends and wire format. Everything i
 - Example: `sizeof(T)` in source → parse → `ExprSizeOf` → `tree_to_back.lua` already knows how to compute this (call `type_size_align` from Lua) → `CmdConst` with the integer value.
 
 **Phase 3 — Tier 3 stdlib (Lua-generated, not compiled)**
-- `Buffer(T)` and `Vec(T)` are Lua objects that live *in the metaprogramming layer*. They generate Moonlift functions with pre-allocated buffers passed as arguments. They are NOT compiled Moonlift types — they're metaprogramming utilities.
+- `Buffer(T)` and `Vec(T)` are Lua objects that live *in the metaprogramming layer*. They generate Lalin functions with pre-allocated buffers passed as arguments. They are NOT compiled Lalin types — they're metaprogramming utilities.
 - `view` helpers extended in `buffer_view.lua` (already Lua-side).
 
 ### Developer experience
 
 ```lua
 -- .mlua file — using builder API, not source syntax
-local moon = require("moonlift")
+local lalin = require("lalin")
 
-local arena = moonlift.SAR.Arena(4096)
-local ptr = moon.alloc(arena, moon.i32, 100)  -- Lua-side allocation
+local arena = lalin.SAR.Arena(4096)
+local ptr = lalin.alloc(arena, lalin.i32, 100)  -- Lua-side allocation
 
-local sum_fn = moon.func(function(moon)
+local sum_fn = lalin.func(function(lalin)
     -- memcpy works in DynASM, NO-OP in Cranelift — documented
-    moon.stmt(moon.memcpy(dst, src, moon.int(400)))
-    
+    lalin.stmt(lalin.memcpy(dst, src, lalin.int(400)))
+
     -- sizeof/alignof computed in Lua, injected as literal
-    local sz = moon.sizeof(moon.i32)  -- returns Lua number 4
-    local aligned_sz = moon.int(sz * 100)
-    
+    local sz = lalin.sizeof(lalin.i32)  -- returns Lua number 4
+    local aligned_sz = lalin.int(sz * 100)
+
     -- no heap allocation in compiled code
     -- buffers must be passed in by the Lua host
-    return moon.fn("sum", {moon.ptr(moon.i32), moon.index}, moon.i32,
+    return lalin.fn("sum", {lalin.ptr(lalin.i32), lalin.index}, lalin.i32,
         function(args) ... end)
 end)
 
--- Moonlift source stays simple, memory management is in Lua
+-- Lalin source stays simple, memory management is in Lua
 ```
 
 ### Tradeoff
 - **Optimizes for:** Zero risk to existing compiler — no Rust changes, no wire format changes, no backend breakage. All memory primitives work through existing backend commands. Phased adoption: each helper is independently useful. The broken memcpy/memset is accepted as a documented limitation rather than fixed.
-- **Sacrifices:** Moonlift source language stays impoverished — no sizeof, null, alloc in source. Memory ops require Lua scaffolding. DynASM vs Cranelift asymmetry persists forever (memcpy works on one, not the other). No compiled heap allocator — allocation always requires a Lua host. The stdlib is not actually Moonlift code — it's Lua code that generates Moonlift patterns.
+- **Sacrifices:** Lalin source language stays impoverished — no sizeof, null, alloc in source. Memory ops require Lua scaffolding. DynASM vs Cranelift asymmetry persists forever (memcpy works on one, not the other). No compiled heap allocator — allocation always requires a Lua host. The stdlib is not actually Lalin code — it's Lua code that generates Lalin patterns.
 - **Risk:** Perpetual second-class status for memory primitives. Users must write Lua wrappers for every memory operation. The split personality (built-in in DynASM, missing in Cranelift) confuses users. No path to a self-hosted stdlib.
 
 ### Rough sketch
 1. Expand `host_expr_values.lua` with sizeof/alignof/null/is_null/alloca helpers
-2. Document `moon.memcpy`/`moon.memset` as DynASM-only; leave Cranelift NO-OP
-3. Remove `assert_no_cmd_trap` (single line) to enable `moon.trap()`
+2. Document `lalin.memcpy`/`lalin.memset` as DynASM-only; leave Cranelift NO-OP
+3. Remove `assert_no_cmd_trap` (single line) to enable `lalin.trap()`
 4. Add `is_null` lowering in `tree_to_back.lua` as `icmp eq ptr, 0` — no new commands
 5. Write Lua-side `Buffer(T)`/`Vec(T)` generators in `buffer_view.lua` (extension of existing code)
 6. Publish a guide: "Memory Kit User's Manual" covering builder API patterns for all Tiers 1-3
@@ -633,22 +633,22 @@ end)
 
 ---
 
-## Approach C: "Moonlift Stdlib, Fully Compiled" (Runtime-First, Self-Hosted)
+## Approach C: "Lalin Stdlib, Fully Compiled" (Runtime-First, Self-Hosted)
 
 ### Core idea
-Add a minimal Rust runtime (~2KB bump allocator), write the entire stdlib in compiled Moonlift itself, and extend the compiler only enough to allow the stdlib to express itself ergonomically. The compiler is a platform; the stdlib is where the capability lives.
+Add a minimal Rust runtime (~2KB bump allocator), write the entire stdlib in compiled Lalin itself, and extend the compiler only enough to allow the stdlib to express itself ergonomically. The compiler is a platform; the stdlib is where the capability lives.
 
 ### Key changes
 
 **Phase 0 — Minimal Runtime in Rust**
-- `src/rt.rs`: A `moonlift_rt` module compiled into every output. Contains:
+- `src/rt.rs`: A `lalin_rt` module compiled into every output. Contains:
   - `__ml_alloc(size, align) -> *mut u8` — bump allocator from a 64KB static page
   - `__ml_free(ptr)` — no-op for bump (or slab free list)
   - `__ml_memcpy(dst, src, n)` — Rust `core::ptr::copy_nonoverlapping`
   - `__ml_memset(dst, byte, n)` — `core::ptr::write_bytes`
   - `__ml_memcmp(left, right, n) -> i32` — byte-by-byte comparison
 - These are exported as `extern "C"` symbols that the linker resolves. No libc dependency — just Rust core.
-- `src/link.rs` or linker configuration: ensure `moonlift_rt.o` is always linked.
+- `src/link.rs` or linker configuration: ensure `lalin_rt.o` is always linked.
 
 **Phase 1 — Compiler changes (minimal, surgical)**
 - `parse.lua`: Add only the keywords that can't be expressed as extern calls: `null`, `sizeof`, `alignof`, `is_null`. These are parser tokens that map to new `Tr.Expr` variants (5 new token kinds).
@@ -661,15 +661,15 @@ Add a minimal Rust runtime (~2KB bump allocator), write the entire stdlib in com
 - `frontend_pipeline.lua`: Remove `assert_no_cmd_trap`. Trap is available through intrinsic or a future `extern __ml_trap()`.
 - The broken memcpy/memset in Cranelift is irrelevant because the stdlib calls `__ml_memcpy` through `CmdCall` — the `CmdMemcpy` wire tag is deprecated but still works for DynASM users.
 
-**Phase 2 — Stdlib written in Moonlift (stdlib/*.mlua)**
+**Phase 2 — Stdlib written in Lalin (stdlib/*.mlua)**
 - `stdlib/arena.mlua`:
-  ```moonlift
+  ```lalin
   struct Arena
       start: ptr(u8)
       ptr: ptr(u8)      -- current bump position
       end: ptr(u8)
   end
-  
+
   func arena_alloc(a: ptr(Arena), size: index, align: index) -> ptr(u8)
       -- round up current ptr to alignment
       -- check bounds
@@ -679,7 +679,7 @@ Add a minimal Rust runtime (~2KB bump allocator), write the entire stdlib in com
 - `stdlib/buffer.mlua`: `Buffer(T)` as a struct with `data: ptr(T)`, `len: index`, `cap: index`. Functions: `buffer_init`, `buffer_append`, `buffer_free`.
 - `stdlib/vec.mlua`: `Vec(T)` on top of buffer with `len` tracking. Functions: `vec_push`, `vec_pop`, `vec_get`, `vec_set`.
 - `stdlib/memory.mlua`: `memcpy`, `memset`, `memcmp` extern wrappers:
-  ```moonlift
+  ```lalin
   extern __ml_memcpy(dst: ptr(u8), src: ptr(u8), n: index) -> ptr(u8) end
   extern __ml_memset(dst: ptr(u8), byte: i32, n: index) -> ptr(u8) end
   extern __ml_memcmp(left: ptr(u8), right: ptr(u8), n: index) -> i32 end
@@ -690,30 +690,30 @@ Add a minimal Rust runtime (~2KB bump allocator), write the entire stdlib in com
 
 **Phase 3 — Bundle into the compiler**
 - `build.rs` or equivalent: compile `stdlib/*.mlua` into ASDL bundles that ship with the compiler.
-- The compiler auto-imports `stdlib.moonlift` which re-exports all memory primitives.
-- `moon.require` resolves `std:` prefixed modules to these bundled stdlib modules.
+- The compiler auto-imports `stdlib.lalin` which re-exports all memory primitives.
+- `lalin.require` resolves `std:` prefixed modules to these bundled stdlib modules.
 
 ### Developer experience
 
-```moonlift
--- Standard library is compiled Moonlift, usable from any .mlua file
+```lalin
+-- Standard library is compiled Lalin, usable from any .mlua file
 require "std:memory"    -- brings in __ml_memcpy, __ml_memset, etc.
 require "std:arena"     -- brings in Arena, arena_alloc, arena_free
 require "std:vec"       -- brings in Vec(i32), vec_push, etc.
 
 func demo() -> i32
     let arena: Arena = arena_new(4096)  -- local stack arena
-    
+
     -- Allocation calls __ml_alloc through extern
     let buf: ptr(i32) = alloc(arena, i32, 100)
-    
+
     -- memcpy calls __ml_memcpy through extern
     memcpy(buf as ptr(u8), other as ptr(u8), 100 * sizeof(i32))
-    
+
     -- sizeof/alignof are compile-time constants
     let sz: index = sizeof(i32)   -- → 4 (lowered to CmdConst)
-    
-    -- Vec is a compiled Moonlift struct with methods
+
+    -- Vec is a compiled Lalin struct with methods
     var v: Vec(i32) = vec_init(arena, 10)
     vec_push(&v, 42)
     return vec_get(&v, 0)  -- 42
@@ -721,9 +721,9 @@ end
 ```
 
 ### Tradeoff
-- **Optimizes for:** Self-hosting — the stdlib is real compiled Moonlift, not Lua wrappers. The runtime is tiny (~2KB, no libc). The compiler stays lean — most "new primitives" are extern calls to the runtime, not new backend commands. The CmdMemcpy/CmdMemset wire tags can be deprecated without breaking anything (the stdlib uses extern calls instead).
+- **Optimizes for:** Self-hosting — the stdlib is real compiled Lalin, not Lua wrappers. The runtime is tiny (~2KB, no libc). The compiler stays lean — most "new primitives" are extern calls to the runtime, not new backend commands. The CmdMemcpy/CmdMemset wire tags can be deprecated without breaking anything (the stdlib uses extern calls instead).
 - **Sacrifices:** Runtime dependency — even a small one. Users who want zero-overhead `rep movsb` must keep using DynASM or wait for Cranelift to optimize `call __ml_memcpy` into inline code. The stdlib is not lazy-loaded — it ships with every compiled program. Stdlib modules need careful versioning.
-- **Risk:** The bump allocator is adequate for most use cases but not all (no free-reuse). The `alloc(T, n)` source syntax requires a new parser keyword and typechecking for a "heap type" concept that Moonlift doesn't currently have. If users want custom allocators (slab, pool, TLSF), they need to write them in Moonlift, which is doable but requires `asm`-level ptr manipulation.
+- **Risk:** The bump allocator is adequate for most use cases but not all (no free-reuse). The `alloc(T, n)` source syntax requires a new parser keyword and typechecking for a "heap type" concept that Lalin doesn't currently have. If users want custom allocators (slab, pool, TLSF), they need to write them in Lalin, which is doable but requires `asm`-level ptr manipulation.
 
 ### Rough sketch
 1. Add `src/rt.rs` with `__ml_alloc`, `__ml_free`, `__ml_memcpy`, `__ml_memset`, `__ml_memcmp`
@@ -732,7 +732,7 @@ end
 4. Add lowering for new expr nodes in `tree_to_back.lua` — all map to existing commands
 5. Remove `assert_no_cmd_trap` from pipeline
 6. Write stdlib/*.mlua: arena, buffer, vec, view, memory modules
-7. Bundle stdlib via build.rs and resolve through `moon.require "std:..."` path
+7. Bundle stdlib via build.rs and resolve through `lalin.require "std:..."` path
 8. Deprecate `CmdMemcpy`/`CmdMemset` wire tags (keep for backward compat, stdlib doesn't use them)
 
 ---
@@ -741,23 +741,23 @@ end
 
 | Dimension | A: Fix the Wire | B: Lua is Stdlib | C: Self-Hosted Stdlib |
 |---|---|---|---|
-| **Where complexity lives** | Backend (wire format, decoders) | Lua metaprogramming layer | Runtime (Rust) + Stdlib (Moonlift) |
+| **Where complexity lives** | Backend (wire format, decoders) | Lua metaprogramming layer | Runtime (Rust) + Stdlib (Lalin) |
 | **Cranelift memcpy/memset** | Fixed (call-based) | Still broken (NO-OP) | Bypassed (extern calls to runtime) |
 | **New wire tags** | 3-4 (Alloca, Memcmp, IsNull) | 0 | 0 |
 | **Source syntax coverage** | Full (all keywords) | Minimal (builder API only) | Good (keywords for essentials) |
 | **Heap in compiled code** | Yes (bump allocator in Rust rt) | No (allocation from Lua only) | Yes (bump allocator in Rust rt) |
 | **Backend risk** | High (rewrite wires, touch both decoders) | None | Low (only parser/lowering changes) |
 | **DynASM-only features** | Eliminated | Perpetuated | Deprecated |
-| **Stdlib composition** | Compiled Moonlift | Lua metaprogramming | Compiled Moonlift |
+| **Stdlib composition** | Compiled Lalin | Lua metaprogramming | Compiled Lalin |
 | **Time to first useful primitive** | Weeks (backend changes are deep) | Hours (builder API helpers) | Days (stdlib modules) |
 
 **When to pick each:**
 
 - **Pick A** if you believe the Cranelift+DynASM asymmetry is unacceptable, the wire format must be consistent, and you're willing to absorb backend risk to fix it. Best for a "clean slate" cleanup before adding more features. Worst if you need memory primitives working *today* — the backend changes are deep.
 
-- **Pick B** if you want memory primitives *now* and don't care about Cranelift parity. Best for a project that views Moonlift as "Lua with a native code escape hatch" rather than a standalone language. The stdlib stays in Lua where it's easy to change. Worst if you want Moonlift source code to be self-contained — users must write Lua for every memory operation.
+- **Pick B** if you want memory primitives *now* and don't care about Cranelift parity. Best for a project that views Lalin as "Lua with a native code escape hatch" rather than a standalone language. The stdlib stays in Lua where it's easy to change. Worst if you want Lalin source code to be self-contained — users must write Lua for every memory operation.
 
-- **Pick C** if you want a sustainable, self-hosting platform where the compiler is stable and the stdlib evolves independently. Best for a project that views Moonlift as its own language with a standard library written in itself. The runtime is tiny and the compiler barely changes. Worst if adding a runtime dependency is philosophically unacceptable, or if you need maximal copy performance (you lose `rep movsb` in the default path).
+- **Pick C** if you want a sustainable, self-hosting platform where the compiler is stable and the stdlib evolves independently. Best for a project that views Lalin as its own language with a standard library written in itself. The runtime is tiny and the compiler barely changes. Worst if adding a runtime dependency is philosophically unacceptable, or if you need maximal copy performance (you lose `rep movsb` in the default path).
 
 ## Scout Output — 2026-05-21 14:24:20
 
@@ -776,7 +776,7 @@ Now I have all the data for a comprehensive report. Let me compile it.
 | `back/dasm/Makefile` | 23 | Builds `libdasm.so` from `back/dasm_lib.c` |
 | `back/dasm/init.lua` | 62 | Entry point: `back.dasm.Define(T)` — drop-in for `back_jit` |
 | `back/dasm/compile.lua` | 439 | Main compilation: collects, normalizes, builds CFG, type-values, extracts facts, lowers, selects, reg-allocates, frame-laysout, emits via DynASM C library |
-| `back/dasm/model.lua` | 222 | `MoonDasm` ASDL model accessor (Mx.dasm(), Mx.back(), Mx.idkey(), etc.) |
+| `back/dasm/model.lua` | 222 | `LalinDasm` ASDL model accessor (Mx.dasm(), Mx.back(), Mx.idkey(), etc.) |
 | `back/dasm/isel_x64.lua` | 1030 | x64 instruction selection — **contains `rep movsb` (line 988) and `rep stosb` (line 1000)** for memcpy/memset |
 | `back/dasm/encode_x64.lua` | 225 | DynASM x64 action-list builder over LuaJIT's `dasm_x86.lua` |
 | `back/dasm/abi_sysv.lua` | 76 | System V AMD64 ABI parameter/return register maps |
@@ -807,22 +807,22 @@ C encoding engine wrapping `dasm_x86.h`:
 - Functions: `dasm_set_extern_fn`, `dasm_put_array` (lines 44-123)
 - Referenced by `back/dasm/Makefile` as the source to build `back/libdasm.so`
 
-### 1C. `lua/moonlift/schema/dasm.lua` — ~300 lines
-Entire `MoonDasm` ASDL schema: defines all DynASM pipeline types (DFactSet, DAsmShape, DFuncCFG, DEmitPlan, DFramePlan, DBankedRegalloc, etc.). This schema exists only for the DynASM backend pipeline.
+### 1C. `lua/lalin/schema/dasm.lua` — ~300 lines
+Entire `LalinDasm` ASDL schema: defines all DynASM pipeline types (DFactSet, DAsmShape, DFuncCFG, DEmitPlan, DFramePlan, DBankedRegalloc, etc.). This schema exists only for the DynASM backend pipeline.
 
 ---
 
 ## Group 2: FILES TO EDIT (in the main compiler/build infrastructure)
 
-### 2A. `lua/moonlift/schema/init.lua` — line 13
+### 2A. `lua/lalin/schema/init.lua` — line 13
 ```lua
-require("moonlift.schema.dasm")(A),
+require("lalin.schema.dasm")(A),
 ```
-Remove this line. This is the **only** import of the dasm schema in the entire `lua/moonlift/` compiler proper.
+Remove this line. This is the **only** import of the dasm schema in the entire `lua/lalin/` compiler proper.
 
 ### 2B. `src/embedded_hosted_lua.rs` — line 132
 ```rust
-("moonlift.schema.dasm", include_str!("../lua/moonlift/schema/dasm.lua")),
+("lalin.schema.dasm", include_str!("../lua/lalin/schema/dasm.lua")),
 ```
 Remove this entry from the embedded Lua source table (generated by `build.rs`).
 
@@ -841,7 +841,7 @@ Memset = 118,      // [dst_ptr, byte_val, len]
 ```
 **Do NOT remove these wire tags.** They are not DynASM-specific — they're part of the wire format and are still decoded by the Cranelift path (as NO-OPs). They should be kept unless a decision is made to remove them as part of the broader memory kit redesign.
 
-### 2E. `lua/moonlift/back_validate.lua` — line 244 (ghost CmdMemcmp)
+### 2E. `lua/lalin/back_validate.lua` — line 244 (ghost CmdMemcmp)
 ```lua
 if cls == B.CmdMemcmp then out[#out + 1] = body(index); ... end
 ```
@@ -872,7 +872,7 @@ This is a **ghost variant** — `CmdMemcmp` doesn't exist in `schema/back.lua`. 
 | Doc File | Lines | Content |
 |----------|-------|---------|
 | `docs/dynasm.md` | 969 | Comprehensive DynASM documentation (what DynASM is, how to use it, API reference) |
-| `docs/dynasm-backend-design.md` | 880 | Design spec for Moonlift's DynASM backend (architecture, phases, compilation model, integration) |
+| `docs/dynasm-backend-design.md` | 880 | Design spec for Lalin's DynASM backend (architecture, phases, compilation model, integration) |
 | `docs/dynasm-asdl-first-complete-design.md` | 409 | Design spec for ASDL-first rewrite of the DynASM backend |
 
 ---
@@ -883,7 +883,7 @@ This is a **ghost variant** — `CmdMemcmp` doesn't exist in `schema/back.lua`. 
 |------|---------------------|
 | `benchmarks/bench_cranelift_vs_dynasm.lua` | Line 5: `dofile("benchmarks/bench_cranelift_vs_dynasm_harness.lua")` — **delete entire file** (it's just a runner for the harness) |
 | `benchmarks/bench_cranelift_vs_dynasm_harness.lua` | Entire file (177 lines) — **delete**; it's the DynASM vs Cranelift comparison harness |
-| `benchmarks/bench_isolate_kernel.lua` | Line 15: `print("compiling ... with backend " .. (os.getenv("MOONLIFT_BACKEND") or "dynasm"))` — change default from `"dynasm"` to `"cranelift"` |
+| `benchmarks/bench_isolate_kernel.lua` | Line 15: `print("compiling ... with backend " .. (os.getenv("LALIN_BACKEND") or "dynasm"))` — change default from `"dynasm"` to `"cranelift"` |
 | `benchmarks/debug_fib_phi.lua` | Lines 63-65: `-- Now compile with dynasm and run` / `local DynASM = require("back.dasm").Define(T)` / `local jit = DynASM.jit()` — **delete or rewrite** to use Cranelift backend |
 | `benchmarks/debug_fib_phi2.lua` | Lines 3-7: `require("back.dasm.model")`, `require("back.dasm.phases.build_cfg")`, `require("back.dasm.phases.phi_lower")`, `require("back.dasm.phases.select_mir")`, `require("back.dasm.phases.collect_module")` — **delete entire file** or rewrite |
 
@@ -896,22 +896,22 @@ These are historical artifacts from earlier agent sessions. They describe the pr
 | File | Relevant Lines |
 |------|---------------|
 | `.pi/workflows/wf-memory-kit.md` | 30+ references to DynASM (lines 33, 34, 160, 170, 195, 197, 239, 243, 252, 254, 310, 312, 321, 327, 329, 333, 335, 390, 436, 467, 469, 480, 482, 484, 486, 505, 510, 548, 550, 557, 558, 568, 576, 604, 622, 623, 627, 622, 662, 725, 750, 756) |
-| `.pi/workflows/wf-asdl-slim.md` | 10+ references to DynASM/MoonDasm (lines 28, 115, 116, 321, 529, 744, 946, 1355, 3031, 3251) |
+| `.pi/workflows/wf-asdl-slim.md` | 10+ references to DynASM/LalinDasm (lines 28, 115, 116, 321, 529, 744, 946, 1355, 3031, 3251) |
 
 ---
 
 ## Group 7: WIRE FORMAT / BACKEND SELECTION — NOT AFFECTED
 
 The following files were checked and have **NO** DynASM references:
-- `lua/moonlift/frontend_pipeline.lua` — no dasm references
-- `lua/moonlift/back_jit.lua` — no dasm references (pure Cranelift FFI path)
-- `lua/moonlift/back_object.lua` — no dasm references (pure Cranelift FFI path)
-- `lua/moonlift/back_command_binary.lua` — no dasm references
-- `lua/moonlift/back_command_tape.lua` — no dasm references
-- `lua/moonlift/host.lua` — no dasm references
-- `lua/moonlift/host_session.lua` — no dasm references
-- `lua/moonlift/tree_to_back.lua` — no dasm references
-- `lua/moonlift/lisle/` — no dasm references
+- `lua/lalin/frontend_pipeline.lua` — no dasm references
+- `lua/lalin/back_jit.lua` — no dasm references (pure Cranelift FFI path)
+- `lua/lalin/back_object.lua` — no dasm references (pure Cranelift FFI path)
+- `lua/lalin/back_command_binary.lua` — no dasm references
+- `lua/lalin/back_command_tape.lua` — no dasm references
+- `lua/lalin/host.lua` — no dasm references
+- `lua/lalin/host_session.lua` — no dasm references
+- `lua/lalin/tree_to_back.lua` — no dasm references
+- `lua/lalin/lisle/` — no dasm references
 - `Makefile` (root) — no dasm references
 - `Cargo.toml` — no dasm references
 - `build.rs` — no dasm references
@@ -920,7 +920,7 @@ The following files were checked and have **NO** DynASM references:
 - `AGENTS.md` — no dasm references
 - All `src/*.rs` files — no dasm references (except `embedded_hosted_lua.rs` line 132 and `decode.rs` memcpy/memset NO-OPs)
 
-The **MOONLIFT_BACKEND** environment variable is only used by benchmarks (bench_isolate_kernel.lua, bench_cranelift_vs_dynasm_harness.lua) — it is **not** checked by the main compiler pipeline.
+The **LALIN_BACKEND** environment variable is only used by benchmarks (bench_isolate_kernel.lua, bench_cranelift_vs_dynasm_harness.lua) — it is **not** checked by the main compiler pipeline.
 
 ---
 
@@ -928,7 +928,7 @@ The **MOONLIFT_BACKEND** environment variable is only used by benchmarks (bench_
 
 | Category | Count | Action |
 |----------|-------|--------|
-| **Delete files** | 30 | Entire `back/dasm/` (26 files) + `back/dasm_lib.c` + `lua/moonlift/schema/dasm.lua` + 2 docs |
+| **Delete files** | 30 | Entire `back/dasm/` (26 files) + `back/dasm_lib.c` + `lua/lalin/schema/dasm.lua` + 2 docs |
 | **Edit files** | 2 | `schema/init.lua:13` (remove dasm require) + `embedded_hosted_lua.rs:132` (remove dasm include) |
 | **Delete tests** | 11 | All `tests/test_dasm_*.lua` + `tests/test_lisle_rules_x64.lua` |
 | **Delete docs** | 3 | `docs/dynasm.md`, `docs/dynasm-backend-design.md`, `docs/dynasm-asdl-first-complete-design.md` |
@@ -976,18 +976,18 @@ The DynASM backend removal changes the landscape fundamentally. Let me be precis
 | **Backend risk** | 3/5 | One decoder to change (was two). The Rust change is small, but the libc dependency question is unresolved — see below. |
 | **Wire format cost** | 2/5 | A originally proposed removing CmdMemcpy/Memset wire tags (breaking change). With DynASM gone, this is unnecessary. Keep the tags, fix the decoder. Zero wire format churn. |
 | **Developer experience** | 4/5 | All source syntax works. `memcpy(src, dst, n)` in source becomes a proper operation. The libc dependency is invisible to users. |
-| **Philosophy fit** | 2/5 | **Critical problem**: Cranelift's `builder.call_memcpy()` calls libc `memcpy`. The `default_libcall_names()` maps `LibCall::Memcpy` → `"memcpy"`. Moonlift's stated philosophy is "zero runtime deps" and "fully static." This approach adds a hard libc dependency for the simplest bulk memory ops. |
+| **Philosophy fit** | 2/5 | **Critical problem**: Cranelift's `builder.call_memcpy()` calls libc `memcpy`. The `default_libcall_names()` maps `LibCall::Memcpy` → `"memcpy"`. Lalin's stated philosophy is "zero runtime deps" and "fully static." This approach adds a hard libc dependency for the simplest bulk memory ops. |
 | **Time to first useful** | 2/5 | Fast to fix memcpy (~1 day), but the approach bundles wire-tag removal, new wire tags for alloca/memcmp, and full source syntax. The "fix the decoder" part is quick; the "full source syntax" part takes weeks. |
 | **Sustainability** | 3/5 | The libc dependency is a long-term drag. Every new platform needs `memcpy`/`memset` symbols. For JIT (LuaJIT embed), symbols must be registered. For AOT `.o` output, the linker must find them. |
 
 **Verdict**: Significant concerns
-**Key concern**: The libc dependency is philosophically misaligned with Moonlift's zero-dependency design. Cranelift's `call_memcpy` calls `extern "C" memcpy` — there is no inline path. Every compiled Moonlift program that does a bulk copy will call into libc. This is fixable by providing custom `memcpy`/`memset` symbols (as Approach C does), but then you've drifted into Approach C's territory.
+**Key concern**: The libc dependency is philosophically misaligned with Lalin's zero-dependency design. Cranelift's `call_memcpy` calls `extern "C" memcpy` — there is no inline path. Every compiled Lalin program that does a bulk copy will call into libc. This is fixable by providing custom `memcpy`/`memset` symbols (as Approach C does), but then you've drifted into Approach C's territory.
 
 **What's now invalid**: A's original "Phase 0 wire contract redesign" (removing CmdMemcpy/Memset wire tags) was motivated by the need to unify two backends. With only one backend, the wire tag cleanup is optional — the simpler fix is to change the decoder NO-OP to a proper Cranelift libcall, keeping all existing tags.
 
 **What's now easier**: Only one decoder to patch. No DynASM `rep movsb` optimization to mourn.
 
-**What new risks emerge**: The libc call goes through Cranelift's `LibCall::Memcpy` → `ExternalName::LibCall` → external symbol `"memcpy"`. At runtime, if the `memcpy` symbol doesn't resolve (e.g., in a minimal embedded context, or a LuaJIT session without symbol registration), the program crashes with a linker error, not a Moonlift error.
+**What new risks emerge**: The libc call goes through Cranelift's `LibCall::Memcpy` → `ExternalName::LibCall` → external symbol `"memcpy"`. At runtime, if the `memcpy` symbol doesn't resolve (e.g., in a minimal embedded context, or a LuaJIT session without symbol registration), the program crashes with a linker error, not a Lalin error.
 
 ---
 
@@ -998,13 +998,13 @@ The DynASM backend removal changes the landscape fundamentally. Let me be precis
 | **Feasibility** | 1/5 | **Disqualifying**: CmdMemcpy/CmdMemset produce silently wrong output on the only backend. The approach's core claim was "works today on DynASM, document the Cranelift NO-OP." With DynASM gone, nothing works. |
 | **Backend risk** | 2/5 | B claimed "zero Rust changes." But memcpy/memset must be fixed for ANY approach now, so this is an illusion — even B requires Rust changes to make memcpy work. |
 | **Wire format cost** | 5/5 | B doesn't touch the wire format, but this isn't a virtue — it means the broken NO-OP stays broken. |
-| **Developer experience** | 1/5 | Every user will try `moon.memcpy()` (if exposed at all) and get a silent no-op. Aggregate copies (struct/array) silently produce wrong output. This is not "developer experience" — it's a trap. |
-| **Philosophy fit** | 1/5 | Moonlift's philosophy is "fail fast, fail loud" (from AGENTS.md: "assertions at boundaries, no silent fallbacks"). Silent NO-OPs on the only backend are the opposite. |
+| **Developer experience** | 1/5 | Every user will try `lalin.memcpy()` (if exposed at all) and get a silent no-op. Aggregate copies (struct/array) silently produce wrong output. This is not "developer experience" — it's a trap. |
+| **Philosophy fit** | 1/5 | Lalin's philosophy is "fail fast, fail loud" (from AGENTS.md: "assertions at boundaries, no silent fallbacks"). Silent NO-OPs on the only backend are the opposite. |
 | **Time to first useful** | 5/5 | Would be fast if it worked. But it doesn't work. |
 | **Sustainability** | 1/5 | Perpetuates the broken state. No path to fix. |
 
 **Verdict**: No — disqualifying defect
-**Key concern**: The approach is structurally unsound for any code that touches memory. Aggregate copies (`struct = struct`, `array = array` in Moonlift) go through `append_memcpy` in `tree_to_back.lua` (lines 1134, 1185, 1707). These are NOT opt-in — they're the standard lowering for non-scalar assignments. This means **every Moonlift program that copies a struct or array currently produces silently wrong output on the Cranelift path.** B doesn't even acknowledge this, let alone fix it.
+**Key concern**: The approach is structurally unsound for any code that touches memory. Aggregate copies (`struct = struct`, `array = array` in Lalin) go through `append_memcpy` in `tree_to_back.lua` (lines 1134, 1185, 1707). These are NOT opt-in — they're the standard lowering for non-scalar assignments. This means **every Lalin program that copies a struct or array currently produces silently wrong output on the Cranelift path.** B doesn't even acknowledge this, let alone fix it.
 
 **What's now invalid**: The ENTIRE approach. "DynASM has it, Cranelift NO-OP is documented" was its core assumption. DynASM is gone. The assumption is dead.
 
@@ -1014,20 +1014,20 @@ The DynASM backend removal changes the landscape fundamentally. Let me be precis
 
 ---
 
-### Approach C: "Moonlift Stdlib, Fully Compiled"
+### Approach C: "Lalin Stdlib, Fully Compiled"
 
 | Dimension | Score (1-5) | Rationale |
 |-----------|-------------|-----------|
 | **Feasibility** | 5/5 | C never depended on DynASM. Its core mechanism — a Rust runtime (`src/rt.rs`) with `__ml_memcpy`/`__ml_memset`/`__ml_alloc`/`__ml_memcmp` — works with Cranelift's call model. The runtime uses `core::ptr::copy_nonoverlapping` etc. — zero libc dependency. |
 | **Backend risk** | 4/5 | The decoder changes are minimal: either (a) fix `WireTag::Memcpy`/`Memset` to call the runtime's `__ml_memcpy`/`__ml_memset` via `builder.ins().call()`, or (b) route through `CallExtern` and deprecate the raw wire tags. Both are small changes in a single `decode.rs` match arm. |
 | **Wire format cost** | 5/5 | Zero wire tag changes. CmdMemcpy/Memset wire tags keep working (they just call `__ml_memcpy`/`__ml_memset` in the new decoder). No backward-compat break. The ghost `CmdMemcmp` in `back_validate.lua` gets wired into the schema and decoder. |
-| **Developer experience** | 5/5 | Source syntax: `sizeof(T)`, `alignof(T)`, `null(T)`, `is_null(p)`, `memcpy`, `memset` all work. `alloc(T, n)` / `free(p)` work through the runtime. Stdlib (arena, buffer, vec) is compiled Moonlift, not Lua wrappers. |
-| **Philosophy fit** | 5/5 | Zero libc dependency — the runtime is pure Rust `core::ptr`. The stdlib is compiled Moonlift (self-hosting). No hidden calls. The runtime is opt-in: users who don't use alloc/memcpy get no runtime code linked. |
+| **Developer experience** | 5/5 | Source syntax: `sizeof(T)`, `alignof(T)`, `null(T)`, `is_null(p)`, `memcpy`, `memset` all work. `alloc(T, n)` / `free(p)` work through the runtime. Stdlib (arena, buffer, vec) is compiled Lalin, not Lua wrappers. |
+| **Philosophy fit** | 5/5 | Zero libc dependency — the runtime is pure Rust `core::ptr`. The stdlib is compiled Lalin (self-hosting). No hidden calls. The runtime is opt-in: users who don't use alloc/memcpy get no runtime code linked. |
 | **Time to first useful** | 4/5 | Phase 0 (runtime) + Phase 1 (compiler changes) can ship independently. null/is_null/sizeof/alignof work immediately after compiler changes (no runtime needed). memcpy/memset work after Phase 0 (runtime deployed). The full stdlib (arena/vec/buffer) takes longer but the primitives ship fast. |
-| **Sustainability** | 5/5 | The runtime is a few hundred lines of Rust. The stdlib is compiled Moonlift. The compiler barely changes (no new wire tags, only parser/lowering). Future bulk ops (memmove, memset_pattern64) are new runtime functions + extern declarations in the stdlib — zero compiler changes. |
+| **Sustainability** | 5/5 | The runtime is a few hundred lines of Rust. The stdlib is compiled Lalin. The compiler barely changes (no new wire tags, only parser/lowering). Future bulk ops (memmove, memset_pattern64) are new runtime functions + extern declarations in the stdlib — zero compiler changes. |
 
 **Verdict**: Strong yes
-**Key concern**: The runtime must be linked into every Moonlift program that uses memcpy/memset/alloc. Even a 2KB bump allocator is a binary footprint cost. The linker should be able to drop unreferenced symbols (--gc-sections), but `__ml_memcpy` itself will be pulled in by any struct copy. Ensure the runtime is minimal and gc-section-friendly.
+**Key concern**: The runtime must be linked into every Lalin program that uses memcpy/memset/alloc. Even a 2KB bump allocator is a binary footprint cost. The linker should be able to drop unreferenced symbols (--gc-sections), but `__ml_memcpy` itself will be pulled in by any struct copy. Ensure the runtime is minimal and gc-section-friendly.
 
 **What's now invalid**: Nothing. C's analysis already correctly assumed DynASM was irrelevant — its path bypassed CmdMemcpy/Memset wire tags anyway.
 
@@ -1052,7 +1052,7 @@ The DynASM backend removal changes the landscape fundamentally. Let me be precis
 
 *\*B's "time to first useful" is artificially high because its "useful" is broken.*
 
-- **Recommended**: **Approach C — "Moonlift Stdlib, Fully Compiled"**. It's the only approach that simultaneously: (1) fixes the broken memcpy/memset, (2) preserves zero-dependency philosophy, (3) requires zero wire format churn, (4) produces a self-hosted stdlib. The runtime is tiny (~2KB), the compiler changes are minimal (parser + lowering only, no new wire tags), and the stdlib is actual compiled Moonlift code.
+- **Recommended**: **Approach C — "Lalin Stdlib, Fully Compiled"**. It's the only approach that simultaneously: (1) fixes the broken memcpy/memset, (2) preserves zero-dependency philosophy, (3) requires zero wire format churn, (4) produces a self-hosted stdlib. The runtime is tiny (~2KB), the compiler changes are minimal (parser + lowering only, no new wire tags), and the stdlib is actual compiled Lalin code.
 
 - **Dark horse**: **Approach A — "Fix the Wire"**, but only if you (a) accept the libc dependency as pragmatic and (b) drop the wire-tag removal/churn. A simplified A (fix the decoder NO-OP to use `builder.call_memcpy()`, keep existing wire tags) would ship memcpy/memset in a day. The libc dependency is real but on Linux/macOS/Windows it's essentially free — every program already links libc. The concern is mostly philosophical and matters most for embedded/static builds where musl or no-libc is required.
 
@@ -1060,15 +1060,15 @@ The DynASM backend removal changes the landscape fundamentally. Let me be precis
 
 ### Precondition note
 
-The user correctly notes that DynASM cleanup (`rm -rf back/dasm/`, removing DynASM from `compile.lua`, stripping `isel_x64.lua`/`rules_x64.lisle` references) should happen before any approach is implemented. I concur — this is a prerequisite, not part of any approach. The DecodeContext and `back_jit.lua` only reference `libmoonlift.so` (the Cranelift path), so the cleanup is purely deleting dead Lua support files and their Makefile references.
+The user correctly notes that DynASM cleanup (`rm -rf back/dasm/`, removing DynASM from `compile.lua`, stripping `isel_x64.lua`/`rules_x64.lisle` references) should happen before any approach is implemented. I concur — this is a prerequisite, not part of any approach. The DecodeContext and `back_jit.lua` only reference `liblalin.so` (the Cranelift path), so the cleanup is purely deleting dead Lua support files and their Makefile references.
 
 ## Documenter Output — 2026-05-21 14:27:29
 
 # Memory Kit Architecture Decision
 
-**Project**: Moonlift — Typed, jump-first compiled language embedded in LuaJIT  
-**Date**: 2026-05-21  
-**Status**: Approved  
+**Project**: Lalin — Typed, jump-first compiled language embedded in LuaJIT
+**Date**: 2026-05-21
+**Status**: Approved
 **Workflow**: `wf-memory-kit`
 
 ---
@@ -1082,7 +1082,7 @@ The user correctly notes that DynASM cleanup (`rm -rf back/dasm/`, removing DynA
     - [Key Gaps](#key-gaps)
     - [Broken Paths](#broken-paths)
 4. [Decision Summary](#decision-summary)
-5. [Chosen Approach: Moonlift Stdlib, Fully Compiled](#chosen-approach-moonlift-stdlib-fully-compiled)
+5. [Chosen Approach: Lalin Stdlib, Fully Compiled](#chosen-approach-lalin-stdlib-fully-compiled)
     - [Three-Tier Architecture](#three-tier-architecture)
     - [Architecture Details](#architecture-details)
     - [Runtime Technical Details](#runtime-technical-details)
@@ -1093,7 +1093,7 @@ The user correctly notes that DynASM cleanup (`rm -rf back/dasm/`, removing DynA
     - [Cleanup: DynASM Removal (Prerequisite)](#cleanup-dynasm-removal-prerequisite)
     - [Phase 0: Rust Runtime (`src/rt.rs`)](#phase-0-rust-runtime-srcrtrs)
     - [Phase 1: Compiler Changes](#phase-1-compiler-changes)
-    - [Phase 2: Stdlib in Compiled Moonlift](#phase-2-stdlib-in-compiled-moonlift)
+    - [Phase 2: Stdlib in Compiled Lalin](#phase-2-stdlib-in-compiled-lalin)
     - [Phase 3: Bundle Stdlib into Compiler](#phase-3-bundle-stdlib-into-compiler)
 8. [Key Architecture Facts](#key-architecture-facts)
 9. [Scope Deliberately Excluded](#scope-deliberately-excluded)
@@ -1104,37 +1104,37 @@ The user correctly notes that DynASM cleanup (`rm -rf back/dasm/`, removing DynA
 
 ## Goal
 
-Enable Moonlift compiled code to express and use fundamental memory primitives — `sizeof`, `alignof`, `null`, `is_null`, `memcpy`, `memset`, `memcmp`, `trap`, arena allocation, and typed containers (`Buffer`, `Vec`) — through a self-hosting standard library backed by a tiny Rust runtime, without adding libc dependencies or new wire format tags.
+Enable Lalin compiled code to express and use fundamental memory primitives — `sizeof`, `alignof`, `null`, `is_null`, `memcpy`, `memset`, `memcmp`, `trap`, arena allocation, and typed containers (`Buffer`, `Vec`) — through a self-hosting standard library backed by a tiny Rust runtime, without adding libc dependencies or new wire format tags.
 
 ---
 
 ## Incentives
 
-Moonlift, as of May 2026, has **12+ memory gaps** that prevent it from being a self-sufficient systems language:
+Lalin, as of May 2026, has **12+ memory gaps** that prevent it from being a self-sufficient systems language:
 
-1. **`sizeof`/`alignof`**: The compiler computes these at compile time (`type_size_align.lua`) but there is no Moonlift source syntax to access them. Users must call `moon.size_align(ty)` from the Lua metaprogramming layer — a non-starter for compiled code that needs to reason about layout.
+1. **`sizeof`/`alignof`**: The compiler computes these at compile time (`type_size_align.lua`) but there is no Lalin source syntax to access them. Users must call `lalin.size_align(ty)` from the Lua metaprogramming layer — a non-starter for compiled code that needs to reason about layout.
 
-2. **`null`/`is_null`**: `BackLitNull` exists end-to-end in the backend (lowered to `iconst(ptr_ty, 0)` in Cranelift), but there is no `null` keyword in the parser. The only way to construct a null pointer is through the builder API's `moon.nil_lit()`. There is no `is_null(p)` at any level.
+2. **`null`/`is_null`**: `BackLitNull` exists end-to-end in the backend (lowered to `iconst(ptr_ty, 0)` in Cranelift), but there is no `null` keyword in the parser. The only way to construct a null pointer is through the builder API's `lalin.nil_lit()`. There is no `is_null(p)` at any level.
 
 3. **`trap`**: `CmdTrap` exists end-to-end (schema → encoder → decoder → Cranelift `trap(user 1)` → DynASM `int3`), but the frontend pipeline **explicitly asserts** `CmdTrap` never survives to emission (`assert_no_cmd_trap`). Trap is blocked from source.
 
-4. **`memcpy`/`memset` — Critically broken on the canonical backend**: The Cranelift decoder (`src/decode.rs` lines 601-602) has explicit **NO-OP** placeholders for `WireTag::Memcpy` and `WireTag::Memset`. These commands are silently skipped on the canonical Cranelift JIT/object path. Aggregate copies (struct = struct, array = array) go through `append_memcpy` in `tree_to_back.lua` — meaning every Moonlift program that copies a non-scalar produces silently wrong output.
+4. **`memcpy`/`memset` — Critically broken on the canonical backend**: The Cranelift decoder (`src/decode.rs` lines 601-602) has explicit **NO-OP** placeholders for `WireTag::Memcpy` and `WireTag::Memset`. These commands are silently skipped on the canonical Cranelift JIT/object path. Aggregate copies (struct = struct, array = array) go through `append_memcpy` in `tree_to_back.lua` — meaning every Lalin program that copies a non-scalar produces silently wrong output.
 
-5. **No heap in compiled code**: Allocation exists only on the Lua side — `moonlift_sar.lua` (SAR scope/arena), `host_arena_abi.lua` (host session typed allocation), `src/host_arena.rs` (Rust-side bump arena for FFI records). Compiled Moonlift code cannot allocate. Functions requiring dynamic memory must receive pre-allocated buffers as arguments.
+5. **No heap in compiled code**: Allocation exists only on the Lua side — `lalin_sar.lua` (SAR scope/arena), `host_arena_abi.lua` (host session typed allocation), `src/host_arena.rs` (Rust-side bump arena for FFI records). Compiled Lalin code cannot allocate. Functions requiring dynamic memory must receive pre-allocated buffers as arguments.
 
-6. **No `Buffer`/`Vec` stdlib**: There is no standard library `Buffer` or `Vec` in compiled Moonlift. The existing `buffer_view.lua` provides LuaJIT FFI record/view wrappers for Lua-side use only.
+6. **No `Buffer`/`Vec` stdlib**: There is no standard library `Buffer` or `Vec` in compiled Lalin. The existing `buffer_view.lua` provides LuaJIT FFI record/view wrappers for Lua-side use only.
 
-7. **No allocator ABI**: There is no standard interface for allocators in compiled Moonlift. The SAR arena is a Lua object, not a Moonlift struct. There is no way to pass an allocator to a compiled function.
+7. **No allocator ABI**: There is no standard interface for allocators in compiled Lalin. The SAR arena is a Lua object, not a Lalin struct. There is no way to pass an allocator to a compiled function.
 
 8. **`CmdMemcmp` is a ghost**: `back_validate.lua` has fact handling for `CmdMemcmp` (left, right, len, dst fields) — the validation infrastructure exists — but `CmdMemcmp` does not exist in `schema/back.lua`, the encoder, wire tags, or decoder. It was half-finished.
 
-9. **No `alloca` (dynamic stack allocation)**: `CmdCreateStackSlot` creates fixed-size stack slots. Dynamic alloca requires either Cranelift's `stack_load`/`stack_store` or a libc `alloca` call. Moonlift has neither, nor source syntax for it.
+9. **No `alloca` (dynamic stack allocation)**: `CmdCreateStackSlot` creates fixed-size stack slots. Dynamic alloca requires either Cranelift's `stack_load`/`stack_store` or a libc `alloca` call. Lalin has neither, nor source syntax for it.
 
 10. **No extern memory declarations**: There are no built-in `extern` declarations for `malloc`, `free`, `realloc`, `memcpy`, `memset` from libc. Users must declare their own extern blocks.
 
 11. **Backend asymmetry eliminated by DynASM removal**: The DynASM path was the only working implementation of `memcpy`/`memset` (via `rep movsb`/`rep stosb`). With DynASM being removed, there is exactly one backend (Cranelift) and it has the broken NO-OP.
 
-12. **Builder API as sole extension mechanism**: Currently, new memory primitives can only be accessed through the Lua builder API (`moon.memcpy()`, `moon.nil_lit()`, etc.). This requires Lua scaffolding for every memory operation, preventing self-contained Moonlift programs.
+12. **Builder API as sole extension mechanism**: Currently, new memory primitives can only be accessed through the Lua builder API (`lalin.memcpy()`, `lalin.nil_lit()`, etc.). This requires Lua scaffolding for every memory operation, preventing self-contained Lalin programs.
 
 ---
 
@@ -1145,9 +1145,9 @@ Moonlift, as of May 2026, has **12+ memory gaps** that prevent it from being a s
 The codebase has a rich but fragmented memory infrastructure:
 
 #### Type System and Layout
-- **`lua/moonlift/type_size_align.lua`**: Computes sizes and alignments for all types at compile time (Lua PVM phase). Scalar layouts are compile-time constants. Pointer type is always (8, 8). View type is (24, 8). Array type is `(elem_size*count, elem_align)`. Aggregate types delegate to named layout.
-- **`lua/moonlift/tree_to_back.lua`**: Contains `elem_size()` and `elem_align()` helper functions that call into `type_size_align` during lowering.
-- **`lua/moonlift/host_session.lua`**: Exposes `size_align`, `layout_of`, `classify_type`, `abi_of` via the session API.
+- **`lua/lalin/type_size_align.lua`**: Computes sizes and alignments for all types at compile time (Lua PVM phase). Scalar layouts are compile-time constants. Pointer type is always (8, 8). View type is (24, 8). Array type is `(elem_size*count, elem_align)`. Aggregate types delegate to named layout.
+- **`lua/lalin/tree_to_back.lua`**: Contains `elem_size()` and `elem_align()` helper functions that call into `type_size_align` during lowering.
+- **`lua/lalin/host_session.lua`**: Exposes `size_align`, `layout_of`, `classify_type`, `abi_of` via the session API.
 
 #### Pointer and View Types
 - `ptr(T)`: Parsed as `Ty.TPtr`. Pointer arithmetic (`p + n`) typechecked as TPtr + integer → TPtr. Lowered to `CmdPtrOffset` with `elem_size`.
@@ -1185,20 +1185,20 @@ Where:
 **Critical**: This rich fact structure is compressed to a 3-bit `memflags` field on the wire (notrap, aligned, can_move). Most alignment/dereference information is lost in the Cranelift path.
 
 #### Allocation (Lua Side Only)
-- **`moonlift_sar.lua`**: Scope/Arena/Resource runtime layer with bump allocation from pre-reserved cdata blocks. Functions: `Arena:_alloc_raw(n, align)`, `Arena:array(ct, n)`, `Arena:byte(n)`.
+- **`lalin_sar.lua`**: Scope/Arena/Resource runtime layer with bump allocation from pre-reserved cdata blocks. Functions: `Arena:_alloc_raw(n, align)`, `Arena:array(ct, n)`, `Arena:byte(n)`.
 - **`host_arena_native.lua`**: Lua-side host arena API: `alloc_record`, `alloc_records`, `free`.
 - **`src/host_arena.rs`**: Rust-side typed allocation using `std::alloc`. Tracks blocks in a `Vec<HostBlock>`. Allocates via `alloc_zeroed`, frees via `dealloc` on `Drop`.
 
 #### Builder API (Lua → ASDL Bridge)
-- `moon.load(addr, T)`, `moon.store(addr, value)` — construct `Tr.ExprLoad`/`Tr.StmtStore` ASDL
-- `moon.memcpy(dst, src, len)`, `moon.memset(dst, byte, len)` — construct `CmdMemcpy`/`CmdMemset`
-- `moon.nil_lit()` — produces `LitNil` → `BackLitNull`
-- `moon.size_align(ty)` — calls `type_size_align.result()` in Lua, returns now
+- `lalin.load(addr, T)`, `lalin.store(addr, value)` — construct `Tr.ExprLoad`/`Tr.StmtStore` ASDL
+- `lalin.memcpy(dst, src, len)`, `lalin.memset(dst, byte, len)` — construct `CmdMemcpy`/`CmdMemset`
+- `lalin.nil_lit()` — produces `LitNil` → `BackLitNull`
+- `lalin.size_align(ty)` — calls `type_size_align.result()` in Lua, returns now
 - Pattern: Builder API constructs ASDL nodes → existing lowering pipeline handles them — this is the natural extension path.
 
 #### Wire Format
 - `BACK_WIRE_FORMAT.md` defines all wire tags including `Memcpy = 117`, `Memset = 118`, `Trap = 126`, `ConstNull = 127`.
-- `lua/moonlift/back_command_binary.lua`: Lua-side Flatline v4 encoder.
+- `lua/lalin/back_command_binary.lua`: Lua-side Flatline v4 encoder.
 - `src/wire_tags.rs`: Rust-side WireTag enum with `TAG_SLOTS` static table.
 - `src/decode.rs`: Cranelift decoder — matches wire tags to Cranelift `InstBuilder` methods.
 
@@ -1206,13 +1206,13 @@ Where:
 
 | Primitive | Source Syntax | Parser | Typechecker | Backend (Cranelift) | Builder API |
 |-----------|:---:|:---:|:---:|:---:|:---:|
-| `sizeof(T)` | ❌ | ❌ | ❌ | N/A (compile-time const) | ✅ `moon.size_align()` |
+| `sizeof(T)` | ❌ | ❌ | ❌ | N/A (compile-time const) | ✅ `lalin.size_align()` |
 | `alignof(T)` | ❌ | ❌ | ❌ | N/A (compile-time const) | ✅ (via size_align) |
-| `null` | ❌ | ❌ | ❌ | ✅ `ConstNull=0` | ✅ `moon.nil_lit()` |
+| `null` | ❌ | ❌ | ❌ | ✅ `ConstNull=0` | ✅ `lalin.nil_lit()` |
 | `is_null(p)` | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `trap` | ❌ | ❌ | ❌ | ✅ `trap(user 1)` | ❌ (blocked by assert) |
-| `memcpy` | ❌ | ❌ | ❌ | 🔴 **NO-OP** | ✅ `moon.memcpy()` |
-| `memset` | ❌ | ❌ | ❌ | 🔴 **NO-OP** | ✅ `moon.memset()` |
+| `memcpy` | ❌ | ❌ | ❌ | 🔴 **NO-OP** | ✅ `lalin.memcpy()` |
+| `memset` | ❌ | ❌ | ❌ | 🔴 **NO-OP** | ✅ `lalin.memset()` |
 | `memcmp` | ❌ | ❌ | ❌ | ❌ | ❌ (ghost in validate) |
 | `alloca` | ❌ | ❌ | ❌ | ✅ `CmdCreateStackSlot` | ❌ |
 | `alloc(T, n)` | ❌ | ❌ | ❌ | ❌ | ❌ (SAR only in Lua) |
@@ -1229,7 +1229,7 @@ t if t == WireTag::Memcpy as u32 => { /* no-op */ }
 t if t == WireTag::Memset as u32 => { /* no-op */ }
 ```
 
-Aggregate copies (struct = struct, array = array) in Moonlift source go through `append_memcpy` in `tree_to_back.lua` (lines 1134, 1185, 1707). These are **not** opt-in — they are the standard lowering for non-scalar assignments. Every Moonlift program that copies a struct or array produces silently wrong output on the Cranelift path.
+Aggregate copies (struct = struct, array = array) in Lalin source go through `append_memcpy` in `tree_to_back.lua` (lines 1134, 1185, 1707). These are **not** opt-in — they are the standard lowering for non-scalar assignments. Every Lalin program that copies a struct or array produces silently wrong output on the Cranelift path.
 
 The DynASM backend had working implementations (`rep movsb`/`rep stosb` in `isel_x64.lua`), but DynASM is being removed.
 
@@ -1237,15 +1237,15 @@ The DynASM backend had working implementations (`rep movsb`/`rep stosb` in `isel
 
 ## Decision Summary
 
-**Chosen approach**: **Approach C — "Moonlift Stdlib, Fully Compiled"**
+**Chosen approach**: **Approach C — "Lalin Stdlib, Fully Compiled"**
 
 **Score**: 4.7/5 (critique evaluation)
 
-**Core strategy**: Add a minimal Rust runtime (~2KB, pure `core::ptr`, no libc), write the entire stdlib (arena, buffer, vec, view, memory) in compiled Moonlift itself, and extend the compiler only enough (4 source keywords, decoder fix, one assertion removal) to allow the stdlib to express itself ergonomically. Zero new wire tags. Zero new backend commands.
+**Core strategy**: Add a minimal Rust runtime (~2KB, pure `core::ptr`, no libc), write the entire stdlib (arena, buffer, vec, view, memory) in compiled Lalin itself, and extend the compiler only enough (4 source keywords, decoder fix, one assertion removal) to allow the stdlib to express itself ergonomically. Zero new wire tags. Zero new backend commands.
 
 ---
 
-## Chosen Approach: Moonlift Stdlib, Fully Compiled
+## Chosen Approach: Lalin Stdlib, Fully Compiled
 
 ### Three-Tier Architecture
 
@@ -1264,9 +1264,9 @@ Primitives that the compiler understands natively and lowers to existing backend
 | `memcmp` | Wire in the ghost `CmdMemcmp` variant: add to schema, encoder, wire tags, decoder → calls `__ml_memcmp` | New wire tag required (~6 files) |
 
 #### Tier 2 — Allocator ABI
-A standard interface for allocators in compiled Moonlift, expressed as a Moonlift struct and extern functions:
+A standard interface for allocators in compiled Lalin, expressed as a Lalin struct and extern functions:
 
-```moonlift
+```lalin
 -- Allocator ABI (the interface)
 struct Allocator
     alloc: func(size: index, align: index) -> ptr(u8)
@@ -1282,13 +1282,13 @@ Concrete implementations:
 Allocators are passed as explicit arguments — no implicit heap. Functions that need allocation receive an `Allocator` struct pointer.
 
 #### Tier 3 — Typed Containers
-Compiled Moonlift modules that use the allocator ABI:
+Compiled Lalin modules that use the allocator ABI:
 
 - **`Buffer(T)`**: struct with `data: ptr(T)`, `len: index`, `cap: index`. Functions: `buffer_init`, `buffer_append`, `buffer_free`.
 - **`Vec(T)`**: on top of `Buffer(T)` with length tracking. Functions: `vec_push`, `vec_pop`, `vec_get`, `vec_set`.
 - **`view` helpers**: `view_slice`, `view_from_ptr`, `view_bounds_check`.
 
-These are Lua-generated monomorphic containers — Lua metaprogramming produces the Moonlift code for each instantiated type, similar to how C++ templates work but with explicit monomorphization at the Lua level.
+These are Lua-generated monomorphic containers — Lua metaprogramming produces the Lalin code for each instantiated type, similar to how C++ templates work but with explicit monomorphization at the Lua level.
 
 ### Architecture Details
 
@@ -1304,7 +1304,7 @@ trap             →   StmtTrap         →   typed void     →   (unchanged)  
 memcpy(a,b,n)    →   (extern call)    →   (extern call)  →   (unchanged)           →   CmdCall(__ml_memcpy)
 ```
 
-#### Runtime Interface (Rust → Moonlift)
+#### Runtime Interface (Rust → Lalin)
 
 The runtime exports `extern "C"` symbols:
 
@@ -1318,9 +1318,9 @@ extern "C" fn __ml_free(ptr: *mut u8, size: usize, align: usize);
 extern "C" fn __ml_realloc(ptr: *mut u8, old_size: usize, new_size: usize, align: usize) -> *mut u8;
 ```
 
-Moonlift source declares these as extern imports:
+Lalin source declares these as extern imports:
 
-```moonlift
+```lalin
 extern __ml_memcpy(dst: ptr(u8), src: ptr(u8), n: index) -> ptr(u8) end
 extern __ml_memset(dst: ptr(u8), byte: i32, n: index) -> ptr(u8) end
 extern __ml_memcmp(left: ptr(u8), right: ptr(u8), n: index) -> i32 end
@@ -1341,7 +1341,7 @@ This is the same mechanism used for field offset resolution in struct layouts.
 
 #### assert_no_cmd_trap Removal
 
-The frontend pipeline (`lua/moonlift/frontend_pipeline.lua`) contains:
+The frontend pipeline (`lua/lalin/frontend_pipeline.lua`) contains:
 
 ```lua
 assert_no_cmd_trap(back_program)  -- asserts CmdTrap never survives to emission
@@ -1394,10 +1394,10 @@ The exact Cranelift API depends on whether `symbol_value` or `func_ref` is used.
   - `__ml_alloc`: bump allocator from a pre-allocated 64KB static page (size configurable at build time)
   - `__ml_free`: no-op for bump allocator (slab/TLSF allocator may be added later)
   - `__ml_realloc`: allocate new + copy + free old (bump can't grow in place)
-- **Linkage**: 
-  - For **JIT path**: symbols registered via `builder.symbol()` — `libmoonlift.so` must export them
+- **Linkage**:
+  - For **JIT path**: symbols registered via `builder.symbol()` — `liblalin.so` must export them
   - For **object emission**: runtime `.o` must be included in the link step (linker script or archive)
-  - For standalone **moonlift binary**: runtime symbols are statically linked
+  - For standalone **lalin binary**: runtime symbols are statically linked
 - **Binary size**: ~2KB for the runtime; linker garbage collection (`--gc-sections`) drops unreferenced symbols
 - **Dependency**: Pure `core::ptr` operations — **zero libc dependency**
 
@@ -1414,10 +1414,10 @@ The exact Cranelift API depends on whether `symbol_value` or `func_ref` is used.
 **Why rejected**: The approach's foundational assumption was that DynASM provides a working `memcpy`/`memset` path. With DynASM being removed, `CmdMemcpy`/`CmdMemset` have **zero working paths** — the Cranelift decoder has explicit NO-OPs. The approach claimed "works today on DynASM, document the Cranelift NO-OP." After DynASM removal, nothing works.
 
 Additional disqualifying factors:
-- **Silent wrong output on aggregate copies**: `struct = struct` and `array = array` assignments go through `append_memcpy` in `tree_to_back.lua`. These are **not** opt-in — they are the standard lowering for non-scalar assignments. Every Moonlift program that copies a struct or array produces silently wrong output on the only remaining backend.
-- **Moonlift's philosophy is "fail fast, fail loud"** (from AGENTS.md). Silent NO-OPs on the canonical backend violate this.
+- **Silent wrong output on aggregate copies**: `struct = struct` and `array = array` assignments go through `append_memcpy` in `tree_to_back.lua`. These are **not** opt-in — they are the standard lowering for non-scalar assignments. Every Lalin program that copies a struct or array produces silently wrong output on the only remaining backend.
+- **Lalin's philosophy is "fail fast, fail loud"** (from AGENTS.md). Silent NO-OPs on the canonical backend violate this.
 - **Perpetuates the broken state**: The approach has no path to fix the memcpy/memset NO-OP because it claimed "zero Rust changes."
-- **No compiled stdlib**: The stdlib stays as Lua wrappers, not actual Moonlift code.
+- **No compiled stdlib**: The stdlib stays as Lua wrappers, not actual Lalin code.
 
 **Verdict**: Structurally unsound for any code that touches memory. Not salvageable.
 
@@ -1429,15 +1429,15 @@ Additional disqualifying factors:
 
 **Why not chosen** (despite being technically viable):
 
-1. **Libc dependency**: Cranelift's `builder.call_memcpy()` calls `extern "C" memcpy` — `LibCall::Memcpy` maps to `ExternalName::LibCall("memcpy")`. This conflicts with Moonlift's stated **zero-runtime-dependency philosophy**. Every compiled Moonlift program that does a bulk copy would call into libc. For embedded/static builds (musl, no-libc), this is a real problem.
+1. **Libc dependency**: Cranelift's `builder.call_memcpy()` calls `extern "C" memcpy` — `LibCall::Memcpy` maps to `ExternalName::LibCall("memcpy")`. This conflicts with Lalin's stated **zero-runtime-dependency philosophy**. Every compiled Lalin program that does a bulk copy would call into libc. For embedded/static builds (musl, no-libc), this is a real problem.
 
 2. **Wire format churn**: A proposed removing `CmdMemcpy`/`CmdMemset` wire tags (breaking change). Post-DynASM-removal this is unnecessary — keeping the existing tags and fixing the decoder is simpler.
 
 3. **Optimization cost**: The `rep movsb` optimization (fast for small copies on x64) is lost even in the fixed approach because Cranelift's libcall path goes through PLT on PIC builds.
 
-4. **Philosophy**: "Zero runtime deps" is a core Moonlift design principle. A tiny pure-Rust runtime (as in Approach C) is acceptable; a hard libc dependency is not.
+4. **Philosophy**: "Zero runtime deps" is a core Lalin design principle. A tiny pure-Rust runtime (as in Approach C) is acceptable; a hard libc dependency is not.
 
-**What would make it more attractive**: If the libc dependency were acceptable (e.g., for a Linux-only deployment), Approach A's simplified form (keep wire tags, fix decoder, no wire churn) would ship `memcpy`/`memset` in a day. But the philosophical misalignment with Moonlift's zero-dependency principle is decisive.
+**What would make it more attractive**: If the libc dependency were acceptable (e.g., for a Linux-only deployment), Approach A's simplified form (keep wire tags, fix decoder, no wire churn) would ship `memcpy`/`memset` in a day. But the philosophical misalignment with Lalin's zero-dependency principle is decisive.
 
 **The libc question**: On Linux/macOS/Windows, every program already links libc. The dependency is "free" in practice. The concern is primarily philosophical and matters for embedded/static builds where musl or no-libc is required.
 
@@ -1455,24 +1455,24 @@ Additional disqualifying factors:
 |----------|-------|-------|
 | **Delete** | 26 | Entire `back/dasm/` directory (init.lua, compile.lua, model.lua, isel_x64.lua, encode_x64.lua, abi_sysv.lua, regalloc.lua, dynasm_session.lua, rules_x64.lisle, 14 phase files) |
 | **Delete** | 1 | `back/dasm_lib.c` (C encoding engine) |
-| **Delete** | 1 | `lua/moonlift/schema/dasm.lua` (MoonDasm ASDL schema, ~300 lines) |
+| **Delete** | 1 | `lua/lalin/schema/dasm.lua` (LalinDasm ASDL schema, ~300 lines) |
 | **Delete** | 11 | All `tests/test_dasm_*.lua` + `tests/test_lisle_rules_x64.lua` |
 | **Delete** | 3 | `docs/dynasm.md`, `docs/dynasm-backend-design.md`, `docs/dynasm-asdl-first-complete-design.md` |
 | **Delete** | 2 | `benchmarks/bench_cranelift_vs_dynasm.lua`, `benchmarks/bench_cranelift_vs_dynasm_harness.lua` |
-| **Edit** | 2 | `lua/moonlift/schema/init.lua:13` (remove dasm require), `src/embedded_hosted_lua.rs:132` (remove dasm include) |
+| **Edit** | 2 | `lua/lalin/schema/init.lua:13` (remove dasm require), `src/embedded_hosted_lua.rs:132` (remove dasm include) |
 | **Edit** | 3 | `benchmarks/debug_fib_phi.lua`, `benchmarks/debug_fib_phi2.lua` (delete or rewrite), `benchmarks/bench_isolate_kernel.lua` (change default to Cranelift) |
 
 **Important**: `src/wire_tags.rs` (Memcpy/Memset tags) and `src/decode.rs` (NO-OPs) are **not** touched during cleanup — these are handled in Phase 1.
 
 ### Phase 0: Rust Runtime (`src/rt.rs`)
 
-**Goal**: Provide the runtime symbols that compiled Moonlift code calls for memory operations.
+**Goal**: Provide the runtime symbols that compiled Lalin code calls for memory operations.
 
 **Changes required**:
 - Create `src/rt.rs` with `__ml_memcpy`, `__ml_memset`, `__ml_memcmp`, `__ml_alloc`, `__ml_free`, `__ml_realloc` functions
 - All functions use `core::ptr` operations — no libc dependency
-- Ensure `libmoonlift.so` exports these symbols (via FFI `#[no_mangle] extern "C"`)
-- Ensure the standalone `moonlift` binary links the runtime
+- Ensure `liblalin.so` exports these symbols (via FFI `#[no_mangle] extern "C"`)
+- Ensure the standalone `lalin` binary links the runtime
 - For JIT path: register symbols with `builder.symbol()` in `lib.rs`
 - For object emission: include `rt.o` in the link step
 
@@ -1488,7 +1488,7 @@ Additional disqualifying factors:
 
 **Changes required** (12-15 files):
 
-#### Parser (`lua/moonlift/parse.lua`)
+#### Parser (`lua/lalin/parse.lua`)
 - Add token types: `TK_null`, `TK_sizeof`, `TK_alignof`, `TK_is_null`, `TK_trap`
 - Add expression forms:
   - `null(T)` → `Tr.ExprNull(ty)`
@@ -1498,24 +1498,24 @@ Additional disqualifying factors:
 - Add statement form:
   - `trap` → `Tr.StmtTrap`
 
-#### Typechecker (`lua/moonlift/tree_typecheck.lua`)
+#### Typechecker (`lua/lalin/tree_typecheck.lua`)
 - `ExprNull(ty)` → type is `ptr(elem)` where `elem` is the resolved element type
 - `ExprSizeOf(T)` → type is `index` (no layout computation during typechecking)
 - `ExprAlignOf(T)` → type is `index`
 - `ExprIsNull(ptr)` → type is `bool`; operand must be a pointer type
 - `StmtTrap` → type is `void`; termination statement (like `return`)
 
-#### Layout Resolution (`lua/moonlift/sem_layout_resolve.lua`)
+#### Layout Resolution (`lua/lalin/sem_layout_resolve.lua`)
 - Add deferred pass: after struct layouts are resolved, walk the tree and replace `ExprSizeOf(T)` and `ExprAlignOf(T)` with their computed constant values
 - Call `type_size_align.result()` which already exists
 
-#### Tree-to-Back Lowering (`lua/moonlift/tree_to_back.lua`)
+#### Tree-to-Back Lowering (`lua/lalin/tree_to_back.lua`)
 - `ExprNull(T)` → `CmdConst(dst, BackLitNull)` — already works
 - `ExprSizeOf(T)` / `ExprAlignOf(T)` → should already be replaced by layout phase; if not, `CmdConst` with the computed value
 - `ExprIsNull(ptr)` → `CmdIntBinary(IcmpEq, ptr, CmdConst(0, index))` — maps to existing `icmp` path
 - `StmtTrap` → `CmdTrap` — already works
 
-#### Frontend Pipeline (`lua/moonlift/frontend_pipeline.lua`)
+#### Frontend Pipeline (`lua/lalin/frontend_pipeline.lua`)
 - Remove the `assert_no_cmd_trap(back_program)` call (or gate behind a debug flag)
 
 #### Cranelift Decoder (`src/decode.rs`)
@@ -1532,21 +1532,21 @@ Additional disqualifying factors:
   - Add decode case in `src/decode.rs` (emit call to `__ml_memcmp`)
   - Add fact extraction in `back_validate.lua` (validation already exists — ghost variant at line 244)
 
-### Phase 2: Stdlib in Compiled Moonlift
+### Phase 2: Stdlib in Compiled Lalin
 
-**Goal**: Write the standard library modules in compiled Moonlift.
+**Goal**: Write the standard library modules in compiled Lalin.
 
 **Modules** (under `stdlib/`):
 
 #### `stdlib/memory.mlua`
-```moonlift
+```lalin
 extern __ml_memcpy(dst: ptr(u8), src: ptr(u8), n: index) -> ptr(u8) end
 extern __ml_memset(dst: ptr(u8), byte: i32, n: index) -> ptr(u8) end
 extern __ml_memcmp(left: ptr(u8), right: ptr(u8), n: index) -> i32 end
 ```
 
 #### `stdlib/arena.mlua`
-```moonlift
+```lalin
 struct Arena
     start: ptr(u8)
     ptr: ptr(u8)      -- current bump position
@@ -1574,7 +1574,7 @@ end
 ```
 
 #### `stdlib/buffer.mlua`
-```moonlift
+```lalin
 struct Buffer(T)
     data: ptr(T)
     len: index
@@ -1588,7 +1588,7 @@ end
 ```
 
 #### `stdlib/vec.mlua`
-```moonlift
+```lalin
 -- Vec(T) on top of Buffer(T) with length tracking
 -- vec_push(T, vec: ptr(Vec(T)), val: T)
 -- vec_pop(T, vec: ptr(Vec(T))) -> T
@@ -1597,7 +1597,7 @@ end
 ```
 
 #### `stdlib/view.mlua`
-```moonlift
+```lalin
 -- View helper functions
 -- view_slice(v: view(T), start: index, len: index) -> view(T)  (bounds-checked)
 -- view_from_ptr(p: ptr(T), len: index) -> view(T)
@@ -1605,7 +1605,7 @@ end
 ```
 
 #### `stdlib/libc_alloc.mlua`
-```moonlift
+```lalin
 extern malloc(size: index) -> ptr(u8) end
 extern free(ptr: ptr(u8)) end
 extern realloc(ptr: ptr(u8), size: index) -> ptr(u8) end
@@ -1615,12 +1615,12 @@ extern realloc(ptr: ptr(u8), size: index) -> ptr(u8) end
 
 ### Phase 3: Bundle Stdlib into Compiler
 
-**Goal**: Make the stdlib available to all Moonlift programs without manual path configuration.
+**Goal**: Make the stdlib available to all Lalin programs without manual path configuration.
 
 - Compile `stdlib/*.mlua` into ASDL bundles that ship with the compiler
 - `build.rs` or equivalent: include stdlib sources in the embedded Lua table
-- `moon.require` resolution: `"std:memory"` prefix maps to bundled stdlib modules
-- The compiler auto-imports `stdlib.moonlift` which re-exports all memory primitives
+- `lalin.require` resolution: `"std:memory"` prefix maps to bundled stdlib modules
+- The compiler auto-imports `stdlib.lalin` which re-exports all memory primitives
 - Stdlib modules are **not** lazy-loaded — they ship with every compiled program (linker garbage collection drops unreferenced symbols)
 
 ---
@@ -1666,7 +1666,7 @@ The pattern for all new primitives follows the existing builder API model:
 Lua metaprogramming constructs ASDL nodes → existing lowering handles them
 ```
 
-For `moon.memcpy(dst, src, len)` → constructs `Tr.Stmt` → lowered to `CmdMemcpy` → wire tag → decoded to Cranelift call.
+For `lalin.memcpy(dst, src, len)` → constructs `Tr.Stmt` → lowered to `CmdMemcpy` → wire tag → decoded to Cranelift call.
 
 This means every primitive can be prototyped in the builder API first (requiring only Lua changes + the backend fix), then source syntax can be added later as a thin sugar layer.
 
@@ -1679,7 +1679,7 @@ For each genuinely new backend command (like `CmdMemcmp`), the cost is ~6 files:
 | `back_command_binary.lua` | Add wire tag + encode case (2-5 lines) |
 | `src/wire_tags.rs` | Add WireTag variant + TAG_SLOTS entry (2-5 lines) |
 | `src/decode.rs` | Add decode case (5-30 lines Cranelift IR) |
-| `lua/moonlift/back_validate.lua` | Add fact extraction (3-10 lines; for memcmp this already exists) |
+| `lua/lalin/back_validate.lua` | Add fact extraction (3-10 lines; for memcmp this already exists) |
 | `back/dasm/isel_x64.lua` | (would go here but DynASM is removed) |
 
 Approach C avoids this cost for all primitives **except** `memcmp` by mapping everything to existing backend commands.
@@ -1704,9 +1704,9 @@ The following are **not** part of this decision:
 - **GC / garbage collection**: No tracing or reference counting. Allocation is explicit.
 - **Destructors / drops**: No automatic cleanup. `free` must be called explicitly.
 - **Ownership inference**: No borrow checker, no lifetime tracking, no move semantics.
-- **Source-level generics**: Moonlift remains monomorphic at the source level. Genericity lives in Lua metaprogramming (including for `Buffer(T)` and `Vec(T)`).
+- **Source-level generics**: Lalin remains monomorphic at the source level. Genericity lives in Lua metaprogramming (including for `Buffer(T)` and `Vec(T)`).
 - **Automatic heap allocation**: No implicit boxing, no heap-allocated closure environments. All allocation is explicit via `alloc()` calls.
-- **For/while/break/continue**: Not added. Moonlift maintains jump-first control (block/jump/yield/return).
+- **For/while/break/continue**: Not added. Lalin maintains jump-first control (block/jump/yield/return).
 - **Dynamic stack allocation (alloca)**: Not added in this phase. `CmdCreateStackSlot` is fixed-size.
 - **Thread safety**: The bump allocator is not thread-safe. Thread-local arenas or a thread-safe allocator are future work.
 - **Optimized small copies**: The `rep movsb` inline path is lost in the Cranelift path. No inline expansion is planned.
@@ -1727,7 +1727,7 @@ The following are **not** part of this decision:
 | **Cranelift API stability** — `builder.call()` / `builder.symbol_value()` API may differ from expected | Low | Cranelift is a vendored dependency. API used in existing code works. |
 | **sizeof/alignof phase ordering** — deferred evaluation must happen after layout resolution but before lowering | Low | Same mechanism as field offset resolution. Well-understood pattern. |
 | **`assert_no_cmd_trap` removal** — removing a safety check may allow accidental trap production | Low | Gate behind debug flag rather than removing entirely. Or add a validation warning instead of error. |
-| **Stdlib versioning** — bundled stdlib modules need careful versioning as the language evolves | Low | Stdlib is compiled Moonlift, subject to same versioning as the compiler. |
+| **Stdlib versioning** — bundled stdlib modules need careful versioning as the language evolves | Low | Stdlib is compiled Lalin, subject to same versioning as the compiler. |
 | **Text tape vs binary wire cross-check** — existing tests compare text tape encoder output | Low | `back_command_tape.lua` is legacy but kept for CI cross-check. No changes to tape format. |
 
 ---
@@ -1738,14 +1738,14 @@ The following are **not** part of this decision:
 
 | Sacrifice | Why Acceptable |
 |-----------|----------------|
-| **`rep movsb` inline optimization** for memcpy/memset on x64 | Cranelift's codegen may recover this for small copies via `MemFlags` optimization. The call overhead is negligible for most workloads. For performance-critical code, users can write custom vectorized loops in Moonlift. |
-| **Full AOT without runtime dependency** — every Moonlift program that uses memcpy must link the runtime | The runtime is ~2KB of pure Rust `core::ptr` code with zero libc dependency. This is strictly better than implicitly relying on libc's `memcpy` (which Approach A would require). |
+| **`rep movsb` inline optimization** for memcpy/memset on x64 | Cranelift's codegen may recover this for small copies via `MemFlags` optimization. The call overhead is negligible for most workloads. For performance-critical code, users can write custom vectorized loops in Lalin. |
+| **Full AOT without runtime dependency** — every Lalin program that uses memcpy must link the runtime | The runtime is ~2KB of pure Rust `core::ptr` code with zero libc dependency. This is strictly better than implicitly relying on libc's `memcpy` (which Approach A would require). |
 | **No dynamic alloca** — stack allocation remains fixed-size at compile time | Dynamic stack allocation is a niche need. Buffer/vec/arena allocation on the heap suffices for dynamic sizing. VLA patterns can use bump allocator from the Arena. |
-| **No thread safety** in the default allocator | Thread safety adds complexity and size. Thread-local arenas are the idiomatic Moonlift pattern. A thread-safe allocator can be added later when needed. |
-| **Stdlib shipped with every program** — not lazy-loaded | Linker GC drops unused symbols. The stdlib is compiled Moonlift, not a Lua payload. The binary footprint of an unused stdlib is near-zero after stripping. |
+| **No thread safety** in the default allocator | Thread safety adds complexity and size. Thread-local arenas are the idiomatic Lalin pattern. A thread-safe allocator can be added later when needed. |
+| **Stdlib shipped with every program** — not lazy-loaded | Linker GC drops unused symbols. The stdlib is compiled Lalin, not a Lua payload. The binary footprint of an unused stdlib is near-zero after stripping. |
 | **No wire format cleanup** — the broken `CmdMemcpy`/`CmdMemset` wire tags remain in the wire format | Keeping the tags preserves backward compatibility. Old wire-format consumers (if any exist) continue to work. The decoder now produces correct output instead of NO-OP. |
-| **Moonlift source stays imperative for memory** — no borrow checker, no ownership | This is consistent with Moonlift's explicit, non-GC philosophy. Pointers are values, not tracked references. Ownership is a discipline, not a type system feature. |
-| **`null` keyword reintroduces nullable pointers** — Moonlift's current design has no null in source, making all pointers non-null by construction | The tradeoff is pragmatic: systems code needs to represent sentinel values and optional pointers. `is_null` checks provide the safety mechanism. The builder API already had `moon.nil_lit()`. |
+| **Lalin source stays imperative for memory** — no borrow checker, no ownership | This is consistent with Lalin's explicit, non-GC philosophy. Pointers are values, not tracked references. Ownership is a discipline, not a type system feature. |
+| **`null` keyword reintroduces nullable pointers** — Lalin's current design has no null in source, making all pointers non-null by construction | The tradeoff is pragmatic: systems code needs to represent sentinel values and optional pointers. `is_null` checks provide the safety mechanism. The builder API already had `lalin.nil_lit()`. |
 
 ## Scout Output — 2026-05-21 14:29:08
 
@@ -1753,36 +1753,36 @@ Here is the complete verification report for all 12 files:
 
 ---
 
-## 1. `lua/moonlift/schema/init.lua` — Lines 11-13
+## 1. `lua/lalin/schema/init.lua` — Lines 11-13
 
 ```lua
 function M.schema(T)
     local A = Builder.Define(T)
     return A.schema {
-        require("moonlift.schema.core")(A),
-        require("moonlift.schema.back")(A),
-        require("moonlift.schema.dasm")(A),   -- ← LINE 13: the dasm require
+        require("lalin.schema.core")(A),
+        require("lalin.schema.back")(A),
+        require("lalin.schema.dasm")(A),   -- ← LINE 13: the dasm require
 ```
 
-**Line 13**: `require("moonlift.schema.dasm")(A)` — this is the `MoonDasm` ASDL schema import. Remove this line to delete the DynASM schema reference.
+**Line 13**: `require("lalin.schema.dasm")(A)` — this is the `LalinDasm` ASDL schema import. Remove this line to delete the DynASM schema reference.
 
 ---
 
 ## 2. `src/embedded_hosted_lua.rs` — Lines 132-133
 
 ```rust
-        ("moonlift.schema.back", include_str!("../lua/moonlift/schema/back.lua")),
-        ("moonlift.schema.bind", include_str!("../lua/moonlift/schema/bind.lua")),
-        ("moonlift.schema.core", include_str!("../lua/moonlift/schema/core.lua")),
-        ("moonlift.schema.dasm", include_str!("../lua/moonlift/schema/dasm.lua")),  -- ← LINE 135
-        ("moonlift.schema.editor", include_str!("../lua/moonlift/schema/editor.lua")),
+        ("lalin.schema.back", include_str!("../lua/lalin/schema/back.lua")),
+        ("lalin.schema.bind", include_str!("../lua/lalin/schema/bind.lua")),
+        ("lalin.schema.core", include_str!("../lua/lalin/schema/core.lua")),
+        ("lalin.schema.dasm", include_str!("../lua/lalin/schema/dasm.lua")),  -- ← LINE 135
+        ("lalin.schema.editor", include_str!("../lua/lalin/schema/editor.lua")),
 ```
 
-**Line 135**: `("moonlift.schema.dasm", include_str!("../lua/moonlift/schema/dasm.lua")),` — this embeds the `dasm.lua` schema file. Remove this entry.
+**Line 135**: `("lalin.schema.dasm", include_str!("../lua/lalin/schema/dasm.lua")),` — this embeds the `dasm.lua` schema file. Remove this entry.
 
 ---
 
-## 3. `lua/moonlift/parse.lua` — Token Definitions (Lines 26-100)
+## 3. `lua/lalin/parse.lua` — Token Definitions (Lines 26-100)
 
 **Token kind constants** (lines 32-98):
 ```lua
@@ -1836,11 +1836,11 @@ local keywords = {
 
 ---
 
-## 4. `lua/moonlift/frontend_pipeline.lua` — Lines 11-20 (assert_no_cmd_trap)
+## 4. `lua/lalin/frontend_pipeline.lua` — Lines 11-20 (assert_no_cmd_trap)
 
 ```lua
 local function assert_no_cmd_trap(T, program, site)
-    local Back = T.MoonBack
+    local Back = T.LalinBack
     for i = 1, #(program and program.cmds or {}) do
         local cmd = program.cmds[i]
         if cmd == Back.CmdTrap or pvm.classof(cmd) == Back.CmdTrap or cmd.kind == "CmdTrap" then
@@ -1862,7 +1862,7 @@ The function checks three things: `cmd == Back.CmdTrap` (exact value), `pvm.clas
 
 ## 5. `src/decode.rs` — Memcpy/Memset NO-OP (Lines 594-595, full context 326-610)
 
-**decode_body function** (line 326): `fn decode_body(buf: &[u8], ptr_ty: Type, ctx: &mut BodyCtx<'_>, refs: &FuncRefs) -> Result<(), MoonliftError>`
+**decode_body function** (line 326): `fn decode_body(buf: &[u8], ptr_ty: Type, ctx: &mut BodyCtx<'_>, refs: &FuncRefs) -> Result<(), LalinError>`
 
 **Match pattern** (line 358): `match tag as u32` with `t if t == WireTag::XXX as u32 =>` arms.
 
@@ -1875,7 +1875,7 @@ The function checks three things: `cmd == Back.CmdTrap` (exact value), `pvm.clas
 
 **Catch-all** (line 596):
 ```rust
-            _ => return Err(MoonliftError(format!("unhandled wire tag {tag}"))),
+            _ => return Err(LalinError(format!("unhandled wire tag {tag}"))),
 ```
 
 **Trap handling** (line 569):
@@ -1888,7 +1888,7 @@ The function checks three things: `cmd == Back.CmdTrap` (exact value), `pvm.clas
             t if t == WireTag::CallExtern as u32 => {
                 let rt = s[0]; let eid = s[3]; let na = read_u32(buf, &mut pos)? as usize;
                 let ids = read_slots(buf, &mut pos, na)?;
-                let fr = refs.extern_refs.get(&eid).copied().ok_or_else(|| MoonliftError(format!("unknown extern {eid}")))?;
+                let fr = refs.extern_refs.get(&eid).copied().ok_or_else(|| LalinError(format!("unknown extern {eid}")))?;
                 let args: Vec<Value> = ids.iter().map(|&id| ctx.val(id)).collect::<Result<_,_>>()?;
                 let inst = ctx.builder.ins().call(fr, &args);
                 if rt == 1 { ctx.bind(s[1], ctx.builder.inst_results(inst)[0])?; }
@@ -1912,11 +1912,11 @@ The function checks three things: `cmd == Back.CmdTrap` (exact value), `pvm.clas
 
 ---
 
-## 6. `lua/moonlift/tree_typecheck.lua` — Expression/Statement Typechecking
+## 6. `lua/lalin/tree_typecheck.lua` — Expression/Statement Typechecking
 
 **type_expr phase** (line 387):
 ```lua
-    type_expr = pvm.phase("moonlift_tree_typecheck_expr", {
+    type_expr = pvm.phase("lalin_tree_typecheck_expr", {
         [Tr.ExprLit] = function(self, ctx)
             local cls = pvm.classof(self.value)
             local ty = void_ty()
@@ -1935,7 +1935,7 @@ The function checks three things: `cmd == Back.CmdTrap` (exact value), `pvm.clas
 
 **type_stmt phase** (line 665):
 ```lua
-    type_stmt = pvm.phase("moonlift_tree_typecheck_stmt", {
+    type_stmt = pvm.phase("lalin_tree_typecheck_stmt", {
         [Tr.StmtLet] = function(self, ctx) ... end,
         [Tr.StmtVar] = function(self, ctx) ... end,
         [Tr.StmtSet] = function(self, ctx) ... end,
@@ -1952,11 +1952,11 @@ The function checks three things: `cmd == Back.CmdTrap` (exact value), `pvm.clas
 
 ---
 
-## 7. `lua/moonlift/sem_layout_resolve.lua` — Full File (~393 lines)
+## 7. `lua/lalin/sem_layout_resolve.lua` — Full File (~393 lines)
 
 **resolve_expr phase** (lines 188-240): Each `Tr.*` variant has a resolver. Current resolvers:
 ```lua
-    resolve_expr = pvm.phase("moonlift_sem_layout_expr", {
+    resolve_expr = pvm.phase("lalin_sem_layout_expr", {
         [Tr.ExprLit] = function(self) return pvm.once(self) end,   -- identity — no sub-expressions
         [Tr.ExprRef] = function(self) return pvm.once(self) end,   -- identity
         [Tr.ExprDot] = function(self, env) ... end,                -- resolves field references
@@ -1978,7 +1978,7 @@ The function checks three things: `cmd == Back.CmdTrap` (exact value), `pvm.clas
 
 **Resolve module** (lines 373-387):
 ```lua
-    resolve_module = pvm.phase("moonlift_sem_layout_module", {
+    resolve_module = pvm.phase("lalin_sem_layout_module", {
         [Tr.Module] = function(module, env)
             local resolved_env = env
             if resolved_env == nil or #resolved_env.layouts == 0 then
@@ -1993,11 +1993,11 @@ The function checks three things: `cmd == Back.CmdTrap` (exact value), `pvm.clas
 
 ---
 
-## 8. `lua/moonlift/tree_to_back.lua` — Key Lowering Patterns
+## 8. `lua/lalin/tree_to_back.lua` — Key Lowering Patterns
 
 **scalar_literal phase** (lines 395-400):
 ```lua
-    scalar_literal = pvm.phase("moonlift_tree_literal_to_back_literal", {
+    scalar_literal = pvm.phase("lalin_tree_literal_to_back_literal", {
         [C.LitInt] = function(self) return pvm.once(Back.BackLitInt(self.raw)) end,
         [C.LitFloat] = function(self) return pvm.once(Back.BackLitFloat(self.raw)) end,
         [C.LitBool] = function(self) return pvm.once(Back.BackLitBool(self.value)) end,
@@ -2019,7 +2019,7 @@ The function checks three things: `cmd == Back.CmdTrap` (exact value), `pvm.clas
 
 **ExprLit lowering** (lines 638-651):
 ```lua
-    expr_to_back = pvm.phase("moonlift_tree_expr_to_back", {
+    expr_to_back = pvm.phase("lalin_tree_expr_to_back", {
         [Tr.ExprLit] = function(self, env)
             if pvm.classof(self.value) == C.LitString then
                 local data, cmds = string_data_cmds(self.value.bytes)
@@ -2045,7 +2045,7 @@ The function checks three things: `cmd == Back.CmdTrap` (exact value), `pvm.clas
 
 ---
 
-## 9. `lua/moonlift/schema/back.lua` — Key Definitions
+## 9. `lua/lalin/schema/back.lua` — Key Definitions
 
 **BackLiteral sum type** (lines 415-429):
 ```lua
@@ -2066,9 +2066,9 @@ The function checks three things: `cmd == Back.CmdTrap` (exact value), `pvm.clas
 **CmdMemcpy** (lines 786-791):
 ```lua
             A.variant "CmdMemcpy" {
-                A.field "dst" "MoonBack.BackValId",
-                A.field "src" "MoonBack.BackValId",
-                A.field "len" "MoonBack.BackValId",
+                A.field "dst" "LalinBack.BackValId",
+                A.field "src" "LalinBack.BackValId",
+                A.field "len" "LalinBack.BackValId",
                 A.variant_unique,
             },
 ```
@@ -2076,9 +2076,9 @@ The function checks three things: `cmd == Back.CmdTrap` (exact value), `pvm.clas
 **CmdMemset** (lines 792-797):
 ```lua
             A.variant "CmdMemset" {
-                A.field "dst" "MoonBack.BackValId",
-                A.field "byte" "MoonBack.BackValId",
-                A.field "len" "MoonBack.BackValId",
+                A.field "dst" "LalinBack.BackValId",
+                A.field "byte" "LalinBack.BackValId",
+                A.field "len" "LalinBack.BackValId",
                 A.variant_unique,
             },
 ```
@@ -2113,7 +2113,7 @@ The function checks three things: `cmd == Back.CmdTrap` (exact value), `pvm.clas
 
 ---
 
-## 11. `lua/moonlift/back_command_binary.lua` — Memcpy/Memset/Trap Encoding
+## 11. `lua/lalin/back_command_binary.lua` — Memcpy/Memset/Trap Encoding
 
 **Tag constants** (lines 49, 68):
 ```lua
@@ -2151,7 +2151,7 @@ No `CmdMemcmp` encoding exists.
 
 ---
 
-## 12. `lua/moonlift/back_validate.lua` — CmdMemcmp Ghost (Line 244)
+## 12. `lua/lalin/back_validate.lua` — CmdMemcmp Ghost (Line 244)
 
 ```lua
         if cls == B.CmdMemcmp then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.left); out[#out + 1] = B.BackFactValueUse(index, cmd.right); out[#out + 1] = B.BackFactValueUse(index, cmd.len); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
@@ -2192,7 +2192,7 @@ Here is the complete report with exact line numbers.
 
 ## 1. `src/wire_tags.rs` — Complete WireTag Enum and TAG_SLOTS
 
-**File**: `/home/cperion_ext/dev/moonlift/src/wire_tags.rs` (full file, ~180 lines)
+**File**: `/home/cperion_ext/dev/lalin/src/wire_tags.rs` (full file, ~180 lines)
 
 ### WireTag Enum (lines 1-148)
 Tags range from **1 to 191** with **dense encoding** (no gaps). Current structure:
@@ -2239,7 +2239,7 @@ For `CmdMemcmp`, the slot count should be **4** (dst, left, right, len), followi
 
 ## 2. `src/lib.rs` — JIT Builder Initialization and Symbol Registration
 
-**File**: `/home/cperion_ext/dev/moonlift/src/lib.rs` (full file, ~250 lines)
+**File**: `/home/cperion_ext/dev/lalin/src/lib.rs` (full file, ~250 lines)
 
 ### Jit Struct (lines 66-97)
 ```rust
@@ -2259,7 +2259,7 @@ impl Jit {
 
 ### compile_binary Method (lines 79-97) — Where Symbols Are Registered
 ```rust
-pub fn compile_binary(&self, payload: &[u8]) -> Result<Artifact, MoonliftError> {
+pub fn compile_binary(&self, payload: &[u8]) -> Result<Artifact, LalinError> {
     let isa = host_isa(false)?;
     let mut builder = JITBuilder::with_isa(isa, default_libcall_names());
     for (name, ptr) in &self.symbols {
@@ -2273,10 +2273,10 @@ pub fn compile_binary(&self, payload: &[u8]) -> Result<Artifact, MoonliftError> 
 
 ### Object Emission Path (lines 113-125) — No Symbol Registration
 ```rust
-pub fn compile_object_binary(payload: &[u8], module_name: &str) -> Result<ObjectArtifact, MoonliftError> {
+pub fn compile_object_binary(payload: &[u8], module_name: &str) -> Result<ObjectArtifact, LalinError> {
     let isa = host_isa(true)?;
     let builder = ObjectBuilder::new(isa, module_name, default_libcall_names())
-        .map_err(|e| MoonliftError(format!("failed to create Cranelift object builder: {e}")))?;
+        .map_err(|e| LalinError(format!("failed to create Cranelift object builder: {e}")))?;
     let mut module = ObjectModule::new(builder);
     decode::decode_module(payload, &mut module)?;
     // ...
@@ -2290,9 +2290,9 @@ The existing `CallExtern` decoder path uses `refs.extern_refs` to resolve extern
 
 ---
 
-## 3. `lua/moonlift/schema/tree.lua` — Expr and Stmt ASDL Variants
+## 3. `lua/lalin/schema/tree.lua` — Expr and Stmt ASDL Variants
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/schema/tree.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/schema/tree.lua`
 
 ### Expr Sum Type (lines 414-602)
 
@@ -2334,10 +2334,10 @@ Current 30 variants — where new ones would go:
 | `ExprCtor` | 613 | Tagged union constructor |
 
 **New variants needed** (add after line 619, before `A.sum "Stmt"`):
-- `ExprNull` — null pointer literal, field: `elem` (MoonType.Type)
-- `ExprSizeOf` — sizeof expression, field: `ty` (MoonType.Type)
-- `ExprAlignOf` — alignof expression, field: `ty` (MoonType.Type)
-- `ExprIsNull` — is_null predicate, field: `value` (MoonTree.Expr)
+- `ExprNull` — null pointer literal, field: `elem` (LalinType.Type)
+- `ExprSizeOf` — sizeof expression, field: `ty` (LalinType.Type)
+- `ExprAlignOf` — alignof expression, field: `ty` (LalinType.Type)
+- `ExprIsNull` — is_null predicate, field: `value` (LalinTree.Expr)
 
 ### Stmt Sum Type (lines 620-720)
 
@@ -2371,7 +2371,7 @@ Current 18 variants:
 
 ## 4. `src/embedded_hosted_lua.rs` — Full Function Structure
 
-**File**: `/home/cperion_ext/dev/moonlift/src/embedded_hosted_lua.rs` (auto-generated, ~195 entries)
+**File**: `/home/cperion_ext/dev/lalin/src/embedded_hosted_lua.rs` (auto-generated, ~195 entries)
 
 ### Function Signature (line 1)
 ```rust
@@ -2384,41 +2384,41 @@ pub fn embedded_modules() -> Vec<(&'static str, &'static str)> {
 
 ### Schema Entries (lines 163-175)
 ```rust
-        ("moonlift.schema", include_str!("../lua/moonlift/schema/init.lua")),
-        ("moonlift.schema.back", include_str!("../lua/moonlift/schema/back.lua")),
-        ("moonlift.schema.bind", include_str!("../lua/moonlift/schema/bind.lua")),
-        ("moonlift.schema.core", include_str!("../lua/moonlift/schema/core.lua")),
-        ("moonlift.schema.dasm", include_str!("../lua/moonlift/schema/dasm.lua")),  // ← LINE: DELETE with DynASM
-        ("moonlift.schema.editor", include_str!("../lua/moonlift/schema/editor.lua")),
+        ("lalin.schema", include_str!("../lua/lalin/schema/init.lua")),
+        ("lalin.schema.back", include_str!("../lua/lalin/schema/back.lua")),
+        ("lalin.schema.bind", include_str!("../lua/lalin/schema/bind.lua")),
+        ("lalin.schema.core", include_str!("../lua/lalin/schema/core.lua")),
+        ("lalin.schema.dasm", include_str!("../lua/lalin/schema/dasm.lua")),  // ← LINE: DELETE with DynASM
+        ("lalin.schema.editor", include_str!("../lua/lalin/schema/editor.lua")),
         ...
 ```
 
 ### Host Entries (lines 70-74)
 ```rust
-        ("moonlift.host_session", include_str!("../lua/moonlift/host_session.lua")),
-        ("moonlift.host_layout_facts", include_str!("../lua/moonlift/host_layout_facts.lua")),
-        ("moonlift.host", include_str!("../lua/moonlift/host.lua")),
-        ("moonlift.host_access_plan", include_str!("../lua/moonlift/host_access_plan.lua")),
-        ("moonlift.host_arena_abi", include_str!("../lua/moonlift/host_arena_abi.lua")),
+        ("lalin.host_session", include_str!("../lua/lalin/host_session.lua")),
+        ("lalin.host_layout_facts", include_str!("../lua/lalin/host_layout_facts.lua")),
+        ("lalin.host", include_str!("../lua/lalin/host.lua")),
+        ("lalin.host_access_plan", include_str!("../lua/lalin/host_access_plan.lua")),
+        ("lalin.host_arena_abi", include_str!("../lua/lalin/host_arena_abi.lua")),
 ```
 
 ### Std Entry (line 67)
 ```rust
-        ("moonlift.std", include_str!("../lua/moonlift/std.lua")),
+        ("lalin.std", include_str!("../lua/lalin/std.lua")),
 ```
 
 ### To add `stdlib/memory.mlua`:
 Add an entry like:
 ```rust
-        ("moonlift.stdlib.memory", include_str!("../stdlib/memory.mlua")),
+        ("lalin.stdlib.memory", include_str!("../stdlib/memory.mlua")),
 ```
-The path key (`"moonlift.stdlib.memory"`) matches the `require()` pattern. The `stdlib/` directory doesn't exist yet (verified: `ls` returns "NO STDLIB DIRECTORY"), so `include_str!` would fail until the file is created.
+The path key (`"lalin.stdlib.memory"`) matches the `require()` pattern. The `stdlib/` directory doesn't exist yet (verified: `ls` returns "NO STDLIB DIRECTORY"), so `include_str!` would fail until the file is created.
 
 ---
 
-## 5. `lua/moonlift/tree_typecheck.lua` — Type Helper Functions
+## 5. `lua/lalin/tree_typecheck.lua` — Type Helper Functions
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/tree_typecheck.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/tree_typecheck.lua`
 
 ### Type Helper Function Definitions (lines 36-43)
 ```lua
@@ -2466,9 +2466,9 @@ Note: `LitNil` is NOT handled here — it falls through to `void_ty()`. In `tree
 
 ---
 
-## 6. `lua/moonlift/host_expr_values.lua` — Builder API Helper Patterns
+## 6. `lua/lalin/host_expr_values.lua` — Builder API Helper Patterns
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/host_expr_values.lua` (EXISTS, 298 lines)
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/host_expr_values.lua` (EXISTS, 298 lines)
 
 ### Structure
 The file defines `M.Install(api, session)` which installs builder methods onto the `api` table.
@@ -2503,7 +2503,7 @@ end
 function api.intrinsic(op, args, ty)
     local op_value = assert(C["Intrinsic" .. op], "unknown intrinsic: " .. tostring(op))
     local exprs = {}
-    for i = 1, #(args or {}) do exprs[i] = moon_expr(args[i], "intrinsic arg") end
+    for i = 1, #(args or {}) do exprs[i] = lalin_expr(args[i], "intrinsic arg") end
     return expr_value(Tr.ExprIntrinsic(Tr.ExprSurface, op_value, exprs), ty, op .. "(...)")
 end
 ```
@@ -2528,28 +2528,28 @@ end
 ```
 
 ### **IMPORTANT: No memcpy/memset/memcmp/trap/free/alloc in builder API**
-There is **no** `api.memcpy()`, `api.memset()`, `api.memcmp()`, `api.trap()`, `api.free()`, or `api.alloc()` in `host_expr_values.lua`, `host_session.lua`, or `host.lua`. The only way to produce `CmdMemcpy`/`CmdMemset` is through struct/array lowering in `tree_to_back.lua` (lines 1134, 1185, 1707) — triggered by aggregate copy patterns in compiled Moonlift source.
+There is **no** `api.memcpy()`, `api.memset()`, `api.memcmp()`, `api.trap()`, `api.free()`, or `api.alloc()` in `host_expr_values.lua`, `host_session.lua`, or `host.lua`. The only way to produce `CmdMemcpy`/`CmdMemset` is through struct/array lowering in `tree_to_back.lua` (lines 1134, 1185, 1707) — triggered by aggregate copy patterns in compiled Lalin source.
 
 ---
 
 ## 7. `stdlib/` Directory — Does NOT Exist
 
-**Verified**: `ls /home/cperion_ext/dev/moonlift/stdlib/` returns "NO STDLIB DIRECTORY".
+**Verified**: `ls /home/cperion_ext/dev/lalin/stdlib/` returns "NO STDLIB DIRECTORY".
 
-**Existing `std.lua` facade** (`/home/cperion_ext/dev/moonlift/lua/moonlift/std.lua`, 7 lines):
+**Existing `std.lua` facade** (`/home/cperion_ext/dev/lalin/lua/lalin/std.lua`, 7 lines):
 ```lua
--- MoonLift standard library facade.
+-- LalinLift standard library facade.
 local M = {}
-M.pvm = require("moonlift.pvm")
-M.host = require("moonlift.host")
-M.mlua = require("moonlift.mlua_run")
-M.views = require("moonlift.buffer_view")
+M.pvm = require("lalin.pvm")
+M.host = require("lalin.host")
+M.mlua = require("lalin.mlua_run")
+M.views = require("lalin.buffer_view")
 M.buffer_view = M.views
-M.region_compose = require("moonlift.region_compose")
+M.region_compose = require("lalin.region_compose")
 return M
 ```
 
-This is a Lua-side facade that bundles existing modules. It does NOT load any compiled Moonlift stdlib modules.
+This is a Lua-side facade that bundles existing modules. It does NOT load any compiled Lalin stdlib modules.
 
 ---
 
@@ -2561,21 +2561,21 @@ This is a Lua-side facade that bundles existing modules. It does NOT load any co
 | 1 | TAG_SLOTS memcpy/memset | `t[WireTag::Memcpy as usize] = 3;` (line ~187), `Memset = 3;` (line ~188) | `src/wire_tags.rs` |
 | 2 | JIT symbol registration | `jit.symbol()` line 72-74, `builder.symbol()` line 86 | `src/lib.rs` |
 | 2 | Object emit path (no symbols) | `compile_object_binary()` lines 113-125 | `src/lib.rs` |
-| 3 | Expr sum variants (full list) | Lines 414-619 | `lua/moonlift/schema/tree.lua` |
-| 3 | Stmt sum variants (full list) | Lines 620-732 | `lua/moonlift/schema/tree.lua` |
-| 3 | `ExprAtomicCas` (last variant) | Line 593 (last before ExprSlotValue at 601) | `lua/moonlift/schema/tree.lua` |
+| 3 | Expr sum variants (full list) | Lines 414-619 | `lua/lalin/schema/tree.lua` |
+| 3 | Stmt sum variants (full list) | Lines 620-732 | `lua/lalin/schema/tree.lua` |
+| 3 | `ExprAtomicCas` (last variant) | Line 593 (last before ExprSlotValue at 601) | `lua/lalin/schema/tree.lua` |
 | 4 | embedded_modules() function | Lines 1-195 (full file, ~195 entries) | `src/embedded_hosted_lua.rs` |
-| 4 | Existing `std.lua` entry | Line 67: `("moonlift.std", ...)` | `src/embedded_hosted_lua.rs` |
-| 4 | Schema dasm entry (to delete) | Line 167: `("moonlift.schema.dasm", ...)` | `src/embedded_hosted_lua.rs` |
-| 5 | Type helpers `void_ty()` through `cstr_ty()` | Lines 36-43 (6 functions) | `lua/moonlift/tree_typecheck.lua` |
-| 5 | `Ty.TPtr` inline construction | Examples at lines 893, 913, 942, 947 | `lua/moonlift/tree_typecheck.lua` |
-| 6 | `host_expr_values.lua` — exists | File is 298 lines, at `/home/cperion_ext/dev/moonlift/lua/moonlift/host_expr_values.lua` | `lua/moonlift/host_expr_values.lua` |
-| 6 | `api.nil_lit(ty)` | Lines 88-90 | `lua/moonlift/host_expr_values.lua` |
-| 6 | `api.load(addr, ty)` | Lines 170-173 | `lua/moonlift/host_expr_values.lua` |
-| 6 | `api.intrinsic(op, args, ty)` | Lines 258-263 | `lua/moonlift/host_expr_values.lua` |
-| 6 | Intrinsic ops available | `IntrinsicTrap`, `IntrinsicAssume` in `schema/core.lua` lines 156-157 | `lua/moonlift/schema/core.lua` |
+| 4 | Existing `std.lua` entry | Line 67: `("lalin.std", ...)` | `src/embedded_hosted_lua.rs` |
+| 4 | Schema dasm entry (to delete) | Line 167: `("lalin.schema.dasm", ...)` | `src/embedded_hosted_lua.rs` |
+| 5 | Type helpers `void_ty()` through `cstr_ty()` | Lines 36-43 (6 functions) | `lua/lalin/tree_typecheck.lua` |
+| 5 | `Ty.TPtr` inline construction | Examples at lines 893, 913, 942, 947 | `lua/lalin/tree_typecheck.lua` |
+| 6 | `host_expr_values.lua` — exists | File is 298 lines, at `/home/cperion_ext/dev/lalin/lua/lalin/host_expr_values.lua` | `lua/lalin/host_expr_values.lua` |
+| 6 | `api.nil_lit(ty)` | Lines 88-90 | `lua/lalin/host_expr_values.lua` |
+| 6 | `api.load(addr, ty)` | Lines 170-173 | `lua/lalin/host_expr_values.lua` |
+| 6 | `api.intrinsic(op, args, ty)` | Lines 258-263 | `lua/lalin/host_expr_values.lua` |
+| 6 | Intrinsic ops available | `IntrinsicTrap`, `IntrinsicAssume` in `schema/core.lua` lines 156-157 | `lua/lalin/schema/core.lua` |
 | 7 | `stdlib/` directory | **DOES NOT EXIST** | — |
-| 7 | `std.lua` facade | 7 lines at `/home/cperion_ext/dev/moonlift/lua/moonlift/std.lua` | `lua/moonlift/std.lua` |
+| 7 | `std.lua` facade | 7 lines at `/home/cperion_ext/dev/lalin/lua/lalin/std.lua` | `lua/lalin/std.lua` |
 
 ## Scout Output — 2026-05-21 14:31:41
 
@@ -2585,33 +2585,33 @@ Here is the full report.
 
 ## 1. `src/ffi.rs` — JIT Creation, Symbol Registration from FFI
 
-**File**: `/home/cperion_ext/dev/moonlift/src/ffi.rs` (141 lines)
+**File**: `/home/cperion_ext/dev/lalin/src/ffi.rs` (141 lines)
 
 ### JIT New/Free (lines 79-95)
 ```rust
 #[unsafe(no_mangle)]
-pub extern "C" fn moonlift_jit_new() -> *mut moonlift_jit_t { ... }  // line 79
+pub extern "C" fn lalin_jit_new() -> *mut lalin_jit_t { ... }  // line 79
 
 #[unsafe(no_mangle)]
-pub extern "C" fn moonlift_jit_free(jit: *mut moonlift_jit_t) { ... }  // line 89
+pub extern "C" fn lalin_jit_free(jit: *mut lalin_jit_t) { ... }  // line 89
 ```
 
 ### Symbol Registration (lines 97-110) — **THIS IS THE KEY FFI**
 ```rust
 #[unsafe(no_mangle)]
-pub extern "C" fn moonlift_jit_symbol(
-    jit: *mut moonlift_jit_t,
+pub extern "C" fn lalin_jit_symbol(
+    jit: *mut lalin_jit_t,
     name: *const c_char,     // string name
     ptr: *const u8,          // function pointer
 ) -> c_int { ... }
 ```
-**This is the existing FFI hook**. The Lua side calls `lib.moonlift_jit_symbol(self._raw, cstring(name), ffi.cast("const void*", ptr))` to register symbols.
+**This is the existing FFI hook**. The Lua side calls `lib.lalin_jit_symbol(self._raw, cstring(name), ffi.cast("const void*", ptr))` to register symbols.
 
 ### Compile Binary (lines 112-128)
 ```rust
 #[unsafe(no_mangle)]
-pub extern "C" fn moonlift_jit_compile_binary(
-    jit: *mut moonlift_jit_t,
+pub extern "C" fn lalin_jit_compile_binary(
+    jit: *mut lalin_jit_t,
     data: *const u8,
     len: usize,
 ) -> *mut c_void { ... }
@@ -2624,7 +2624,7 @@ No symbols for `__ml_memcpy`, `__ml_memset`, `__ml_alloc`, or `__ml_free` exist 
 
 ## 2. `src/lua_api.rs` — `register_symbols()` Function
 
-**File**: `/home/cperion_ext/dev/moonlift/src/lua_api.rs` (full file)
+**File**: `/home/cperion_ext/dev/lalin/src/lua_api.rs` (full file)
 
 ### `register_symbols` function (lines 130-157)
 
@@ -2637,31 +2637,31 @@ pub fn register_symbols(jit: &mut crate::Jit) {
     }
     // Lua C API symbols (17 registrations, lines 133-140)
     sym!("lua_gettop", mlua::ffi::lua_gettop);           // line 133
-    sym!("lua_settop", moonlift_lua_settop);               // line 134
-    sym!("lua_createtable", moonlift_lua_createtable);     // line 135
-    sym!("lua_pushlstring", moonlift_lua_pushlstring);     // line 136
-    sym!("lua_pushnumber", moonlift_lua_pushnumber);       // line 137
-    sym!("lua_pushboolean", moonlift_lua_pushboolean);     // line 138
-    sym!("lua_pushnil", moonlift_lua_pushnil);             // line 139
-    sym!("lua_setfield", moonlift_lua_setfield);           // line 140
-    sym!("lua_settable", moonlift_lua_settable);           // line 141
-    sym!("lua_rawseti", moonlift_lua_rawseti);             // line 142
+    sym!("lua_settop", lalin_lua_settop);               // line 134
+    sym!("lua_createtable", lalin_lua_createtable);     // line 135
+    sym!("lua_pushlstring", lalin_lua_pushlstring);     // line 136
+    sym!("lua_pushnumber", lalin_lua_pushnumber);       // line 137
+    sym!("lua_pushboolean", lalin_lua_pushboolean);     // line 138
+    sym!("lua_pushnil", lalin_lua_pushnil);             // line 139
+    sym!("lua_setfield", lalin_lua_setfield);           // line 140
+    sym!("lua_settable", lalin_lua_settable);           // line 141
+    sym!("lua_rawseti", lalin_lua_rawseti);             // line 142
 
-    // Moonlift runtime symbols (8 registrations, lines 144-151)
-    sym!("moonlift_scratch_raw", moonlift_scratch_raw);     // line 144
-    sym!("moonlift_scratch_i32", moonlift_scratch_i32);     // line 145
-    sym!("moonlift_scratch_u8", moonlift_scratch_u8);       // line 146
-    sym!("moonlift_alloc_i32", moonlift_alloc_i32);         // line 147
-    sym!("moonlift_free_i32", moonlift_free_i32);           // line 148
-    sym!("moonlift_lua_arg_lstring_ptr", moonlift_lua_arg_lstring_ptr); // line 149
-    sym!("moonlift_lua_arg_lstring_len", moonlift_lua_arg_lstring_len); // line 150
+    // Lalin runtime symbols (8 registrations, lines 144-151)
+    sym!("lalin_scratch_raw", lalin_scratch_raw);     // line 144
+    sym!("lalin_scratch_i32", lalin_scratch_i32);     // line 145
+    sym!("lalin_scratch_u8", lalin_scratch_u8);       // line 146
+    sym!("lalin_alloc_i32", lalin_alloc_i32);         // line 147
+    sym!("lalin_free_i32", lalin_free_i32);           // line 148
+    sym!("lalin_lua_arg_lstring_ptr", lalin_lua_arg_lstring_ptr); // line 149
+    sym!("lalin_lua_arg_lstring_len", lalin_lua_arg_lstring_len); // line 150
 
     // JIT internals (6 registrations, lines 152-157)
-    sym!("moonlift_jit_new", crate::ffi::moonlift_jit_new);           // line 152
-    sym!("moonlift_jit_free", crate::ffi::moonlift_jit_free);         // line 153
-    sym!("moonlift_jit_compile_binary", crate::ffi::moonlift_jit_compile_binary); // line 154
-    sym!("moonlift_artifact_getpointer", crate::ffi::moonlift_artifact_getpointer); // line 155
-    sym!("moonlift_artifact_free", crate::ffi::moonlift_artifact_free); // line 156
+    sym!("lalin_jit_new", crate::ffi::lalin_jit_new);           // line 152
+    sym!("lalin_jit_free", crate::ffi::lalin_jit_free);         // line 153
+    sym!("lalin_jit_compile_binary", crate::ffi::lalin_jit_compile_binary); // line 154
+    sym!("lalin_artifact_getpointer", crate::ffi::lalin_artifact_getpointer); // line 155
+    sym!("lalin_artifact_free", crate::ffi::lalin_artifact_free); // line 156
 
     sym!("memcmp", memcmp);  // line 158 — **only extern memory symbol**
 }
@@ -2669,22 +2669,22 @@ pub fn register_symbols(jit: &mut crate::Jit) {
 
 **This is called from `main.rs` line 166:**
 ```rust
-moonlift::lua_api::register_symbols(&mut jit);
+lalin::lua_api::register_symbols(&mut jit);
 ```
 
 **Key observation**: Only `memcmp` (the libc one, via `unsafe extern "C" fn memcmp` at line 6) is registered. No `memcpy`, `memset`, `__ml_memcpy`, or `__ml_memset`.
 
 ---
 
-## 3. `lua/moonlift/back_jit.lua` — FFI Bridge Symbol Registration
+## 3. `lua/lalin/back_jit.lua` — FFI Bridge Symbol Registration
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/back_jit.lua` (full file, ~206 lines)
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/back_jit.lua` (full file, ~206 lines)
 
 ### FFI Declarations (lines 15-27)
 ```lua
 ffi.cdef([[
     ...
-    int moonlift_jit_symbol(moonlift_jit_t*, const char* name, const void* ptr);
+    int lalin_jit_symbol(lalin_jit_t*, const char* name, const void* ptr);
     ...
 ]])
 ```
@@ -2692,8 +2692,8 @@ ffi.cdef([[
 ### Symbol Registration Method (line 125-126)
 ```lua
 function Jit:symbol(name, ptr)
-    check_ok(lib.moonlift_jit_symbol(self._raw, cstring(name), ffi.cast("const void*", ptr)),
-        "moonlift.back_jit jit:symbol")
+    check_ok(lib.lalin_jit_symbol(self._raw, cstring(name), ffi.cast("const void*", ptr)),
+        "lalin.back_jit jit:symbol")
 end
 ```
 
@@ -2701,11 +2701,11 @@ end
 
 ---
 
-## 4. `lua/moonlift/host.lua` — `moon.memcpy()` and `moon.nil_lit()`
+## 4. `lua/lalin/host.lua` — `lalin.memcpy()` and `lalin.nil_lit()`
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/host.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/host.lua`
 
-### `moon.nil_lit` — **YES, it exists** (line 83)
+### `lalin.nil_lit` — **YES, it exists** (line 83)
 ```lua
 M.nil_lit = api.nil_lit;
 ```
@@ -2716,29 +2716,29 @@ function api.nil_lit(ty)
 end
 ```
 
-### `moon.memcpy` / `moon.memset` — **DO NOT EXIST**
-There is no `moon.memcpy`, `moon.memset`, `moon.memcmp`, `moon.trap`, `moon.alloc`, or `moon.free` in `host.lua`. The only way `CmdMemcpy`/`CmdMemset` are produced is through the internal `append_memcpy` function in `tree_to_back.lua` (lines 1688-1691), which is triggered by aggregate (struct/array) copies during lowering — **not through any user-facing builder API**.
+### `lalin.memcpy` / `lalin.memset` — **DO NOT EXIST**
+There is no `lalin.memcpy`, `lalin.memset`, `lalin.memcmp`, `lalin.trap`, `lalin.alloc`, or `lalin.free` in `host.lua`. The only way `CmdMemcpy`/`CmdMemset` are produced is through the internal `append_memcpy` function in `tree_to_back.lua` (lines 1688-1691), which is triggered by aggregate (struct/array) copies during lowering — **not through any user-facing builder API**.
 
-### `moon.trap` — **DOES NOT EXIST**
-No `moon.trap()` in `host.lua` or anywhere in the builder API. The `api.intrinsic("Trap", {}, nil)` pattern exists in `host_expr_values.lua` (line 258) but is not exported.
+### `lalin.trap` — **DOES NOT EXIST**
+No `lalin.trap()` in `host.lua` or anywhere in the builder API. The `api.intrinsic("Trap", {}, nil)` pattern exists in `host_expr_values.lua` (line 258) but is not exported.
 
 ---
 
-## 5. `__ml_memcpy` / `moonlift_rt` Module — **DOES NOT EXIST**
+## 5. `__ml_memcpy` / `lalin_rt` Module — **DOES NOT EXIST**
 
-**Grep result**: Zero matches for `__ml_memcpy`, `__ml_memset`, `__ml_alloc`, `__ml_free`, or `moonlift_rt` in any `src/` file.
+**Grep result**: Zero matches for `__ml_memcpy`, `__ml_memset`, `__ml_alloc`, `__ml_free`, or `lalin_rt` in any `src/` file.
 
 The only runtime symbols that exist are:
-- `moonlift_scratch_raw` / `_i32` / `_u8` (thread-local scratch buffers)
-- `moonlift_alloc_i32` / `moonlift_free_i32` (typed alloc/free for `i32` only)
-- `moonlift_lua_arg_lstring_ptr` / `_len` (Lua string helpers)
+- `lalin_scratch_raw` / `_i32` / `_u8` (thread-local scratch buffers)
+- `lalin_alloc_i32` / `lalin_free_i32` (typed alloc/free for `i32` only)
+- `lalin_lua_arg_lstring_ptr` / `_len` (Lua string helpers)
 - Various Lua C API wrappers (`lua_gettop`, `lua_settop`, etc.)
 
 ---
 
-## 6. `lua/moonlift/type_size_align.lua` — `result()` Function
+## 6. `lua/lalin/type_size_align.lua` — `result()` Function
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/type_size_align.lua` (full file)
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/type_size_align.lua` (full file)
 
 ### `result()` function (lines 129-132)
 ```lua
@@ -2762,7 +2762,7 @@ end
 
 The `layout_api` is obtained via:
 ```lua
-local layout_api = require("moonlift.type_size_align").Define(T)
+local layout_api = require("lalin.type_size_align").Define(T)
 ```
 
 ### Return types from `result()`:
@@ -2779,13 +2779,13 @@ function Session:size_align(ty, env)
 end
 ```
 
-This is exported as `moon.size_align(ty, env)` from `host.lua` (line 42).
+This is exported as `lalin.size_align(ty, env)` from `host.lua` (line 42).
 
 ---
 
-## 7. `lua/moonlift/mom/` — **DOES NOT EXIST**
+## 7. `lua/lalin/mom/` — **DOES NOT EXIST**
 
-The directory `/home/cperion_ext/dev/moonlift/lua/moonlift/mom/` was **not found**. The AGENTS.md mentions MOM and the stricter MOM-specific discipline, but the `mom/` directory does not currently exist.
+The directory `/home/cperion_ext/dev/lalin/lua/lalin/mom/` was **not found**. The AGENTS.md mentions MOM and the stricter MOM-specific discipline, but the `mom/` directory does not currently exist.
 
 ---
 
@@ -2793,21 +2793,21 @@ The directory `/home/cperion_ext/dev/moonlift/lua/moonlift/mom/` was **not found
 
 | Query | File | Line(s) | Status |
 |-------|------|---------|--------|
-| FFI `moonlift_jit_symbol` | `src/ffi.rs` | 97-110 | **Exists** — ready to use for registering `__ml_memcpy` etc. |
+| FFI `lalin_jit_symbol` | `src/ffi.rs` | 97-110 | **Exists** — ready to use for registering `__ml_memcpy` etc. |
 | `register_symbols` | `src/lua_api.rs` | 130-158 | **Exists** — 27 symbols registered, only `memcmp` is memory-related |
 | `register_symbols` call site | `src/main.rs` | 166 | **Confirmed** — called during hosted startup |
 | JIT `compile_binary` | `src/lib.rs` | 79-97 | Uses `builder.symbol()` for each registered symbol (line 86) |
-| Lua `jit:symbol()` | `lua/moonlift/back_jit.lua` | 125-126 | **FFI bridge** — calls `moonlift_jit_symbol` |
-| Lua `jit:symbol()` (hosted) | `lua/moonlift/hosted_jit.lua` | 44-46 | **Different** — calls `_host_symbol()` Rust side |
-| `moon.nil_lit` | `lua/moonlift/host.lua` | 83 | **Exists** — delegates to `api.nil_lit` |
-| `api.nil_lit` definition | `lua/moonlift/host_expr_values.lua` | 98-100 | Creates `Tr.ExprLit(C.LitNil)` |
-| `moon.memcpy` / `moon.memset` | **NOWHERE** | — | **Do not exist** in builder API |
-| `moon.trap` | **NOWHERE** | — | **Do not exist** in builder API |
+| Lua `jit:symbol()` | `lua/lalin/back_jit.lua` | 125-126 | **FFI bridge** — calls `lalin_jit_symbol` |
+| Lua `jit:symbol()` (hosted) | `lua/lalin/hosted_jit.lua` | 44-46 | **Different** — calls `_host_symbol()` Rust side |
+| `lalin.nil_lit` | `lua/lalin/host.lua` | 83 | **Exists** — delegates to `api.nil_lit` |
+| `api.nil_lit` definition | `lua/lalin/host_expr_values.lua` | 98-100 | Creates `Tr.ExprLit(C.LitNil)` |
+| `lalin.memcpy` / `lalin.memset` | **NOWHERE** | — | **Do not exist** in builder API |
+| `lalin.trap` | **NOWHERE** | — | **Do not exist** in builder API |
 | `__ml_memcpy` / `__ml_alloc` | `src/*.rs` | — | **Do not exist** anywhere |
-| `type_size_align.result()` | `lua/moonlift/type_size_align.lua` | 129-132 | **Exists** — returns `TypeMemLayoutKnown/Sem.MemLayout(size, align)` |
-| `elem_size()` caller | `lua/moonlift/tree_to_back.lua` | 345-365 | Calls `layout_api.result(ty, layout_env)` |
-| `moon.size_align()` | `lua/moonlift/host.lua` | 42 | **Exists** — calls `default_session:size_align(ty, env)` |
-| `host_session:size_align()` | `lua/moonlift/host_session.lua` | (not shown but confirmed) | Wraps `type_size_align.result()` |
+| `type_size_align.result()` | `lua/lalin/type_size_align.lua` | 129-132 | **Exists** — returns `TypeMemLayoutKnown/Sem.MemLayout(size, align)` |
+| `elem_size()` caller | `lua/lalin/tree_to_back.lua` | 345-365 | Calls `layout_api.result(ty, layout_env)` |
+| `lalin.size_align()` | `lua/lalin/host.lua` | 42 | **Exists** — calls `default_session:size_align(ty, env)` |
+| `host_session:size_align()` | `lua/lalin/host_session.lua` | (not shown but confirmed) | Wraps `type_size_align.result()` |
 | `mom/` directory | — | — | **Does not exist** |
 
 ## Edit-planner Output — 2026-05-21 14:34:19
@@ -2816,12 +2816,12 @@ Now I have all the information. Here is the complete file-by-file, line-level im
 
 ---
 
-# Moonlift Memory Kit — Implementation Plan
+# Lalin Memory Kit — Implementation Plan
 
 ## Precondition Checks
 
 Before any edits begin, verify:
-1. `build.rs` at `/home/cperion_ext/dev/moonlift/build.rs` still collects `.lua` files from `lua/` (confirmed: line 79, `collect(lua_dir, lua_dir, "lua", &mut modules)`). If the build system changes, stdlib embedding must adapt.
+1. `build.rs` at `/home/cperion_ext/dev/lalin/build.rs` still collects `.lua` files from `lua/` (confirmed: line 79, `collect(lua_dir, lua_dir, "lua", &mut modules)`). If the build system changes, stdlib embedding must adapt.
 2. `src/embedded_hosted_lua.rs` is auto-generated by `build.rs` (confirmed). Do NOT edit it directly — edit `build.rs` if new paths need inclusion.
 3. `Schema/back.lua` has `CmdMemcmp` — **does NOT exist** (ghost only in `back_validate.lua:244`). The wire tag `119` is free. Confirm this after any upstream changes.
 4. `lib.rs` `Jit::compile_binary` at line 86 calls `builder.symbol(name, *ptr)` for each registered symbol — confirm this is still the mechanism.
@@ -2840,7 +2840,7 @@ The plan is organized by execution order. Dependencies are explicit: later steps
 3. **Phase 0: Rust Runtime** (independent — can be done alongside schema)
 4. **Phase 1: Compiler changes** (parser → tree.lua → typechecker → layout → tree_to_back → pipeline)
 5. **Decoder fix** (fix `decode.rs` NO-OPs + add memcmp)
-6. **Phase 2: Stdlib** (write Moonlift stdlib modules)
+6. **Phase 2: Stdlib** (write Lalin stdlib modules)
 
 ---
 
@@ -2848,13 +2848,13 @@ The plan is organized by execution order. Dependencies are explicit: later steps
 
 ### Step 1A: Delete all files in `back/dasm/`
 
-Delete the entire directory tree `/home/cperion_ext/dev/moonlift/back/dasm/`. 26 files:
+Delete the entire directory tree `/home/cperion_ext/dev/lalin/back/dasm/`. 26 files:
 
 | File | Notes |
 |------|-------|
 | `back/dasm/init.lua` | Entry point, 62 lines |
 | `back/dasm/compile.lua` | Main compilation, 439 lines |
-| `back/dasm/model.lua` | MoonDasm model accessor, 222 lines |
+| `back/dasm/model.lua` | LalinDasm model accessor, 222 lines |
 | `back/dasm/isel_x64.lua` | x64 instruction selection (1030 lines, contains `rep movsb`/`rep stosb`) |
 | `back/dasm/encode_x64.lua` | DynASM x64 action-list builder, 225 lines |
 | `back/dasm/abi_sysv.lua` | System V ABI register maps, 76 lines |
@@ -2866,29 +2866,29 @@ Delete the entire directory tree `/home/cperion_ext/dev/moonlift/back/dasm/`. 26
 
 ### Step 1B: Delete `back/dasm_lib.c`
 
-Path: `/home/cperion_ext/dev/moonlift/back/dasm_lib.c` (85 lines). C encoding engine wrapping `dasm_x86.h`.
+Path: `/home/cperion_ext/dev/lalin/back/dasm_lib.c` (85 lines). C encoding engine wrapping `dasm_x86.h`.
 
-### Step 1C: Delete `lua/moonlift/schema/dasm.lua`
+### Step 1C: Delete `lua/lalin/schema/dasm.lua`
 
-Path: `/home/cperion_ext/dev/moonlift/lua/moonlift/schema/dasm.lua` (~300 lines). Entire `MoonDasm` ASDL schema.
+Path: `/home/cperion_ext/dev/lalin/lua/lalin/schema/dasm.lua` (~300 lines). Entire `LalinDasm` ASDL schema.
 
-### Step 1D: Edit `lua/moonlift/schema/init.lua` line 13
+### Step 1D: Edit `lua/lalin/schema/init.lua` line 13
 
 **Lines 11-14 (before)**:
 ```lua
     return A.schema {
-        require("moonlift.schema.core")(A),
-        require("moonlift.schema.back")(A),
-        require("moonlift.schema.dasm")(A),   -- ← DELETE THIS LINE
-        require("moonlift.schema.editor")(A),
+        require("lalin.schema.core")(A),
+        require("lalin.schema.back")(A),
+        require("lalin.schema.dasm")(A),   -- ← DELETE THIS LINE
+        require("lalin.schema.editor")(A),
 ```
 
 **Lines 11-14 (after)**:
 ```lua
     return A.schema {
-        require("moonlift.schema.core")(A),
-        require("moonlift.schema.back")(A),
-        require("moonlift.schema.editor")(A),
+        require("lalin.schema.core")(A),
+        require("lalin.schema.back")(A),
+        require("lalin.schema.editor")(A),
 ```
 
 **Dependency**: Must be done after Step 1C (schema/dasm.lua deleted).
@@ -2903,7 +2903,7 @@ However, `build.rs` uses `println!("cargo::rerun-if-changed=lua/")` (line ~78), 
 
 ### Step 1F: Delete 11 test files
 
-All under `/home/cperion_ext/dev/moonlift/tests/`:
+All under `/home/cperion_ext/dev/lalin/tests/`:
 
 | File | Notes |
 |------|-------|
@@ -2923,27 +2923,27 @@ All under `/home/cperion_ext/dev/moonlift/tests/`:
 
 | File | Path |
 |------|------|
-| `docs/dynasm.md` | `/home/cperion_ext/dev/moonlift/docs/dynasm.md` (969 lines) |
-| `docs/dynasm-backend-design.md` | `/home/cperion_ext/dev/moonlift/docs/dynasm-backend-design.md` (880 lines) |
-| `docs/dynasm-asdl-first-complete-design.md` | `/home/cperion_ext/dev/moonlift/docs/dynasm-asdl-first-complete-design.md` (409 lines) |
+| `docs/dynasm.md` | `/home/cperion_ext/dev/lalin/docs/dynasm.md` (969 lines) |
+| `docs/dynasm-backend-design.md` | `/home/cperion_ext/dev/lalin/docs/dynasm-backend-design.md` (880 lines) |
+| `docs/dynasm-asdl-first-complete-design.md` | `/home/cperion_ext/dev/lalin/docs/dynasm-asdl-first-complete-design.md` (409 lines) |
 
 ### Step 1H: Delete 2 benchmark files
 
 | File | Path |
 |------|------|
-| `benchmarks/bench_cranelift_vs_dynasm.lua` | `/home/cperion_ext/dev/moonlift/benchmarks/bench_cranelift_vs_dynasm.lua` |
-| `benchmarks/bench_cranelift_vs_dynasm_harness.lua` | `/home/cperion_ext/dev/moonlift/benchmarks/bench_cranelift_vs_dynasm_harness.lua` (177 lines) |
+| `benchmarks/bench_cranelift_vs_dynasm.lua` | `/home/cperion_ext/dev/lalin/benchmarks/bench_cranelift_vs_dynasm.lua` |
+| `benchmarks/bench_cranelift_vs_dynasm_harness.lua` | `/home/cperion_ext/dev/lalin/benchmarks/bench_cranelift_vs_dynasm_harness.lua` (177 lines) |
 
 ### Step 1I: Edit `benchmarks/bench_isolate_kernel.lua` line 15
 
 **Line 15 (before)**:
 ```lua
-print("compiling ... with backend " .. (os.getenv("MOONLIFT_BACKEND") or "dynasm"))
+print("compiling ... with backend " .. (os.getenv("LALIN_BACKEND") or "dynasm"))
 ```
 
 **Line 15 (after)**:
 ```lua
-print("compiling ... with backend " .. (os.getenv("MOONLIFT_BACKEND") or "cranelift"))
+print("compiling ... with backend " .. (os.getenv("LALIN_BACKEND") or "cranelift"))
 ```
 
 **Dependency**: None.
@@ -2961,7 +2961,7 @@ local jit = DynASM.jit()
 
 ```lua
 -- DynASM path removed; use Cranelift path instead
-local jit = require("moonlift.back_jit").Define(T).jit()
+local jit = require("lalin.back_jit").Define(T).jit()
 ```
 
 ### Step 1K: Edit `benchmarks/debug_fib_phi2.lua` — delete entire file or rewrite
@@ -2983,7 +2983,7 @@ These `require` calls will all fail after DynASM removal. Either delete the file
 
 ### Step 2A: Create `src/rt.rs`
 
-**Purpose**: Bump allocator and bulk memory operations compiled with Moonlift programs.
+**Purpose**: Bump allocator and bulk memory operations compiled with Lalin programs.
 
 **Dependency**: None (can be done in parallel with schema changes).
 
@@ -2997,7 +2997,7 @@ These `require` calls will all fail after DynASM removal. Either delete the file
 **Full contents sketch**:
 
 ```rust
-// src/rt.rs — Moonlift built-in runtime
+// src/rt.rs — Lalin built-in runtime
 // No libc dependency — pure core::ptr operations.
 
 use core::ptr;
@@ -3074,7 +3074,7 @@ pub extern "C" fn __ml_memcmp(left: *const u8, right: *const u8, n: usize) -> i3
 
 ### Step 2B: Register runtime symbols in `src/lua_api.rs`
 
-**File**: `/home/cperion_ext/dev/moonlift/src/lua_api.rs`
+**File**: `/home/cperion_ext/dev/lalin/src/lua_api.rs`
 **Location**: In `register_symbols()` function, after `sym!("memcmp", memcmp);` at line 158.
 
 **After (add at end of register_symbols, after line 158)**:
@@ -3091,7 +3091,7 @@ pub extern "C" fn __ml_memcmp(left: *const u8, right: *const u8, n: usize) -> i3
 
 ### Step 2C: Add `mod rt;` to `src/lib.rs`
 
-**File**: `/home/cperion_ext/dev/moonlift/src/lib.rs`
+**File**: `/home/cperion_ext/dev/lalin/src/lib.rs`
 **Location**: After `pub mod lua_api;` at line ~11.
 
 **After (line 11-ish)**:
@@ -3103,7 +3103,7 @@ pub mod rt;
 
 ### Step 2D: Register symbols for the `memcmp` extern on the hosted JIT path
 
-In `src/main.rs` line ~166, `moonlift::lua_api::register_symbols(&mut jit)` already calls `register_symbols`, which now includes the `__ml_*` symbols. **No additional change needed in main.rs**.
+In `src/main.rs` line ~166, `lalin::lua_api::register_symbols(&mut jit)` already calls `register_symbols`, which now includes the `__ml_*` symbols. **No additional change needed in main.rs**.
 
 For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registered. This happens through `jit:symbol()` from the Lua side. **Action needed in back_jit.lua**: add symbol registrations for `__ml_memcpy`, `__ml_memset`, `__ml_memcmp`, `__ml_alloc`, `__ml_free`, `__ml_realloc` after the JIT is created. This is handled in **Step 8** (Phase 2 Lua-side stdlib loading).
 
@@ -3113,29 +3113,29 @@ For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registe
 
 ### Step 3A: Add `ExprNull`, `ExprSizeOf`, `ExprAlignOf`, `ExprIsNull` to `schema/tree.lua`
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/schema/tree.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/schema/tree.lua`
 **Location**: After `ExprCtor` (ends around line 734), before the `},` that closes `A.sum "Expr"` (line 736).
 
 **Add between lines 734-736**:
 ```lua
             A.variant "ExprNull" {
-                A.field "h" "MoonTree.ExprHeader",
-                A.field "elem" "MoonType.Type",
+                A.field "h" "LalinTree.ExprHeader",
+                A.field "elem" "LalinType.Type",
                 A.variant_unique,
             },
             A.variant "ExprSizeOf" {
-                A.field "h" "MoonTree.ExprHeader",
-                A.field "ty" "MoonType.Type",
+                A.field "h" "LalinTree.ExprHeader",
+                A.field "ty" "LalinType.Type",
                 A.variant_unique,
             },
             A.variant "ExprAlignOf" {
-                A.field "h" "MoonTree.ExprHeader",
-                A.field "ty" "MoonType.Type",
+                A.field "h" "LalinTree.ExprHeader",
+                A.field "ty" "LalinType.Type",
                 A.variant_unique,
             },
             A.variant "ExprIsNull" {
-                A.field "h" "MoonTree.ExprHeader",
-                A.field "value" "MoonTree.Expr",
+                A.field "h" "LalinTree.ExprHeader",
+                A.field "value" "LalinTree.Expr",
                 A.variant_unique,
             },
 ```
@@ -3147,29 +3147,29 @@ For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registe
 
 ### Step 3B: Add `StmtTrap` to `schema/tree.lua`
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/schema/tree.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/schema/tree.lua`
 **Location**: After `StmtUseRegionFrag` (ends around line 841), before the `},` that closes `A.sum "Stmt"` (line 843).
 
 **Add between lines 841-843**:
 ```lua
             A.variant "StmtTrap" {
-                A.field "h" "MoonTree.StmtHeader",
+                A.field "h" "LalinTree.StmtHeader",
                 A.variant_unique,
             },
 ```
 
 ### Step 3C: Add `CmdMemcmp` to `schema/back.lua`
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/schema/back.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/schema/back.lua`
 **Location**: After `CmdMemset` variant (ends around line 797), before the next variant.
 
 **Add after line ~797**:
 ```lua
             A.variant "CmdMemcmp" {
-                A.field "dst" "MoonBack.BackValId",
-                A.field "left" "MoonBack.BackValId",
-                A.field "right" "MoonBack.BackValId",
-                A.field "len" "MoonBack.BackValId",
+                A.field "dst" "LalinBack.BackValId",
+                A.field "left" "LalinBack.BackValId",
+                A.field "right" "LalinBack.BackValId",
+                A.field "len" "LalinBack.BackValId",
                 A.variant_unique,
             },
 ```
@@ -3178,7 +3178,7 @@ For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registe
 
 ### Step 3D: Add `WireTag::Memcmp` to `src/wire_tags.rs`
 
-**File**: `/home/cperion_ext/dev/moonlift/src/wire_tags.rs`
+**File**: `/home/cperion_ext/dev/lalin/src/wire_tags.rs`
 **Location**: After `Memset = 118` (around line 119), before `PtrAdd = 120`.
 
 **Add after line ~119**:
@@ -3195,7 +3195,7 @@ For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registe
 
 ### Step 3E: Add encode case to `back_command_binary.lua`
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/back_command_binary.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/back_command_binary.lua`
 **Location**: After the `CmdMemset` encode case (around line 390), before the `CmdTrap` case at line 397.
 
 **Add after line ~390**:
@@ -3217,7 +3217,7 @@ For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registe
 
 ### Step 4A: Add token types and keywords to `parse.lua`
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/parse.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/parse.lua`
 
 **Add token constants** (in the `TK` table around lines 32-98, after existing tokens — recommend values 160-164):
 ```lua
@@ -3239,7 +3239,7 @@ For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registe
 
 ### Step 4B: Add expression parsing for `null(T)`, `sizeof(T)`, `alignof(T)`, `is_null(p)`
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/parse.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/parse.lua`
 **Location**: In the expression parsing section (find the pattern for `view_kw`, `len_kw`, or `as_kw` parsing to locate the right section — around lines where keyword-triggered expressions are parsed).
 
 **Pattern**: These are **unary prefix** expressions that consume a type argument (in parentheses) for `sizeof(T)`/`alignof(T)`/`null(T)`, or an expression argument for `is_null(p)`.
@@ -3262,12 +3262,12 @@ For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registe
 
 **Quirks**:
 - For `null(T)`, the type argument is the pointer type (e.g., `null(ptr(i32))`), NOT the element type.
-- For `sizeof(T)` and `alignof(T)`, the type argument is any Moonlift type.
+- For `sizeof(T)` and `alignof(T)`, the type argument is any Lalin type.
 - For `is_null(p)`, `p` is an expression (pointer).
 
 ### Step 4C: Add statement parsing for `trap`
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/parse.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/parse.lua`
 **Location**: In the statement parsing section, where simple statements are recognized (around the `StmtAssert` pattern).
 
 **Add in the statement parsing branch (after `assert` handling or similar)**:
@@ -3284,13 +3284,13 @@ For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registe
 
 ### Step 5A: Type rules for `ExprNull`, `ExprSizeOf`, `ExprAlignOf`, `ExprIsNull`
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/tree_typecheck.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/tree_typecheck.lua`
 **Location**: In the `type_expr` PVM phase, after `[Tr.ExprIntrinsic]` at line ~594 or at the end of the phase before the closing.
 
 **Add after existing expr variants (recommended: after `ExprIntrinsic` at line ~594, or after `ExprDeref` at line 596)**:
 ```lua
         [Tr.ExprNull] = function(self, ctx)
-            -- null(ptr(T)) has type ptr(T) 
+            -- null(ptr(T)) has type ptr(T)
             return pvm.once(result_expr(Tr.ExprNull(Tr.ExprTyped(self.elem), self.elem), self.elem, {}))
         end,
         [Tr.ExprSizeOf] = function(self, ctx)
@@ -3319,7 +3319,7 @@ For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registe
 
 ### Step 5B: Type rule for `StmtTrap`
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/tree_typecheck.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/tree_typecheck.lua`
 **Location**: In the `type_stmt` PVM phase (around line 665+).
 
 **Add after existing stmt variants**:
@@ -3329,7 +3329,7 @@ For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registe
         end,
 ```
 
-**Quirks**: `StmtTrap` is a terminator (like `StmtReturnVoid`). The typechecker should ensure it's either the last statement in a block or followed only by nodes that accept unreachable continuations. Moonlift's existing "every block path must terminate" rule (from AGENTS.md) should handle this naturally — if `trap` follows another terminator, it's dead code.
+**Quirks**: `StmtTrap` is a terminator (like `StmtReturnVoid`). The typechecker should ensure it's either the last statement in a block or followed only by nodes that accept unreachable continuations. Lalin's existing "every block path must terminate" rule (from AGENTS.md) should handle this naturally — if `trap` follows another terminator, it's dead code.
 
 ---
 
@@ -3337,13 +3337,13 @@ For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registe
 
 ### Step 6A: Add deferred evaluation for `ExprSizeOf` and `ExprAlignOf`
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/sem_layout_resolve.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/sem_layout_resolve.lua`
 **Location**: In the `resolve_expr` PVM phase (around lines 188-240), add entries for `ExprSizeOf` and `ExprAlignOf`.
 
 **Add after existing entries (recommended: after `[Tr.ExprLen]` at around line 225)**:
 ```lua
         [Tr.ExprSizeOf] = function(self, env)
-            local layout_api = require("moonlift.type_size_align").Define(T)
+            local layout_api = require("lalin.type_size_align").Define(T)
             local result = layout_api.result(self.ty, env)
             if pvm.classof(result) == Ty.TypeMemLayoutKnown then
                 -- Replace with a literal constant
@@ -3354,7 +3354,7 @@ For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registe
             return pvm.once(Tr.ExprLit(Tr.ExprTyped(index_ty()), C.LitInt("0")))
         end,
         [Tr.ExprAlignOf] = function(self, env)
-            local layout_api = require("moonlift.type_size_align").Define(T)
+            local layout_api = require("lalin.type_size_align").Define(T)
             local result = layout_api.result(self.ty, env)
             if pvm.classof(result) == Ty.TypeMemLayoutKnown then
                 local align = tostring(result.layout.align)
@@ -3377,7 +3377,7 @@ For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registe
 
 ### Step 7A: Add lowering for `ExprNull`
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/tree_to_back.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/tree_to_back.lua`
 **Location**: In the `expr_to_back` PVM phase, after `[Tr.ExprLen]` lowering or at the end.
 
 **Add new entry**:
@@ -3396,7 +3396,7 @@ For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registe
 
 ### Step 7B: Add lowering for `ExprIsNull`
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/tree_to_back.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/tree_to_back.lua`
 **Location**: In the `expr_to_back` PVM phase.
 
 **Add new entry**:
@@ -3424,7 +3424,7 @@ For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registe
 
 ### Step 7C: Add lowering for `StmtTrap`
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/tree_to_back.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/tree_to_back.lua`
 **Location**: In the `stmt_to_back` PVM phase (likely near the `StmtAssert` or other simple statement handlers).
 
 **Add new entry**:
@@ -3446,7 +3446,7 @@ For the Lua FFI path (`back_jit.lua`), the `__ml_*` symbols must also be registe
 
 ### Step 8: Remove/gate `assert_no_cmd_trap`
 
-**File**: `/home/cperion_ext/dev/moonlift/lua/moonlift/frontend_pipeline.lua`
+**File**: `/home/cperion_ext/dev/lalin/lua/lalin/frontend_pipeline.lua`
 
 **Option A (recommended: gate behind debug flag)**:
 Replace the unconditional call at line 51 with a conditional:
@@ -3458,7 +3458,7 @@ Replace the unconditional call at line 51 with a conditional:
 
 **After**:
 ```lua
-        if not _G.MOONLIFT_ALLOW_TRAP then
+        if not _G.LALIN_ALLOW_TRAP then
             assert_no_cmd_trap(T, program, site)
         end
 ```
@@ -3474,7 +3474,7 @@ Delete the function definition (lines 11-20) and the call at line 51.
 
 ### Step 9A: Fix `WireTag::Memcpy` and `WireTag::Memset` in `decode.rs`
 
-**File**: `/home/cperion_ext/dev/moonlift/src/decode.rs`
+**File**: `/home/cperion_ext/dev/lalin/src/decode.rs`
 **Location**: Lines 593-594 (current NO-OPs).
 
 **Before (lines 593-594)**:
@@ -3526,7 +3526,7 @@ This approach requires a new method `get_or_create_extern` on `FuncRefs`, OR pre
 
 ### Step 9B: Add `WireTag::Memcmp` decode case
 
-**File**: `/home/cperion_ext/dev/moonlift/src/decode.rs`
+**File**: `/home/cperion_ext/dev/lalin/src/decode.rs`
 **Location**: After the `Memset` case (after step 9A's fix), before the catch-all `_ =>`.
 
 **Add after `Memset` case**:
@@ -3546,20 +3546,20 @@ WireTag::Memcmp => {
 
 ---
 
-## Phase 2: Stdlib (Moonlift Compiled)
+## Phase 2: Stdlib (Lalin Compiled)
 
 ### Step 10A: Create `stdlib/` directory
 
-Create `/home/cperion_ext/dev/moonlift/stdlib/` directory.
+Create `/home/cperion_ext/dev/lalin/stdlib/` directory.
 
 ### Step 10B: Create `stdlib/memory.mlua`
 
-**File**: `/home/cperion_ext/dev/moonlift/stdlib/memory.mlua`
+**File**: `/home/cperion_ext/dev/lalin/stdlib/memory.mlua`
 **Purpose**: Extern declarations for runtime functions.
 
-```moonlift
+```lalin
 -- stdlib/memory.mlua — Low-level memory operations
--- These call into the Moonlift runtime (__ml_* functions).
+-- These call into the Lalin runtime (__ml_* functions).
 
 extern __ml_memcpy(dst: ptr(u8), src: ptr(u8), n: index) -> ptr(u8) end
 extern __ml_memset(dst: ptr(u8), byte: i32, n: index) -> ptr(u8) end
@@ -3592,10 +3592,10 @@ end
 
 ### Step 10C: Create `stdlib/arena.mlua`
 
-**File**: `/home/cperion_ext/dev/moonlift/stdlib/arena.mlua`
+**File**: `/home/cperion_ext/dev/lalin/stdlib/arena.mlua`
 **Purpose**: Bump arena allocator.
 
-```moonlift
+```lalin
 -- stdlib/arena.mlua — Bump arena allocator
 
 require "std:memory"   -- brings in alloc/free
@@ -3636,10 +3636,10 @@ end
 
 ### Step 10D: Create `stdlib/buffer.mlua`
 
-**File**: `/home/cperion_ext/dev/moonlift/stdlib/buffer.mlua`
-**Purpose**: Typed buffer template — note: since Moonlift has no source-level generics, Buffer(T) is generated via Lua metaprogramming. This file serves as the **template** that the Lua metaprogramming layer uses.
+**File**: `/home/cperion_ext/dev/lalin/stdlib/buffer.mlua`
+**Purpose**: Typed buffer template — note: since Lalin has no source-level generics, Buffer(T) is generated via Lua metaprogramming. This file serves as the **template** that the Lua metaprogramming layer uses.
 
-**Since Moonlift has no generics**, this module should be a **Lua** module (`stdlib/buffer.lua`) that generates monomorphic Moonlift code:
+**Since Lalin has no generics**, this module should be a **Lua** module (`stdlib/buffer.lua`) that generates monomorphic Lalin code:
 
 ```lua
 -- stdlib/buffer.lua — Lua metaprogramming for Buffer(T)
@@ -3680,14 +3680,14 @@ return M
 
 ### Step 10E: Create `stdlib/vec.mlua` (or `stdlib/vec.lua` as Lua metaprogramming)
 
-Same pattern as buffer — since Moonlift lacks generics, this is a Lua metaprogramming module.
+Same pattern as buffer — since Lalin lacks generics, this is a Lua metaprogramming module.
 
 ### Step 10F: Create `stdlib/view.mlua`
 
-**File**: `/home/cperion_ext/dev/moonlift/stdlib/view.mlua`
+**File**: `/home/cperion_ext/dev/lalin/stdlib/view.mlua`
 **Purpose**: View helper functions.
 
-```moonlift
+```lalin
 -- stdlib/view.mlua — View helper functions
 
 func view_slice(v: view(u8), start: index, len: index) -> view(u8)
@@ -3710,7 +3710,7 @@ end
 
 ### Step 10G: Register stdlib modules as embedded Lua sources
 
-**File**: `/home/cperion_ext/dev/moonlift/build.rs`
+**File**: `/home/cperion_ext/dev/lalin/build.rs`
 **Modification**: Add `.mlua` extension collection to `build.rs`.
 
 **After line ~79**:
@@ -3742,9 +3742,9 @@ The function is generic — it works with any extension. The call site just need
 
 ### Step 10H: Register `__ml_*` symbols from the Lua side
 
-For the **Lua FFI JIT path** (not the hosted path), add symbol registration in `lua/moonlift/back_jit.lua` (or in the Lua module loader that initializes the JIT).
+For the **Lua FFI JIT path** (not the hosted path), add symbol registration in `lua/lalin/back_jit.lua` (or in the Lua module loader that initializes the JIT).
 
-This is relevant for tests that use the `back_jit.lua` FFI bridge. The `libmoonlift.so` CDYLIB doesn't automatically export the `__ml_*` symbols — they must be registered via `jit:symbol()`.
+This is relevant for tests that use the `back_jit.lua` FFI bridge. The `liblalin.so` CDYLIB doesn't automatically export the `__ml_*` symbols — they must be registered via `jit:symbol()`.
 
 **Add in `back_jit.lua`** (in the JIT initialization function, after JIT creation):
 ```lua
@@ -3775,8 +3775,8 @@ void* __ml_realloc(void* ptr, size_t old_size, size_t new_size, size_t align);
 | Step | Verify |
 |------|--------|
 | After cleanup (Step 1) | `cargo build --release` succeeds without DynASM; `luajit tests/test_back_add_i32.lua` passes |
-| After Phase 0 (Steps 2A-2D) | `cargo build --release` succeeds; `ls target/release/libmoonlift.so` exists |
-| After schema changes (Steps 3A-3E) | Lua schema loading works; `luajit -e "require('moonlift.schema').Define(require('moonlift.pvm').new())"` succeeds |
+| After Phase 0 (Steps 2A-2D) | `cargo build --release` succeeds; `ls target/release/liblalin.so` exists |
+| After schema changes (Steps 3A-3E) | Lua schema loading works; `luajit -e "require('lalin.schema').Define(require('lalin.pvm').new())"` succeeds |
 | After parser changes (Steps 4A-4C) | Write a tiny `.mlua` test: `func f() trap end` and verify it parses |
 | After typechecker (Steps 5A-5B) | `luajit tests/test_parse_typecheck.lua` with a test case using `null(ptr(i32))` |
 | After layout (Step 6A) | Test that `sizeof(i32)` lowers to `CmdConst(dst, BackIndex, BackLitInt("4"))` |
@@ -3817,8 +3817,8 @@ luajit tests/test_back_object_emit.lua
 Apply these patterns consistently across ALL changed files:
 
 1. **All new ASDL variants** use `A.variant_unique` (matches existing convention in `tree.lua` and `back.lua`)
-2. **All new Expr variants** include `A.field "h" "MoonTree.ExprHeader"` as the first field (matches existing convention)
-3. **All new Stmt variants** include `A.field "h" "MoonTree.StmtHeader"` as the first field (matches existing convention)
+2. **All new Expr variants** include `A.field "h" "LalinTree.ExprHeader"` as the first field (matches existing convention)
+3. **All new Stmt variants** include `A.field "h" "LalinTree.StmtHeader"` as the first field (matches existing convention)
 4. **Ptr type construction** for `null(T)` typechecking: `Ty.TPtr(elem)` — use inline, not a helper function (matching existing pattern at `tree_typecheck.lua:942`)
 5. **sizeof/alignof typecheck return type**: `index_ty()` = `Ty.TScalar(C.ScalarIndex)` (matches existing helper at `tree_typecheck.lua:39`)
 6. **`BackLitNull` construction**: `Back.BackLitNull` — zero-arg variant (matches existing pattern at `back.lua:428`)
@@ -3828,7 +3828,7 @@ Apply these patterns consistently across ALL changed files:
 10. **TAG_SLOTS for Memcmp**: 4 slots — `[dst, left, right, len]` (matches fact extraction in `back_validate.lua:244`)
 11. **Extern "C" functions**: `#[no_mangle] pub extern "C" fn` — no `unsafe` on the fn itself (matches existing convention in `lua_api.rs`)
 12. **Backend decoder**: Use `ctx.val(s[N])?` for slot access, `ctx.bind(s[0], ...)?` for result binding (matches existing pattern in `decode.rs`)
-13. **assert_no_cmd_trap**: Gate behind `_G.MOONLIFT_ALLOW_TRAP` flag rather than removing entirely
+13. **assert_no_cmd_trap**: Gate behind `_G.LALIN_ALLOW_TRAP` flag rather than removing entirely
 14. **`LitInt` value**: Always pass `tostring(raw)` — the ASDL field type is `string` (matches existing pattern)
 
 ---
@@ -3839,8 +3839,8 @@ Apply these patterns consistently across ALL changed files:
 |-------|------|--------|-------|
 | 1A | `back/dasm/` (26 files) | Delete directory | Cleanup |
 | 1B | `back/dasm_lib.c` | Delete | Cleanup |
-| 1C | `lua/moonlift/schema/dasm.lua` | Delete | Cleanup |
-| 1D | `lua/moonlift/schema/init.lua:13` | Remove require line | Cleanup |
+| 1C | `lua/lalin/schema/dasm.lua` | Delete | Cleanup |
+| 1D | `lua/lalin/schema/init.lua:13` | Remove require line | Cleanup |
 | 1F | `tests/test_dasm_*.lua` (11 files) | Delete | Cleanup |
 | 1G | `docs/dynasm*.md` (3 files) | Delete | Cleanup |
 | 1H | `benchmarks/bench_cranelift_vs_dynasm*.lua` (2 files) | Delete | Cleanup |
@@ -3850,22 +3850,22 @@ Apply these patterns consistently across ALL changed files:
 | 2A | `src/rt.rs` | CREATE | Phase 0 |
 | 2B | `src/lua_api.rs:158+` | Add symbol registrations | Phase 0 |
 | 2C | `src/lib.rs:11` | Add `mod rt;` | Phase 0 |
-| 3A | `lua/moonlift/schema/tree.lua:734-736` | Add 4 Expr variants | Phase 1 Schema |
-| 3B | `lua/moonlift/schema/tree.lua:841-843` | Add StmtTrap | Phase 1 Schema |
-| 3C | `lua/moonlift/schema/back.lua:797+` | Add CmdMemcmp | Phase 1 Schema |
+| 3A | `lua/lalin/schema/tree.lua:734-736` | Add 4 Expr variants | Phase 1 Schema |
+| 3B | `lua/lalin/schema/tree.lua:841-843` | Add StmtTrap | Phase 1 Schema |
+| 3C | `lua/lalin/schema/back.lua:797+` | Add CmdMemcmp | Phase 1 Schema |
 | 3D | `src/wire_tags.rs:119` | Add Memcmp=119 + TAG_SLOTS | Phase 1 Schema |
-| 3E | `lua/moonlift/back_command_binary.lua:49,390+` | Add Memcmp tag + encode | Phase 1 Schema |
-| 4A | `lua/moonlift/parse.lua:38-98` | Add 5 token constants | Phase 1 Parser |
-| 4A | `lua/moonlift/parse.lua:100-127` | Add 5 keyword mappings | Phase 1 Parser |
-| 4B | `lua/moonlift/parse.lua` primary expr section | Add sizeof/alignof/null/is_null parsing | Phase 1 Parser |
-| 4C | `lua/moonlift/parse.lua` stmt section | Add trap parsing | Phase 1 Parser |
-| 5A | `lua/moonlift/tree_typecheck.lua` type_expr | Add ExprNull/SizeOf/AlignOf/IsNull | Phase 1 Typecheck |
-| 5B | `lua/moonlift/tree_typecheck.lua` type_stmt | Add StmtTrap | Phase 1 Typecheck |
-| 6A | `lua/moonlift/sem_layout_resolve.lua` resolve_expr | Add ExprSizeOf/ExprAlignOf handlers | Phase 1 Layout |
-| 7A | `lua/moonlift/tree_to_back.lua` expr_to_back | Add ExprNull lowering | Phase 1 Lowering |
-| 7B | `lua/moonlift/tree_to_back.lua` expr_to_back | Add ExprIsNull lowering | Phase 1 Lowering |
-| 7C | `lua/moonlift/tree_to_back.lua` stmt_to_back | Add StmtTrap lowering | Phase 1 Lowering |
-| 8 | `lua/moonlift/frontend_pipeline.lua:51` | Gate assert_no_cmd_trap | Phase 1 Pipeline |
+| 3E | `lua/lalin/back_command_binary.lua:49,390+` | Add Memcmp tag + encode | Phase 1 Schema |
+| 4A | `lua/lalin/parse.lua:38-98` | Add 5 token constants | Phase 1 Parser |
+| 4A | `lua/lalin/parse.lua:100-127` | Add 5 keyword mappings | Phase 1 Parser |
+| 4B | `lua/lalin/parse.lua` primary expr section | Add sizeof/alignof/null/is_null parsing | Phase 1 Parser |
+| 4C | `lua/lalin/parse.lua` stmt section | Add trap parsing | Phase 1 Parser |
+| 5A | `lua/lalin/tree_typecheck.lua` type_expr | Add ExprNull/SizeOf/AlignOf/IsNull | Phase 1 Typecheck |
+| 5B | `lua/lalin/tree_typecheck.lua` type_stmt | Add StmtTrap | Phase 1 Typecheck |
+| 6A | `lua/lalin/sem_layout_resolve.lua` resolve_expr | Add ExprSizeOf/ExprAlignOf handlers | Phase 1 Layout |
+| 7A | `lua/lalin/tree_to_back.lua` expr_to_back | Add ExprNull lowering | Phase 1 Lowering |
+| 7B | `lua/lalin/tree_to_back.lua` expr_to_back | Add ExprIsNull lowering | Phase 1 Lowering |
+| 7C | `lua/lalin/tree_to_back.lua` stmt_to_back | Add StmtTrap lowering | Phase 1 Lowering |
+| 8 | `lua/lalin/frontend_pipeline.lua:51` | Gate assert_no_cmd_trap | Phase 1 Pipeline |
 | 9A | `src/decode.rs:593-594` | Fix Memcpy/Memset NO-OP → runtime call | Phase 1 Decoder |
 | 9B | `src/decode.rs` (after 9A) | Add Memcmp decode case | Phase 1 Decoder |
 | 10A | `stdlib/` | CREATE directory | Phase 2 |
@@ -3874,7 +3874,7 @@ Apply these patterns consistently across ALL changed files:
 | 10D | `stdlib/buffer.lua` | CREATE (Lua metaprog) | Phase 2 |
 | 10F | `stdlib/view.mlua` | CREATE | Phase 2 |
 | 10G | `build.rs` | Add .mlua collection from stdlib/ | Phase 2 |
-| 10H | `lua/moonlift/back_jit.lua` | Add __ml_* symbol registrations | Phase 2 |
+| 10H | `lua/lalin/back_jit.lua` | Add __ml_* symbol registrations | Phase 2 |
 
 ## Worker Output — 2026-05-21 14:52:18
 
@@ -3882,18 +3882,18 @@ All 16 existing tests pass, schema loads all 6 new variants, build succeeds, std
 
 ## Completed
 
-Executed the full Moonlift Memory Kit implementation plan (Approach C: Self-Hosted Stdlib) across all 9 phases.
+Executed the full Lalin Memory Kit implementation plan (Approach C: Self-Hosted Stdlib) across all 9 phases.
 
 ## Files Changed
 
 ### Phase 0: DynASM Cleanup (prerequisite)
 - **Deleted**: `back/dasm/` (26 files, entire directory)
 - **Deleted**: `back/dasm_lib.c`
-- **Deleted**: `lua/moonlift/schema/dasm.lua`
+- **Deleted**: `lua/lalin/schema/dasm.lua`
 - **Deleted**: 11 test files (`test_dasm_*.lua`, `test_lisle_rules_x64.lua`)
 - **Deleted**: 3 docs (`docs/dynasm*.md`)
 - **Deleted**: 2 benchmarks (`bench_cranelift_vs_dynasm*.lua`)
-- **Edited**: `lua/moonlift/schema/init.lua` - removed dasm require
+- **Edited**: `lua/lalin/schema/init.lua` - removed dasm require
 - **Edited**: `benchmarks/bench_isolate_kernel.lua` - changed default backend to "cranelift"
 - **Edited**: `benchmarks/debug_fib_phi.lua` - replaced DynASM block with Cranelift JIT
 - **Rewritten**: `benchmarks/debug_fib_phi2.lua` - removed DynASM dependency
@@ -3904,25 +3904,25 @@ Executed the full Moonlift Memory Kit implementation plan (Approach C: Self-Host
 - **Edited**: `src/lua_api.rs` - registered 6 `__ml_*` runtime symbols
 
 ### Phase 2: Schema Changes
-- **Edited**: `lua/moonlift/schema/tree.lua` - added 4 Expr variants (`ExprNull`, `ExprSizeOf`, `ExprAlignOf`, `ExprIsNull`) and 1 Stmt variant (`StmtTrap`)
-- **Edited**: `lua/moonlift/schema/back.lua` - added `CmdMemcmp` variant
+- **Edited**: `lua/lalin/schema/tree.lua` - added 4 Expr variants (`ExprNull`, `ExprSizeOf`, `ExprAlignOf`, `ExprIsNull`) and 1 Stmt variant (`StmtTrap`)
+- **Edited**: `lua/lalin/schema/back.lua` - added `CmdMemcmp` variant
 - **Edited**: `src/wire_tags.rs` - added `Memcmp = 119` with `TAG_SLOTS[119] = 4`
-- **Edited**: `lua/moonlift/back_command_binary.lua` - added `Memcmp = 119` tag + encode case
+- **Edited**: `lua/lalin/back_command_binary.lua` - added `Memcmp = 119` tag + encode case
 
 ### Phase 3: Parser Changes
-- **Edited**: `lua/moonlift/parse.lua` - added 5 token constants, 5 keyword mappings, expression parsing for sizeof/alignof/null/is_null, statement parsing for trap
+- **Edited**: `lua/lalin/parse.lua` - added 5 token constants, 5 keyword mappings, expression parsing for sizeof/alignof/null/is_null, statement parsing for trap
 
 ### Phase 4: Typechecker Changes
-- **Edited**: `lua/moonlift/tree_typecheck.lua` - added type_expr entries for 4 new Expr variants, type_stmt entry for StmtTrap
+- **Edited**: `lua/lalin/tree_typecheck.lua` - added type_expr entries for 4 new Expr variants, type_stmt entry for StmtTrap
 
 ### Phase 5: Layout Resolution
-- **Edited**: `lua/moonlift/sem_layout_resolve.lua` - added resolve_expr entries for ExprSizeOf/ExprAlignOf (replaced with `ExprLit(LitInt)`) and identity passes for ExprNull/ExprIsNull/StmtTrap
+- **Edited**: `lua/lalin/sem_layout_resolve.lua` - added resolve_expr entries for ExprSizeOf/ExprAlignOf (replaced with `ExprLit(LitInt)`) and identity passes for ExprNull/ExprIsNull/StmtTrap
 
 ### Phase 6: Lowering Changes
-- **Edited**: `lua/moonlift/tree_to_back.lua` - added ExprNull → `CmdConst(BackLitNull)`, ExprIsNull → `CmdCompare(IcmpEq, ptr, 0)`, StmtTrap → `CmdTrap`
+- **Edited**: `lua/lalin/tree_to_back.lua` - added ExprNull → `CmdConst(BackLitNull)`, ExprIsNull → `CmdCompare(IcmpEq, ptr, 0)`, StmtTrap → `CmdTrap`
 
 ### Phase 7: Pipeline
-- **Edited**: `lua/moonlift/frontend_pipeline.lua` - gated `assert_no_cmd_trap` behind `_G.MOONLIFT_ALLOW_TRAP` flag
+- **Edited**: `lua/lalin/frontend_pipeline.lua` - gated `assert_no_cmd_trap` behind `_G.LALIN_ALLOW_TRAP` flag
 
 ### Phase 8: Decoder Fix
 - **Edited**: `src/decode.rs` - fixed Memcpy/Memset from NO-OP to runtime call, added Memcmp decode case, pre-declares runtime functions as `Linkage::Import`
@@ -3933,7 +3933,7 @@ Executed the full Moonlift Memory Kit implementation plan (Approach C: Self-Host
 - **Created**: `stdlib/arena.mlua` - Arena struct with bump allocator (arena_new, arena_alloc, arena_reset, arena_free)
 - **Created**: `stdlib/view.mlua` - view_slice, view_from_ptr, view_bounds_check
 - **Edited**: `build.rs` - added `.mlua` collection from stdlib/ directory
-- **Edited**: `lua/moonlift/back_jit.lua` - added FFI declarations and auto-registration of `__ml_*` symbols
+- **Edited**: `lua/lalin/back_jit.lua` - added FFI declarations and auto-registration of `__ml_*` symbols
 
 ## Notes
 
@@ -3941,7 +3941,7 @@ Executed the full Moonlift Memory Kit implementation plan (Approach C: Self-Host
 - **All originally-passing tests continue to pass** (16 tests verified)
 - **Schema verified**: All 6 new ASDL variants load correctly
 - **Stdlib embedded**: 3 stdlib `.mlua` files embedded in the compiler binary
-- The `MOONLIFT_ALLOW_TRAP` global flag must be set to `true` for `trap` statements to work in compiled code (otherwise `assert_no_cmd_trap` prevents emission)
+- The `LALIN_ALLOW_TRAP` global flag must be set to `true` for `trap` statements to work in compiled code (otherwise `assert_no_cmd_trap` prevents emission)
 
 ## Reviewer Output — 2026-05-21 14:56:04
 
@@ -3955,18 +3955,18 @@ Now I have all the data needed. Here is the comprehensive review.
 - `src/rt.rs` (full, 96 lines) — Rust runtime
 - `src/lib.rs:14` — `pub mod rt;`
 - `src/lua_api.rs:159-169` — symbol registrations
-- `lua/moonlift/schema/tree.lua:731-861` — new Expr/Stmt variants
-- `lua/moonlift/schema/back.lua:795-801` — CmdMemcmp variant
-- `lua/moonlift/parse.lua:45-52,78-85,835-847,1479` — parser tokens/keywords/expr parsing/stmt
-- `lua/moonlift/tree_typecheck.lua:612-634,736-739` — typechecker rules
-- `lua/moonlift/sem_layout_resolve.lua:262-288,327` — layout resolution
-- `lua/moonlift/tree_to_back.lua:1249-1267,2139-2143` — lowering
-- `lua/moonlift/frontend_pipeline.lua:58-61` — trap gating
-- `lua/moonlift/back_command_binary.lua:46,48,390-392` — encoder
+- `lua/lalin/schema/tree.lua:731-861` — new Expr/Stmt variants
+- `lua/lalin/schema/back.lua:795-801` — CmdMemcmp variant
+- `lua/lalin/parse.lua:45-52,78-85,835-847,1479` — parser tokens/keywords/expr parsing/stmt
+- `lua/lalin/tree_typecheck.lua:612-634,736-739` — typechecker rules
+- `lua/lalin/sem_layout_resolve.lua:262-288,327` — layout resolution
+- `lua/lalin/tree_to_back.lua:1249-1267,2139-2143` — lowering
+- `lua/lalin/frontend_pipeline.lua:58-61` — trap gating
+- `lua/lalin/back_command_binary.lua:46,48,390-392` — encoder
 - `src/wire_tags.rs:94,247` — wire tag + TAG_SLOTS
 - `src/decode.rs:311-328,596-632` — decoder
-- `lua/moonlift/back_jit.lua:22-32,171-182` — FFI + symbol registration
-- `lua/moonlift/schema/init.lua:10-13` — schema init
+- `lua/lalin/back_jit.lua:22-32,171-182` — FFI + symbol registration
+- `lua/lalin/schema/init.lua:10-13` — schema init
 - `build.rs:77-90` — stdlib collection
 - `stdlib/memory.mlua` (full) — extern declarations
 - `stdlib/arena.mlua` (full) — bump arena
@@ -3975,7 +3975,7 @@ Now I have all the data needed. Here is the comprehensive review.
 ### DynASM Cleanup Files (prerequisite)
 - 26 files in `back/dasm/` deleted
 - `back/dasm_lib.c` deleted
-- `lua/moonlift/schema/dasm.lua` deleted
+- `lua/lalin/schema/dasm.lua` deleted
 - 11 test files, 3 docs, 2 benchmarks deleted
 - Various edits to benchmarks/infra
 
@@ -4095,7 +4095,7 @@ In `decode.rs:328`:
 params: vec![AbiParam::new(ptr_ty), AbiParam::new(ptr_ty), AbiParam::new(ptr_ty)],
 ```
 
-The `len` parameter is declared as `ptr_ty` (the target pointer width). On 64-bit this is `types::I64`, same as the Moonlift `index` type and Rust's `usize`. The wire format passes it as a plain integer value. **This works** because the pointer width and index width are the same. On 32-bit targets both would be 32-bit. Not a bug, but worth noting the type mismatch in the signature declaration.
+The `len` parameter is declared as `ptr_ty` (the target pointer width). On 64-bit this is `types::I64`, same as the Lalin `index` type and Rust's `usize`. The wire format passes it as a plain integer value. **This works** because the pointer width and index width are the same. On 32-bit targets both would be 32-bit. Not a bug, but worth noting the type mismatch in the signature declaration.
 
 ---
 
@@ -4116,7 +4116,7 @@ Consider documenting this prominently, or adding a debug mode that writes a pois
 
 ### 11. `src/rt.rs:59` — `copy_nonoverlapping` for memcpy
 
-`__ml_memcpy` uses `ptr::copy_nonoverlapping` which has undefined behavior on overlapping regions. This matches C's `memcpy` semantics (undefined on overlap), but the Moonlift `memcpy` wrapper in `stdlib/memory.mlua` does not document this. Consider documenting or providing a separate `memmove`.
+`__ml_memcpy` uses `ptr::copy_nonoverlapping` which has undefined behavior on overlapping regions. This matches C's `memcpy` semantics (undefined on overlap), but the Lalin `memcpy` wrapper in `stdlib/memory.mlua` does not document this. Consider documenting or providing a separate `memmove`.
 
 ### 12. Phase ordering for sizeof/alignof — verified correct
 
@@ -4156,25 +4156,25 @@ All changes applied and verified. Here's the complete summary:
 
 ## Completed
 
-Re-applied all 15 tracked-file changes for the Moonlift Memory Kit. The untracked files (`src/rt.rs`, `stdlib/`) survived the stash drop and were preserved.
+Re-applied all 15 tracked-file changes for the Lalin Memory Kit. The untracked files (`src/rt.rs`, `stdlib/`) survived the stash drop and were preserved.
 
 ## Files Changed
 
-1. **`lua/moonlift/schema/init.lua`** — Removed `require("moonlift.schema.dasm")(A),` line
-2. **`lua/moonlift/schema/tree.lua`** — Added 4 Expr variants (`ExprNull`, `ExprSizeOf`, `ExprAlignOf`, `ExprIsNull`) and `StmtTrap`
-3. **`lua/moonlift/schema/back.lua`** — Added `CmdMemcmp` variant
+1. **`lua/lalin/schema/init.lua`** — Removed `require("lalin.schema.dasm")(A),` line
+2. **`lua/lalin/schema/tree.lua`** — Added 4 Expr variants (`ExprNull`, `ExprSizeOf`, `ExprAlignOf`, `ExprIsNull`) and `StmtTrap`
+3. **`lua/lalin/schema/back.lua`** — Added `CmdMemcmp` variant
 4. **`src/wire_tags.rs`** — Added `Memcmp = 119` with `TAG_SLOTS[119] = 4`
-5. **`lua/moonlift/back_command_binary.lua`** — Added `Memcmp = 119` tag + encode case
-6. **`lua/moonlift/parse.lua`** — Added 5 token constants + 5 keywords + expression/statement parsing
-7. **`lua/moonlift/tree_typecheck.lua`** — Added type_expr entries for 4 Expr variants + type_stmt entry for StmtTrap
-8. **`lua/moonlift/sem_layout_resolve.lua`** — Added sizeof/alignof resolution (replace with literals) + identity passes for ExprNull/ExprIsNull/StmtTrap
-9. **`lua/moonlift/tree_to_back.lua`** — Added ExprNull → `CmdConst(BackLitNull)`, ExprIsNull → `CmdCompare(IcmpEq, 0)`, StmtTrap → `CmdTrap` with `BackTerminates`
-10. **`lua/moonlift/frontend_pipeline.lua`** — Gated `assert_no_cmd_trap` behind `_G.MOONLIFT_ALLOW_TRAP`
+5. **`lua/lalin/back_command_binary.lua`** — Added `Memcmp = 119` tag + encode case
+6. **`lua/lalin/parse.lua`** — Added 5 token constants + 5 keywords + expression/statement parsing
+7. **`lua/lalin/tree_typecheck.lua`** — Added type_expr entries for 4 Expr variants + type_stmt entry for StmtTrap
+8. **`lua/lalin/sem_layout_resolve.lua`** — Added sizeof/alignof resolution (replace with literals) + identity passes for ExprNull/ExprIsNull/StmtTrap
+9. **`lua/lalin/tree_to_back.lua`** — Added ExprNull → `CmdConst(BackLitNull)`, ExprIsNull → `CmdCompare(IcmpEq, 0)`, StmtTrap → `CmdTrap` with `BackTerminates`
+10. **`lua/lalin/frontend_pipeline.lua`** — Gated `assert_no_cmd_trap` behind `_G.LALIN_ALLOW_TRAP`
 11. **`src/decode.rs`** — Replaced Memcpy/Memset NO-OPs with Cranelift `LibCall` calls; added Memcmp decode case
 12. **`src/lib.rs`** — Added `pub mod rt;`
 13. **`src/lua_api.rs`** — Registered 6 `__ml_*` runtime symbols
 14. **`build.rs`** — Added `.mlua` collection from `stdlib/` directory with namespacing
-15. **`lua/moonlift/back_jit.lua`** — Added FFI declarations + auto-registration of `__ml_*` runtime symbols
+15. **`lua/lalin/back_jit.lua`** — Added FFI declarations + auto-registration of `__ml_*` runtime symbols
 
 ## Verification
 

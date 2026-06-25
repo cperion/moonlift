@@ -11,7 +11,7 @@ Now I have all the data. Let me compile the complete picture:
 
 ## Files Retrieved
 
-### 1. `lua/moonlift/parse.lua` — Type parsing and name resolution at parse time
+### 1. `lua/lalin/parse.lua` — Type parsing and name resolution at parse time
 
 **`parse_type` function (lines 764-841)** — The main entry point for all type parsing:
 ```lua
@@ -52,14 +52,14 @@ end
 ```lua
 function Parser:type_from_value(v)
     if type(v) == "table" then
-        if type(v.as_moonlift_type) == "function" then return v:as_moonlift_type() end
+        if type(v.as_lalin_type) == "function" then return v:as_lalin_type() end
         if type(v.as_type_value) == "function" then ... end
-        if v.ty ~= nil and (v.__moonlift_host_type_value or ...) then return v.ty end
+        if v.ty ~= nil and (v.__lalin_host_type_value or ...) then return v.ty end
     end
     return nil
 end
 ```
-This means `@{T.SomeType}` works when `T.SomeType` is a MoonType host value (from `moon.struct`, `moon.handle`, etc.) loaded into the Lua global scope. The `splice_value` check (line 668-671) looks up the ambient splice map.
+This means `@{T.SomeType}` works when `T.SomeType` is a LalinType host value (from `lalin.struct`, `lalin.handle`, etc.) loaded into the Lua global scope. The `splice_value` check (line 668-671) looks up the ambient splice map.
 
 **`splice_value` (lines 668-671)**:
 ```lua
@@ -70,7 +70,7 @@ function Parser:splice_value(id)
 end
 ```
 
-### 2. `lua/moonlift/parse.lua` — Where types are registered during struct/union parsing
+### 2. `lua/lalin/parse.lua` — Where types are registered during struct/union parsing
 
 **`parse_struct_island` (lines 2043-2088)** — When parsing `struct RingBuf ... end`:
 ```lua
@@ -101,7 +101,7 @@ end
     end
 ```
 
-### 3. `lua/moonlift/tree_typecheck.lua` — Where bare names are actually resolved at typecheck time
+### 3. `lua/lalin/tree_typecheck.lua` — Where bare names are actually resolved at typecheck time
 
 **`canonical_type` (lines 103-127)** — The core resolution function:
 ```lua
@@ -131,7 +131,7 @@ end
 
 **Where `env.types` is populated** — `tree_module_type.lua` `module_env` phase (lines 185-212):
 ```lua
-module_env = pvm.phase("moonlift_tree_module_env", {
+module_env = pvm.phase("lalin_tree_module_env", {
     [Tr.Module] = function(module, target)
         ...
         local types = {}
@@ -151,7 +151,7 @@ module_env = pvm.phase("moonlift_tree_module_env", {
 
 **`type_entry` in `tree_module_type.lua` (lines 70-81)** — How each type decl creates an env entry:
 ```lua
-type_entry = pvm.phase("moonlift_tree_type_entry", {
+type_entry = pvm.phase("lalin_tree_type_entry", {
     [Tr.TypeDeclStruct] = function(self, mod_name)
         return pvm.once(B.TypeEntry(self.name,
             Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name))))  -- ← GLOBAL REF
@@ -197,22 +197,22 @@ if pvm.classof(ref) == Ty.TypeRefPath then
     issues[#issues + 1] = Tr.TypeIssueUnresolvedPath(ref.path)
 ```
 
-### 4. `lua/moonlift/schema/type.asdl` — ASDL type definitions
+### 4. `lua/lalin/schema/type.asdl` — ASDL type definitions
 
 Lines 2-4 and 28:
 ```
-TypeRef = TypeRefPath(MoonCore.Path path) unique
+TypeRef = TypeRefPath(LalinCore.Path path) unique
      | TypeRefGlobal(string module_name, string type_name) unique
-     | TypeRefLocal(MoonCore.TypeSym sym) unique
+     | TypeRefLocal(LalinCore.TypeSym sym) unique
 
-Type = ... | TNamed(MoonType.TypeRef ref) unique | ...
+Type = ... | TNamed(LalinType.TypeRef ref) unique | ...
 ```
 
 The resolution path is:
 - **Parse time**: bare name → `Ty.TNamed(Ty.TypeRefPath({C.Name("RingBuf")}))`
 - **Typecheck time**: `canonical_type` matches `TypeRefPath` with 1 part → `env_lookup_type` → finds `B.TypeEntry("RingBuf", Ty.TNamed(Ty.TypeRefGlobal("", "RingBuf")))` → returns the global-ref type
 
-### 5. `lua/moonlift/host_type_values.lua` — Scalar type values registered as ambient Lua values
+### 5. `lua/lalin/host_type_values.lua` — Scalar type values registered as ambient Lua values
 
 Lines 88-96:
 ```lua
@@ -224,15 +224,15 @@ scalar("index", C.ScalarIndex)
 api.rawptr = type_value(Ty.TScalar(C.ScalarRawPtr), "ptr(void)")
 ```
 
-These are registered on the `moon` API table (e.g., `moon.i32` is a TypeValue). When you write `@{moon.i32}` in a type position, the parser calls `type_from_value(splice_value("moon.i32"))` which finds the ambient Lua value.
+These are registered on the `lalin` API table (e.g., `lalin.i32` is a TypeValue). When you write `@{lalin.i32}` in a type position, the parser calls `type_from_value(splice_value("lalin.i32"))` which finds the ambient Lua value.
 
-### 6. `lua/moonlift/host_splice.lua` — Splice type resolution
+### 6. `lua/lalin/host_splice.lua` — Splice type resolution
 
 Lines 97-127 — `fill_type` for `@{}` type splices:
 ```lua
 function M.fill_type(session, slot, value, site)
     -- 1. Protocol method (TypeValue returns self.ty)
-    local p = protocol(value, "type", session, site)  -- calls moonlift_splice("type")
+    local p = protocol(value, "type", session, site)  -- calls lalin_splice("type")
     -- 2. Duck-typed: as_type_value()
     -- 3. Raw ASDL type node passed directly
     ...
@@ -240,7 +240,7 @@ function M.fill_type(session, slot, value, site)
 end
 ```
 
-### 7. `lua/moonlift/frontend_pipeline.lua` — Full pipeline assembly
+### 7. `lua/lalin/frontend_pipeline.lua` — Full pipeline assembly
 
 Lines 243-260 — `parse_and_lower` calls parse then typecheck:
 ```lua
@@ -256,7 +256,7 @@ local checked = Typecheck.check_module(closed, { ... })
 - `func arena_new(size: index): Arena` — "Arena" as return type → bare name resolved by typechecker
 - `func arena_alloc(a: ptr(Arena), ...)` — "Arena" inside `ptr(...)` → bare name resolved by typechecker
 
-**`daw_moonlift_type_cfg_design_v3.mlua`** (lines 1-100+):
+**`daw_lalin_type_cfg_design_v3.mlua`** (lines 1-100+):
 - Dozens of structs/unions defined, then used as bare names in field positions
 - `value: TextRef`, `severity: IssueSeverity`, `issues: view(Issue)` — all bare names
 
@@ -298,7 +298,7 @@ typecheck: canonical_type(env, Ty.TNamed(Ty.TypeRefPath({Name("RingBuf")})))
 | Tier | Example names | Resolution |
 |------|--------------|------------|
 | 1. Built-in scalars | `void`, `bool`, `i8`-`i64`, `u8`-`u64`, `f32`, `f64`, `index`, `ptr` | Returns `Ty.TScalar(...)` |
-| 2. Ambient Lua values | `@{T.RingBuf}` | `splice_value` → `type_from_value` → `v:as_moonlift_type()` |
+| 2. Ambient Lua values | `@{T.RingBuf}` | `splice_value` → `type_from_value` → `v:as_lalin_type()` |
 | 3. Unresolved bare name | `RingBuf`, `Arena`, `IssueSeverity` | Returns `Ty.TNamed(Ty.TypeRefPath(...))` — resolved later by typechecker |
 
 ### The typechecker's resolution in `canonical_type`:
@@ -325,7 +325,7 @@ typecheck: canonical_type(env, Ty.TNamed(Ty.TypeRefPath({Name("RingBuf")})))
 
 4. **LSP completion** (`editor_completion_items.lua` line 58) lists `.mlua`-declared types via `add_tree_types` which iterates `analysis.parse.combined.module.items` for `Tr.ItemType`. This is independent of the hidden namespace resolution.
 
-5. **Host types vs. .mlua types**: Host types (from Lua `moon.struct{...}`) produce `TypeRefGlobal` or `TypeRefLocal` which are already fully resolved. .mlua types produce `TypeRefPath` at parse time and are resolved to `TypeRefGlobal` during typechecking.
+5. **Host types vs. .mlua types**: Host types (from Lua `lalin.struct{...}`) produce `TypeRefGlobal` or `TypeRefLocal` which are already fully resolved. .mlua types produce `TypeRefPath` at parse time and are resolved to `TypeRefGlobal` during typechecking.
 
 ---
 
@@ -354,7 +354,7 @@ Here is the complete survey of all `@{...}` hole sites in `parse.lua`:
 
 ## Files Retrieved
 
-**`lua/moonlift/parse.lua`** — 2877 lines. This is the only file. All hole sites live here.
+**`lua/lalin/parse.lua`** — 2877 lines. This is the only file. All hole sites live here.
 
 ---
 
@@ -526,10 +526,10 @@ This is the **only** way to embed a Lua value in an expression position. The par
 
 | Aspect | Detail |
 |--------|--------|
-| Bare name accepted? | Only as a binding reference (`Tr.ExprRef`) — this refers to Moonlift variables (SSA values), not Lua values |
+| Bare name accepted? | Only as a binding reference (`Tr.ExprRef`) — this refers to Lalin variables (SSA values), not Lua values |
 | Dotted name accepted? | **No** — `led()` handles `TK.dot` as field access on an existing expression (dot operator), not as a Lua module path |
 | Hole the only way? | **Yes** — `@{expr}` is the sole mechanism for embedding Lua values in expressions |
-| Difficulty to extend | **Medium**. You'd need to add a prefix check in `nud()`: if a name (or dotted name sequence) is encountered but NOT found in `self.value_env`, fall through to Lua evaluation (like type position dotted-names). But this creates ambiguity: is `some_var` a Moonlift binding or a Lua module reference? |
+| Difficulty to extend | **Medium**. You'd need to add a prefix check in `nud()`: if a name (or dotted name sequence) is encountered but NOT found in `self.value_env`, fall through to Lua evaluation (like type position dotted-names). But this creates ambiguity: is `some_var` a Lalin binding or a Lua module reference? |
 
 ---
 
@@ -636,10 +636,10 @@ Source text:  func @{name}(...): @{ret_ty} ... @{stuff...} ...
 
 2. **The two name-ref functions are inconsistent**. `name_ref_or_hint_before_lparen` (region/expr frag) supports holes but not dotted names. `name_or_hint_before_lparen` (func/extern) supports neither. Struct/union/handle have inline logic with neither. To eliminate `@{}` from name positions consistently, all name-accepting sites would need dotted-path parsing.
 
-3. **Expression position is the hardest**. The parser currently uses `self.value_env` to distinguish Moonlift bindings from Lua values. A bare name like `foo` is either a SSA value reference or a Lua module reference — there's an ambiguity. Dotted names (`a.b.c`) are unambiguous since they can't be Moonlift bindings. But the `led` already consumes `TK.dot` as field access, so a dotted path in expression position would need lexer-level disambiguation or a prefix check in `nud()`.
+3. **Expression position is the hardest**. The parser currently uses `self.value_env` to distinguish Lalin bindings from Lua values. A bare name like `foo` is either a SSA value reference or a Lua module reference — there's an ambiguity. Dotted names (`a.b.c`) are unambiguous since they can't be Lalin bindings. But the `led` already consumes `TK.dot` as field access, so a dotted path in expression position would need lexer-level disambiguation or a prefix check in `nud()`.
 
 4. **Spread values sometimes inspect the Lua value table**. Notably `parse_cont_params` (line 1798) and `parse_open_params` (line 1901) have two code paths: if `splice_value(id)` returns a table, they iterate it and extract structured ASDL objects (`ContSlot`, `Param`, etc). If not a table, they create a sentinel placeholder. This means the spread mechanism already handles structured Lua data.
 
-5. **Func/extern names have NO hole support at all**. This is by design — `name_or_hint_before_lparen` only accepts `TK.name`. Dynamic extern/function names come exclusively through `name_hint` (Lua assignment inference, e.g., `local foo = moon.extern(...)` → `extern ... end`).
+5. **Func/extern names have NO hole support at all**. This is by design — `name_or_hint_before_lparen` only accepts `TK.name`. Dynamic extern/function names come exclusively through `name_hint` (Lua assignment inference, e.g., `local foo = lalin.extern(...)` → `extern ... end`).
 
 6. **The dotted-name type-position path at line 828 is a model for extension**. To eliminate `@{}` from fragment and name positions, you'd replicate this exact pattern: after consuming a `TK.name`, check for `TK.dot`, build up the dotted path, join with `"."`, and create the appropriate slot. The key insight is that the comment on line 828 explicitly states the design philosophy: *"the Lua environment IS the namespace"*.

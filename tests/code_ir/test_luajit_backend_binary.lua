@@ -2,18 +2,18 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 
 local ffi = require("ffi")
 local bit = require("bit")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local LJ = T.MoonLuaJIT
-local Stencil = T.MoonStencil
-local Exec = T.MoonExec
-local Backend = require("moonlift.luajit_backend")(T)
+local Core = T.LalinCore
+local Code = T.LalinCode
+local LJ = T.LalinLuaJIT
+local Stencil = T.LalinStencil
+local Exec = T.LalinExec
+local Backend = require("lalin.luajit_backend")(T)
 
 local origin = Code.CodeOriginGenerated("test_luajit_backend_binary")
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)
@@ -104,4 +104,4 @@ for j = 0, count - 1 do
 end
 assert(result.module.sum_i32(arr, count) == expected)
 
-io.write("moonlift luajit_backend binary ok\n")
+io.write("lalin luajit_backend binary ok\n")

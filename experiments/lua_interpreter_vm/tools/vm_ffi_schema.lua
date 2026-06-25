@@ -2,7 +2,7 @@
 -- Canonical product definitions live in:
 --   experiments/lua_interpreter_vm/src/products.lua
 --   experiments/lua_interpreter_vm/src/parser_products.lua
--- Keep this file synchronized with those Moonlift product structs; do not add
+-- Keep this file synchronized with those Lalin product structs; do not add
 -- private test-only struct copies elsewhere.
 
 local M = {}

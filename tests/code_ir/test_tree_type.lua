@@ -1,11 +1,11 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local ExprType = require("moonlift.tree_expr_type")
-local PlaceType = require("moonlift.tree_place_type")
-local StmtType = require("moonlift.tree_stmt_type")
-local ModuleType = require("moonlift.tree_module_type")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local ExprType = require("lalin.tree_expr_type")
+local PlaceType = require("lalin.tree_place_type")
+local StmtType = require("lalin.tree_stmt_type")
+local ModuleType = require("lalin.tree_module_type")
 
 local T = pvm.context()
 A(T)
@@ -13,11 +13,11 @@ local E = ExprType(T)
 local P = PlaceType(T)
 local S = StmtType(T)
 local M = ModuleType(T)
-local C = T.MoonCore
-local Ty = T.MoonType
-local B = T.MoonBind
-local Sem = T.MoonSem
-local Tr = T.MoonTree
+local C = T.LalinCore
+local Ty = T.LalinType
+local B = T.LalinBind
+local Sem = T.LalinSem
+local Tr = T.LalinTree
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local bool = Ty.TScalar(C.ScalarBool)
@@ -52,4 +52,4 @@ assert(#env.values == 4)
 assert(#env.types == 1)
 assert(env.types[1] == B.TypeEntry("Pair", Ty.TNamed(Ty.TypeRefGlobal("Demo", "Pair"))))
 
-print("moonlift tree_type ok")
+print("lalin tree_type ok")

@@ -1,7 +1,7 @@
-# Moonlift - Agent Guidance
+# Lalin - Agent Guidance
 
-Moonlift is a typed, jump-first compiled language embedded in LuaJIT. Lua is the
-metaprogramming layer; Moonlift is the monomorphic program produced after Lua and
+Lalin is a typed, jump-first compiled language embedded in LuaJIT. Lua is the
+metaprogramming layer; Lalin is the monomorphic program produced after Lua and
 LLB families have expanded syntax, fragments, schemas, and rules.
 
 The active runtime backend is LuaTrace materialized as LuaJIT bytecode
@@ -29,32 +29,32 @@ runtime dependencies of the LuaTrace bytecode backend.
 ## Run DSL Files
 
 ```lua
-local moon = require("moonlift")
-moon.use()
+local lalin = require("lalin")
+lalin.use()
 
 local add = fn. add { a [i32], b [i32] } [i32] {
   ret (a + b),
 }
 
-local module = moon.compile("demo", { add })
+local module = lalin.compile("demo", { add })
 print(module.add(3, 4)) -- 7
 ```
 
 Inline evaluation:
 
 ```lua
-local moon = require("moonlift")
-local module = moon.loadstring([[
+local lalin = require("lalin")
+local module = lalin.loadstring([[
   local add = fn. add { a [i32], b [i32] } [i32] {
     ret (a + b),
   }
-  return moon.compile("demo", { add })
+  return lalin.compile("demo", { add })
 ]], "demo.lua")()
 
 print(module.add(3, 4))
 ```
 
-Cross-file Lua modules should call `require("moonlift").use()` at the top if
+Cross-file Lua modules should call `require("lalin").use()` at the top if
 they use global DSL names.
 
 ## Test
@@ -84,26 +84,26 @@ luajit tests/pvm/test_compiler_package.lua
 - `lua/llb.lua` - LLB substrate: staged heads, fragments, formatting, origins,
   diagnostics, streams, managed `use`, and family algebra.
 - `lua/llisle/` - LLB-native relation/rule language used by lowering passes.
-- `lua/moonlift/dsl/` - Moonlift authoring surface: `fn`, `region`, `entry`,
+- `lua/lalin/dsl/` - Lalin authoring surface: `fn`, `region`, `entry`,
   `jump`, `emit`, types, contracts, and fragments.
-- `lua/moonlift/schema/` - schema family definitions for syntax, tree, code,
+- `lua/lalin/schema/` - schema family definitions for syntax, tree, code,
   stencil, LuaJIT, compiler, host, and phase objects.
-- `lua/moonlift/frontend_pipeline.lua` - DSL/tree/typecheck/code pipeline.
-- `lua/moonlift/luajit_backend.lua` - LuaTrace backend facade.
-- `lua/moonlift/stencil_luajit.lua` - LuaTrace stencil lowering and bytecode
+- `lua/lalin/frontend_pipeline.lua` - DSL/tree/typecheck/code pipeline.
+- `lua/lalin/luajit_backend.lua` - LuaTrace backend facade.
+- `lua/lalin/stencil_luajit.lua` - LuaTrace stencil lowering and bytecode
   bank materialization.
-- `lua/moonlift/luajit_bc_bank.lua` - LuaJIT bytecode copy-patch bank builder
+- `lua/lalin/luajit_bc_bank.lua` - LuaJIT bytecode copy-patch bank builder
   and loader.
-- `lua/moonlift/stencil_bank.lua` - native binary copy-patch stencil bank.
-- `lua/moonlift/c_backend.lua` - optional C emission path.
+- `lua/lalin/stencil_bank.lua` - native binary copy-patch stencil bank.
+- `lua/lalin/c_backend.lua` - optional C emission path.
 - `lua/llpvm/` - LLPVM family member and bytecode/task substrate.
 
 Compilation pipeline:
 
 ```text
 DSL tables
-  -> MoonSyntax ASDL
-  -> MoonTree ASDL
+  -> LalinSyntax ASDL
+  -> LalinTree ASDL
   -> tree_typecheck
   -> tree_to_code
   -> code facts / kernels / schedules
@@ -117,7 +117,7 @@ DSL tables
 | Doc | Description |
 |-----|-------------|
 | `README.md` | Project overview, build, tests, backend model |
-| `docs/LANGUAGE_REFERENCE.md` | Moonlift DSL reference |
+| `docs/LANGUAGE_REFERENCE.md` | Lalin DSL reference |
 | `docs/LLB_GUIDE.md` | LLB substrate and family guide |
 | `docs/LLB_GENERIC_REGION_ALGEBRA.md` | Shared region/control-machine model |
 | `docs/LUAJIT_BYTECODE_COPY_PATCH_BACKEND.md` | LuaTrace bytecode bank backend |
@@ -175,7 +175,7 @@ local scan = region. scan
 - Regions are the shared control-machine algebra; streams, parsers, processes,
   phases, and functions are protocols or lowerings of that algebra.
 - Compose with regions, seal with functions.
-- Lua owns genericity; Moonlift receives concrete monomorphic programs.
+- Lua owns genericity; Lalin receives concrete monomorphic programs.
 - Schema values carry meaning. Do not hide semantics in strings, callbacks, or
   side tables.
 - LuaTrace bytecode is the default executable materialization.
@@ -184,7 +184,7 @@ local scan = region. scan
 
 ## Non-Negotiable Rules
 
-1. No Moonlift source generics.
+1. No Lalin source generics.
 2. No angle-bracket type arguments.
 3. Explicit schema meaning.
 4. Monomorphic executable artifacts.

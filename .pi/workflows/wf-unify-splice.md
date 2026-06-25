@@ -1,4 +1,4 @@
-# Workflow 
+# Workflow
 **Workflow ID**: wf-unify-splice
 **Started**: 2026-06-17 17:19:13
 ---
@@ -11,42 +11,42 @@ Here is the complete report.
 
 ## Files Retrieved
 
-1. **`lua/moonlift/parse.lua` (lines 2845–2897)** — `M.parse_module_document` — the full function. Scans a document, iterates islands, calls `parse_island` for each, accumulates `splice_slots` and `splice_values`, wraps island results as `Tr.ItemFunc`, `Tr.ItemType`, `Tr.ItemExtern`, and returns `{module, scan, splice_slots, issues, protocol_types, product_types}`.
+1. **`lua/lalin/parse.lua` (lines 2845–2897)** — `M.parse_module_document` — the full function. Scans a document, iterates islands, calls `parse_island` for each, accumulates `splice_slots` and `splice_values`, wraps island results as `Tr.ItemFunc`, `Tr.ItemType`, `Tr.ItemExtern`, and returns `{module, scan, splice_slots, issues, protocol_types, product_types}`.
 
-2. **`lua/moonlift/parse.lua` (lines 2653–2700)** — `M.parse_island` — dispatches on island kind (func/region/expr/struct/union/handle/extern), creates a parser for the token window, calls the appropriate internal parse method, returns `{kind, value, splice_slots, issues, protocol_types, product_types}`.
+2. **`lua/lalin/parse.lua` (lines 2653–2700)** — `M.parse_island` — dispatches on island kind (func/region/expr/struct/union/handle/extern), creates a parser for the token window, calls the appropriate internal parse method, returns `{kind, value, splice_slots, issues, protocol_types, product_types}`.
 
-3. **`lua/moonlift/parse.lua` (lines 2817–2842)** — `M.register_parsed_declaration` — shared helper called by both `parse_module_document` and `mlua_document_analysis`. Populates `splice_values[name_hint]` and `splice_values[lhs_path]` with a table `{present=true, value=tv}` where `tv` wraps an ASDL type node (for struct/union/handle). Later islands resolve these via `Parser:splice_value()`.
+3. **`lua/lalin/parse.lua` (lines 2817–2842)** — `M.register_parsed_declaration` — shared helper called by both `parse_module_document` and `mlua_document_analysis`. Populates `splice_values[name_hint]` and `splice_values[lhs_path]` with a table `{present=true, value=tv}` where `tv` wraps an ASDL type node (for struct/union/handle). Later islands resolve these via `Parser:splice_value()`.
 
-4. **`lua/moonlift/parse.lua` (lines 436–439, 703–748)** — Parser constructor initializes `splice_slots = {}`, `splice_slots_by_id = {}`; `record_splice_slot` adds entries; `splice_value` looks up `self.splice_values[id]`.
+4. **`lua/lalin/parse.lua` (lines 436–439, 703–748)** — Parser constructor initializes `splice_slots = {}`, `splice_slots_by_id = {}`; `record_splice_slot` adds entries; `splice_value` looks up `self.splice_values[id]`.
 
-5. **`lua/moonlift/parse.lua` (lines 163–166, 286–291)** — Lexer: `new_tokens()` initializes `splice_map = {}`, `splice_spread = {}`, `splice_i = 0`. In the lex loop, `@{lua_expr}` creates `"splice.N"` IDs stored in `t.splice_map` and `t.splice_spread`.
+5. **`lua/lalin/parse.lua` (lines 163–166, 286–291)** — Lexer: `new_tokens()` initializes `splice_map = {}`, `splice_spread = {}`, `splice_i = 0`. In the lex loop, `@{lua_expr}` creates `"splice.N"` IDs stored in `t.splice_map` and `t.splice_spread`.
 
-6. **`lua/moonlift/parse.lua` (lines 2335–2405)** — `tokenize_island` — re-lexes island text into the shared token array, also records splice IDs into `toks.splice_map` / `toks.splice_spread`.
+6. **`lua/lalin/parse.lua` (lines 2335–2405)** — `tokenize_island` — re-lexes island text into the shared token array, also records splice IDs into `toks.splice_map` / `toks.splice_spread`.
 
-7. **`lua/moonlift/parse.lua` (lines 2554–2650)** — `M.scan_document` — Lua-aware scanner: finds island keywords, calls `tokenize_island`, records `name_hint`/`lhs_path` via `infer_lua_assignment_name`, returns `{toks, islands, splice_map, splice_spread}`.
+7. **`lua/lalin/parse.lua` (lines 2554–2650)** — `M.scan_document` — Lua-aware scanner: finds island keywords, calls `tokenize_island`, records `name_hint`/`lhs_path` via `infer_lua_assignment_name`, returns `{toks, islands, splice_map, splice_spread}`.
 
-8. **`lua/moonlift/parse.lua` (lines 2498–2554)** — `infer_lua_assignment_name` — walks backward from island start to find `=`, then reads the LHS identifier and full dotted path.
+8. **`lua/lalin/parse.lua` (lines 2498–2554)** — `infer_lua_assignment_name` — walks backward from island start to find `=`, then reads the LHS identifier and full dotted path.
 
-9. **`lua/moonlift/parse.lua` (lines 2900–2920)** — `M.Define(T)` — wraps all parse functions with `T` pre-applied. `parse_module = function(src, opts) return M.parse_module_document(T, src, opts) end`.
+9. **`lua/lalin/parse.lua` (lines 2900–2920)** — `M.Define(T)` — wraps all parse functions with `T` pre-applied. `parse_module = function(src, opts) return M.parse_module_document(T, src, opts) end`.
 
-10. **`lua/moonlift/frontend_pipeline.lua` (lines 250–370)** — `parse_and_lower` and `parse_and_lower_c` in `M.Define(T)` — the two main consumers of `parse_module`. Both call `Parse.parse_module(src, {collector=collector})`, extract `parsed.module` and `parsed.scan.toks`, build anchors from the scan/tokens, then call `lower_module(parsed.module, ...)` or `lower_module_to_c(parsed.module, ...)`. The `splice_slots` from the parse result are **never used**.
+10. **`lua/lalin/frontend_pipeline.lua` (lines 250–370)** — `parse_and_lower` and `parse_and_lower_c` in `M.Define(T)` — the two main consumers of `parse_module`. Both call `Parse.parse_module(src, {collector=collector})`, extract `parsed.module` and `parsed.scan.toks`, build anchors from the scan/tokens, then call `lower_module(parsed.module, ...)` or `lower_module_to_c(parsed.module, ...)`. The `splice_slots` from the parse result are **never used**.
 
-11. **`lua/moonlift/frontend_pipeline.lua` (lines 85–170)** — `lower_module(module, opts)` — takes the `Tr.Module`, runs it through: `OpenExpand.module` → `OpenValidate.validate` → `ClosureConvert.module` → `Typecheck.check_module` → `Layout.module` → `TreeToCode.module_with_contracts` → `CodeValidate.validate` → graph/facts/kernel/schedule/lower plans → `LowerToBack.module` → `Validate.validate`. Returns results for all phases.
+11. **`lua/lalin/frontend_pipeline.lua` (lines 85–170)** — `lower_module(module, opts)` — takes the `Tr.Module`, runs it through: `OpenExpand.module` → `OpenValidate.validate` → `ClosureConvert.module` → `Typecheck.check_module` → `Layout.module` → `TreeToCode.module_with_contracts` → `CodeValidate.validate` → graph/facts/kernel/schedule/lower plans → `LowerToBack.module` → `Validate.validate`. Returns results for all phases.
 
-12. **`lua/moonlift/mlua_document_analysis.lua` (lines 300–400)** — `analyze_document` in `M.Define(T)` — the LSP path. Scans document, iterates islands, calls `ParseApi.parse_island(scan, i, {protocol_types=..., splice_values=...})`, accumulates items/decls/region_frags/expr_frags/issues, and calls `Parse.register_parsed_declaration()` for each island. Does **not** call `parse_module_document`; calls `parse_island` directly per island.
+12. **`lua/lalin/mlua_document_analysis.lua` (lines 300–400)** — `analyze_document` in `M.Define(T)` — the LSP path. Scans document, iterates islands, calls `ParseApi.parse_island(scan, i, {protocol_types=..., splice_values=...})`, accumulates items/decls/region_frags/expr_frags/issues, and calls `Parse.register_parsed_declaration()` for each island. Does **not** call `parse_module_document`; calls `parse_island` directly per island.
 
-13. **`lua/moonlift/chain.lua` (lines 1–160)** — The `moon.chain` universal applicative API. Handles three call patterns:
+13. **`lua/lalin/chain.lua` (lines 1–160)** — The `lalin.chain` universal applicative API. Handles three call patterns:
     - **String (pure quote)**: calls `parse_fn(T, arg)`, checks `#parsed.splice_slots ~= 0` and errors if any slots are unresolved, then calls `wrap_fn(parsed.value)`.
     - **String-keyed table (binder)**: returns a function that parses the string, iterates `parsed.splice_slots`, fills each with `hs.fill(session, ss.slot, value, ...)`, expands via `expand_fn(e, parsed.value, env)`, then wraps.
     - **Array-keyed table (builder)**: calls `table_fn(arg)`.
 
-14. **`lua/moonlift/host_func_values.lua` (lines 383–425)** — `api._stmts_quote` and `api._stmts_values_binder` — the `moon.stmts[[]]` and `moon.stmts{}.` entry points. Same pattern: parse, check `splice_slots` count, either error or fill via `host_splice.fill`.
+14. **`lua/lalin/host_func_values.lua` (lines 383–425)** — `api._stmts_quote` and `api._stmts_values_binder` — the `lalin.stmts[[]]` and `lalin.stmts{}.` entry points. Same pattern: parse, check `splice_slots` count, either error or fill via `host_splice.fill`.
 
-15. **`lua/moonlift/host_splice.lua` (lines 74–170)** — `M.fill(session, slot, value, site, role, spread)` — the central splice resolution dispatch. Dispatches on `role` (list roles: `expr_list`, `type_list`, `param_list`, etc.) and on `pvm.classof(slot)` (individual slots: `SlotType`, `SlotExpr`, `SlotRegion`, `SlotRegionFrag`, `SlotExprFrag`, `SlotName`).
+15. **`lua/lalin/host_splice.lua` (lines 74–170)** — `M.fill(session, slot, value, site, role, spread)` — the central splice resolution dispatch. Dispatches on `role` (list roles: `expr_list`, `type_list`, `param_list`, etc.) and on `pvm.classof(slot)` (individual slots: `SlotType`, `SlotExpr`, `SlotRegion`, `SlotRegionFrag`, `SlotExprFrag`, `SlotName`).
 
-16. **`lua/moonlift/host.lua` (lines 15–22)** — `default_session.splice_values = {}` and `M._register_splice(path, value)` — the global Lua-side splice registry. Used for the `.mlua` hosted pipeline where `moon.xxx = ...` assignments register values.
+16. **`lua/lalin/host.lua` (lines 15–22)** — `default_session.splice_values = {}` and `M._register_splice(path, value)` — the global Lua-side splice registry. Used for the `.mlua` hosted pipeline where `lalin.xxx = ...` assignments register values.
 
-17. **`lua/moonlift/open_expand.lua` (lines 1076–1082)** — `expand_module` — the PVM-cached expander that processes `Tr.Module`, expanding items. Also handles `SlotType`, `SlotExpr`, `SlotRegion` through lookup expansion during module-level processing when the env has fills.
+17. **`lua/lalin/open_expand.lua` (lines 1076–1082)** — `expand_module` — the PVM-cached expander that processes `Tr.Module`, expanding items. Also handles `SlotType`, `SlotExpr`, `SlotRegion` through lookup expansion during module-level processing when the env has fills.
 
 ### Test Files Using `parse_module`
 
@@ -106,7 +106,7 @@ parse_island(T, scan, i, {splice_values = ...})
 parse_module_document loop:
   → Accumulates splice_slots from each island's parse_island result
   → Calls register_parsed_declaration(name_hint, lhs_path, parsed.value, T, splice_values)
-    → Populates splice_values[name] = {present=true, value={as_moonlift_type=fn}}
+    → Populates splice_values[name] = {present=true, value={as_lalin_type=fn}}
     → This allows island #3 to reference island #1's type by name
 ```
 
@@ -114,13 +114,13 @@ parse_module_document loop:
 
 1. **Parse-time resolution via `splice_values`** — Used by the `.mlua` pipeline. `splice_values` is a map from Lua-level names (like `"Pair"`) to Lua values. When the parser encounters a bare name (e.g., in a type position), `Parser:splice_value(name)` checks if it's in `splice_values` and returns the enclosed Lua value. This is how `region R(s: ptr(T); ...)` can reference `T` from `local T = struct ... end`.
 
-2. **Post-parse splice via `splice_slots`** — Used by `moon.chain` and `moon.stmts{}.`. When `@{key}` appears in quoted source, the parser creates `Slot*` ASDL nodes and records them in `splice_slots`. After parsing, callers iterate `splice_slots`, fill each with `host_splice.fill(session, ss.slot, value, ...)`, then use `open_expand` to resolve the slots into concrete ASDL nodes.
+2. **Post-parse splice via `splice_slots`** — Used by `lalin.chain` and `lalin.stmts{}.`. When `@{key}` appears in quoted source, the parser creates `Slot*` ASDL nodes and records them in `splice_slots`. After parsing, callers iterate `splice_slots`, fill each with `host_splice.fill(session, ss.slot, value, ...)`, then use `open_expand` to resolve the slots into concrete ASDL nodes.
 
 ### `register_parsed_declaration` — the bridge between the two
 ```lua
 function M.register_parsed_declaration(name_hint, lhs_path, parsed_value, T, splice_values)
     -- If it's a TypeDeclStruct, TypeDeclUnion, or TypeDeclHandle, create a
-    -- pseudo-Lua-value with as_moonlift_type() that returns the ASDL type node.
+    -- pseudo-Lua-value with as_lalin_type() that returns the ASDL type node.
     -- Register under both name_hint and lhs_path in splice_values.
     splice_values[name_hint] = { present = true, value = tv }
     splice_values[lhs_path] = { present = true, value = tv }
@@ -162,9 +162,9 @@ Callers:
 
 **In `parse_module_document` result**: The `splice_slots` array is accumulated from all islands but is **never consumed** by `frontend_pipeline` or any `parse_module` caller. It is present in the return value but callers only access `parsed.module`, `parsed.scan`, and `parsed.issues`.
 
-**In `moon.chain` and `moon.stmts{}` (the quote/binder API)**: `splice_slots` IS consumed:
+**In `lalin.chain` and `lalin.stmts{}` (the quote/binder API)**: `splice_slots` IS consumed:
 ```
-moon.func{key = val}[[...]]  
+lalin.func{key = val}[[...]]
   → parse_func_string(T, src)
   → parsed.splice_slots [{splice_id, splice_text, slot, role, spread}]
   → for each slot: hs.fill(session, ss.slot, bound_values[key], ...)
@@ -173,7 +173,7 @@ moon.func{key = val}[[...]]
 ```
 
 ### Where `splice_values` lives
-- **Hosted `.mlua` pipeline**: `session.splice_values` (initialized in `host.lua`). Populated by `M._register_splice(path, value)` when `moon.X = value` assignments happen.
+- **Hosted `.mlua` pipeline**: `session.splice_values` (initialized in `host.lua`). Populated by `M._register_splice(path, value)` when `lalin.X = value` assignments happen.
 - **`parse_module_document`**: Creates local `splice_values = opts.splice_values or {}`, then mutates it with `register_parsed_declaration`.
 - **`mlua_document_analysis.lua` (LSP)**: Creates its own local `splice_values = {}`, passes to `parse_island`, and calls `Parse.register_parsed_declaration` in the same loop pattern.
 
@@ -185,15 +185,15 @@ moon.func{key = val}[[...]]
 
 2. **Two separate splice resolution paths exist**:
    - **Parse-time** (`splice_values` map): Used by `.mlua` documents where `local T = struct ... end` makes `T` visible to later islands. Populated by `register_parsed_declaration`. Used inside the parser via `Parser:splice_value()`.
-   - **Post-parse** (`splice_slots` array): Used by the `moon.XXX{}[[...]]` binder API. Parsed slots are filled by `host_splice.fill`, expanded via `open_expand`, and the result is wrapped.
+   - **Post-parse** (`splice_slots` array): Used by the `lalin.XXX{}[[...]]` binder API. Parsed slots are filled by `host_splice.fill`, expanded via `open_expand`, and the result is wrapped.
 
 3. **`parse_module_document` uses `opts.resolve_types_now = true`** (line 2847) — this forces `type_name` to resolve bare identifiers against `splice_values` at parse time rather than creating deferred name references.
 
 4. **`mlua_document_analysis.lua` duplicates the island loop logic** instead of calling `parse_module_document`. It calls `parse_island` per island directly, builds its own `items`, `decls`, `region_frags`, `expr_frags` arrays, and calls `register_parsed_declaration` inline. The LSP path does NOT produce `Tr.ItemFunc` wrappers — it tracks islands individually as `Mlua.IslandParse`.
 
-5. **`moon.chain`'s `parse_fn` signature expects `function(T, src) → {value, issues, splice_slots}`**. The standalone string parsers (`parse_func_string`, etc.) return exactly this shape. The binder path uses `splice_slots` to fill values; the pure quote path errors if any slots exist.
+5. **`lalin.chain`'s `parse_fn` signature expects `function(T, src) → {value, issues, splice_slots}`**. The standalone string parsers (`parse_func_string`, etc.) return exactly this shape. The binder path uses `splice_slots` to fill values; the pure quote path errors if any slots exist.
 
-6. **`host_func_values.lua` has `api._stmts_quote` and `api._stmts_values_binder`** — these are the older, direct `moon.stmts` entry points. They follow the same pattern as `chain.lua` but are separate implementations (not using chain).
+6. **`host_func_values.lua` has `api._stmts_quote` and `api._stmts_values_binder`** — these are the older, direct `lalin.stmts` entry points. They follow the same pattern as `chain.lua` but are separate implementations (not using chain).
 
 7. **`splice_slots_by_id` prevents double-recording** within a single parser instance. Keyed by `role:splice_id`. Since `parse_module_document` creates a fresh parser per island (via `parse_island`), there's no cross-island collision — but the global `splice_id` counters are sequential across the entire document.
 
@@ -233,7 +233,7 @@ This isn't just plumbing. `TNamed` means "the typechecker resolves this name aga
 
 ### 2. `register_parsed_declaration` is a Lua-value factory, not a type-resolver
 
-It wraps ASDL type nodes in Lua tables with `as_moonlift_type()` closures that return `TNamed(TypeRefPath(...))` or `THandle(TypeRefPath(...), repr)`. These Lua values flow into `Parser:type_from_value()` which calls `as_moonlift_type()` to extract the ASDL type. This is a **parser-internal Lua value protocol**, separate from the `host_splice.fill_type` protocol (which uses `as_type_value()`, `moonlift_splice("type")`, or raw ASDL class checks). These two value protocols are **incompatible** — `host_splice.fill_type` would reject the values `register_parsed_declaration` creates, because they have `as_moonlift_type` (not `as_type_value`), and their `pvm.classof` is false (they're plain tables, not ASDL nodes).
+It wraps ASDL type nodes in Lua tables with `as_lalin_type()` closures that return `TNamed(TypeRefPath(...))` or `THandle(TypeRefPath(...), repr)`. These Lua values flow into `Parser:type_from_value()` which calls `as_lalin_type()` to extract the ASDL type. This is a **parser-internal Lua value protocol**, separate from the `host_splice.fill_type` protocol (which uses `as_type_value()`, `lalin_splice("type")`, or raw ASDL class checks). These two value protocols are **incompatible** — `host_splice.fill_type` would reject the values `register_parsed_declaration` creates, because they have `as_lalin_type` (not `as_type_value`), and their `pvm.classof` is false (they're plain tables, not ASDL nodes).
 
 The post-parse fill step would need to either: (a) wrap the ASDL type nodes in a shape `host_splice` accepts, (b) call `fill_type` with raw ASDL nodes (which `pvm.classof` would detect), or (c) bypass `host_splice.fill` entirely and construct `SlotBinding(SlotType(slot), SlotValueType(ty))` directly.
 
@@ -331,7 +331,7 @@ Now I have the complete picture. Let me produce the deep analysis.
 
 ```lua
 -- Dead path A (line 383): api._stmts_quote
--- Dead path B (line 393): api._stmts_values_binder  
+-- Dead path B (line 393): api._stmts_values_binder
 -- Live path C (line 363): api.stmts = chain_binding.make_quote(...)
 ```
 
@@ -366,7 +366,7 @@ function Parser:parse_region_frag_ref(keyword)
 end
 ```
 
-There is no `splice_value` check, no `resolve_types_now` flag. Fragment names are ALWAYS resolved through the post-parse fill pipeline. This unifies beautifully with the `moon.chain` binder: the binder fills `@{frag}` with a region fragment Lua value, `host_splice.fill` creates a `SlotBinding(SlotRegionFrag(slot), SlotValueRegionFrag(frag))`, and `OpenExpand` replaces the slot with the real fragment.
+There is no `splice_value` check, no `resolve_types_now` flag. Fragment names are ALWAYS resolved through the post-parse fill pipeline. This unifies beautifully with the `lalin.chain` binder: the binder fills `@{frag}` with a region fragment Lua value, `host_splice.fill` creates a `SlotBinding(SlotRegionFrag(slot), SlotValueRegionFrag(frag))`, and `OpenExpand` replaces the slot with the real fragment.
 
 **Key implication**: Making type name resolution follow the fragment pattern is NOT a new design — it's extending an existing, proven pattern to the one remaining holdout.
 
@@ -388,14 +388,14 @@ end
 
 This is NOT a control flow decision based on TYPE EXISTENCE — it's a VALUE-TYPE check (is it an array?). This path resolves spread splices at parse time because the spread expansion changes the AST shape (N elements instead of 1 slot). The post-parse `host_splice.fill` also handles spread via `O.SlotValueContSlots` / `O.SlotValueOpenParams` — the array elements are filled into a single SlotBinding. So these consumers are the parse-time equivalent of the post-parse spread fill. They could be unified by always creating a single RegionSlot for spread cont/open-param lists, but that changes the semantics slightly (the slot's name encodes the spread role).
 
-### 5. TypeValue's `as_moonlift_type()` vs. `as_type_value().ty` — two Lua→ASDL protocols that must converge
+### 5. TypeValue's `as_lalin_type()` vs. `as_type_value().ty` — two Lua→ASDL protocols that must converge
 
-`register_parsed_declaration` creates Lua tables with `as_moonlift_type()` closures. `host_splice.fill_type` checks `as_type_value()` then `as_type_value().ty`. These are DIFFERENT protocols:
+`register_parsed_declaration` creates Lua tables with `as_lalin_type()` closures. `host_splice.fill_type` checks `as_type_value()` then `as_type_value().ty`. These are DIFFERENT protocols:
 
-- `register_parsed_declaration` → `{ as_moonlift_type = function() return Ty.TNamed(...) end }`
+- `register_parsed_declaration` → `{ as_lalin_type = function() return Ty.TNamed(...) end }`
 - `host_type_values.lua`'s `TypeValue` → `.ty` field (already an ASDL type node) + `:as_type_value()` returning `self`
 
-But `host_splice.fill_type` (line 125) is flexible — it checks `pvm.classof(value)` for raw ASDL nodes, then `as_type_value()`, then `moonlift_splice("type")`. Passing raw ASDL type nodes (like `Ty.TNamed(TypeRefPath(...))`) directly to `fill_type` would work because `pvm.classof` on an ASDL node returns the class. The issue is that `register_parsed_declaration` wraps them in intermediate tables.
+But `host_splice.fill_type` (line 125) is flexible — it checks `pvm.classof(value)` for raw ASDL nodes, then `as_type_value()`, then `lalin_splice("type")`. Passing raw ASDL type nodes (like `Ty.TNamed(TypeRefPath(...))`) directly to `fill_type` would work because `pvm.classof` on an ASDL node returns the class. The issue is that `register_parsed_declaration` wraps them in intermediate tables.
 
 **The simple fix**: Have the post-parse fill step extract the raw ASDL type from the `register_parsed_declaration`-style wrapper and pass it directly. Or better: change `register_parsed_declaration` to store raw ASDL nodes instead of wrapper tables, and have a separate bridge function that `host_splice.fill` can consume.
 
@@ -430,7 +430,7 @@ When `.mlua` code does `local Pair = struct Pair x: i32, y: i32 end`, the struct
 
 Actually wait — in the `.mlua` pipeline, each island is submitted to `parse_module_document` individually (or all together?), and the caller passes `opts.splice_values = default_session.splice_values`. Let me verify.
 
-Actually, I think the `.mlua` pipeline goes through `parse_module_document` which creates its own empty `splice_values` and populates it internally via `register_parsed_declaration`. The `default_session.splice_values` is a separate store used by `moon.chain` bindings and other hosted-API paths. These are two separate stores that happen to have the same name.
+Actually, I think the `.mlua` pipeline goes through `parse_module_document` which creates its own empty `splice_values` and populates it internally via `register_parsed_declaration`. The `default_session.splice_values` is a separate store used by `lalin.chain` bindings and other hosted-API paths. These are two separate stores that happen to have the same name.
 
 ### 9. The `splice_slots[].splice_text` vs `splice_slots[].splice_id` naming scheme creates a fragile fill-key matching system
 
@@ -469,7 +469,7 @@ Now I have the full picture. Let me produce the three approaches.
 - **Core idea**: Extract intra-module name resolution into a first-class PVM phase (`ResolveNames`) that transforms a `Tr.Module` containing `TSlot` nodes into a resolved `Tr.Module`, treated as a scalar memoized compilation boundary just like layout or typecheck.
 
 - **Key changes**:
-  - **New file: `lua/moonlift/resolve_names.lua`** — defines `pvm.phase("resolve_names", fn)` that walks the module tree, builds a `name → TypeDecl` map from `ItemType` entries, and replaces every `TSlot(TypeSlot(key, name))` with `TNamed(TypeRefPath(...))` where the name matches a declaration. Produces `IssueUnresolvedTypeSlot` for unmatched slots.
+  - **New file: `lua/lalin/resolve_names.lua`** — defines `pvm.phase("resolve_names", fn)` that walks the module tree, builds a `name → TypeDecl` map from `ItemType` entries, and replaces every `TSlot(TypeSlot(key, name))` with `TNamed(TypeRefPath(...))` where the name matches a declaration. Produces `IssueUnresolvedTypeSlot` for unmatched slots.
   - **`parse.lua`**: Remove `resolve_types_now` flag; `type_name()` always creates `TSlot` (matching fragment slots); `register_parsed_declaration` stores raw ASDL type decls in a local table instead of `splice_values`; remove `splice_value()` and `splice_values` from Parser; `parse_module_document` returns unresolved module with TSlot nodes.
   - **`frontend_pipeline.lua`**: Insert `ResolveNames.resolve(module)` between `OpenExpand.module` and `OpenValidate.validate` in `lower_module`. The phase caches on module identity — unchanged modules hit automatically.
   - **`mlua_document_analysis.lua`**: Call `ResolveNames.resolve(module)` after island loop instead of inline `register_parsed_declaration` + `splice_values`.
@@ -481,7 +481,7 @@ Now I have the full picture. Let me produce the three approaches.
 - **Risk**: Over-engineering. A PVM phase for name resolution is cacheable on module identity, but modules are not incrementally edited — each parse produces a new module. The cache would be a single-entry cache. The phase machinery (recording triplets, seq_gen, shared reads) adds complexity without paying for itself. PVM phases shine for recursive tree transformations with subtree caching (like layout or render); name resolution is a flat loop over module items + a tree walk over type positions — no subtree sharing to exploit.
 
 - **Rough sketch**:
-  1. Define new ASDL types in a `MoonResolve` module: `ResolveEnv(NameEntry*)`, `NameEntry(name, type_decl)`, `SlotResolution(slot, resolved_ty_or_nil)`.
+  1. Define new ASDL types in a `LalinResolve` module: `ResolveEnv(NameEntry*)`, `NameEntry(name, type_decl)`, `SlotResolution(slot, resolved_ty_or_nil)`.
   2. Implement `resolve_module = pvm.phase("resolve_names", function(module)` — scalar phase. Internally: collect `NameEntry` from all `ItemType` items, then recursively walk the module replacing `TSlot` → `TNamed` where name matches.
   3. Wire into `lower_module` between `OpenExpand` and `OpenValidate`. `OpenExpand` handles external fills (chain binder); `ResolveNames` handles intra-module names.
   4. Update `parse_module_document` to return unresolved module.
@@ -525,8 +525,8 @@ Now I have the full picture. Let me produce the three approaches.
   - **`parse.lua` lines 2817–2842 (`register_parsed_declaration`)**: Remove entirely. Declarations are already registered as `ItemType` in the module's item list — the typechecker reads them from there. No extra registration needed.
   - **`parse.lua` lines 2845–2897 (`parse_module_document`)**: Remove `splice_values` accumulation, `register_parsed_declaration` calls. The loop just wraps islands as `ItemFunc`/`ItemType`/`ItemExtern`. Remove `splice_slots` from return value. Return becomes `{module, scan, issues, protocol_types, product_types}` (drop `splice_slots`).
   - **`parse.lua` lines 436–748 (Parser)**: Remove `splice_value()`, `splice_values`, `record_splice_slot` (for type slots — keep for `@{expr}` holes). Type-related splice infrastructure is dead.
-  - **`lua/moonlift/tree_typecheck.lua` lines 360–395 (`build_variant_defs`)**: Already builds `defs` from all module items. Forward references resolve correctly because the typechecker processes the complete module (all islands are already parsed and in `module.items`). No changes needed for forward reference handling — it already works.
-  - **`lua/moonlift/tree_typecheck.lua` lines 470–480 (`ref_type`)**: Already resolves `TNamed` against `defs`. No changes needed.
+  - **`lua/lalin/tree_typecheck.lua` lines 360–395 (`build_variant_defs`)**: Already builds `defs` from all module items. Forward references resolve correctly because the typechecker processes the complete module (all islands are already parsed and in `module.items`). No changes needed for forward reference handling — it already works.
+  - **`lua/lalin/tree_typecheck.lua` lines 470–480 (`ref_type`)**: Already resolves `TNamed` against `defs`. No changes needed.
   - **`mlua_document_analysis.lua`**: Remove `register_parsed_declaration` calls and `splice_values` construction. Declarations are tracked via the accumulated `items`/`decls` arrays.
   - **`frontend_pipeline.lua`**: No changes — `parse_module` returns resolved module directly.
   - **Tests**: No changes — `parse_module` returns module with `TNamed` references; `TC.check_module` resolves them.
@@ -640,9 +640,9 @@ The LSP path (`analyze_document`, line 303) creates its own `splice_values = {}`
 
 **No gap.**
 
-**Q9: Does anything depend on `as_moonlift_type()` in `splice_values` after `parse_module_document` returns?**
+**Q9: Does anything depend on `as_lalin_type()` in `splice_values` after `parse_module_document` returns?**
 
-No. `splice_values` is a local variable in `parse_module_document` (line 2856). The `register_parsed_declaration` wrappers with `as_moonlift_type()` closures are stored ONLY in this local table. When the function returns, the table is garbage-collected. The return value includes `module` (which contains `ItemType` entries — proper ASDL nodes), `scan`, `splice_slots` (slot recording, not Lua value wrappers), `issues`, `protocol_types`, and `product_types`. None of these reference the `as_moonlift_type` wrappers.
+No. `splice_values` is a local variable in `parse_module_document` (line 2856). The `register_parsed_declaration` wrappers with `as_lalin_type()` closures are stored ONLY in this local table. When the function returns, the table is garbage-collected. The return value includes `module` (which contains `ItemType` entries — proper ASDL nodes), `scan`, `splice_slots` (slot recording, not Lua value wrappers), `issues`, `protocol_types`, and `product_types`. None of these reference the `as_lalin_type` wrappers.
 
 `type_from_value` (line 772) is only called from two places, both with `self:splice_value(...)` as argument. After removing `splice_value()`, `type_from_value` becomes dead code and can be removed.
 
@@ -656,7 +656,7 @@ No. `splice_values` is a local variable in `parse_module_document` (line 2856). 
 
 - Standalone string parsers' `splice_slots`: Consumed by `chain.lua:62,101,111` and `host_func_values.lua:387,401,405` — these are the quote/binder paths. **Unchanged by Approach C** — standalone parsers still produce `splice_slots` for `@{expr}` holes. Only intra-module type slots are eliminated.
 
-- `default_session.splice_values` from `host.lua:17`: Only consumed by `_register_splice` (host.lua:22), which is only called from `moon.X = value` assignments in the hosted `.mlua` pipeline. Removing both is safe because the hosted pipeline uses chain binder (not parse_module_document) for its type resolution.
+- `default_session.splice_values` from `host.lua:17`: Only consumed by `_register_splice` (host.lua:22), which is only called from `lalin.X = value` assignments in the hosted `.mlua` pipeline. Removing both is safe because the hosted pipeline uses chain binder (not parse_module_document) for its type resolution.
 
 **No gap.** The dead `splice_slots` field can be safely removed from the `parse_module_document` return value.
 
@@ -666,15 +666,15 @@ No. `splice_values` is a local variable in `parse_module_document` (line 2856). 
 
 **Gap 1: Bare-name type references in chain-quoted source change behavior**
 
-This is the one finding that Approach C doesn't fully address. In chain-quoted source (`moon.func{...}[[...]]`), a bare-name type reference like `func f(): MyType end` currently creates a `TSlot` + `TypeSlot` with `splice_text="MyType"`. If the bound values table includes `MyType`, the chain binder fills it. Approach C makes bare-name references always produce `TNamed` — they can no longer be filled from bound values.
+This is the one finding that Approach C doesn't fully address. In chain-quoted source (`lalin.func{...}[[...]]`), a bare-name type reference like `func f(): MyType end` currently creates a `TSlot` + `TypeSlot` with `splice_text="MyType"`. If the bound values table includes `MyType`, the chain binder fills it. Approach C makes bare-name references always produce `TNamed` — they can no longer be filled from bound values.
 
-**Impact assessment**: In practice, all chain binder tests I examined use `@{expr}` syntax for spliced values, not bare-name references. The idiom is `moon.func{ scan = scan }[[...emit @{scan}...]]` — explicit antiquote. The bare-name resolution path in the chain binder appears unused in the test suite. However, if any user code relies on `moon.func{MyType = type_val}[[func f(): MyType ... end]]`, this would break — the type reference would become `TNamed("MyType")` and the typechecker would fail because "MyType" isn't in any module's items.
+**Impact assessment**: In practice, all chain binder tests I examined use `@{expr}` syntax for spliced values, not bare-name references. The idiom is `lalin.func{ scan = scan }[[...emit @{scan}...]]` — explicit antiquote. The bare-name resolution path in the chain binder appears unused in the test suite. However, if any user code relies on `lalin.func{MyType = type_val}[[func f(): MyType ... end]]`, this would break — the type reference would become `TNamed("MyType")` and the typechecker would fail because "MyType" isn't in any module's items.
 
 **This is a documentation/communication gap, not a correctness gap.** The behavior change should be called out explicitly. Users of the chain binder must use `@{TypeName}` syntax for spliced type references. This is already the documented idiom in LANGUAGE_REFERENCE.md §14.
 
-**Gap 2: The as_moonlift_type protocol lives in host_type_values.lua and host_struct_values.lua independently**
+**Gap 2: The as_lalin_type protocol lives in host_type_values.lua and host_struct_values.lua independently**
 
-`type_from_value` checks three protocols: `as_moonlift_type()`, `as_type_value()`, and `__moonlift_host_type_value`. The first is used by `register_parsed_declaration` wrappers (which Approach C removes). The second and third are used by `host_splice.fill_type` and the chain binder. Removing `type_from_value` entirely would only be correct if no other parser paths use it. Since the two callers both use `splice_value()`, removing the splice_value → type_from_value chain is safe. The function itself can be removed or kept as dead code — no functional difference.
+`type_from_value` checks three protocols: `as_lalin_type()`, `as_type_value()`, and `__lalin_host_type_value`. The first is used by `register_parsed_declaration` wrappers (which Approach C removes). The second and third are used by `host_splice.fill_type` and the chain binder. Removing `type_from_value` entirely would only be correct if no other parser paths use it. Since the two callers both use `splice_value()`, removing the splice_value → type_from_value chain is safe. The function itself can be removed or kept as dead code — no functional difference.
 
 **Gap 3: The LSP path's `register_parsed_declaration` call must also be removed**
 
@@ -694,12 +694,12 @@ Currently `record_splice_slot` uses `splice_slots_by_id` to prevent double-recor
 | **Cohesion** | 5/5 | Each module gets clearer responsibility. Parser: "build the AST with honest name references." Typechecker: "resolve names to types from the module's declarations." No module does two things or half-does something. The module's `ItemType` entries are the single source of truth for type declarations. |
 | **Migration cost** | 4/5 | ~150 lines removed, ~30 modified across 3 files (parse.lua, mlua_document_analysis.lua, host.lua). No test changes needed — `parse_module` returns a module with `TNamed` references, and `TC.check_module` resolves them identically. One caveat: the `asdl_host_model.mlua` test checks `#parsed.splice_slots == 1` from `parse_island` but this test creates slots via `@{T}` syntax (not bare-name references), so it's unaffected. Score reduced from 5 because the LSP path's `register_parsed_declaration` call and `splice_values` local must be removed — a small but real change. |
 | **Philosophy fit** | 5/5 | Perfectly aligned with all three constitutional documents. COMPILER_PATTERN.md: "The ASDL is the architecture. Everything else is downstream." The module's `ItemType` entries ARE the architecture — splice_values was a parallel, redundant mechanism. LANGUAGE_REFERENCE.md §6.4: type declarations are `struct`/`union` islands that become module items. PVM_GUIDE.md: phases answer distinct questions — "what types exist?" is answered by the module's items, not by a parser-internal hash table. |
-| **Risk** | 3/5 | Low but not zero. The chain binder bare-name type reference behavior change (Gap 1) is the primary risk — it could break user code that uses `moon.func{Type = val}[[func f(): Type ... end]]` without `@{}` syntax. In practice this appears unused (all tests use `@{expr}`), but it's a semantic shift. The second risk is that `type_from_value` removal could affect an undiscovered code path — though the grep is exhaustive. |
+| **Risk** | 3/5 | Low but not zero. The chain binder bare-name type reference behavior change (Gap 1) is the primary risk — it could break user code that uses `lalin.func{Type = val}[[func f(): Type ... end]]` without `@{}` syntax. In practice this appears unused (all tests use `@{expr}`), but it's a semantic shift. The second risk is that `type_from_value` removal could affect an undiscovered code path — though the grep is exhaustive. |
 | **Testability** | 5/5 | Every change is independently verifiable. Step 1: remove `resolve_types_now` → `type_name` always produces `TNamed` → tests still pass because `TC.check_module` resolves them. Step 2: remove `splice_values` from Parser → standalone parsers still work (they never populated it). Step 3: remove `register_parsed_declaration` → the module's items already carry all declarations. Each step can be committed and tested separately. |
 
 **Verdict**: Strong yes
 
-**Key concern**: The chain binder behavior change for bare-name type references (Gap 1). The approach document says "only external @{expr} holes (chain binder) create slots" but doesn't explicitly call out that bare-name type references in chain-quoted source become unresolvable. If any user code or internal test relies on `moon.func{TypeName = type_val}[[func f(): TypeName ... end]]` (without `@{}`), it will break because `TypeName` becomes `TNamed` instead of `TSlot`. The fix is a one-line documentation note: bare-name type references in quoted source always resolve against the module's items; use `@{TypeName}` to splice external types.
+**Key concern**: The chain binder behavior change for bare-name type references (Gap 1). The approach document says "only external @{expr} holes (chain binder) create slots" but doesn't explicitly call out that bare-name type references in chain-quoted source become unresolvable. If any user code or internal test relies on `lalin.func{TypeName = type_val}[[func f(): TypeName ... end]]` (without `@{}`), it will break because `TypeName` becomes `TNamed` instead of `TSlot`. The fix is a one-line documentation note: bare-name type references in quoted source always resolve against the module's items; use `@{TypeName}` to splice external types.
 
 ---
 
@@ -756,7 +756,7 @@ Currently `record_splice_slot` uses `splice_slots_by_id` to prevent double-recor
 Now I have all the data I need. Let me produce the comprehensive architectural decision document.
 
 ```markdown
-# Architectural Decision: Unify Moonlift Name Resolution
+# Architectural Decision: Unify Lalin Name Resolution
 
 **Workflow ID**: `wf-unify-splice`
 **Decision**: Approach C — Typechecker-Only Resolution ("The Module IS the Environment")
@@ -775,12 +775,12 @@ Eliminate the parallel, redundant path for intra-module type-name resolution by 
 
 ### 1. Redundant resolution mechanisms
 
-The codebase currently has **two separate systems** for resolving type names appearing in Moonlift source, plus a third compatibility shim:
+The codebase currently has **two separate systems** for resolving type names appearing in Lalin source, plus a third compatibility shim:
 
 | Mechanism | Where | Purpose |
 |-----------|-------|---------|
 | Parse-time `splice_values` | `parse.lua:2856`, `parse_island` opts | Resolve type names inside the parser against previously-parsed islands |
-| `register_parsed_declaration` | `parse.lua:2817–2842` | Populate `splice_values` with `as_moonlift_type()` wrapper tables after each island |
+| `register_parsed_declaration` | `parse.lua:2817–2842` | Populate `splice_values` with `as_lalin_type()` wrapper tables after each island |
 | `resolve_types_now = true` | `parse.lua:2847` | Force-flag that shortcuts name resolution by issuing poison-pill errors for unknown types instead of creating deferred `TSlot` nodes |
 
 These exist **in addition** to the typechecker's own `build_variant_defs` (which already walks all `ItemType` entries to build a `defs` map), and the post-parse `splice_slots` + `host_splice.fill` + `OpenExpand` pipeline used by the chain binder for external Lua values.
@@ -835,13 +835,13 @@ return Ty.TSlot(slot)
 The `type_name` method handles bare-name type references (e.g., `func f(): Pair` where `Pair` is a declared struct). The resolution order is:
 
 1. **Scalar keywords** (`i32`, `f64`, `bool`, etc.) — direct lookup. Always works.
-2. **`splice_value(name)`** — checks if the name has a Lua value registered. This is the path that `register_parsed_declaration` feeds. If found, calls `type_from_value()` which dispatches on `as_moonlift_type()` to extract the ASDL type node.
+2. **`splice_value(name)`** — checks if the name has a Lua value registered. This is the path that `register_parsed_declaration` feeds. If found, calls `type_from_value()` which dispatches on `as_lalin_type()` to extract the ASDL type node.
 3. **`resolve_types_now` check** — if the name wasn't found in step 2 and this flag is set, emit a diagnostic and return poison-pill `TScalar(void)`. If the flag is **not** set, create a `TSlot` + `TypeSlot` for post-parse fill.
 4. **Fallthrough** — creates `TSlot` for deferred resolution.
 
 ### The `register_parsed_declaration` bridge (`parse.lua:2817–2842`)
 
-Shared between `parse_module_document` and `mlua_document_analysis.lua` (the LSP path). For struct/union/handle declarations, it creates Lua wrapper tables with `as_moonlift_type()` closures that return `TNamed(TypeRefPath(…))` or `THandle(TypeRefPath(…), repr)`. These wrappers are inserted into `splice_values` under both `name_hint` (simple name) and `lhs_path` (dotted path, for `mylib.Pair = struct … end`).
+Shared between `parse_module_document` and `mlua_document_analysis.lua` (the LSP path). For struct/union/handle declarations, it creates Lua wrapper tables with `as_lalin_type()` closures that return `TNamed(TypeRefPath(…))` or `THandle(TypeRefPath(…), repr)`. These wrappers are inserted into `splice_values` under both `name_hint` (simple name) and `lhs_path` (dotted path, for `mylib.Pair = struct … end`).
 
 This is a **Lua-value protocol**: the parser exchanges wrapper tables through a Lua hash map, separate from the ASDL tree. The wrappers are never persisted — they are local to the `parse_module_document` call and garbage-collected when it returns.
 
@@ -887,7 +887,7 @@ In `tree_typecheck.lua`:
 |-----------|----------|----------|
 | `splice_values` local | `parse.lua:2856` | Accumulates intra-module declaration wrappers |
 | `splice_value()` method | Parser class | Looks up `splice_values` by name |
-| `type_from_value()` method | Parser class | Dispatches on `as_moonlift_type()` — becomes dead code |
+| `type_from_value()` method | Parser class | Dispatches on `as_lalin_type()` — becomes dead code |
 | `register_parsed_declaration()` | `parse.lua:2817–2842` | Bridges parse result → `splice_values` |
 | `resolve_types_now` flag | `parse.lua:2847` | Forced-resolve shortcut |
 | `api._stmts_quote` / `_stmts_values_binder` | `host_func_values.lua:383–425` | Dead pre-chain-era splice handlers |
@@ -929,11 +929,11 @@ parse_module_document
   ├─ Island #1: struct Pair … end
   │   ├─ parse_island → TypeDeclStruct
   │   └─ register_parsed_declaration("Pair", …, splice_values)
-  │       └─ splice_values["Pair"] = {as_moonlift_type = λ → TNamed("Pair")}
+  │       └─ splice_values["Pair"] = {as_lalin_type = λ → TNamed("Pair")}
   │
   ├─ Island #2: func f(): Pair … end
   │   ├─ type_name("Pair")
-  │   │   └─ splice_value("Pair") → as_moonlift_type() → TNamed("Pair")  ← RESOLVED AT PARSE TIME
+  │   │   └─ splice_value("Pair") → as_lalin_type() → TNamed("Pair")  ← RESOLVED AT PARSE TIME
   │   └─ Tr.ItemFunc(func{result=TNamed("Pair")})
   │
   └─ return {module=Tr.Module(items), splice_slots=…}  ← splice_slots never consumed
@@ -1074,10 +1074,10 @@ In chain-quoted source, bare-name type references (without `@{}`) become `TNamed
 
 ```lua
 -- This NO LONGER works:
-moon.func { TypeName = type_val } [[ func f(): TypeName ... end ]]
+lalin.func { TypeName = type_val } [[ func f(): TypeName ... end ]]
 
 -- This CONTINUES to work:
-moon.func { TypeName = type_val } [[ func f(): @{TypeName} ... end ]]
+lalin.func { TypeName = type_val } [[ func f(): @{TypeName} ... end ]]
 ```
 
 All existing chain binder tests use explicit `@{expr}` antiquote syntax. The bare-name path in the binder appears unused in the test suite. This is consistent with LANGUAGE_REFERENCE.md §14.4, which documents the `@{key}` syntax for bound values.
@@ -1092,7 +1092,7 @@ All existing chain binder tests use explicit `@{expr}` antiquote syntax. The bar
 
 ### Risks acknowledged
 
-1. **Chain binder bare-name behavior shift.** Users who rely on `moon.func{Type = val}[[func f(): Type … end]]` without `@{}` must switch to `@{Type}`. The critique identified this as the primary risk (scored 3/5 for Risk). Mitigation: all existing tests use `@{expr}` syntax; LANGUAGE_REFERENCE.md §14.4 documents the binding idiom with `@{}`; the migration is a one-character syntax change.
+1. **Chain binder bare-name behavior shift.** Users who rely on `lalin.func{Type = val}[[func f(): Type … end]]` without `@{}` must switch to `@{Type}`. The critique identified this as the primary risk (scored 3/5 for Risk). Mitigation: all existing tests use `@{expr}` syntax; LANGUAGE_REFERENCE.md §14.4 documents the binding idiom with `@{}`; the migration is a one-character syntax change.
 
 2. **`ExprAgg` fallback for handles.** If an aggregate literal somehow references a handle name (which has no aggregate semantics), the fallback `TNamed` is produced and the typechecker catches the mismatch. This is semantically equivalent to the current behavior — the error surface shifts from parse-time "unknown type" to typecheck-time "aggregate applied to non-struct type."
 
@@ -1126,13 +1126,13 @@ The language reference already states that resolution happens during typecheckin
 
 > The values table comes FIRST and returns a **quote function**. The `[[]]` invocation parses the string, looks up each `@{}` key in the values table, fills the slot, expands, and returns clean ASDL.
 
-The `@{}` antiquote syntax is the canonical mechanism for splicing external Lua values into Moonlift source. Bare-name resolution in quoted source was an undocumented, untested secondary path. Removing it simplifies the contract: only `@{}` means external value.
+The `@{}` antiquote syntax is the canonical mechanism for splicing external Lua values into Lalin source. Bare-name resolution in quoted source was an undocumented, untested secondary path. Removing it simplifies the contract: only `@{}` means external value.
 
 ### PVM_GUIDE.md Chapter 2 — "The ASDL is the universal type system"
 
 > Every type in a pvm system is an ASDL type.
 
-The `splice_values` wrapper tables (`{as_moonlift_type = function() … end}`) were not ASDL types — they were Lua tables with closures, existing outside the ASDL type system. The compiler's internal model should use ASDL types exclusively. `TNamed(TypeRefPath(…))` is an ASDL type. `build_variant_defs` builds an ASDL-native defs map. `ref_type` resolves ASDL-native references. The entire path is ASDL-native.
+The `splice_values` wrapper tables (`{as_lalin_type = function() … end}`) were not ASDL types — they were Lua tables with closures, existing outside the ASDL type system. The compiler's internal model should use ASDL types exclusively. `TNamed(TypeRefPath(…))` is an ASDL type. `build_variant_defs` builds an ASDL-native defs map. `ref_type` resolves ASDL-native references. The entire path is ASDL-native.
 
 ---
 

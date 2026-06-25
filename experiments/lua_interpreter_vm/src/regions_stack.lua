@@ -1,14 +1,14 @@
 -- Lua Interpreter VM — Stack and frame regions
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 
 local I = {}
-for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
-for k, v in pairs(const.Tag) do I["TAG_" .. k] = moon.int(v) end
-I.MAX_STACK_SIZE = moon.int(const.MAX_STACK_SIZE)
-I.MAX_FRAMES = moon.int(const.MAX_FRAMES)
+for k, v in pairs(const.Err) do I["ERR_" .. k] = lalin.int(v) end
+for k, v in pairs(const.Tag) do I["TAG_" .. k] = lalin.int(v) end
+I.MAX_STACK_SIZE = lalin.int(const.MAX_STACK_SIZE)
+I.MAX_FRAMES = lalin.int(const.MAX_FRAMES)
 
 -- stack_check: ensure stack has room for needed_top elements
 local stack_check = host.region {

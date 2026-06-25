@@ -1,0 +1,1076 @@
+local schema = require("lalin.schema_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
+
+local function add_issue(issues, issue)
+    issues[#issues + 1] = issue
+end
+
+local function note_unique(seen, key, issue_fn, issues)
+    if seen[key] then
+        add_issue(issues, issue_fn())
+        return false
+    end
+    seen[key] = true
+    return true
+end
+
+local function has(seen, key)
+    return seen ~= nil and seen[key] == true
+end
+
+local function facts_triplet(facts)
+    return facts
+end
+
+local function append_value_uses(out, B, index, values)
+    for i = 1, #values do
+        out[#out + 1] = B.BackFactValueUse(index, values[i])
+    end
+end
+
+local function append_value_defs(out, B, index, values)
+    for i = 1, #values do
+        out[#out + 1] = B.BackFactValueDef(index, values[i])
+    end
+end
+
+local function bind_context(T)
+    local B = T.LalinBack or T.LalinBack
+    assert(B, "lalin.back_validate(T) expects LalinBack/LalinBack in the context")
+
+    local function append_address_base_uses(out, index, base)
+        local cls = schema.classof(base)
+        if cls == B.BackAddrValue then
+            out[#out + 1] = B.BackFactValueUse(index, base.value)
+        elseif cls == B.BackAddrStack then
+            out[#out + 1] = B.BackFactStackSlotRef(index, base.slot)
+        elseif cls == B.BackAddrData then
+            out[#out + 1] = B.BackFactDataRef(index, base.data)
+        end
+    end
+
+    local function append_address_uses(out, index, addr)
+        append_address_base_uses(out, index, addr.base)
+        out[#out + 1] = B.BackFactValueUse(index, addr.byte_offset)
+    end
+
+    local function scalar_size_bytes(scalar)
+        if scalar == B.BackBool or scalar == B.BackI8 or scalar == B.BackU8 then return 1 end
+        if scalar == B.BackI16 or scalar == B.BackU16 then return 2 end
+        if scalar == B.BackI32 or scalar == B.BackU32 or scalar == B.BackF32 then return 4 end
+        if scalar == B.BackI64 or scalar == B.BackU64 or scalar == B.BackF64 or scalar == B.BackPtr or scalar == B.BackIndex then return 8 end
+        return nil
+    end
+
+    local function shape_size_bytes(shape)
+        local cls = schema.classof(shape)
+        if cls == B.BackShapeScalar then return scalar_size_bytes(shape.scalar) end
+        if cls == B.BackShapeVec then
+            local elem = scalar_size_bytes(shape.vec.elem)
+            if elem ~= nil then return elem * shape.vec.lanes end
+        end
+        return nil
+    end
+
+    local function is_power_of_two(n)
+        if type(n) ~= "number" or n < 1 or n % 1 ~= 0 then return false end
+        while n > 1 do
+            if n % 2 ~= 0 then return false end
+            n = n / 2
+        end
+        return true
+    end
+
+    local function alignment_bytes(alignment)
+        local cls = schema.classof(alignment)
+        if cls == B.BackAlignKnown or cls == B.BackAlignAtLeast or cls == B.BackAlignAssumed then return alignment.bytes end
+        return nil
+    end
+
+    local function dereference_bytes(deref)
+        local cls = schema.classof(deref)
+        if cls == B.BackDerefBytes or cls == B.BackDerefAssumed then return deref.bytes end
+        return nil
+    end
+
+    local function validate_memory_info(issues, index, shape, memory, expected_mode)
+        local mode = memory.mode
+        if expected_mode == B.BackAccessRead and mode ~= B.BackAccessRead and mode ~= B.BackAccessReadWrite and mode ~= B.BackAccessReadonly then
+            add_issue(issues, B.BackIssueLoadAccessMode(index, mode))
+        elseif expected_mode == B.BackAccessWrite and mode ~= B.BackAccessWrite and mode ~= B.BackAccessReadWrite then
+            add_issue(issues, B.BackIssueStoreAccessMode(index, mode))
+        end
+        local align = alignment_bytes(memory.alignment)
+        if align ~= nil and not is_power_of_two(align) then
+            add_issue(issues, B.BackIssueInvalidAlignment(index, align))
+        end
+        local deref = dereference_bytes(memory.dereference)
+        local access = shape_size_bytes(shape)
+        if deref ~= nil and access ~= nil and deref < access then
+            add_issue(issues, B.BackIssueDereferenceTooSmall(index, deref, access))
+        end
+        if schema.classof(memory.trap) == B.BackNonTrapping and deref == nil then
+            add_issue(issues, B.BackIssueNonTrappingWithoutDereference(index))
+        end
+        if schema.classof(memory.motion) == B.BackCanMove and schema.classof(memory.trap) ~= B.BackNonTrapping then
+            add_issue(issues, B.BackIssueCanMoveWithoutNonTrapping(index))
+        end
+    end
+
+    local function is_int_scalar(scalar)
+        return scalar == B.BackI8 or scalar == B.BackI16 or scalar == B.BackI32 or scalar == B.BackI64
+            or scalar == B.BackU8 or scalar == B.BackU16 or scalar == B.BackU32 or scalar == B.BackU64
+            or scalar == B.BackIndex
+    end
+
+    local function is_bit_scalar(scalar)
+        return scalar == B.BackBool or is_int_scalar(scalar)
+    end
+
+    local function is_float_scalar(scalar)
+        return scalar == B.BackF32 or scalar == B.BackF64
+    end
+
+    local cmd_facts
+    local call_target_facts
+    local call_result_facts
+
+    function call_target_facts(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, B.BackCallDirect) then
+            return (function(self, index)
+
+            return single(B.BackFactFuncRef(index, self.func))
+            end)(node, ...)
+        elseif schema.isa(node, B.BackCallExtern) then
+            return (function(self, index)
+
+            return single(B.BackFactExternRef(index, self.func))
+            end)(node, ...)
+        elseif schema.isa(node, B.BackCallIndirect) then
+            return (function(self, index)
+
+            return single(B.BackFactValueUse(index, self.callee))
+            end)(node, ...)
+        else
+            error("phase lalin_back_call_target_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
+
+    function call_result_facts(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, B.BackCallStmt) then
+            return (function()
+
+            return {}
+            end)(node, ...)
+        elseif schema.isa(node, B.BackCallValue) then
+            return (function(self, index)
+
+            return single(B.BackFactValueDef(index, self.dst))
+            end)(node, ...)
+        else
+            error("phase lalin_back_call_result_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
+
+    local function body(index)
+        return B.BackFactFunctionBodyCommand(index)
+    end
+
+    local function shape(index, ty, requirement)
+        return B.BackFactShapeUse(index, ty, requirement)
+    end
+
+    local function append_cmd_facts_flat(out, cmd, index)
+        if cmd == B.CmdFinalizeModule then out[#out + 1] = B.BackFactFinalizeModule(index); return end
+        if cmd == B.CmdReturnVoid or cmd == B.CmdTrap then out[#out + 1] = body(index); return end
+        local cls = schema.classof(cmd)
+        if cls == B.CmdCreateSig then out[#out + 1] = B.BackFactCreateSig(index, cmd.sig); return end
+        if cls == B.CmdDeclareData then out[#out + 1] = B.BackFactDeclareData(index, cmd.data); return end
+        if cls == B.CmdDataInitZero or cls == B.CmdDataInit then out[#out + 1] = B.BackFactDataRef(index, cmd.data); return end
+        if cls == B.CmdDeclareFunc then out[#out + 1] = B.BackFactDeclareFunc(index, cmd.func); out[#out + 1] = B.BackFactSigRef(index, cmd.sig); return end
+        if cls == B.CmdDeclareExtern then out[#out + 1] = B.BackFactDeclareExtern(index, cmd.func); out[#out + 1] = B.BackFactSigRef(index, cmd.sig); return end
+        if cls == B.CmdBeginFunc then out[#out + 1] = B.BackFactBeginFunc(index, cmd.func); out[#out + 1] = B.BackFactFuncRef(index, cmd.func); return end
+        if cls == B.CmdFinishFunc then out[#out + 1] = B.BackFactFinishFunc(index, cmd.func); out[#out + 1] = B.BackFactFuncRef(index, cmd.func); return end
+        if cls == B.CmdCreateBlock then out[#out + 1] = body(index); out[#out + 1] = B.BackFactCreateBlock(index, cmd.block); return end
+        if cls == B.CmdSwitchToBlock or cls == B.CmdSealBlock then out[#out + 1] = body(index); out[#out + 1] = B.BackFactBlockRef(index, cmd.block); return end
+        if cls == B.CmdBindEntryParams then out[#out + 1] = body(index); out[#out + 1] = B.BackFactBlockRef(index, cmd.block); append_value_defs(out, B, index, cmd.values); return end
+        if cls == B.CmdAppendBlockParam then out[#out + 1] = body(index); out[#out + 1] = B.BackFactBlockRef(index, cmd.block); out[#out + 1] = B.BackFactValueDef(index, cmd.value); return end
+        if cls == B.CmdCreateStackSlot then out[#out + 1] = body(index); out[#out + 1] = B.BackFactStackSlotDef(index, cmd.slot); return end
+        if cls == B.CmdAlias then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.src); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdStackAddr then out[#out + 1] = body(index); out[#out + 1] = B.BackFactStackSlotRef(index, cmd.slot); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdDataAddr then out[#out + 1] = body(index); out[#out + 1] = B.BackFactDataRef(index, cmd.data); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdFuncAddr then out[#out + 1] = body(index); out[#out + 1] = B.BackFactFuncRef(index, cmd.func); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdExternAddr then out[#out + 1] = body(index); out[#out + 1] = B.BackFactExternRef(index, cmd.func); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdConst then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdUnary then out[#out + 1] = body(index); out[#out + 1] = shape(index, cmd.ty, B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdIntrinsic then out[#out + 1] = body(index); out[#out + 1] = shape(index, cmd.ty, B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); append_value_uses(out, B, index, cmd.args); return end
+        if cls == B.CmdCompare then out[#out + 1] = body(index); out[#out + 1] = shape(index, cmd.ty, B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactValueUse(index, cmd.lhs); out[#out + 1] = B.BackFactValueUse(index, cmd.rhs); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdCast then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdPtrOffset then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.index); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); append_address_base_uses(out, index, cmd.base); return end
+        if cls == B.CmdLoadInfo then out[#out + 1] = body(index); out[#out + 1] = shape(index, cmd.ty, B.BackShapeAllowsScalarOrVector); out[#out + 1] = B.BackFactAccessDef(index, cmd.memory.access); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); append_address_uses(out, index, cmd.addr); return end
+        if cls == B.CmdStoreInfo then out[#out + 1] = body(index); out[#out + 1] = shape(index, cmd.ty, B.BackShapeAllowsScalarOrVector); out[#out + 1] = B.BackFactAccessDef(index, cmd.memory.access); out[#out + 1] = B.BackFactValueUse(index, cmd.value); append_address_uses(out, index, cmd.addr); return end
+        if cls == B.CmdAtomicLoad then out[#out + 1] = body(index); out[#out + 1] = shape(index, B.BackShapeScalar(cmd.ty), B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactAccessDef(index, cmd.memory.access); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); append_address_uses(out, index, cmd.addr); return end
+        if cls == B.CmdAtomicStore then out[#out + 1] = body(index); out[#out + 1] = shape(index, B.BackShapeScalar(cmd.ty), B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactAccessDef(index, cmd.memory.access); out[#out + 1] = B.BackFactValueUse(index, cmd.value); append_address_uses(out, index, cmd.addr); return end
+        if cls == B.CmdAtomicRmw then out[#out + 1] = body(index); out[#out + 1] = shape(index, B.BackShapeScalar(cmd.ty), B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactAccessDef(index, cmd.memory.access); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); append_address_uses(out, index, cmd.addr); return end
+        if cls == B.CmdAtomicCas then out[#out + 1] = body(index); out[#out + 1] = shape(index, B.BackShapeScalar(cmd.ty), B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactAccessDef(index, cmd.memory.access); out[#out + 1] = B.BackFactValueUse(index, cmd.expected); out[#out + 1] = B.BackFactValueUse(index, cmd.replacement); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); append_address_uses(out, index, cmd.addr); return end
+        if cls == B.CmdAtomicFence then out[#out + 1] = body(index); return end
+        if cls == B.CmdIntBinary or cls == B.CmdBitBinary or cls == B.CmdShift or cls == B.CmdRotate or cls == B.CmdFloatBinary then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.lhs); out[#out + 1] = B.BackFactValueUse(index, cmd.rhs); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdBitNot then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdMemcpy then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.dst); out[#out + 1] = B.BackFactValueUse(index, cmd.src); out[#out + 1] = B.BackFactValueUse(index, cmd.len); return end
+        if cls == B.CmdMemset then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.dst); out[#out + 1] = B.BackFactValueUse(index, cmd.byte); out[#out + 1] = B.BackFactValueUse(index, cmd.len); return end
+        if cls == B.CmdMemcmp then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.left); out[#out + 1] = B.BackFactValueUse(index, cmd.right); out[#out + 1] = B.BackFactValueUse(index, cmd.len); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdSelect then out[#out + 1] = body(index); out[#out + 1] = shape(index, cmd.ty, B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactValueUse(index, cmd.cond); out[#out + 1] = B.BackFactValueUse(index, cmd.then_value); out[#out + 1] = B.BackFactValueUse(index, cmd.else_value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdFma then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.a); out[#out + 1] = B.BackFactValueUse(index, cmd.b); out[#out + 1] = B.BackFactValueUse(index, cmd.c); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdVecSplat then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdVecBinary or cls == B.CmdVecCompare then out[#out + 1] = body(index); out[#out + 1] = shape(index, B.BackShapeVec(cmd.ty), B.BackShapeRequiresVector); out[#out + 1] = B.BackFactValueUse(index, cmd.lhs); out[#out + 1] = B.BackFactValueUse(index, cmd.rhs); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdVecSelect then out[#out + 1] = body(index); out[#out + 1] = shape(index, B.BackShapeVec(cmd.ty), B.BackShapeRequiresVector); out[#out + 1] = B.BackFactValueUse(index, cmd.mask); out[#out + 1] = B.BackFactValueUse(index, cmd.then_value); out[#out + 1] = B.BackFactValueUse(index, cmd.else_value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdVecMask then out[#out + 1] = body(index); out[#out + 1] = shape(index, B.BackShapeVec(cmd.ty), B.BackShapeRequiresVector); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); append_value_uses(out, B, index, cmd.args); return end
+        if cls == B.CmdVecInsertLane then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueUse(index, cmd.lane_value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdVecExtractLane then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdCall then
+            out[#out + 1] = body(index); out[#out + 1] = B.BackFactSigRef(index, cmd.sig)
+            local target_cls = schema.classof(cmd.target)
+            if target_cls == B.BackCallDirect then out[#out + 1] = B.BackFactFuncRef(index, cmd.target.func)
+            elseif target_cls == B.BackCallExtern then out[#out + 1] = B.BackFactExternRef(index, cmd.target.func)
+            elseif target_cls == B.BackCallIndirect then out[#out + 1] = B.BackFactValueUse(index, cmd.target.callee) end
+            if cmd.result ~= B.BackCallStmt and schema.classof(cmd.result) == B.BackCallValue then out[#out + 1] = B.BackFactValueDef(index, cmd.result.dst) end
+            append_value_uses(out, B, index, cmd.args)
+            return
+        end
+        if cls == B.CmdJump then out[#out + 1] = body(index); out[#out + 1] = B.BackFactBlockRef(index, cmd.dest); append_value_uses(out, B, index, cmd.args); return end
+        if cls == B.CmdBrIf then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.cond); out[#out + 1] = B.BackFactBlockRef(index, cmd.then_block); out[#out + 1] = B.BackFactBlockRef(index, cmd.else_block); append_value_uses(out, B, index, cmd.then_args); append_value_uses(out, B, index, cmd.else_args); return end
+        if cls == B.CmdSwitchInt then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactBlockRef(index, cmd.default_dest); for i = 1, #cmd.cases do out[#out + 1] = B.BackFactBlockRef(index, cmd.cases[i].dest) end; return end
+        if cls == B.CmdReturnValue then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); return end
+        local g, p, c = cmd_facts(cmd, index)
+        append_all(out, g)
+    end
+
+    function cmd_facts(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, B.CmdCreateSig) then
+            return (function(self, index)
+
+            return facts_triplet({ B.BackFactCreateSig(index, self.sig) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdDeclareData) then
+            return (function(self, index)
+
+            return facts_triplet({ B.BackFactDeclareData(index, self.data) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdDataInitZero) then
+            return (function(self, index)
+
+            return facts_triplet({ B.BackFactDataRef(index, self.data) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdDataInit) then
+            return (function(self, index)
+
+            return facts_triplet({ B.BackFactDataRef(index, self.data) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdDeclareFunc) then
+            return (function(self, index)
+
+            return facts_triplet({ B.BackFactDeclareFunc(index, self.func), B.BackFactSigRef(index, self.sig) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdDeclareExtern) then
+            return (function(self, index)
+
+            return facts_triplet({ B.BackFactDeclareExtern(index, self.func), B.BackFactSigRef(index, self.sig) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdBeginFunc) then
+            return (function(self, index)
+
+            return facts_triplet({ B.BackFactBeginFunc(index, self.func), B.BackFactFuncRef(index, self.func) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdFinishFunc) then
+            return (function(self, index)
+
+            return facts_triplet({ B.BackFactFinishFunc(index, self.func), B.BackFactFuncRef(index, self.func) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdFinalizeModule) then
+            return (function(_, index)
+
+            return facts_triplet({ B.BackFactFinalizeModule(index) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdCreateBlock) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactCreateBlock(index, self.block) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdSwitchToBlock) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactBlockRef(index, self.block) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdSealBlock) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactBlockRef(index, self.block) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdBindEntryParams) then
+            return (function(self, index)
+
+            local out = { body(index), B.BackFactBlockRef(index, self.block) }
+            append_value_defs(out, B, index, self.values)
+            return facts_triplet(out)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdAppendBlockParam) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactBlockRef(index, self.block), B.BackFactValueDef(index, self.value) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdCreateStackSlot) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactStackSlotDef(index, self.slot) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdAlias) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.src), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdStackAddr) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactStackSlotRef(index, self.slot), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdDataAddr) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactDataRef(index, self.data), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdFuncAddr) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactFuncRef(index, self.func), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdExternAddr) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactExternRef(index, self.func), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdConst) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdUnary) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), shape(index, self.ty, B.BackShapeRequiresScalar), B.BackFactValueUse(index, self.value), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdIntrinsic) then
+            return (function(self, index)
+
+            local out = { body(index), shape(index, self.ty, B.BackShapeRequiresScalar), B.BackFactValueDef(index, self.dst) }
+            append_value_uses(out, B, index, self.args)
+            return facts_triplet(out)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdCompare) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), shape(index, self.ty, B.BackShapeRequiresScalar), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdCast) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.value), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdPtrOffset) then
+            return (function(self, index)
+
+            local out = { body(index), B.BackFactValueUse(index, self.index), B.BackFactValueDef(index, self.dst) }
+            append_address_base_uses(out, index, self.base)
+            return facts_triplet(out)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdLoadInfo) then
+            return (function(self, index)
+
+            local out = { body(index), shape(index, self.ty, B.BackShapeAllowsScalarOrVector), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueDef(index, self.dst) }
+            append_address_uses(out, index, self.addr)
+            return facts_triplet(out)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdStoreInfo) then
+            return (function(self, index)
+
+            local out = { body(index), shape(index, self.ty, B.BackShapeAllowsScalarOrVector), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueUse(index, self.value) }
+            append_address_uses(out, index, self.addr)
+            return facts_triplet(out)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdAtomicLoad) then
+            return (function(self, index)
+
+            local out = { body(index), shape(index, B.BackShapeScalar(self.ty), B.BackShapeRequiresScalar), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueDef(index, self.dst) }
+            append_address_uses(out, index, self.addr)
+            return facts_triplet(out)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdAtomicStore) then
+            return (function(self, index)
+
+            local out = { body(index), shape(index, B.BackShapeScalar(self.ty), B.BackShapeRequiresScalar), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueUse(index, self.value) }
+            append_address_uses(out, index, self.addr)
+            return facts_triplet(out)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdAtomicRmw) then
+            return (function(self, index)
+
+            local out = { body(index), shape(index, B.BackShapeScalar(self.ty), B.BackShapeRequiresScalar), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueUse(index, self.value), B.BackFactValueDef(index, self.dst) }
+            append_address_uses(out, index, self.addr)
+            return facts_triplet(out)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdAtomicCas) then
+            return (function(self, index)
+
+            local out = { body(index), shape(index, B.BackShapeScalar(self.ty), B.BackShapeRequiresScalar), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueUse(index, self.expected), B.BackFactValueUse(index, self.replacement), B.BackFactValueDef(index, self.dst) }
+            append_address_uses(out, index, self.addr)
+            return facts_triplet(out)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdAtomicFence) then
+            return (function(_, index)
+
+            return facts_triplet({ body(index) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdIntBinary) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdBitBinary) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdBitNot) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.value), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdShift) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdRotate) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdFloatBinary) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdMemcpy) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.dst), B.BackFactValueUse(index, self.src), B.BackFactValueUse(index, self.len) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdMemset) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.dst), B.BackFactValueUse(index, self.byte), B.BackFactValueUse(index, self.len) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdSelect) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), shape(index, self.ty, B.BackShapeRequiresScalar), B.BackFactValueUse(index, self.cond), B.BackFactValueUse(index, self.then_value), B.BackFactValueUse(index, self.else_value), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdFma) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.a), B.BackFactValueUse(index, self.b), B.BackFactValueUse(index, self.c), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdVecSplat) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.value), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdVecBinary) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), shape(index, B.BackShapeVec(self.ty), B.BackShapeRequiresVector), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdVecCompare) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), shape(index, B.BackShapeVec(self.ty), B.BackShapeRequiresVector), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdVecSelect) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), shape(index, B.BackShapeVec(self.ty), B.BackShapeRequiresVector), B.BackFactValueUse(index, self.mask), B.BackFactValueUse(index, self.then_value), B.BackFactValueUse(index, self.else_value), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdVecMask) then
+            return (function(self, index)
+
+            local out = { body(index), shape(index, B.BackShapeVec(self.ty), B.BackShapeRequiresVector), B.BackFactValueDef(index, self.dst) }
+            append_value_uses(out, B, index, self.args)
+            return facts_triplet(out)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdVecInsertLane) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.value), B.BackFactValueUse(index, self.lane_value), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdVecExtractLane) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.value), B.BackFactValueDef(index, self.dst) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdCall) then
+            return (function(self, index)
+
+            return concat_all({
+                facts_triplet({ body(index), B.BackFactSigRef(index, self.sig) }),
+                call_target_facts(self.target, index),
+                call_result_facts(self.result, index),
+                facts_triplet((function()
+                    local out = {}
+                    append_value_uses(out, B, index, self.args)
+                    return out
+                end)()),
+            })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdJump) then
+            return (function(self, index)
+
+            local out = { body(index), B.BackFactBlockRef(index, self.dest) }
+            append_value_uses(out, B, index, self.args)
+            return facts_triplet(out)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdBrIf) then
+            return (function(self, index)
+
+            local out = { body(index), B.BackFactValueUse(index, self.cond), B.BackFactBlockRef(index, self.then_block), B.BackFactBlockRef(index, self.else_block) }
+            append_value_uses(out, B, index, self.then_args)
+            append_value_uses(out, B, index, self.else_args)
+            return facts_triplet(out)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdSwitchInt) then
+            return (function(self, index)
+
+            local out = { body(index), B.BackFactValueUse(index, self.value), B.BackFactBlockRef(index, self.default_dest) }
+            for i = 1, #self.cases do
+                out[#out + 1] = B.BackFactBlockRef(index, self.cases[i].dest)
+            end
+            return facts_triplet(out)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdReturnVoid) then
+            return (function(_, index)
+
+            return facts_triplet({ body(index) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdReturnValue) then
+            return (function(self, index)
+
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.value) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdTrap) then
+            return (function(_, index)
+
+            return facts_triplet({ body(index) })
+            end)(node, ...)
+        else
+            error("phase lalin_back_cmd_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
+
+    local function validate_program_impl(program, use_flat, collector)
+        local issues = {}
+        local cmds = program.cmds
+        if #cmds == 0 then
+            add_issue(issues, B.BackIssueEmptyProgram)
+            add_issue(issues, B.BackIssueMissingFinalize)
+            if collector then
+                for i = 1, #issues do collector:emit(issues[i], "backend") end
+            end
+            return B.BackValidationReport(issues)
+        end
+
+        local facts = {}
+        if use_flat then
+            for i = 1, #cmds do append_cmd_facts_flat(facts, cmds[i], i) end
+        else
+            for i = 1, #cmds do
+                local g, p, c = cmd_facts(cmds[i], i)
+                append_all(facts, g)
+            end
+        end
+
+        local seen_sig = {}
+        local seen_data = {}
+        local seen_func = {}
+        local seen_extern = {}
+        local finalized_index = nil
+        local active_func = nil
+        local seen_block = nil
+        local seen_slot = nil
+        local seen_value = nil
+        local seen_access = nil
+
+        for i = 1, #facts do
+            local fact = facts[i]
+            local cls = schema.classof(fact)
+
+            if cls == B.BackFactCreateSig then
+                note_unique(seen_sig, fact.sig, function() return B.BackIssueDuplicateSig(fact.index, fact.sig) end, issues)
+            elseif cls == B.BackFactSigRef then
+                if not has(seen_sig, fact.sig) then add_issue(issues, B.BackIssueMissingSig(fact.index, fact.sig)) end
+            elseif cls == B.BackFactDeclareData then
+                note_unique(seen_data, fact.data, function() return B.BackIssueDuplicateData(fact.index, fact.data) end, issues)
+            elseif cls == B.BackFactDataRef then
+                if not has(seen_data, fact.data) then add_issue(issues, B.BackIssueMissingData(fact.index, fact.data)) end
+            elseif cls == B.BackFactDeclareFunc then
+                note_unique(seen_func, fact.func, function() return B.BackIssueDuplicateFunc(fact.index, fact.func) end, issues)
+            elseif cls == B.BackFactFuncRef then
+                if not has(seen_func, fact.func) then add_issue(issues, B.BackIssueMissingFunc(fact.index, fact.func)) end
+            elseif cls == B.BackFactDeclareExtern then
+                note_unique(seen_extern, fact.func, function() return B.BackIssueDuplicateExtern(fact.index, fact.func) end, issues)
+            elseif cls == B.BackFactExternRef then
+                if not has(seen_extern, fact.func) then add_issue(issues, B.BackIssueMissingExtern(fact.index, fact.func)) end
+            elseif cls == B.BackFactBeginFunc then
+                if active_func ~= nil then
+                    add_issue(issues, B.BackIssueNestedFunction(fact.index, active_func, fact.func))
+                else
+                    active_func = fact.func
+                    seen_block = {}
+                    seen_slot = {}
+                    seen_value = {}
+                    seen_access = {}
+                end
+            elseif cls == B.BackFactFinishFunc then
+                if active_func == nil then
+                    add_issue(issues, B.BackIssueFinishWithoutBegin(fact.index, fact.func))
+                elseif active_func ~= fact.func then
+                    add_issue(issues, B.BackIssueFinishWrongFunction(fact.index, active_func, fact.func))
+                    active_func = nil
+                    seen_block = nil
+                    seen_slot = nil
+                    seen_value = nil
+                    seen_access = nil
+                else
+                    active_func = nil
+                    seen_block = nil
+                    seen_slot = nil
+                    seen_value = nil
+                    seen_access = nil
+                end
+            elseif cls == B.BackFactFinalizeModule then
+                if finalized_index == nil then finalized_index = fact.index end
+            elseif cls == B.BackFactFunctionBodyCommand then
+                if active_func == nil then add_issue(issues, B.BackIssueCommandOutsideFunction(fact.index)) end
+            elseif cls == B.BackFactCreateBlock then
+                if active_func ~= nil then
+                    note_unique(seen_block, fact.block, function() return B.BackIssueDuplicateBlock(fact.index, fact.block) end, issues)
+                end
+            elseif cls == B.BackFactBlockRef then
+                if active_func ~= nil and not has(seen_block, fact.block) then add_issue(issues, B.BackIssueMissingBlock(fact.index, fact.block)) end
+            elseif cls == B.BackFactStackSlotDef then
+                if active_func ~= nil then
+                    note_unique(seen_slot, fact.slot, function() return B.BackIssueDuplicateStackSlot(fact.index, fact.slot) end, issues)
+                end
+            elseif cls == B.BackFactStackSlotRef then
+                if active_func ~= nil and not has(seen_slot, fact.slot) then add_issue(issues, B.BackIssueMissingStackSlot(fact.index, fact.slot)) end
+            elseif cls == B.BackFactValueDef then
+                if active_func ~= nil then
+                    note_unique(seen_value, fact.value, function() return B.BackIssueDuplicateValue(fact.index, fact.value) end, issues)
+                end
+            elseif cls == B.BackFactValueUse then
+                if active_func ~= nil and not has(seen_value, fact.value) then add_issue(issues, B.BackIssueMissingValue(fact.index, fact.value)) end
+            elseif cls == B.BackFactAccessDef then
+                if active_func ~= nil then
+                    note_unique(seen_access, fact.access, function() return B.BackIssueDuplicateAccess(fact.index, fact.access) end, issues)
+                end
+            elseif cls == B.BackFactAccessRef then
+                if active_func ~= nil and not has(seen_access, fact.access) then add_issue(issues, B.BackIssueMissingAccess(fact.index, fact.access)) end
+            elseif cls == B.BackFactShapeUse then
+                local shape_cls = schema.classof(fact.shape)
+                if fact.requirement == B.BackShapeRequiresScalar and shape_cls ~= B.BackShapeScalar then
+                    add_issue(issues, B.BackIssueShapeRequiresScalar(fact.index, fact.shape))
+                elseif fact.requirement == B.BackShapeRequiresVector and shape_cls ~= B.BackShapeVec then
+                    add_issue(issues, B.BackIssueShapeRequiresVector(fact.index, fact.shape))
+                end
+            end
+        end
+
+        for index = 1, #cmds do
+            local cmd = cmds[index]
+            local cls = schema.classof(cmd)
+            if cls == B.CmdLoadInfo then
+                validate_memory_info(issues, index, cmd.ty, cmd.memory, B.BackAccessRead)
+            elseif cls == B.CmdStoreInfo then
+                validate_memory_info(issues, index, cmd.ty, cmd.memory, B.BackAccessWrite)
+            elseif cls == B.CmdAtomicLoad then
+                validate_memory_info(issues, index, B.BackShapeScalar(cmd.ty), cmd.memory, B.BackAccessRead)
+                if not is_bit_scalar(cmd.ty) and cmd.ty ~= B.BackPtr then add_issue(issues, B.BackIssueBitScalarExpected(index, cmd.ty)) end
+            elseif cls == B.CmdAtomicStore then
+                validate_memory_info(issues, index, B.BackShapeScalar(cmd.ty), cmd.memory, B.BackAccessWrite)
+                if not is_bit_scalar(cmd.ty) and cmd.ty ~= B.BackPtr then add_issue(issues, B.BackIssueBitScalarExpected(index, cmd.ty)) end
+            elseif cls == B.CmdAtomicRmw then
+                validate_memory_info(issues, index, B.BackShapeScalar(cmd.ty), cmd.memory, B.BackAccessReadWrite)
+                local ok = false
+                if cmd.op == B.BackAtomicRmwXchg then ok = is_bit_scalar(cmd.ty) or cmd.ty == B.BackPtr
+                elseif cmd.op == B.BackAtomicRmwAdd or cmd.op == B.BackAtomicRmwSub then ok = is_int_scalar(cmd.ty)
+                elseif cmd.op == B.BackAtomicRmwAnd or cmd.op == B.BackAtomicRmwOr or cmd.op == B.BackAtomicRmwXor then ok = is_bit_scalar(cmd.ty) and cmd.ty ~= B.BackPtr end
+                if not ok then add_issue(issues, B.BackIssueBitScalarExpected(index, cmd.ty)) end
+            elseif cls == B.CmdAtomicCas then
+                validate_memory_info(issues, index, B.BackShapeScalar(cmd.ty), cmd.memory, B.BackAccessReadWrite)
+                if not is_bit_scalar(cmd.ty) and cmd.ty ~= B.BackPtr then add_issue(issues, B.BackIssueBitScalarExpected(index, cmd.ty)) end
+            elseif cls == B.CmdAppendBlockParam then
+            elseif cls == B.CmdUnary or cls == B.CmdIntrinsic or cls == B.CmdCompare or cls == B.CmdSelect then
+            elseif cls == B.CmdVecBinary or cls == B.CmdVecCompare or cls == B.CmdVecSelect or cls == B.CmdVecMask or cls == B.CmdVecSplat then
+                local shapev = B.BackShapeVec(cmd.ty)
+            elseif cls == B.CmdIntBinary then
+                if not is_int_scalar(cmd.scalar) then add_issue(issues, B.BackIssueIntScalarExpected(index, cmd.scalar)) end
+            elseif cls == B.CmdFloatBinary or cls == B.CmdFma then
+                if not is_float_scalar(cmd.ty or cmd.scalar) then add_issue(issues, B.BackIssueFloatScalarExpected(index, cmd.ty or cmd.scalar)) end
+                local scalar = cmd.ty or cmd.scalar
+            elseif cls == B.CmdBitBinary or cls == B.CmdBitNot then
+                if not is_bit_scalar(cmd.scalar) then add_issue(issues, B.BackIssueBitScalarExpected(index, cmd.scalar)) end
+            elseif cls == B.CmdShift or cls == B.CmdRotate then
+                if not is_int_scalar(cmd.scalar) then add_issue(issues, B.BackIssueShiftScalarExpected(index, cmd.scalar)) end
+            end
+        end
+
+        if active_func ~= nil then
+            add_issue(issues, B.BackIssueUnfinishedFunction(active_func))
+        end
+        if finalized_index == nil then
+            add_issue(issues, B.BackIssueMissingFinalize)
+        else
+            for index = finalized_index + 1, #cmds do
+                add_issue(issues, B.BackIssueCommandAfterFinalize(index))
+            end
+        end
+
+        if collector then
+            for i = 1, #issues do
+                collector:emit(issues[i], "backend")
+            end
+        end
+
+        return B.BackValidationReport(issues)
+    end
+
+    local function validate_program(program, collector)
+        return validate_program_impl(program, true, collector)
+    end
+
+    return {
+        cmd_facts = cmd_facts,
+        cmd_facts_flat_into = function(program, out)
+            for i = 1, #program.cmds do append_cmd_facts_flat(out, program.cmds[i], i) end
+            return out
+        end,
+        validate_program = validate_program,
+        validate_pvm_cold = function(program, collector)
+            return validate_program_impl(program, false, collector)
+        end,
+        validate_lua_cold = function(program, collector)
+            return validate_program_impl(program, false, collector)
+        end,
+        validate_lua = function(program, collector)
+            return validate_program_impl(program, false, collector)
+        end,
+        validate_ll = function(program, collector)
+            return validate_program_impl(program, true, collector)
+        end,
+        validate = function(program, collector)
+            return validate_program(program, collector)
+        end,
+
+        validate_verify = function(program)
+            local ref = validate_program_impl(program, false)
+            local fast = validate_program_impl(program, true)
+            local ref_n, fast_n = #ref.issues, #fast.issues
+            if ref_n ~= fast_n then
+                error(string.format(
+                    "back_validate verify MISMATCH: issue count ref=%d fast=%d",
+                    ref_n, fast_n
+                ), 2)
+            end
+            for i = 1, ref_n do
+                if ref.issues[i] ~= fast.issues[i] then
+                    local ri, fi = ref.issues[i], fast.issues[i]
+                    error(string.format(
+                        "back_validate verify MISMATCH at issue %d: ref=%s fast=%s",
+                        i, tostring(ri and ri.kind or ri), tostring(fi and fi.kind or fi)
+                    ), 2)
+                end
+            end
+            return ref
+        end,
+    }
+end
+
+-----------------------------------------------------------------------------
+-- explain_back_issue: explains a single BackIssue
+--
+-- CRITICAL: This FIXES E0601/E0602/E0603 — no longer reads non-existent
+-- .def_kind/.name/.violation fields. Each variant reads its ACTUAL schema
+-- fields (.sig, .func, .block, etc.) and produces a distinct message.
+-----------------------------------------------------------------------------
+
+local Format = require("lalin.error.format")
+
+local function explain_back_issue(issue, analysis)
+    local resolvers = require("lalin.error.span_resolvers")
+    local span = resolvers.backend_resolver(issue, analysis)
+    local cls = schema.classof(issue)
+    if not cls then return { code = "E9999", severity = "error", primary = { span = span, message = tostring(issue) } } end
+    local kind = cls.kind
+
+    -- Entity name helper: extracts a user-visible name from an ASDL identifier
+    local function entity_name(field)
+        if not field then return "?" end
+        if type(field) == "table" then
+            if field.text then return field.text end
+            local s = tostring(field)
+            if s and s ~= "" and s ~= "table: " .. tostring(field):match("0x%x+") then return s end
+        end
+        return tostring(field) or "?"
+    end
+
+    -- Helper to get the most specific entity name from an issue
+    local function issue_entity()
+        return entity_name(issue.func)
+            or entity_name(issue.block)
+            or entity_name(issue.value)
+            or entity_name(issue.sig)
+            or entity_name(issue.data)
+            or entity_name(issue.extern)
+            or entity_name(issue.slot)
+            or entity_name(issue.access)
+            or entity_name(issue.scalar)
+            or tostring(issue.index or "?")
+    end
+
+    --===== Missing definitions (E0601) =====--
+    if kind == "BackIssueMissingSig" then
+        return { code = "E0601", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "missing signature `" .. entity_name(issue.sig) .. "`" },
+            notes = { { message = "this signature is referenced but never defined" } } }
+    end
+    if kind == "BackIssueMissingFunc" then
+        return { code = "E0601", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "missing function `" .. entity_name(issue.func) .. "`" },
+            notes = { { message = "function " .. entity_name(issue.func) .. " is referenced but never defined" } } }
+    end
+    if kind == "BackIssueMissingBlock" then
+        return { code = "E0402", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "missing block `" .. entity_name(issue.block) .. "`" },
+            notes = { { message = "block " .. entity_name(issue.block) .. " is referenced but never defined" } } }
+    end
+    if kind == "BackIssueMissingValue" then
+        return { code = "E0601", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "missing value `" .. entity_name(issue.value) .. "`" },
+            notes = { { message = "value " .. entity_name(issue.value) .. " is referenced but never defined" } } }
+    end
+    if kind == "BackIssueMissingData" then
+        return { code = "E0601", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "missing data `" .. entity_name(issue.data) .. "`" },
+            notes = { { message = "data " .. entity_name(issue.data) .. " is referenced but never defined" } } }
+    end
+    if kind == "BackIssueMissingExtern" then
+        return { code = "E0601", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "missing extern `" .. entity_name(issue.func) .. "`" },
+            notes = { { message = "extern " .. entity_name(issue.func) .. " is referenced but never defined" } } }
+    end
+    if kind == "BackIssueMissingStackSlot" then
+        return { code = "E0601", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "missing stack slot `" .. entity_name(issue.slot) .. "`" },
+            notes = { { message = "stack slot " .. entity_name(issue.slot) .. " is referenced but never defined" } } }
+    end
+    if kind == "BackIssueMissingAccess" then
+        return { code = "E0601", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "missing access `" .. entity_name(issue.access) .. "`" },
+            notes = { { message = "access " .. entity_name(issue.access) .. " is referenced but never defined" } } }
+    end
+
+    --===== Duplicate definitions (E0602) =====--
+    local function dup_suggestion(name)
+        return { message = "rename or remove the duplicate `" .. name .. "`" }
+    end
+    if kind == "BackIssueDuplicateSig" then
+        return { code = "E0602", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "duplicate signature `" .. entity_name(issue.sig) .. "`" },
+            suggestions = { dup_suggestion(entity_name(issue.sig)) } }
+    end
+    if kind == "BackIssueDuplicateFunc" then
+        return { code = "E0602", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "duplicate function `" .. entity_name(issue.func) .. "`" },
+            suggestions = { dup_suggestion(entity_name(issue.func)) } }
+    end
+    if kind == "BackIssueDuplicateData" then
+        return { code = "E0602", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "duplicate data `" .. entity_name(issue.data) .. "`" },
+            suggestions = { dup_suggestion(entity_name(issue.data)) } }
+    end
+    if kind == "BackIssueDuplicateExtern" then
+        return { code = "E0602", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "duplicate extern `" .. entity_name(issue.func) .. "`" },
+            suggestions = { dup_suggestion(entity_name(issue.func)) } }
+    end
+    if kind == "BackIssueDuplicateBlock" then
+        return { code = "E0406", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "duplicate block `" .. entity_name(issue.block) .. "`" },
+            suggestions = { dup_suggestion(entity_name(issue.block)) } }
+    end
+    if kind == "BackIssueDuplicateStackSlot" then
+        return { code = "E0602", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "duplicate stack slot `" .. entity_name(issue.slot) .. "`" },
+            suggestions = { dup_suggestion(entity_name(issue.slot)) } }
+    end
+    if kind == "BackIssueDuplicateValue" then
+        return { code = "E0602", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "duplicate value `" .. entity_name(issue.value) .. "`" },
+            suggestions = { dup_suggestion(entity_name(issue.value)) } }
+    end
+    if kind == "BackIssueDuplicateAccess" then
+        return { code = "E0602", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "duplicate access `" .. entity_name(issue.access) .. "`" } }
+    end
+
+    --===== Command order violations (E0603) =====--
+    -- Each variant gets a DISTINCT message instead of generic "command order violation"
+    if kind == "BackIssueEmptyProgram" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "no backend commands were emitted" } }
+    end
+    if kind == "BackIssueMissingFinalize" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "program is not finalized" } }
+    end
+    if kind == "BackIssueCommandAfterFinalize" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "command after program finalization" } }
+    end
+    if kind == "BackIssueCommandOutsideFunction" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "command outside a function block" } }
+    end
+    if kind == "BackIssueNestedFunction" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "nested function definition" } }
+    end
+    if kind == "BackIssueFinishWithoutBegin" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "function block ends without a matching begin" } }
+    end
+    if kind == "BackIssueFinishWrongFunction" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "function block ends in the wrong function" } }
+    end
+    if kind == "BackIssueUnfinishedFunction" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "function block is unfinished" } }
+    end
+    if kind == "BackIssueNonTrappingWithoutDereference" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "non-trapping access requires a dereference" } }
+    end
+    if kind == "BackIssueCanMoveWithoutNonTrapping" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "`can_move` requires non-trapping access" } }
+    end
+
+    --===== Type-related back issues =====--
+    if kind == "BackIssueLoadAccessMode" then
+        return { code = "E0301", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "type mismatch for load access mode `" .. Format.access_mode_name(issue.mode) .. "`" },
+            notes = { { message = "the loaded value type does not match the expected type for this access mode" } } }
+    end
+    if kind == "BackIssueStoreAccessMode" then
+        return { code = "E0301", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "type mismatch for store access mode `" .. Format.access_mode_name(issue.mode) .. "`" },
+            notes = { { message = "the stored value type does not match the expected type for this access mode" } } }
+    end
+    if kind == "BackIssueDereferenceTooSmall" then
+        return { code = "E0301", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "dereference size is too small (" .. tostring(issue.bytes or "?") .. " bytes)" } }
+    end
+    if kind == "BackIssueShapeRequiresScalar" then
+        return { code = "E0301", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "scalar type expected for this operation" },
+            notes = { { message = "this operation requires a scalar type (i8, i16, i32, i64, f32, f64, etc.), not a vector" } } }
+    end
+    if kind == "BackIssueShapeRequiresVector" then
+        return { code = "E0301", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "vector type expected for this operation" },
+            notes = { { message = "this operation requires a vector type, not a scalar" } } }
+    end
+
+    --===== Scalar type issues (E0304) =====--
+    if kind == "BackIssueIntScalarExpected" then
+        return { code = "E0304", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "expected integer type, got scalar `" .. Format.scalar_name(issue.scalar) .. "`" },
+            notes = { { message = "integer types: i8, i16, i32, i64, u8, u16, u32, u64, index" } } }
+    end
+    if kind == "BackIssueFloatScalarExpected" then
+        return { code = "E0304", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "expected float type, got scalar `" .. Format.scalar_name(issue.scalar) .. "`" },
+            notes = { { message = "float types: f32, f64" } } }
+    end
+    if kind == "BackIssueBitScalarExpected" then
+        return { code = "E0304", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "expected bit type, got scalar `" .. Format.scalar_name(issue.scalar) .. "`" },
+            notes = { { message = "bit types: bool, i8 (for bitwise operations)" } } }
+    end
+    if kind == "BackIssueShiftScalarExpected" then
+        return { code = "E0304", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "expected integer type for shift, got scalar `" .. Format.scalar_name(issue.scalar) .. "`" } }
+    end
+
+    --===== Alignment issues =====--
+    if kind == "BackIssueInvalidAlignment" then
+        return { code = "E0506", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "invalid alignment for access mode `" .. Format.access_mode_name(issue.mode) .. "`" } }
+    end
+
+    -- Fallback
+    return { code = "E9999", severity = "error", primary = { span = span, message = kind or tostring(issue) } }
+end
+
+return setmetatable({
+    explain_back_issue = explain_back_issue,
+}, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

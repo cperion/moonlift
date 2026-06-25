@@ -1,0 +1,169 @@
+local S = require("lalin.schema.dsl")
+S.use()
+
+return schema. LalinFlow {
+  product. FlowDomainId { interned, text [str], },
+  sum. FlowDomain {
+    FlowDomainLoop { variant_unique, loop [LalinGraph.GraphLoopId], },
+    FlowDomainBlockRange {
+      variant_unique,
+      func [LalinCode.CodeFuncId],
+      entry [LalinCode.CodeBlockId],
+      exit [LalinCode.CodeBlockId],
+    },
+    FlowDomainFunction { variant_unique, func [LalinCode.CodeFuncId], },
+  },
+  sum. FlowTripCount {
+    FlowTripCountExact {
+      variant_unique,
+      count [LalinCode.CodeValueId],
+      proof [optional [LalinMem.MemProof]],
+    },
+    FlowTripCountNonNegative {
+      variant_unique,
+      count [LalinCode.CodeValueId],
+      proof [optional [LalinMem.MemProof]],
+    },
+    FlowTripCountUnknown { variant_unique, reason [str], },
+  },
+  product. FlowEdgeArg {
+    interned,
+    src [LalinCode.CodeValueId],
+    dst_param [LalinCode.CodeValueId],
+  },
+  product. FlowEdgeFact {
+    interned,
+    edge [LalinGraph.GraphEdge],
+    args [many [LalinFlow.FlowEdgeArg]],
+  },
+  sum. FlowReject {
+    FlowRejectIrreducible { variant_unique, func [LalinCode.CodeFuncId], reason [str], },
+    FlowRejectNotCounted { variant_unique, loop [LalinGraph.GraphLoopId], reason [str], },
+    FlowRejectUnsupportedTerminator {
+      variant_unique,
+      block [LalinGraph.GraphBlockId],
+      term [LalinCode.CodeTermKind],
+    },
+    FlowRejectUnsupportedInduction {
+      variant_unique,
+      loop [LalinGraph.GraphLoopId],
+      field. value [LalinCode.CodeValueId],
+      reason [str],
+    },
+    FlowRejectUnknownValue {
+      variant_unique,
+      field. value [LalinCode.CodeValueId],
+      reason [str],
+    },
+  },
+  sum. FlowBound {
+    FlowBoundUnknown,
+    FlowBoundConst { variant_unique, raw [str], },
+    FlowBoundValue { variant_unique, field. value [LalinCode.CodeValueId], },
+    FlowBoundDerived { variant_unique, key [str], deps [many [LalinCode.CodeValueId]], },
+  },
+  sum. FlowValueRange {
+    FlowRangeUnknown { variant_unique, field. value [LalinCode.CodeValueId], },
+    FlowRangeExact {
+      variant_unique,
+      field. value [LalinCode.CodeValueId],
+      bound [LalinFlow.FlowBound],
+    },
+    FlowRangeUnsigned {
+      variant_unique,
+      field. value [LalinCode.CodeValueId],
+      min [LalinFlow.FlowBound],
+      max [LalinFlow.FlowBound],
+    },
+    FlowRangeSigned {
+      variant_unique,
+      field. value [LalinCode.CodeValueId],
+      min [LalinFlow.FlowBound],
+      max [LalinFlow.FlowBound],
+    },
+    FlowRangeDerived {
+      variant_unique,
+      field. value [LalinCode.CodeValueId],
+      min [LalinFlow.FlowBound],
+      max [LalinFlow.FlowBound],
+      reason [str],
+    },
+  },
+  product. FlowCountedDomain {
+    interned,
+    start [LalinCode.CodeValueId],
+    stop [LalinCode.CodeValueId],
+    step [LalinCode.CodeValueId],
+    stop_exclusive [bool],
+  },
+  sum. FlowLoopDirection { FlowLoopIncreasing, FlowLoopDecreasing, FlowLoopDirectionUnknown, },
+  sum. FlowInductionKind {
+    FlowPrimaryInduction,
+    FlowDerivedInduction { variant_unique, base [LalinCode.CodeValueId], },
+    FlowPointerInduction { variant_unique, base [LalinCode.CodeValueId], elem_size [number], },
+  },
+  product. FlowInduction {
+    interned,
+    field. value [LalinCode.CodeValueId],
+    field. ty [LalinCode.CodeType],
+    init [LalinCode.CodeValueId],
+    step [LalinCode.CodeValueId],
+    kind [LalinFlow.FlowInductionKind],
+    range [LalinFlow.FlowValueRange],
+  },
+  product. FlowLoopExit {
+    interned,
+    from [LalinGraph.GraphBlockId],
+    to [LalinGraph.GraphBlockId],
+    condition [optional [LalinCode.CodeValueId]],
+  },
+  product. FlowLoopFacts {
+    interned,
+    loop [LalinGraph.GraphLoopId],
+    domain [LalinFlow.FlowDomain],
+    counted [optional [LalinFlow.FlowCountedDomain]],
+    body_blocks [many [LalinGraph.GraphBlockId]],
+    inductions [many [LalinFlow.FlowInduction]],
+    exits [many [LalinFlow.FlowLoopExit]],
+    rejects [many [LalinFlow.FlowReject]],
+  },
+  product. FlowInductionRangeFact {
+    interned,
+    loop [LalinGraph.GraphLoopId],
+    field. value [LalinCode.CodeValueId],
+    min [LalinFlow.FlowBound],
+    max [LalinFlow.FlowBound],
+    max_exclusive [bool],
+    reason [str],
+  },
+  sum. FlowLoopSemanticFact {
+    FlowLoopNormalizedCounted {
+      variant_unique,
+      loop [LalinGraph.GraphLoopId],
+      domain [LalinFlow.FlowCountedDomain],
+      direction [LalinFlow.FlowLoopDirection],
+      trip_count [LalinFlow.FlowTripCount],
+    },
+    FlowLoopInductionRange { variant_unique, range [LalinFlow.FlowInductionRangeFact], },
+    FlowLoopInductionNoWrap {
+      variant_unique,
+      loop [LalinGraph.GraphLoopId],
+      field. value [LalinCode.CodeValueId],
+      reason [str],
+    },
+  },
+  product. FlowSemanticFactSet {
+    interned,
+    field. module [LalinCode.CodeModuleId],
+    facts [many [LalinFlow.FlowLoopSemanticFact]],
+  },
+  product. FlowFactSet {
+    interned,
+    field. module [LalinCode.CodeModuleId],
+    domains [many [LalinFlow.FlowDomain]],
+    edges [many [LalinFlow.FlowEdgeFact]],
+    loops [many [LalinFlow.FlowLoopFacts]],
+    ranges [many [LalinFlow.FlowValueRange]],
+    rejects [many [LalinFlow.FlowReject]],
+  },
+}

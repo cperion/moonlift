@@ -1,12 +1,12 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Rules = require("moonlift.code_kernel_plan_rules")(T)
+local Rules = require("lalin.code_kernel_plan_rules")(T)
 
 local function base()
     return {
@@ -98,4 +98,4 @@ do
     assert(selection.result_kind == "original_control", "original-control result must be the semantic default")
 end
 
-io.write("moonlift code_kernel_plan_rules ok\n")
+io.write("lalin code_kernel_plan_rules ok\n")

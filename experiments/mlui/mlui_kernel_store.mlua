@@ -11,12 +11,12 @@
 -- (slot_index << 8) | generation in the u32 value.  The extern table
 -- stores the actual ptr(T.UiKernel).  This avoids pointer-to-u32 casts.
 
-local H = moon.require("mlui_types")
+local H = lalin.require("mlui_types")
 local T = H.T
 local R = H.R
 local F = H.F
 
-local Mem = moon.require("mlui_memory")
+local Mem = lalin.require("mlui_memory")
 
 local MLUI_MAX_KERNELS = 16
 local MLUI_REF_SHIFT = 4  -- enough bits for 16 slots

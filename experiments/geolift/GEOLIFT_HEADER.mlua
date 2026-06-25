@@ -1,6 +1,6 @@
 -- GEOLIFT_HEADER_DIRECT.mlua
 --
--- Apache DataFusion-like geospatial engine design header for Moonlift.
+-- Apache DataFusion-like geospatial engine design header for Lalin.
 --
 -- This file is intentionally a header:
 --   - type declarations
@@ -12,7 +12,7 @@
 -- No bodies live here.
 --
 -- Important correction:
---   Moonlift emits C. That is all the AOT design needs to know.
+--   Lalin emits C. That is all the AOT design needs to know.
 --   C-to-WASM is performed by the user's chosen C compiler/toolchain.
 --   Therefore this header does not contain CEmissionPolicy, WasmArtifact,
 --   WasmBackend, emit_wasm, or any similar policy layer.
@@ -25,7 +25,7 @@
 --           y: f64
 --       end
 --
---   not moon.struct[[...]] quoting.
+--   not lalin.struct[[...]] quoting.
 --
 -- Doctrine:
 --   products        = facts that exist together
@@ -40,7 +40,7 @@
 -- Stored kind/tag bytes are encodings, not design.
 -- Each stored encoding has exactly one visit_* owner region.
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 
 local G = {
     T = {},      -- type/product forest
@@ -168,7 +168,7 @@ G.T.Target = struct
     simd_features: u64
     freestanding_c: bool
     wasm_friendly_c: bool    -- means generated C avoids hostile constructs;
-                             -- the C-to-WASM compiler is outside Moonlift.
+                             -- the C-to-WASM compiler is outside Lalin.
 end
 
 G.T.MemoryPolicy = struct

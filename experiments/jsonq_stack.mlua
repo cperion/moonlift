@@ -1,9 +1,9 @@
 -- jsonq_stack.mlua
--- Canonical Moonlift/LLPVM design contract for JsonQ.
+-- Canonical Lalin/LLPVM design contract for JsonQ.
 --
 -- This file is intentionally one large, grep-shaped stack definition.
 -- It owns:
---   * public Moonlift type forest (T)
+--   * public Lalin type forest (T)
 --   * public region protocols (R)
 --   * C/FFI ABI seals (F)
 --   * LLPVM operation languages
@@ -14,7 +14,7 @@
 -- Bodies live in machine files referenced by phase `entry` symbols.
 -- This file is the architecture.
 
-local moon = require "moonlift"
+local lalin = require "lalin"
 local ll = require "llpvm"
 
 local M = {
@@ -39,63 +39,63 @@ local C = M.C
 -- Aliases are Lua-level names for schema clarity.  They are not source-level
 -- generics or erased runtime types.
 
-T.Bool32             = moon.u32
-T.Tag8               = moon.u8
-T.SmallCount         = moon.u16
-T.Reg                = moon.u16
-T.FrameSlot          = moon.u16
-T.LabelId            = moon.u32
-T.BlockId            = moon.u32
-T.SymbolId           = moon.u32
-T.PathId             = moon.u32
-T.ConstId            = moon.u32
-T.BuiltinId          = moon.u32
-T.ParamId            = moon.u32
-T.RowProfileId       = moon.u32
-T.PolicyId           = moon.u32
-T.Digest64           = moon.u64
-T.Epoch              = moon.u64
-T.ByteOffset         = moon.index
-T.ByteLen            = moon.index
-T.NodeId             = moon.u32
-T.EntryId            = moon.u32
-T.SegmentId          = moon.u32
-T.PageId             = moon.u32
-T.Score              = moon.u32
-T.JsonqStatus        = moon.i32
-T.JsonqErrorCode     = moon.u32
-T.JsonqWarningCode   = moon.u32
-T.CompareOp          = moon.u8
-T.LogicOp            = moon.u8
-T.OrderDirection     = moon.u8
-T.PathStepKind       = moon.u8
-T.Cardinality        = moon.u8
-T.ValueClass         = moon.u8
-T.ResultShape        = moon.u8
-T.ResultFormat       = moon.u8
-T.MissingPolicy      = moon.u8
-T.DuplicatePolicy    = moon.u8
-T.NumberPolicy       = moon.u8
-T.StringPolicy       = moon.u8
-T.OutputPolicy       = moon.u8
-T.IndexMode          = moon.u8
-T.IndexKeyKind       = moon.u8
-T.WalkMode           = moon.u8
-T.JoinMode           = moon.u8
-T.AggregateOp        = moon.u8
-T.SortNulls          = moon.u8
-T.SortStability      = moon.u8
-T.ScanKind           = moon.u8
-T.TempKind           = moon.u8
-T.JsonNodeKind       = moon.u8
-T.RowKeyKind         = moon.u8
-T.ValueSlotKind      = moon.u8
-T.FrameKind          = moon.u8
-T.SinkKind           = moon.u8
-T.BufferKind         = moon.u8
-T.ProgramKind        = moon.u8
-T.CollectionKind     = moon.u8
-T.EncodingKind       = moon.u8
+T.Bool32             = lalin.u32
+T.Tag8               = lalin.u8
+T.SmallCount         = lalin.u16
+T.Reg                = lalin.u16
+T.FrameSlot          = lalin.u16
+T.LabelId            = lalin.u32
+T.BlockId            = lalin.u32
+T.SymbolId           = lalin.u32
+T.PathId             = lalin.u32
+T.ConstId            = lalin.u32
+T.BuiltinId          = lalin.u32
+T.ParamId            = lalin.u32
+T.RowProfileId       = lalin.u32
+T.PolicyId           = lalin.u32
+T.Digest64           = lalin.u64
+T.Epoch              = lalin.u64
+T.ByteOffset         = lalin.index
+T.ByteLen            = lalin.index
+T.NodeId             = lalin.u32
+T.EntryId            = lalin.u32
+T.SegmentId          = lalin.u32
+T.PageId             = lalin.u32
+T.Score              = lalin.u32
+T.JsonqStatus        = lalin.i32
+T.JsonqErrorCode     = lalin.u32
+T.JsonqWarningCode   = lalin.u32
+T.CompareOp          = lalin.u8
+T.LogicOp            = lalin.u8
+T.OrderDirection     = lalin.u8
+T.PathStepKind       = lalin.u8
+T.Cardinality        = lalin.u8
+T.ValueClass         = lalin.u8
+T.ResultShape        = lalin.u8
+T.ResultFormat       = lalin.u8
+T.MissingPolicy      = lalin.u8
+T.DuplicatePolicy    = lalin.u8
+T.NumberPolicy       = lalin.u8
+T.StringPolicy       = lalin.u8
+T.OutputPolicy       = lalin.u8
+T.IndexMode          = lalin.u8
+T.IndexKeyKind       = lalin.u8
+T.WalkMode           = lalin.u8
+T.JoinMode           = lalin.u8
+T.AggregateOp        = lalin.u8
+T.SortNulls          = lalin.u8
+T.SortStability      = lalin.u8
+T.ScanKind           = lalin.u8
+T.TempKind           = lalin.u8
+T.JsonNodeKind       = lalin.u8
+T.RowKeyKind         = lalin.u8
+T.ValueSlotKind      = lalin.u8
+T.FrameKind          = lalin.u8
+T.SinkKind           = lalin.u8
+T.BufferKind         = lalin.u8
+T.ProgramKind        = lalin.u8
+T.CollectionKind     = lalin.u8
+T.EncodingKind       = lalin.u8
 
 C.dialect = {
     jsonq = 1,
@@ -1406,19 +1406,19 @@ local SourceUnit = QuerySource "Unit"
 local SourceOptions = QuerySource "Options"
 
 SourceUnit.Text = {
-    bytes = moon.view(moon.u8),
+    bytes = lalin.view(lalin.u8),
     source_name = T.SymbolId,
     query_epoch = T.Epoch,
 }
 
 SourceOptions.Policy = {
-    dialect = moon.u32,
+    dialect = lalin.u32,
     missing_policy = T.MissingPolicy,
     duplicate_policy = T.DuplicatePolicy,
     number_policy = T.NumberPolicy,
     string_policy = T.StringPolicy,
     output_policy = T.OutputPolicy,
-    max_depth = moon.index,
+    max_depth = lalin.index,
     result_shape = T.ResultShape,
 }
 
@@ -1464,9 +1464,9 @@ SyntaxObjectField.Shorthand = { key = T.SymbolId, span = T.SourceSpan }
 SyntaxObjectFieldList.Nil = {}
 SyntaxObjectFieldList.Cons = { head = SyntaxObjectField, tail = SyntaxObjectFieldList }
 
-SyntaxPathStep.Field = { key = T.SymbolId, optional = moon.bool, span = T.SourceSpan }
-SyntaxPathStep.Index = { index = moon.i64, optional = moon.bool, span = T.SourceSpan }
-SyntaxPathStep.AnyChild = { optional = moon.bool, span = T.SourceSpan }
+SyntaxPathStep.Field = { key = T.SymbolId, optional = lalin.bool, span = T.SourceSpan }
+SyntaxPathStep.Index = { index = lalin.i64, optional = lalin.bool, span = T.SourceSpan }
+SyntaxPathStep.AnyChild = { optional = lalin.bool, span = T.SourceSpan }
 SyntaxPathStep.Recursive = { span = T.SourceSpan }
 SyntaxPathStepList.Nil = {}
 SyntaxPathStepList.Cons = { head = SyntaxPathStep, tail = SyntaxPathStepList }
@@ -1489,13 +1489,13 @@ SyntaxExpr.RootValue = { span = T.SourceSpan }
 SyntaxExpr.Param = { name = T.SymbolId, span = T.SourceSpan }
 SyntaxExpr.Var = { name = T.SymbolId, span = T.SourceSpan }
 SyntaxExpr.LiteralNull = { span = T.SourceSpan }
-SyntaxExpr.LiteralBool = { value = moon.bool, span = T.SourceSpan }
-SyntaxExpr.LiteralNumber = { bytes = moon.view(moon.u8), span = T.SourceSpan }
+SyntaxExpr.LiteralBool = { value = lalin.bool, span = T.SourceSpan }
+SyntaxExpr.LiteralNumber = { bytes = lalin.view(lalin.u8), span = T.SourceSpan }
 SyntaxExpr.LiteralString = { atom = T.SymbolId, span = T.SourceSpan }
 SyntaxExpr.Path = { base = SyntaxExpr, steps = SyntaxPathStepList, span = T.SourceSpan }
-SyntaxExpr.Field = { base = SyntaxExpr, key = T.SymbolId, optional = moon.bool, span = T.SourceSpan }
-SyntaxExpr.Index = { base = SyntaxExpr, index = moon.i64, optional = moon.bool, span = T.SourceSpan }
-SyntaxExpr.Iter = { base = SyntaxExpr, optional = moon.bool, span = T.SourceSpan }
+SyntaxExpr.Field = { base = SyntaxExpr, key = T.SymbolId, optional = lalin.bool, span = T.SourceSpan }
+SyntaxExpr.Index = { base = SyntaxExpr, index = lalin.i64, optional = lalin.bool, span = T.SourceSpan }
+SyntaxExpr.Iter = { base = SyntaxExpr, optional = lalin.bool, span = T.SourceSpan }
 SyntaxExpr.Pipe = { left = SyntaxExpr, right = SyntaxExpr, span = T.SourceSpan }
 SyntaxExpr.Fanout = { left = SyntaxExpr, right = SyntaxExpr, span = T.SourceSpan }
 SyntaxExpr.Select = { input = SyntaxExpr, pred = SyntaxExpr, span = T.SourceSpan }
@@ -1525,7 +1525,7 @@ SyntaxRoot.Path = {
 }
 
 SyntaxRoot.Invalid = {
-    diagnostic_count = moon.u32,
+    diagnostic_count = lalin.u32,
 }
 
 -- Checked semantic language -------------------------------------------------
@@ -1556,7 +1556,7 @@ SemExprList.Nil = {}
 SemExprList.Cons = { head = SemExpr, tail = SemExprList }
 
 SemPathStep.Field = { key = T.SymbolId, span = T.SourceSpan }
-SemPathStep.Index = { index = moon.i64, span = T.SourceSpan }
+SemPathStep.Index = { index = lalin.i64, span = T.SourceSpan }
 SemPathStep.AnyChild = { span = T.SourceSpan }
 SemPathStep.Recursive = { span = T.SourceSpan }
 SemPathStepList.Nil = {}
@@ -1570,14 +1570,14 @@ SemObjectFieldList.Nil = {}
 SemObjectFieldList.Cons = { head = SemObjectField, tail = SemObjectFieldList }
 
 SemFact.Cardinality = { expr = SemExpr, cardinality = T.Cardinality, span = T.SourceSpan }
-SemFact.ValueClass = { expr = SemExpr, value_class = T.ValueClass, nullable = moon.bool, span = T.SourceSpan }
+SemFact.ValueClass = { expr = SemExpr, value_class = T.ValueClass, nullable = lalin.bool, span = T.SourceSpan }
 SemFact.ConstantPath = { expr = SemExpr, path = SemPath, span = T.SourceSpan }
 SemFact.IndexablePredicate = { expr = SemExpr, path = SemPath, op = T.CompareOp, literal = SemExpr, span = T.SourceSpan }
-SemFact.RequiresMaterialization = { expr = SemExpr, reason = moon.u32, span = T.SourceSpan }
+SemFact.RequiresMaterialization = { expr = SemExpr, reason = lalin.u32, span = T.SourceSpan }
 SemFactList.Nil = {}
 SemFactList.Cons = { head = SemFact, tail = SemFactList }
 
-SemParam.Value = { id = T.ParamId, name = T.SymbolId, value_class = T.ValueClass, required = moon.bool, span = T.SourceSpan }
+SemParam.Value = { id = T.ParamId, name = T.SymbolId, value_class = T.ValueClass, required = lalin.bool, span = T.SourceSpan }
 SemParamList.Nil = {}
 SemParamList.Cons = { head = SemParam, tail = SemParamList }
 
@@ -1596,7 +1596,7 @@ SemExpr.RootValue = { cardinality = T.Cardinality, value_class = T.ValueClass, s
 SemExpr.Param = { id = T.ParamId, cardinality = T.Cardinality, value_class = T.ValueClass, span = T.SourceSpan }
 SemExpr.Var = { id = T.SymbolId, cardinality = T.Cardinality, value_class = T.ValueClass, span = T.SourceSpan }
 SemExpr.LiteralNull = { span = T.SourceSpan }
-SemExpr.LiteralBool = { value = moon.bool, span = T.SourceSpan }
+SemExpr.LiteralBool = { value = lalin.bool, span = T.SourceSpan }
 SemExpr.LiteralNumber = { atom = T.SymbolId, number_policy = T.NumberPolicy, span = T.SourceSpan }
 SemExpr.LiteralString = { atom = T.SymbolId, span = T.SourceSpan }
 SemExpr.Path = { base = SemExpr, path = SemPath, missing = T.MissingPolicy, cardinality = T.Cardinality, value_class = T.ValueClass, span = T.SourceSpan }
@@ -1625,7 +1625,7 @@ SemIndexFact.PathIndex = {
     collection_epoch = T.Epoch,
     index_epoch = T.Epoch,
     policy_digest = T.Digest64,
-    estimated_rows = moon.u64,
+    estimated_rows = lalin.u64,
     selectivity_score = T.Score,
 }
 SemIndexFactList.Nil = {}
@@ -1636,18 +1636,18 @@ SemCatalog.Snapshot = {
     collection_epoch = T.Epoch,
     catalog_epoch = T.Epoch,
     policy_digest = T.Digest64,
-    doc_count = moon.u64,
+    doc_count = lalin.u64,
     digest = T.Digest64,
     indexes = SemIndexFactList,
 }
 
 SemTarget.Profile = {
-    pointer_bits = moon.u32,
-    endian = moon.u32,
-    simd_lanes = moon.u32,
-    cache_line_bytes = moon.u32,
-    allow_unaligned_loads = moon.bool,
-    wasm_safe = moon.bool,
+    pointer_bits = lalin.u32,
+    endian = lalin.u32,
+    simd_lanes = lalin.u32,
+    cache_line_bytes = lalin.u32,
+    allow_unaligned_loads = lalin.bool,
+    wasm_safe = lalin.bool,
     digest = T.Digest64,
 }
 
@@ -1704,7 +1704,7 @@ SemRoot.Planning = {
     row_profile = T.RowProfileId,
 }
 
-SemRoot.Invalid = { diagnostic_count = moon.u32 }
+SemRoot.Invalid = { diagnostic_count = lalin.u32 }
 
 -- Physical plan language ----------------------------------------------------
 local QueryPlan = vm.language "JsonqQueryPlan"
@@ -1739,7 +1739,7 @@ PlanPath.Constant = { path = T.PathId, digest = T.Digest64 }
 PlanPath.Dynamic = { reg = T.Reg, digest = T.Digest64 }
 
 PlanConst.Null = {}
-PlanConst.Bool = { value = moon.bool }
+PlanConst.Bool = { value = lalin.bool }
 PlanConst.NumberText = { atom = T.SymbolId, policy = T.NumberPolicy }
 PlanConst.String = { atom = T.SymbolId }
 PlanConst.Path = { path = T.PathId }
@@ -1771,7 +1771,7 @@ PlanOp.LoadParam = { dst = T.Reg, param = T.ParamId }
 PlanOp.Move = { dst = T.Reg, src = T.Reg }
 PlanOp.GetPath = { dst = T.Reg, src = T.Reg, path = PlanPath, missing = T.MissingPolicy }
 PlanOp.GetField = { dst = T.Reg, src = T.Reg, key = T.SymbolId, missing = T.MissingPolicy }
-PlanOp.GetIndex = { dst = T.Reg, src = T.Reg, index_value = moon.i64, missing = T.MissingPolicy }
+PlanOp.GetIndex = { dst = T.Reg, src = T.Reg, index_value = lalin.i64, missing = T.MissingPolicy }
 PlanOp.Iter = { dst = T.Reg, src = T.Reg, missing = T.MissingPolicy, body = T.BlockId }
 PlanOp.TreeWalk = { dst = T.Reg, src = T.Reg, mode = T.WalkMode, body = T.BlockId }
 PlanOp.Compare = { dst = T.Reg, left = T.Reg, right = T.Reg, op = T.CompareOp }
@@ -1787,7 +1787,7 @@ PlanOp.EmitJson = { src = T.Reg }
 PlanOp.EmitRow = { src = T.Reg, row_profile = T.RowProfileId }
 PlanOp.EmitScalar = { src = T.Reg }
 PlanOp.Stop = {}
-PlanOp.Error = { code = moon.u32, span = T.SourceSpan }
+PlanOp.Error = { code = lalin.u32, span = T.SourceSpan }
 
 PlanBlock.Linear = { id = T.BlockId, ops = PlanOpList }
 PlanBlock.WithConsts = { id = T.BlockId, consts = PlanConstList, ops = PlanOpList }
@@ -1796,8 +1796,8 @@ PlanRoot.Portable = {
     block = PlanBlock,
     guards = PlanGuardList,
     consts = PlanConstList,
-    register_count = moon.u32,
-    frame_count = moon.u32,
+    register_count = lalin.u32,
+    frame_count = lalin.u32,
     result_shape = T.ResultShape,
     row_profile = T.RowProfileId,
     output_policy = T.OutputPolicy,
@@ -1810,8 +1810,8 @@ PlanRoot.CatalogBound = {
     block = PlanBlock,
     guards = PlanGuardList,
     consts = PlanConstList,
-    register_count = moon.u32,
-    frame_count = moon.u32,
+    register_count = lalin.u32,
+    frame_count = lalin.u32,
     result_shape = T.ResultShape,
     row_profile = T.RowProfileId,
     output_policy = T.OutputPolicy,
@@ -1822,7 +1822,7 @@ PlanRoot.CatalogBound = {
     collection = T.JsonCollectionRef,
 }
 
-PlanRoot.Invalid = { diagnostic_count = moon.u32 }
+PlanRoot.Invalid = { diagnostic_count = lalin.u32 }
 
 -- Runtime bytecode language -------------------------------------------------
 local QueryRun = vm.language "JsonqQueryRun"
@@ -1848,7 +1848,7 @@ RunRowFieldList.Nil = {}
 RunRowFieldList.Cons = { head = RunRowField, tail = RunRowFieldList }
 
 RunConst.Null = {}
-RunConst.Bool = { value = moon.bool }
+RunConst.Bool = { value = lalin.bool }
 RunConst.NumberText = { atom = T.SymbolId, policy = T.NumberPolicy }
 RunConst.String = { atom = T.SymbolId }
 RunConst.Path = { path = T.PathId }
@@ -1859,7 +1859,7 @@ RunGuard.IndexEpoch = { index = T.PathIndexRef, required = T.Epoch }
 RunGuard.PolicyDigest = { required = T.Digest64 }
 RunGuard.TargetDigest = { required = T.Digest64 }
 
-RunRowField.Value = { name = T.SymbolId, src = T.Reg, value_class = T.ValueClass, nullable = moon.bool }
+RunRowField.Value = { name = T.SymbolId, src = T.Reg, value_class = T.ValueClass, nullable = lalin.bool }
 
 Instr.ValidateCatalog = { collection = T.JsonCollectionRef, required = T.Epoch, fail = T.LabelId }
 Instr.ValidateIndex = { index = T.PathIndexRef, required = T.Epoch, fail = T.LabelId }
@@ -1870,7 +1870,7 @@ Instr.LoadParam = { dst = T.Reg, param = T.ParamId }
 Instr.LoadConst = { dst = T.Reg, const_id = T.ConstId }
 Instr.Move = { dst = T.Reg, src = T.Reg }
 Instr.Field = { dst = T.Reg, src = T.Reg, key = T.SymbolId, missing = T.MissingPolicy, fail = T.LabelId }
-Instr.Index = { dst = T.Reg, src = T.Reg, index_value = moon.i64, missing = T.MissingPolicy, fail = T.LabelId }
+Instr.Index = { dst = T.Reg, src = T.Reg, index_value = lalin.i64, missing = T.MissingPolicy, fail = T.LabelId }
 Instr.Path = { dst = T.Reg, src = T.Reg, path = T.PathId, missing = T.MissingPolicy, fail = T.LabelId }
 Instr.EachEnter = { src = T.Reg, dst = T.Reg, frame = T.FrameSlot, done = T.LabelId }
 Instr.EachNext = { frame = T.FrameSlot, body = T.LabelId, done = T.LabelId }
@@ -1886,7 +1886,7 @@ Instr.Jump = { target = T.LabelId }
 Instr.JumpIfFalse = { cond = T.Reg, target = T.LabelId }
 Instr.JumpIfMissing = { src = T.Reg, target = T.LabelId }
 Instr.Label = { id = T.LabelId }
-Instr.ObjectNew = { dst = T.Reg, field_count = moon.u32 }
+Instr.ObjectNew = { dst = T.Reg, field_count = lalin.u32 }
 Instr.ObjectPutStatic = { object = T.Reg, key = T.SymbolId, value = T.Reg }
 Instr.ObjectPutDynamic = { object = T.Reg, key = T.Reg, value = T.Reg }
 Instr.ArrayNew = { dst = T.Reg }
@@ -1906,7 +1906,7 @@ Instr.MakeRow = { dst = T.Reg, row_profile = T.RowProfileId, fields = RunRowFiel
 Instr.EmitJson = { src = T.Reg }
 Instr.EmitRow = { src = T.Reg, row_profile = T.RowProfileId }
 Instr.EmitScalar = { src = T.Reg }
-Instr.Error = { code = moon.u32 }
+Instr.Error = { code = lalin.u32 }
 Instr.Stop = {}
 
 RunRoot.Program = {
@@ -1914,9 +1914,9 @@ RunRoot.Program = {
     guards = RunGuardList,
     consts = RunConstList,
     instructions = InstrList,
-    register_count = moon.u32,
-    frame_count = moon.u32,
-    temp_count = moon.u32,
+    register_count = lalin.u32,
+    frame_count = lalin.u32,
+    temp_count = lalin.u32,
     result_shape = T.ResultShape,
     row_profile = T.RowProfileId,
     output_policy = T.OutputPolicy,
@@ -1926,7 +1926,7 @@ RunRoot.Program = {
     planning_digest = T.Digest64,
 }
 
-RunRoot.Invalid = { diagnostic_count = moon.u32 }
+RunRoot.Invalid = { diagnostic_count = lalin.u32 }
 
 -- Catalog language ----------------------------------------------------------
 -- This language is used when a catalog/image snapshot itself must be recorded
@@ -1946,7 +1946,7 @@ CatalogCollection.Collection = {
     ref = T.JsonCollectionRef,
     collection_epoch = T.Epoch,
     policy_digest = T.Digest64,
-    doc_count = moon.u64,
+    doc_count = lalin.u64,
 }
 
 CatalogIndex.Path = {
@@ -1956,7 +1956,7 @@ CatalogIndex.Path = {
     collection_epoch = T.Epoch,
     index_epoch = T.Epoch,
     policy_digest = T.Digest64,
-    estimated_rows = moon.u64,
+    estimated_rows = lalin.u64,
     selectivity_score = T.Score,
 }
 
@@ -1964,7 +1964,7 @@ CatalogRoot.Request = {
     collection = T.JsonCollectionRef,
     required_collection_epoch = T.Epoch,
     required_policy_digest = T.Digest64,
-    include_indexes = moon.bool,
+    include_indexes = lalin.bool,
     request_epoch = T.Epoch,
 }
 

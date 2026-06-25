@@ -39,4 +39,4 @@ if has_cc == true or has_cc == 0 then
     assert(ok == true or ok == 0, "mlui_c_api.h should compile as C")
 end
 
-print("moonlift mlui c api header ok")
+print("lalin mlui c api header ok")

@@ -10,8 +10,8 @@
 		{
 			"id": "T001",
 			"title": "Stabilize Flow/Mem/Kernel ASDL shape",
-			"detail": "Curate the newly added MoonFlow/MoonMem/MoonKernel schemas so they encode the intended tower: MoonCode residual semantics; MoonFlow code-CFG facts with edge roles; MoonMem code-level memory/provenance facts and proofs; MoonKernel backend-neutral executable kernel sites, streams, cores, and schedules. Keep MoonKernel independent from MoonVec. Verify schema smoke tests.",
-			"file": "lua/moonlift/schema",
+			"detail": "Curate the newly added LalinFlow/LalinMem/LalinKernel schemas so they encode the intended tower: LalinCode residual semantics; LalinFlow code-CFG facts with edge roles; LalinMem code-level memory/provenance facts and proofs; LalinKernel backend-neutral executable kernel sites, streams, cores, and schedules. Keep LalinKernel independent from LalinVec. Verify schema smoke tests.",
+			"file": "lua/lalin/schema",
 			"after": [],
 			"status": "done",
 			"order": 1,
@@ -25,13 +25,13 @@
 		{
 			"id": "T002",
 			"title": "Add schema constructor tests for Flow/Mem/Kernel",
-			"detail": "Extend schema tests to instantiate representative MoonFlow, MoonMem, and MoonKernel nodes, including a counted loop, memory access fact, kernel stream, kernel site, and planned scalar/vector schedules. Reclaimed from stale disconnected claim agent-JTYV80 after coms-net peek target_not_connected.",
+			"detail": "Extend schema tests to instantiate representative LalinFlow, LalinMem, and LalinKernel nodes, including a counted loop, memory access fact, kernel stream, kernel site, and planned scalar/vector schedules. Reclaimed from stale disconnected claim agent-JTYV80 after coms-net peek target_not_connected.",
 			"file": "tests/test_schema_core.lua",
 			"after": [],
 			"status": "done",
 			"order": 2,
 			"claimedBy": "agent-3Z49ZW",
-			"evidence": "Extended tests/test_schema_core.lua with constructor coverage for CodeContractFactSet plus representative MoonFlow counted loop/edge/range, MoonMem access/proof/fact set, and MoonKernel site/stream/scalar+vector plans/rejection. Verified with `luajit tests/test_schema_core.lua`.",
+			"evidence": "Extended tests/test_schema_core.lua with constructor coverage for CodeContractFactSet plus representative LalinFlow counted loop/edge/range, LalinMem access/proof/fact set, and LalinKernel site/stream/scalar+vector plans/rejection. Verified with `luajit tests/test_schema_core.lua`.",
 			"notes": [],
 			"createdAt": "2026-06-15T13:43:46.949Z",
 			"updatedAt": "2026-06-15T13:48:43.839Z"
@@ -39,13 +39,13 @@
 		{
 			"id": "T003",
 			"title": "Extract code-level contract facts",
-			"detail": "Translate Tree.ContractFact values into MoonCode.CodeContractFactSet keyed by CodeFuncId/CodeValueId so MoonMem no longer depends on MoonTree contracts for proof provenance. Reclaimed from stale disconnected claim agent-058BCD after coms-net peek target_not_connected.",
-			"file": "lua/moonlift/tree_to_code.lua",
+			"detail": "Translate Tree.ContractFact values into LalinCode.CodeContractFactSet keyed by CodeFuncId/CodeValueId so LalinMem no longer depends on LalinTree contracts for proof provenance. Reclaimed from stale disconnected claim agent-058BCD after coms-net peek target_not_connected.",
+			"file": "lua/lalin/tree_to_code.lua",
 			"after": [],
 			"status": "done",
 			"order": 3,
 			"claimedBy": "agent-3Z49ZW",
-			"evidence": "Updated lua/moonlift/tree_to_code.lua to expose `contracts(module, opts)` and `module_with_contracts(module, opts)`, translating tree contract facts to MoonCode.CodeContractFactSet/CodeFuncContractFact keyed by CodeModuleId, CodeFuncId, and CodeValueId, with unsupported contract expressions emitted as CodeContractRejected. Added focused assertions in tests/test_tree_to_code.lua for bounds/disjoint/noalias/readonly lowering and verified with `luajit tests/test_tree_to_code.lua`.",
+			"evidence": "Updated lua/lalin/tree_to_code.lua to expose `contracts(module, opts)` and `module_with_contracts(module, opts)`, translating tree contract facts to LalinCode.CodeContractFactSet/CodeFuncContractFact keyed by CodeModuleId, CodeFuncId, and CodeValueId, with unsupported contract expressions emitted as CodeContractRejected. Added focused assertions in tests/test_tree_to_code.lua for bounds/disjoint/noalias/readonly lowering and verified with `luajit tests/test_tree_to_code.lua`.",
 			"notes": [],
 			"createdAt": "2026-06-15T13:43:46.949Z",
 			"updatedAt": "2026-06-15T13:50:43.770Z"
@@ -53,13 +53,13 @@
 		{
 			"id": "T004",
 			"title": "Implement code_flow_facts phase",
-			"detail": "Analyze CodeFunc blocks, terminators, block params, and jump arguments to produce MoonFlow.FlowFactSet with edges, loop roles, counted domains, inductions, exits, ranges, and rejection facts. Reclaimed from stale disconnected claim agent-DVP75D after coms-net peek target_not_connected.",
-			"file": "lua/moonlift/code_flow_facts.lua",
+			"detail": "Analyze CodeFunc blocks, terminators, block params, and jump arguments to produce LalinFlow.FlowFactSet with edges, loop roles, counted domains, inductions, exits, ranges, and rejection facts. Reclaimed from stale disconnected claim agent-DVP75D after coms-net peek target_not_connected.",
+			"file": "lua/lalin/code_flow_facts.lua",
 			"after": [],
 			"status": "done",
 			"order": 4,
 			"claimedBy": "agent-3Z49ZW",
-			"evidence": "Added lua/moonlift/code_flow_facts.lua with deterministic MoonCode CFG edge extraction, natural-loop/backedge/exit roles, counted-domain/primary-induction recognition from block params and jump args, constant/range facts, and explicit FlowReject facts for non-counted/unsupported cases. Added tests/test_code_flow_facts.lua covering counted loop facts, edge roles, switch edge kinds, and const ranges. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_tree_to_code.lua && luajit tests/test_code_flow_facts.lua`.",
+			"evidence": "Added lua/lalin/code_flow_facts.lua with deterministic LalinCode CFG edge extraction, natural-loop/backedge/exit roles, counted-domain/primary-induction recognition from block params and jump args, constant/range facts, and explicit FlowReject facts for non-counted/unsupported cases. Added tests/test_code_flow_facts.lua covering counted loop facts, edge roles, switch edge kinds, and const ranges. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_tree_to_code.lua && luajit tests/test_code_flow_facts.lua`.",
 			"notes": [],
 			"createdAt": "2026-06-15T13:43:46.949Z",
 			"updatedAt": "2026-06-15T13:53:20.079Z"
@@ -67,15 +67,15 @@
 		{
 			"id": "T005",
 			"title": "Implement code_mem_facts phase",
-			"detail": "Analyze CodeInstLoad/Store/Atomics, CodePlace and CodeInstPtrOffset/view-derived access patterns to produce MoonMem.MemFactSet. Preserve volatility/atomics/trap semantics and validate consistency against CodeMemoryAccess.",
-			"file": "lua/moonlift/code_mem_facts.lua",
+			"detail": "Analyze CodeInstLoad/Store/Atomics, CodePlace and CodeInstPtrOffset/view-derived access patterns to produce LalinMem.MemFactSet. Preserve volatility/atomics/trap semantics and validate consistency against CodeMemoryAccess.",
+			"file": "lua/lalin/code_mem_facts.lua",
 			"after": [
 				"T004"
 			],
 			"status": "done",
 			"order": 5,
 			"claimedBy": "agent-3Z49ZW",
-			"evidence": "Added lua/moonlift/code_mem_facts.lua to extract MoonMem.MemFactSet from MoonCode loads/stores/atomics, normalize CodePlace/CodeInstPtrOffset/view-derived addressing into base/index/pattern/bounds/alignment/trap facts, preserve access/volatile/atomic metadata through CodeMemoryAccess, conservatively emit alias/dependence unknown facts, and fail loudly on access-mode/type contradictions. Added tests/test_code_mem_facts.lua covering loop indexed load/store facts, induction-derived access patterns, alias/dependence facts, and atomic/volatile/nontrapping preservation. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_tree_to_code.lua && luajit tests/test_code_flow_facts.lua && luajit tests/test_code_mem_facts.lua`.",
+			"evidence": "Added lua/lalin/code_mem_facts.lua to extract LalinMem.MemFactSet from LalinCode loads/stores/atomics, normalize CodePlace/CodeInstPtrOffset/view-derived addressing into base/index/pattern/bounds/alignment/trap facts, preserve access/volatile/atomic metadata through CodeMemoryAccess, conservatively emit alias/dependence unknown facts, and fail loudly on access-mode/type contradictions. Added tests/test_code_mem_facts.lua covering loop indexed load/store facts, induction-derived access patterns, alias/dependence facts, and atomic/volatile/nontrapping preservation. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_tree_to_code.lua && luajit tests/test_code_flow_facts.lua && luajit tests/test_code_mem_facts.lua`.",
 			"notes": [],
 			"createdAt": "2026-06-15T13:43:46.949Z",
 			"updatedAt": "2026-06-15T13:56:19.486Z"
@@ -83,8 +83,8 @@
 		{
 			"id": "T006",
 			"title": "Implement code_kernel_plan phase",
-			"detail": "Consume CodeModule, FlowFactSet, MemFactSet, and CodeContractFactSet to produce MoonKernel.KernelModulePlan with explicit rejections for unsupported loops/memory, scalar reductions/maps, pointer-stream schedules, and vector-eligible schedules.",
-			"file": "lua/moonlift/code_kernel_plan.lua",
+			"detail": "Consume CodeModule, FlowFactSet, MemFactSet, and CodeContractFactSet to produce LalinKernel.KernelModulePlan with explicit rejections for unsupported loops/memory, scalar reductions/maps, pointer-stream schedules, and vector-eligible schedules.",
+			"file": "lua/lalin/code_kernel_plan.lua",
 			"after": [
 				"T003",
 				"T004",
@@ -93,7 +93,7 @@
 			"status": "done",
 			"order": 6,
 			"claimedBy": "agent-3Z49ZW",
-			"evidence": "Added lua/moonlift/code_kernel_plan.lua to consume CodeModule + FlowFactSet + MemFactSet + CodeContractFactSet and emit MoonKernel.KernelModulePlan. It builds KernelSite/streams/stores/counters, emits KernelNoPlan with explicit loop/memory/trap/alias/dependence rejections for unsafe cases, uses code contracts as bounds/noalias assumptions/proofs, and emits vector-eligible schedules for contiguous contracted map loops. Added tests/test_code_kernel_plan.lua covering a contracted planned map/vector schedule and an uncontracted pointer loop rejected without silent fallback. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_tree_to_code.lua && luajit tests/test_code_flow_facts.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua`.",
+			"evidence": "Added lua/lalin/code_kernel_plan.lua to consume CodeModule + FlowFactSet + MemFactSet + CodeContractFactSet and emit LalinKernel.KernelModulePlan. It builds KernelSite/streams/stores/counters, emits KernelNoPlan with explicit loop/memory/trap/alias/dependence rejections for unsafe cases, uses code contracts as bounds/noalias assumptions/proofs, and emits vector-eligible schedules for contiguous contracted map loops. Added tests/test_code_kernel_plan.lua covering a contracted planned map/vector schedule and an uncontracted pointer loop rejected without silent fallback. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_tree_to_code.lua && luajit tests/test_code_flow_facts.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua`.",
 			"notes": [],
 			"createdAt": "2026-06-15T13:43:46.949Z",
 			"updatedAt": "2026-06-15T13:58:41.785Z"
@@ -101,15 +101,15 @@
 		{
 			"id": "T007",
 			"title": "Review and narrow vector migration onto Kernel tower",
-			"detail": "Do not rewrite the whole vector stack at once. Compare existing vec_loop_facts/vec_kernel_plan/vec_kernel_safety/vec_kernel_to_back against Flow/Mem/Kernel and decide how MoonVec becomes a consumer of Kernel/Lower rather than a competing fact tower. Make only design-coherent compatibility edits/tests.",
-			"file": "lua/moonlift/vec_kernel_plan.lua",
+			"detail": "Do not rewrite the whole vector stack at once. Compare existing vec_loop_facts/vec_kernel_plan/vec_kernel_safety/vec_kernel_to_back against Flow/Mem/Kernel and decide how LalinVec becomes a consumer of Kernel/Lower rather than a competing fact tower. Make only design-coherent compatibility edits/tests.",
+			"file": "lua/lalin/vec_kernel_plan.lua",
 			"after": [
 				"T006"
 			],
 			"status": "done",
 			"order": 7,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Reviewed the existing vector stack against the corrected recognize-and-lower tower. Decided not to migrate tree-shaped Vec facts into the generic tower now; instead explicitly marked vec_loop_facts.lua, vec_kernel_plan.lua, vec_kernel_safety.lua, and vec_kernel_to_back.lua as legacy/prototype Back fast-path modules. Generic loop/memory/safety/schedule facts now belong in MoonFlow/MoonMem/MoonKernel, while MoonVec should shrink toward vector-specific lane/target lowering over Kernel schedules. Verified current vector behavior remains intact with `luajit tests/test_parse_kernels.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua`.",
+			"evidence": "Reviewed the existing vector stack against the corrected recognize-and-lower tower. Decided not to migrate tree-shaped Vec facts into the generic tower now; instead explicitly marked vec_loop_facts.lua, vec_kernel_plan.lua, vec_kernel_safety.lua, and vec_kernel_to_back.lua as legacy/prototype Back fast-path modules. Generic loop/memory/safety/schedule facts now belong in LalinFlow/LalinMem/LalinKernel, while LalinVec should shrink toward vector-specific lane/target lowering over Kernel schedules. Verified current vector behavior remains intact with `luajit tests/test_parse_kernels.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua`.",
 			"notes": [
 				"Unblocked/re-scoped from broad full migration. The previous block was a scope/design concern, not a technical impossibility.",
 				"Released stale claim from aborted worker session; this is a design task, not a blind worker implementation task."
@@ -121,7 +121,7 @@
 			"id": "T008",
 			"title": "Add kernel validators",
 			"detail": "Validate Flow/Mem/Kernel facts for referential integrity, deterministic ordering, no contradictions with CodeMemoryAccess, coverage of KernelSite blocks, and explicit handling of atomic/volatile/trapping accesses.",
-			"file": "lua/moonlift/kernel_validate.lua",
+			"file": "lua/lalin/kernel_validate.lua",
 			"after": [
 				"T004",
 				"T005",
@@ -130,7 +130,7 @@
 			"status": "done",
 			"order": 8,
 			"claimedBy": "agent-3Z49ZW",
-			"evidence": "Added lua/moonlift/kernel_validate.lua with validation for Flow/Mem/Kernel module coherence, referential integrity against CodeModule funcs/blocks/insts/values, duplicate IDs, MemAccessFact consistency with original CodeMemoryAccess/place/kind, KernelSite loop coverage, explicit KernelNoPlan rejections, and unsafe planned volatile/atomic/may-trap handling. Added tests/test_kernel_validate.lua covering a valid planned tower plus deliberate memory contradiction and empty KernelNoPlan rejection failures. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_tree_to_code.lua && luajit tests/test_code_flow_facts.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_kernel_validate.lua`.",
+			"evidence": "Added lua/lalin/kernel_validate.lua with validation for Flow/Mem/Kernel module coherence, referential integrity against CodeModule funcs/blocks/insts/values, duplicate IDs, MemAccessFact consistency with original CodeMemoryAccess/place/kind, KernelSite loop coverage, explicit KernelNoPlan rejections, and unsafe planned volatile/atomic/may-trap handling. Added tests/test_kernel_validate.lua covering a valid planned tower plus deliberate memory contradiction and empty KernelNoPlan rejection failures. Verified with `luajit tests/test_schema_core.lua && luajit tests/test_tree_to_code.lua && luajit tests/test_code_flow_facts.lua && luajit tests/test_code_mem_facts.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_kernel_validate.lua`.",
 			"notes": [],
 			"createdAt": "2026-06-15T13:43:46.949Z",
 			"updatedAt": "2026-06-15T14:01:26.460Z"
@@ -138,8 +138,8 @@
 		{
 			"id": "T009",
 			"title": "Implement whole-function Lower selection phase",
-			"detail": "Implement a simple lowering-selection phase around MoonLower.LowerModule: each CodeFunc lowers either as LowerFuncKernel when KernelModulePlan contains a KernelPlanned for the function, or as LowerFuncCode when kernel lowering rejects/is absent. No residual CFG splicing, no partial replacement, no live-in/out protocols. This is recognize-and-lower, not rewrite-and-replace.",
-			"file": "lua/moonlift/code_lower_plan.lua",
+			"detail": "Implement a simple lowering-selection phase around LalinLower.LowerModule: each CodeFunc lowers either as LowerFuncKernel when KernelModulePlan contains a KernelPlanned for the function, or as LowerFuncCode when kernel lowering rejects/is absent. No residual CFG splicing, no partial replacement, no live-in/out protocols. This is recognize-and-lower, not rewrite-and-replace.",
+			"file": "lua/lalin/code_lower_plan.lua",
 			"after": [
 				"T006",
 				"T008"
@@ -147,11 +147,11 @@
 			"status": "done",
 			"order": 9,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Corrected design from rewrite/replacement to proper whole-function recognize-and-lower. Simplified lua/moonlift/schema/kernel.asdl to KernelPlan over CodeFuncId (no KernelSite) and lua/moonlift/schema/lower.asdl to whole-function LowerFuncCode/LowerFuncKernel selection (no residual CFG splicing). Updated code_kernel_plan.lua and kernel_validate.lua to new KernelFuncPlan shape. Added lua/moonlift/code_lower_plan.lua and tests/test_code_lower_plan.lua. Verified with `luajit tests/test_code_lower_plan.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_core.lua && luajit tests/test_schema_compile_pipeline.lua`.",
+			"evidence": "Corrected design from rewrite/replacement to proper whole-function recognize-and-lower. Simplified lua/lalin/schema/kernel.asdl to KernelPlan over CodeFuncId (no KernelSite) and lua/lalin/schema/lower.asdl to whole-function LowerFuncCode/LowerFuncKernel selection (no residual CFG splicing). Updated code_kernel_plan.lua and kernel_validate.lua to new KernelFuncPlan shape. Added lua/lalin/code_lower_plan.lua and tests/test_code_lower_plan.lua. Verified with `luajit tests/test_code_lower_plan.lua && luajit tests/test_code_kernel_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_core.lua && luajit tests/test_schema_compile_pipeline.lua`.",
 			"notes": [
 				"Unblocked/re-scoped from full C/Back projection. Start with a safe seam and explicit unsupported projection handling rather than a placeholder fast path.",
-				"Reframed after design correction: the missing ASDL layer is composition/residual lowering, not an eager projector seam. Added lua/moonlift/schema/lower.asdl and loaded it in schema/init.lua.",
-				"Corrected design: removed residual/replacement architecture. MoonLower is now a whole-function lowering selector only. KernelPlan is per CodeFunc, not per KernelSite.",
+				"Reframed after design correction: the missing ASDL layer is composition/residual lowering, not an eager projector seam. Added lua/lalin/schema/lower.asdl and loaded it in schema/init.lua.",
+				"Corrected design: removed residual/replacement architecture. LalinLower is now a whole-function lowering selector only. KernelPlan is per CodeFunc, not per KernelSite.",
 				"Refinement after completion: KernelPlan now has KernelSubjectFunc/KernelSubjectLoop. CodeLowerPlan only emits LowerFuncKernel for KernelSubjectFunc; current code_kernel_plan loop analyses remain LowerFuncCode until complete whole-function kernel semantics are recognized."
 			],
 			"createdAt": "2026-06-15T13:43:46.949Z",
@@ -161,7 +161,7 @@
 			"id": "T010",
 			"title": "Integrate fact tower and whole-function Lower selection in frontend pipeline",
 			"detail": "Update frontend_pipeline to run code_validate -> code_flow_facts -> code_mem_facts -> code_kernel_plan -> kernel_validate -> lower selection. Expose fact/plan/lower artifacts in pipeline results. Actual backend projection remains code path until lower_to_* exists.",
-			"file": "lua/moonlift/frontend_pipeline.lua",
+			"file": "lua/lalin/frontend_pipeline.lua",
 			"after": [
 				"T007",
 				"T008",
@@ -170,10 +170,10 @@
 			"status": "done",
 			"order": 10,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Integrated the fact/lower tower into lua/moonlift/frontend_pipeline.lua without changing backend projection yet: both native and C paths now use TreeToCode.module_with_contracts, then CodeValidate -> CodeFlowFacts -> CodeMemFacts -> CodeKernelPlan -> KernelValidate -> CodeLowerPlan. Pipeline result exposes code_contracts, flow_facts, mem_facts, kernel_plan, kernel_report, and lower_plan. Verified with `luajit tests/test_schema_compile_pipeline.lua`, `luajit tests/test_parse_typecheck.lua`, `luajit tests/test_parse_kernels.lua`, `luajit tests/test_code_to_c_smoke.lua`, and `luajit tests/test_code_lower_plan.lua` (attempted tests/test_mlua_host_pipeline.lua but file does not exist).",
+			"evidence": "Integrated the fact/lower tower into lua/lalin/frontend_pipeline.lua without changing backend projection yet: both native and C paths now use TreeToCode.module_with_contracts, then CodeValidate -> CodeFlowFacts -> CodeMemFacts -> CodeKernelPlan -> KernelValidate -> CodeLowerPlan. Pipeline result exposes code_contracts, flow_facts, mem_facts, kernel_plan, kernel_report, and lower_plan. Verified with `luajit tests/test_schema_compile_pipeline.lua`, `luajit tests/test_parse_typecheck.lua`, `luajit tests/test_parse_kernels.lua`, `luajit tests/test_code_to_c_smoke.lua`, and `luajit tests/test_code_lower_plan.lua` (attempted tests/test_mlua_host_pipeline.lua but file does not exist).",
 			"notes": [
 				"Adjusted integration scope: pipeline can expose validated facts/plans before full replacement projection is mature.",
-				"Integration must include the new MoonLower composition boundary.",
+				"Integration must include the new LalinLower composition boundary.",
 				"Integration must reflect recognize-and-lower: no residual replacement semantics."
 			],
 			"createdAt": "2026-06-15T13:43:46.949Z",
@@ -183,7 +183,7 @@
 			"id": "T012",
 			"title": "Recognize complete whole-function kernel lowers",
 			"detail": "Extend code_kernel_plan beyond loop-subject analysis facts so it can produce KernelSubjectFunc plans only when the entire CodeFunc semantics are represented by KernelCore plus function result/return semantics. Do not mark loop facts as whole-function lowers.",
-			"file": "lua/moonlift/code_kernel_plan.lua",
+			"file": "lua/lalin/code_kernel_plan.lua",
 			"after": [
 				"T006",
 				"T009"
@@ -191,7 +191,7 @@
 			"status": "done",
 			"order": 10.5,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Implemented conservative whole-function reduction recognition in lua/moonlift/code_kernel_plan.lua. Planner now emits KernelSubjectFunc only for complete counted reductions with no stores, identity init, accumulator backedge recurrence, and verified return of final accumulator from loop exit. Loop/store kernels remain KernelSubjectLoop facts. Added tests in tests/test_code_kernel_plan.lua and tests/test_code_lower_plan.lua confirming copy_sum remains loop-subject/Code fallback while sum_loop becomes KernelSubjectFunc/LowerFuncKernel. Verified with `luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_core.lua`.",
+			"evidence": "Implemented conservative whole-function reduction recognition in lua/lalin/code_kernel_plan.lua. Planner now emits KernelSubjectFunc only for complete counted reductions with no stores, identity init, accumulator backedge recurrence, and verified return of final accumulator from loop exit. Loop/store kernels remain KernelSubjectLoop facts. Added tests in tests/test_code_kernel_plan.lua and tests/test_code_lower_plan.lua confirming copy_sum remains loop-subject/Code fallback while sum_loop becomes KernelSubjectFunc/LowerFuncKernel. Verified with `luajit tests/test_code_kernel_plan.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_core.lua`.",
 			"notes": [
 				"Design correction discovered after T010: existing KernelCoreMap/Loop facts describe loop structure but do not yet encode whole function return semantics (e.g. copy_sum store+acc return). Lower selection now correctly refuses loop-subject plans."
 			],
@@ -202,7 +202,7 @@
 			"id": "T011",
 			"title": "Project whole-function Kernel lowers to C and Back",
 			"detail": "Implement lower_to_c/lower_to_back for LowerFuncKernel whole-function lowers and LowerFuncCode fallback. Only project KernelSubjectFunc plans that encode complete function semantics; do not project loop-subject analysis facts as replacements.",
-			"file": "lua/moonlift/lower_to_c.lua",
+			"file": "lua/lalin/lower_to_c.lua",
 			"after": [
 				"T012",
 				"T010"
@@ -210,7 +210,7 @@
 			"status": "done",
 			"order": 11,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Added lua/moonlift/lower_to_back.lua and lua/moonlift/lower_to_c.lua. Both consume MoonLower.LowerModule, preserve LowerFuncCode fallback through code_to_back/code_to_c, and project only KernelSubjectFunc + KernelCoreReduce whole-function kernels. Back projection emits a complete Back function body; C projection replaces the CBackendFunc and adds helper uses. Integrated frontend_pipeline to call LowerToBack/LowerToC after CodeLowerPlan while preserving legacy vector Back replacements for non-whole-function vector paths. Added projection validation assertions to tests/test_code_lower_plan.lua. Verified with `luajit tests/test_schema_compile_pipeline.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_parse_kernels.lua && luajit tests/test_code_to_c_smoke.lua && luajit tests/test_code_to_back.lua`, plus an ad-hoc contracted ptr_sum whole-function kernel validating through both BackValidate and CValidate.",
+			"evidence": "Added lua/lalin/lower_to_back.lua and lua/lalin/lower_to_c.lua. Both consume LalinLower.LowerModule, preserve LowerFuncCode fallback through code_to_back/code_to_c, and project only KernelSubjectFunc + KernelCoreReduce whole-function kernels. Back projection emits a complete Back function body; C projection replaces the CBackendFunc and adds helper uses. Integrated frontend_pipeline to call LowerToBack/LowerToC after CodeLowerPlan while preserving legacy vector Back replacements for non-whole-function vector paths. Added projection validation assertions to tests/test_code_lower_plan.lua. Verified with `luajit tests/test_schema_compile_pipeline.lua && luajit tests/test_code_lower_plan.lua && luajit tests/test_parse_kernels.lua && luajit tests/test_code_to_c_smoke.lua && luajit tests/test_code_to_back.lua`, plus an ad-hoc contracted ptr_sum whole-function kernel validating through both BackValidate and CValidate.",
 			"notes": [
 				"Re-gated after semantic correction: projection requires complete whole-function KernelSubjectFunc plans, not loop-subject facts.",
 				"Follow-up speed/correctness improvement: lower_to_back/lower_to_c now recognize scalar i32 iota-sum reductions (no streams, add identity 0, start=0, step=1, contribution is counter) and lower them to a guarded closed-form n*(n-1)/2 with n>0 check, preserving n<=0 loop semantics. Verified runtime for cranelift and c/libtcc on n=-3,0,1,10 and benchmarked quick.",
@@ -223,7 +223,7 @@
 			"id": "T013",
 			"title": "Generalize whole-function kernel recognition beyond reductions",
 			"detail": "Recognize complete whole-function KernelSubjectFunc plans for side-effecting counted map loops whose semantics are fully represented by KernelCoreMap plus a simple function return (void or constant/scalar return). This is a general semantic lowering boundary, not a benchmark special case.",
-			"file": "lua/moonlift/code_kernel_plan.lua",
+			"file": "lua/lalin/code_kernel_plan.lua",
 			"after": [
 				"T012"
 			],
@@ -232,7 +232,7 @@
 			"claimedBy": "agent-6BP451",
 			"evidence": "Generalized code_kernel_plan around unified KernelBodyCounted semantics. Store+fold loops like copy_sum now become KernelSubjectFunc with streams plus KernelEffectStore and KernelEffectFold, and KernelResultFold. Store-only/simple-return kernels can be represented with KernelEffectStore plus KernelResultExpr/Void through simple loop-exit result analysis. Store expressions now lower through kernel_expr_for so load-derived store values are semantic KernelExprs instead of opaque value ids. Verified with `luajit tests/test_code_kernel_plan.lua && luajit tests/test_kernel_validate.lua && luajit tests/test_schema_core.lua && luajit tests/test_schema_compile_pipeline.lua`.",
 			"notes": [
-				"ASDL design step completed before implementation: MoonKernel now has unified semantic KernelBodyCounted with streams, bindings, effects, result, and safety. Map/reduce/loop are no longer primary KernelCore variants; stores and folds are KernelEffect variants, and function result is explicit KernelResult. Existing planner/lowerers were adapted to construct/consume this unified body for current coverage."
+				"ASDL design step completed before implementation: LalinKernel now has unified semantic KernelBodyCounted with streams, bindings, effects, result, and safety. Map/reduce/loop are no longer primary KernelCore variants; stores and folds are KernelEffect variants, and function result is explicit KernelResult. Existing planner/lowerers were adapted to construct/consume this unified body for current coverage."
 			],
 			"createdAt": "2026-06-15T17:39:00.915Z",
 			"updatedAt": "2026-06-15T17:59:37.137Z"
@@ -241,14 +241,14 @@
 			"id": "T014",
 			"title": "Project KernelCoreMap vector schedules to Back",
 			"detail": "Extend lower_to_back to consume KernelScheduleVector for KernelCoreMap: vectorize contiguous load/store streams, lower KernelExpr trees generically, emit scalar tail, and validate Back. Avoid special-casing triad_store names or source shapes.",
-			"file": "lua/moonlift/lower_to_back.lua",
+			"file": "lua/lalin/lower_to_back.lua",
 			"after": [
 				"T013"
 			],
 			"status": "done",
 			"order": 14,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Extended `lua/moonlift/lower_to_back.lua` so whole-function `KernelBodyCounted` projections are not fold-only: vector scheduled bodies now emit generic `KernelEffectStore` stores in the vector loop and scalar tail, while optionally also emitting `KernelEffectFold` reduction accumulation and `KernelResultFold` returns. Store values are lowered through KernelExpr trees, so copy_sum-style store+fold kernels validate as Back with CmdStoreInfo plus vector commands. Added test coverage in `tests/test_code_lower_plan.lua`. Verified `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_code_kernel_plan.lua`, `luajit tests/test_kernel_validate.lua`, `luajit tests/test_schema_core.lua`, `luajit tests/test_schema_compile_pipeline.lua`, and `luajit tests/test_parse_kernels.lua`.",
+			"evidence": "Extended `lua/lalin/lower_to_back.lua` so whole-function `KernelBodyCounted` projections are not fold-only: vector scheduled bodies now emit generic `KernelEffectStore` stores in the vector loop and scalar tail, while optionally also emitting `KernelEffectFold` reduction accumulation and `KernelResultFold` returns. Store values are lowered through KernelExpr trees, so copy_sum-style store+fold kernels validate as Back with CmdStoreInfo plus vector commands. Added test coverage in `tests/test_code_lower_plan.lua`. Verified `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_code_kernel_plan.lua`, `luajit tests/test_kernel_validate.lua`, `luajit tests/test_schema_core.lua`, `luajit tests/test_schema_compile_pipeline.lua`, and `luajit tests/test_parse_kernels.lua`.",
 			"notes": [
 				"Do not proceed by adding individual loop recognizers. Next Back work should lower KernelBodyCounted generically from bindings/effects/result/schedule."
 			],
@@ -259,14 +259,14 @@
 			"id": "T015",
 			"title": "Keep C path code-projection fallback until generic C kernel lowering exists",
 			"detail": "Do not add point C optimizations. Keep lower_to_c projecting only generic safe lowers or falling back to code_to_c. Add notes/tests documenting that C kernel projection should follow the same KernelCoreMap/Reduce architecture later.",
-			"file": "lua/moonlift/lower_to_c.lua",
+			"file": "lua/lalin/lower_to_c.lua",
 			"after": [
 				"T013"
 			],
 			"status": "done",
 			"order": 15,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Kept `lua/moonlift/lower_to_c.lua` conservative: C kernel projection now only replaces pure fold whole-function kernels whose `KernelBodyCounted` has no stores and whose result is the matching `KernelResultFold`; unsupported KernelBody shapes (including store+fold) fall back to ordinary `CodeToC.module` instead of erroring or partially optimizing. Added an explicit comment documenting the fallback policy and test coverage in `tests/test_code_lower_plan.lua` for store+fold fallback. Verified `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_schema_compile_pipeline.lua`, and `luajit benchmarks/bench_c_vs_cranelift.lua quick`.",
+			"evidence": "Kept `lua/lalin/lower_to_c.lua` conservative: C kernel projection now only replaces pure fold whole-function kernels whose `KernelBodyCounted` has no stores and whose result is the matching `KernelResultFold`; unsupported KernelBody shapes (including store+fold) fall back to ordinary `CodeToC.module` instead of erroring or partially optimizing. Added an explicit comment documenting the fallback policy and test coverage in `tests/test_code_lower_plan.lua` for store+fold fallback. Verified `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_schema_compile_pipeline.lua`, and `luajit benchmarks/bench_c_vs_cranelift.lua quick`.",
 			"notes": [
 				"C should follow the same KernelBody semantics; avoid per-benchmark formulas or C-only special cases."
 			],
@@ -277,14 +277,14 @@
 			"id": "T016",
 			"title": "Remove replacement_funcs bridge from kernel Back lowering",
 			"detail": "Refactor lower_to_back/code_to_back integration so kernel lowering is a first-class module projection path, not an ad-hoc replacement_funcs override. The result should make LowerModule drive function projection directly while preserving CodeToBack fallback for LowerFuncCode.",
-			"file": "lua/moonlift/lower_to_back.lua",
+			"file": "lua/lalin/lower_to_back.lua",
 			"after": [
 				"T014"
 			],
 			"status": "done",
 			"order": 16,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Removed kernel lowering's `replacement_funcs` bridge. `lua/moonlift/lower_to_back.lua` now detects `LowerFuncKernel` and drives first-class module projection: emits module prelude, declares all funcs, then emits either `kernel_body_commands` or `CodeToBack.function_body_commands`, and finalizes directly. Kernel body commands no longer emit their own `CmdDeclareFunc`. `lua/moonlift/code_to_back.lua` now exposes `module_prelude_commands`, `function_declare`, and `function_body_commands` so LowerModule can drive projection without ad-hoc replacements. Verified `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_code_to_back.lua`, and `luajit tests/test_schema_compile_pipeline.lua`.",
+			"evidence": "Removed kernel lowering's `replacement_funcs` bridge. `lua/lalin/lower_to_back.lua` now detects `LowerFuncKernel` and drives first-class module projection: emits module prelude, declares all funcs, then emits either `kernel_body_commands` or `CodeToBack.function_body_commands`, and finalizes directly. Kernel body commands no longer emit their own `CmdDeclareFunc`. `lua/lalin/code_to_back.lua` now exposes `module_prelude_commands`, `function_declare`, and `function_body_commands` so LowerModule can drive projection without ad-hoc replacements. Verified `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_code_to_back.lua`, and `luajit tests/test_schema_compile_pipeline.lua`.",
 			"notes": [
 				"Added because the prior 15-task scope completed transitional implementation but did not finish architectural cleanup."
 			],
@@ -294,17 +294,17 @@
 		{
 			"id": "T017",
 			"title": "Retire legacy tree-vector replacement path from frontend",
-			"detail": "Remove or gate the legacy VecKernelPlan/VecKernelToBack replacement path in frontend_pipeline. Vector/kernel fast paths should come from MoonCode -> Flow/Mem/Kernel/Lower, not tree-shaped recognizers. Preserve legacy modules only as tests/prototype if needed, not as the active backend path.",
-			"file": "lua/moonlift/frontend_pipeline.lua",
+			"detail": "Remove or gate the legacy VecKernelPlan/VecKernelToBack replacement path in frontend_pipeline. Vector/kernel fast paths should come from LalinCode -> Flow/Mem/Kernel/Lower, not tree-shaped recognizers. Preserve legacy modules only as tests/prototype if needed, not as the active backend path.",
+			"file": "lua/lalin/frontend_pipeline.lua",
 			"after": [
 				"T016"
 			],
 			"status": "done",
 			"order": 17,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Removed the active legacy tree-shaped vector replacement path from `lua/moonlift/frontend_pipeline.lua`: no more `vec_kernel_plan`/`vec_kernel_to_back` requires, no `vector_back_replacements`, and `LowerToBack.module` is invoked only with the MoonCode/Flow/Mem/Kernel/Lower plan. Updated `tests/test_parse_kernels.lua` so the integrated kernel corpus checks lowering/JIT semantics instead of requiring the retired legacy vector replacement artifacts. Verified `luajit tests/test_parse_kernels.lua`, `luajit tests/test_schema_compile_pipeline.lua`, and `luajit tests/test_code_lower_plan.lua`.",
+			"evidence": "Removed the active legacy tree-shaped vector replacement path from `lua/lalin/frontend_pipeline.lua`: no more `vec_kernel_plan`/`vec_kernel_to_back` requires, no `vector_back_replacements`, and `LowerToBack.module` is invoked only with the LalinCode/Flow/Mem/Kernel/Lower plan. Updated `tests/test_parse_kernels.lua` so the integrated kernel corpus checks lowering/JIT semantics instead of requiring the retired legacy vector replacement artifacts. Verified `luajit tests/test_parse_kernels.lua`, `luajit tests/test_schema_compile_pipeline.lua`, and `luajit tests/test_code_lower_plan.lua`.",
 			"notes": [
-				"Added to address the active legacy MoonVec tree replacement path remaining in frontend_pipeline."
+				"Added to address the active legacy LalinVec tree replacement path remaining in frontend_pipeline."
 			],
 			"createdAt": "2026-06-15T18:10:20.319Z",
 			"updatedAt": "2026-06-15T18:15:46.930Z"
@@ -313,14 +313,14 @@
 			"id": "T018",
 			"title": "Generalize KernelExpr Back projection coverage",
 			"detail": "Expand lower_to_back KernelExpr projection beyond the currently supported subset. Cover select/compare where schema supports them, value bindings, constants, loads, binary ops, and explicit failure for unsupported expressions. Add validation-focused tests for generic store/map/fold bodies.",
-			"file": "lua/moonlift/lower_to_back.lua",
+			"file": "lua/lalin/lower_to_back.lua",
 			"after": [
 				"T016"
 			],
 			"status": "done",
 			"order": 18,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Generalized KernelExpr Back projection in `lua/moonlift/lower_to_back.lua`: scalar and vector paths now handle KernelExprValue, KernelExprConst, KernelExprLoad, KernelExprBinary, KernelExprCompare, and KernelExprSelect with explicit errors for unsupported expressions. Added cmp/vec-cmp mapping and fixed result expression return emission. Also fixed `code_kernel_plan.lua` KernelExpr DAG expansion so repeated values in sibling branches (e.g. select condition and else value) are re-expanded safely instead of becoming missing opaque values. Added compare/select vector projection coverage to `tests/test_code_lower_plan.lua`. Verified `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_code_kernel_plan.lua`, `luajit tests/test_schema_compile_pipeline.lua`, and `luajit tests/test_parse_kernels.lua`.",
+			"evidence": "Generalized KernelExpr Back projection in `lua/lalin/lower_to_back.lua`: scalar and vector paths now handle KernelExprValue, KernelExprConst, KernelExprLoad, KernelExprBinary, KernelExprCompare, and KernelExprSelect with explicit errors for unsupported expressions. Added cmp/vec-cmp mapping and fixed result expression return emission. Also fixed `code_kernel_plan.lua` KernelExpr DAG expansion so repeated values in sibling branches (e.g. select condition and else value) are re-expanded safely instead of becoming missing opaque values. Added compare/select vector projection coverage to `tests/test_code_lower_plan.lua`. Verified `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_code_kernel_plan.lua`, `luajit tests/test_schema_compile_pipeline.lua`, and `luajit tests/test_parse_kernels.lua`.",
 			"notes": [
 				"Added to move lower_to_back from narrow schedule/body handling toward a real KernelBody projector."
 			],
@@ -331,14 +331,14 @@
 			"id": "T019",
 			"title": "Make C kernel path purely fallback or fully generic",
 			"detail": "Decide and enforce one clean C policy: either remove the remaining pure-fold custom projection and always fall back to CodeToC until generic C KernelBody lowering exists, or implement a generic KernelBody C projector mirroring Back semantics. Avoid partial point optimizations.",
-			"file": "lua/moonlift/lower_to_c.lua",
+			"file": "lua/lalin/lower_to_c.lua",
 			"after": [
 				"T015"
 			],
 			"status": "done",
 			"order": 19,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Enforced a clean C policy by rewriting `lua/moonlift/lower_to_c.lua` to be a pure `CodeToC` projection wrapper. It accepts the `LowerModule` argument for pipeline symmetry but performs no partial KernelBody lowering and no point optimizations; generic C KernelBody lowering is deferred until it can consume the full semantics. Verified `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_schema_compile_pipeline.lua`, and `luajit benchmarks/bench_c_vs_cranelift.lua quick`.",
+			"evidence": "Enforced a clean C policy by rewriting `lua/lalin/lower_to_c.lua` to be a pure `CodeToC` projection wrapper. It accepts the `LowerModule` argument for pipeline symmetry but performs no partial KernelBody lowering and no point optimizations; generic C KernelBody lowering is deferred until it can consume the full semantics. Verified `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_schema_compile_pipeline.lua`, and `luajit benchmarks/bench_c_vs_cranelift.lua quick`.",
 			"notes": [
 				"Added because the current C pure-fold custom projection is transitional and should either become generic or be removed."
 			],
@@ -348,7 +348,7 @@
 		{
 			"id": "T020",
 			"title": "Document kernel tower architecture and remaining invariants",
-			"detail": "Write a concise architecture note explaining MoonCode -> Flow/Mem/Kernel/Lower, KernelBodyCounted semantics, function-vs-loop subject rules, schedule-vs-semantics separation, Back/C projection policy, and legacy vector retirement status.",
+			"detail": "Write a concise architecture note explaining LalinCode -> Flow/Mem/Kernel/Lower, KernelBodyCounted semantics, function-vs-loop subject rules, schedule-vs-semantics separation, Back/C projection policy, and legacy vector retirement status.",
 			"file": "C_BACKEND_DESIGN.md",
 			"after": [
 				"T017",
@@ -358,7 +358,7 @@
 			"status": "done",
 			"order": 20,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Added C_BACKEND_DESIGN.md section 31 documenting the kernel tower: MoonCode -> Flow/Mem/Kernel/Lower pipeline, KernelBodyCounted semantics, KernelSubjectLoop vs KernelSubjectFunc rule, schedule-vs-semantics separation, Back projection policy, pure CodeToC C fallback policy, and legacy MoonVec retirement status. Verified key tests: `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_code_kernel_plan.lua`, `luajit tests/test_kernel_validate.lua`, `luajit tests/test_schema_compile_pipeline.lua`, `luajit tests/test_parse_kernels.lua`, and `luajit tests/test_code_to_back.lua`.",
+			"evidence": "Added C_BACKEND_DESIGN.md section 31 documenting the kernel tower: LalinCode -> Flow/Mem/Kernel/Lower pipeline, KernelBodyCounted semantics, KernelSubjectLoop vs KernelSubjectFunc rule, schedule-vs-semantics separation, Back projection policy, pure CodeToC C fallback policy, and legacy LalinVec retirement status. Verified key tests: `luajit tests/test_code_lower_plan.lua`, `luajit tests/test_code_kernel_plan.lua`, `luajit tests/test_kernel_validate.lua`, `luajit tests/test_schema_compile_pipeline.lua`, `luajit tests/test_parse_kernels.lua`, and `luajit tests/test_code_to_back.lua`.",
 			"notes": [
 				"Added to keep the expanded scope explicit and avoid confusing task completion with architectural completion."
 			],
@@ -369,14 +369,14 @@
 			"id": "T021",
 			"title": "Remove replacement_funcs API from CodeToBack",
 			"detail": "Now that LowerToBack is the first-class LowerModule projector, remove the leftover opts.replacement_funcs path from code_to_back.lua. CodeToBack.module should always lower CodeModule directly; kernel substitution belongs only in LowerToBack.",
-			"file": "lua/moonlift/code_to_back.lua",
+			"file": "lua/lalin/code_to_back.lua",
 			"after": [
 				"T016"
 			],
 			"status": "done",
 			"order": 21,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Removed `opts.replacement_funcs` from `lua/moonlift/code_to_back.lua`; CodeToBack.module now always projects CodeModule directly and no longer accepts replacement body injection. Grep confirms no `replacement_funcs` references remain under `lua/moonlift` or `tests`. Verified `luajit tests/test_code_to_back.lua`, `luajit tests/test_code_lower_plan.lua`, and `luajit tests/test_schema_compile_pipeline.lua`.",
+			"evidence": "Removed `opts.replacement_funcs` from `lua/lalin/code_to_back.lua`; CodeToBack.module now always projects CodeModule directly and no longer accepts replacement body injection. Grep confirms no `replacement_funcs` references remain under `lua/lalin` or `tests`. Verified `luajit tests/test_code_to_back.lua`, `luajit tests/test_code_lower_plan.lua`, and `luajit tests/test_schema_compile_pipeline.lua`.",
 			"notes": [
 				"Added after user clarified that plan completion must mean architecture completion, not transitional scope completion."
 			],
@@ -386,19 +386,19 @@
 		{
 			"id": "T022",
 			"title": "Hard-yank legacy tree/vector lowering modules",
-			"detail": "Delete the old direct TreeToBack lowerer and legacy MoonVec tree-vector recognizer/lowerer modules. Remove production requires (including vec error explainer dependency) so stale modules cannot be loaded accidentally.",
-			"file": "lua/moonlift",
+			"detail": "Delete the old direct TreeToBack lowerer and legacy LalinVec tree-vector recognizer/lowerer modules. Remove production requires (including vec error explainer dependency) so stale modules cannot be loaded accidentally.",
+			"file": "lua/lalin",
 			"after": [
 				"T021"
 			],
 			"status": "done",
 			"order": 22,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Hard-yanked legacy production modules: `lua/moonlift/tree_to_back.lua`, `vec_kernel_plan.lua`, `vec_kernel_safety.lua`, `vec_kernel_to_back.lua`, `vec_loop_facts.lua`, and `vec_loop_decide.lua`. Removed the error catalog's `vec_loop_facts` explainer dependency and updated the remaining production comment in `lua/moonlift/c/lower_c.lua`. Grep over `lua/moonlift/**/*.lua` now has no references to the removed module names. Verified `luajit tests/test_schema_compile_pipeline.lua`, `luajit tests/test_code_to_back.lua`, and `luajit tests/test_code_lower_plan.lua`.",
+			"evidence": "Hard-yanked legacy production modules: `lua/lalin/tree_to_back.lua`, `vec_kernel_plan.lua`, `vec_kernel_safety.lua`, `vec_kernel_to_back.lua`, `vec_loop_facts.lua`, and `vec_loop_decide.lua`. Removed the error catalog's `vec_loop_facts` explainer dependency and updated the remaining production comment in `lua/lalin/c/lower_c.lua`. Grep over `lua/lalin/**/*.lua` now has no references to the removed module names. Verified `luajit tests/test_schema_compile_pipeline.lua`, `luajit tests/test_code_to_back.lua`, and `luajit tests/test_code_lower_plan.lua`.",
 			"notes": [
 				"Grep still shows tree_to_back and vec_kernel modules in tests and the legacy module itself; this must be inventoried rather than ignored.",
 				"User explicitly rejected keeping old code around; this task changed from inventory/quarantine to deletion.",
-				"Extended the hard-yank beyond the initial tree/vector recognizer modules: removed `schema/vec.asdl`, `vec_to_back.lua`, `vec_inspect.lua`, and removed MoonVec references from schema/editor/mlua/back diagnostics."
+				"Extended the hard-yank beyond the initial tree/vector recognizer modules: removed `schema/vec.asdl`, `vec_to_back.lua`, `vec_inspect.lua`, and removed LalinVec references from schema/editor/mlua/back diagnostics."
 			],
 			"createdAt": "2026-06-15T18:30:37.339Z",
 			"updatedAt": "2026-06-15T18:51:14.272Z"
@@ -406,7 +406,7 @@
 		{
 			"id": "T023",
 			"title": "Port benchmarks and demos off tree_to_back/vec legacy modules",
-			"detail": "Update benchmarks and playground diagnostics to use frontend_pipeline / MoonCode / LowerToBack or remove legacy vector diagnostics. No benchmark should require tree_to_back, vec_loop_facts, vec_kernel_plan, or vec_kernel_to_back.",
+			"detail": "Update benchmarks and playground diagnostics to use frontend_pipeline / LalinCode / LowerToBack or remove legacy vector diagnostics. No benchmark should require tree_to_back, vec_loop_facts, vec_kernel_plan, or vec_kernel_to_back.",
 			"file": "benchmarks",
 			"after": [
 				"T022"
@@ -414,7 +414,7 @@
 			"status": "done",
 			"order": 23,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Ported benchmarks off retired modules. `benchmarks/profile_compile.lua` now uses `frontend_pipeline.parse_and_lower`; `benchmarks/bench_diagnostics.lua` reports schedules from `result.kernel_plan`; `benchmarks/bench_c_frontend_vs_gcc.lua` now benchmarks equivalent Moonlift source through the MoonCode native path instead of the retired direct tree lowerer; removed broken `benchmarks/bench_luajit_vs_cranelift.lua` that required nonexistent `back_luajit`. Grep over `benchmarks/*.lua` has no tree_to_back/vec_kernel/vec_loop/back_luajit references. Verified `luajit benchmarks/bench_diagnostics.lua`, `luajit benchmarks/profile_compile.lua`, and `luajit benchmarks/bench_c_frontend_vs_gcc.lua quick`.",
+			"evidence": "Ported benchmarks off retired modules. `benchmarks/profile_compile.lua` now uses `frontend_pipeline.parse_and_lower`; `benchmarks/bench_diagnostics.lua` reports schedules from `result.kernel_plan`; `benchmarks/bench_c_frontend_vs_gcc.lua` now benchmarks equivalent Lalin source through the LalinCode native path instead of the retired direct tree lowerer; removed broken `benchmarks/bench_luajit_vs_cranelift.lua` that required nonexistent `back_luajit`. Grep over `benchmarks/*.lua` has no tree_to_back/vec_kernel/vec_loop/back_luajit references. Verified `luajit benchmarks/bench_diagnostics.lua`, `luajit benchmarks/profile_compile.lua`, and `luajit benchmarks/bench_c_frontend_vs_gcc.lua quick`.",
 			"notes": [],
 			"createdAt": "2026-06-15T18:30:37.339Z",
 			"updatedAt": "2026-06-15T18:38:58.206Z"
@@ -422,7 +422,7 @@
 		{
 			"id": "T024",
 			"title": "Delete or port legacy tree/vector tests",
-			"detail": "Remove tests whose only purpose was old tree_to_back or legacy MoonVec prototype coverage; port any still-important behavior coverage to MoonCode/CodeToBack/LowerToBack tests. No test should require removed modules.",
+			"detail": "Remove tests whose only purpose was old tree_to_back or legacy LalinVec prototype coverage; port any still-important behavior coverage to LalinCode/CodeToBack/LowerToBack tests. No test should require removed modules.",
 			"file": "tests",
 			"after": [
 				"T022"
@@ -430,10 +430,10 @@
 			"status": "done",
 			"order": 24,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Deleted tests whose only purpose was the removed direct TreeToBack or legacy tree-vector MoonVec modules. Ported remaining useful tests: `tests/test_tree_typecheck.lua` now compiles through `frontend_pipeline`, `tests/test_parse_playground.lua` no longer invokes vec_loop facts/decide, `tests/test_phase_builder.lua` uses `code.to_back`, and stale tree_to_back package-loaded/output assertions were removed from CodeToBack/schema/MOM tests. Grep over `tests/*.lua` has no references to tree_to_back, vec_loop_facts, vec_loop_decide, vec_kernel_plan, vec_kernel_safety, or vec_kernel_to_back. Verified `luajit tests/test_tree_typecheck.lua`, `tests/test_parse_playground.lua`, `tests/test_phase_builder.lua`, `tests/test_code_to_back.lua`, `tests/test_schema_compile_pipeline.lua`, `tests/test_code_lower_plan.lua`, and `tests/test_parse_kernels.lua`.",
+			"evidence": "Deleted tests whose only purpose was the removed direct TreeToBack or legacy tree-vector LalinVec modules. Ported remaining useful tests: `tests/test_tree_typecheck.lua` now compiles through `frontend_pipeline`, `tests/test_parse_playground.lua` no longer invokes vec_loop facts/decide, `tests/test_phase_builder.lua` uses `code.to_back`, and stale tree_to_back package-loaded/output assertions were removed from CodeToBack/schema/MOM tests. Grep over `tests/*.lua` has no references to tree_to_back, vec_loop_facts, vec_loop_decide, vec_kernel_plan, vec_kernel_safety, or vec_kernel_to_back. Verified `luajit tests/test_tree_typecheck.lua`, `tests/test_parse_playground.lua`, `tests/test_phase_builder.lua`, `tests/test_code_to_back.lua`, `tests/test_schema_compile_pipeline.lua`, `tests/test_code_lower_plan.lua`, and `tests/test_parse_kernels.lua`.",
 			"notes": [
-				"Do not preserve old tests under legacy names unless they are ported to the current MoonCode path.",
-				"Also deleted/updated tests for the removed MoonVec schema and vector helper modules (`test_vec_to_back.lua`, `test_vec_inspect.lua`, plus BackTarget/ASDL/diagnostics tests now use Back-only target facts)."
+				"Do not preserve old tests under legacy names unless they are ported to the current LalinCode path.",
+				"Also deleted/updated tests for the removed LalinVec schema and vector helper modules (`test_vec_to_back.lua`, `test_vec_inspect.lua`, plus BackTarget/ASDL/diagnostics tests now use Back-only target facts)."
 			],
 			"createdAt": "2026-06-15T18:30:37.339Z",
 			"updatedAt": "2026-06-15T18:51:14.272Z"
@@ -460,7 +460,7 @@
 		{
 			"id": "T026",
 			"title": "Document hard-yank completion boundary",
-			"detail": "Update architecture docs to say the legacy direct TreeToBack and tree-shaped MoonVec implementations were deleted, not quarantined. Define completion as no active code or tests loading the removed modules; verification is by direct codebase inspection/grep, not a dedicated gate test.",
+			"detail": "Update architecture docs to say the legacy direct TreeToBack and tree-shaped LalinVec implementations were deleted, not quarantined. Define completion as no active code or tests loading the removed modules; verification is by direct codebase inspection/grep, not a dedicated gate test.",
 			"file": "C_BACKEND_DESIGN.md",
 			"after": [
 				"T023",
@@ -469,7 +469,7 @@
 			"status": "done",
 			"order": 26,
 			"claimedBy": "agent-6BP451",
-			"evidence": "Updated `C_BACKEND_DESIGN.md` section 31.6/32 to say the legacy direct TreeToBack and MoonVec stack were deleted, not quarantined, and to define completion by direct codebase inspection. Also updated README and LANGUAGE_REFERENCE active file lists/tests to point at MoonCode/Kernel lowering rather than removed vector/tree modules. Inspection grep over `lua/moonlift`, `tests`, `benchmarks`, README, LANGUAGE_REFERENCE, and C_BACKEND_DESIGN shows only C_BACKEND_DESIGN historical deletion notes mention the retired names; active Lua/ASDL code has none.",
+			"evidence": "Updated `C_BACKEND_DESIGN.md` section 31.6/32 to say the legacy direct TreeToBack and LalinVec stack were deleted, not quarantined, and to define completion by direct codebase inspection. Also updated README and LANGUAGE_REFERENCE active file lists/tests to point at LalinCode/Kernel lowering rather than removed vector/tree modules. Inspection grep over `lua/lalin`, `tests`, `benchmarks`, README, LANGUAGE_REFERENCE, and C_BACKEND_DESIGN shows only C_BACKEND_DESIGN historical deletion notes mention the retired names; active Lua/ASDL code has none.",
 			"notes": [],
 			"createdAt": "2026-06-15T18:30:37.339Z",
 			"updatedAt": "2026-06-15T18:51:24.592Z"

@@ -2,14 +2,14 @@
 package.path = "./experiments/lua_interpreter_vm/spongejit/?.lua;./experiments/lua_interpreter_vm/spongejit/?/init.lua;./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 
-assert(T.LuaSrc and T.LuaFact and T.LuaRegion and T.LuaFFI and T.LuaGC and T.LuaRT and T.LuaExec and T.CompileContract and T.MoonCFG and T.Stencil and T.LuaCompile)
+assert(T.LuaSrc and T.LuaFact and T.LuaRegion and T.LuaFFI and T.LuaGC and T.LuaRT and T.LuaExec and T.CompileContract and T.LalinCFG and T.Stencil and T.LuaCompile)
 assert(T.LuaFact.StaticClosureTargetPayload and T.LuaFact.StaticCalleeRegionPayload and T.LuaFact.StaticClosureValuePayload)
 assert(T.LuaCompile.SourceEvent and T.LuaCompile.CanonicalPucEvent and T.LuaCompile.DecodedSourceOp and T.LuaCompile.SourceEventBatch)
 assert(T.LuaCompile.EvidenceRecord and T.LuaCompile.EvidenceFact and T.LuaCompile.EvidencePayload and T.LuaCompile.EvidenceInput)
-assert(T.LuaCompile.ExecProduct and T.LuaCompile.ExecLowerResult and T.LuaCompile.MoonLowerResult and T.LuaCompile.StaticInlineResult)
+assert(T.LuaCompile.ExecProduct and T.LuaCompile.ExecLowerResult and T.LuaCompile.LalinLowerResult and T.LuaCompile.StaticInlineResult)
 assert(T.LuaExec.StaticCallProducts and T.LuaExec.StaticCallProductResult and T.LuaExec.StaticClosureProducts and T.LuaExec.StaticClosureProductResult)
 assert(not T["Lua" .. "Sem"] and not T["Lua" .. "NF"] and not T["Lua" .. "Contract"] and not T["Lua" .. "Place"])
 local function field_names(cls)
@@ -72,9 +72,9 @@ assert(T.Stencil.FromStaticRegion and T.Stencil.FromStaticRegionInvocation and T
 assert(T.Stencil.FromMetamethodLookupPath and T.Stencil.FromLuaOperation and T.Stencil.FromLoopTopology and T.Stencil.FromGCEffect)
 assert(T.Stencil.FromFFICallShape and T.Stencil.FromFFICallbackEntry and T.Stencil.FromCDataOwnership)
 
--- Existing MoonCFG current executable runtime substrate remains present.
-assert(T.MoonCFG.RuntimeValueSeqNormalize and T.MoonCFG.RuntimeOutcomeReturnSeq and T.MoonCFG.RuntimeCallTargetCheck)
-assert(T.MoonCFG.RuntimeValueSeqStore and T.MoonCFG.RuntimeCallFrameStoreArgs)
+-- Existing LalinCFG current executable runtime substrate remains present.
+assert(T.LalinCFG.RuntimeValueSeqNormalize and T.LalinCFG.RuntimeOutcomeReturnSeq and T.LalinCFG.RuntimeCallTargetCheck)
+assert(T.LalinCFG.RuntimeValueSeqStore and T.LalinCFG.RuntimeCallFrameStoreArgs)
 
 -- Model validate_against_schema coverage.
 for _, spec in ipairs({
@@ -121,7 +121,7 @@ ok_boundary, boundary_errors = CompileValidate.validate_evidence_input(T.LuaComp
 assert(ok_boundary, table.concat(boundary_errors, ";"))
 ok_boundary, boundary_errors = CompileValidate.validate_exec_lower_result(T.LuaCompile.ExecLowerReject({ "nope" }))
 assert(ok_boundary, table.concat(boundary_errors, ";"))
-ok_boundary, boundary_errors = CompileValidate.validate_moon_lower_result(T.LuaCompile.MoonLowerReject({ "nope" }))
+ok_boundary, boundary_errors = CompileValidate.validate_lalin_lower_result(T.LuaCompile.LalinLowerReject({ "nope" }))
 assert(ok_boundary, table.concat(boundary_errors, ";"))
 ok_boundary, boundary_errors = CompileValidate.validate_static_inline_result(T.LuaCompile.StaticInlineReject({ "nope" }))
 assert(ok_boundary, table.concat(boundary_errors, ";"))

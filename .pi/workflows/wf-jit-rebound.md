@@ -13,12 +13,12 @@ Now I have a thorough picture. Here is the complete raw-facts report:
 
 1. **`src/decode.rs`** (full, 303 lines) — Rust Cranelift IR decoder
 2. **`src/wire_tags.rs`** (full, ~200 lines) — Wire format tag definitions
-3. **`lua/moonlift/back_command_binary.lua`** (full, ~520 lines) — Lua-side binary wire encoder
-4. **`lua/moonlift/tree_control_to_back.lua`** (full, ~370 lines) — Control flow lowering (switch, regions, blocks)
-5. **`lua/moonlift/tree_to_back.lua`** (full, 2558 lines) — Main expr/stmt lowering
-6. **`lua/moonlift/back_validate.lua`** (full, ~430 lines) — Pre-JIT validation
+3. **`lua/lalin/back_command_binary.lua`** (full, ~520 lines) — Lua-side binary wire encoder
+4. **`lua/lalin/tree_control_to_back.lua`** (full, ~370 lines) — Control flow lowering (switch, regions, blocks)
+5. **`lua/lalin/tree_to_back.lua`** (full, 2558 lines) — Main expr/stmt lowering
+6. **`lua/lalin/back_validate.lua`** (full, ~430 lines) — Pre-JIT validation
 
-Also read: `src/lib.rs`, `src/ffi.rs`, `lua/moonlift/back_jit.lua`, and 3 test files.
+Also read: `src/lib.rs`, `src/ffi.rs`, `lua/lalin/back_jit.lua`, and 3 test files.
 
 ---
 
@@ -38,9 +38,9 @@ struct BodyCtx<'a> {
 
 #### `bind()` — registers a value (line 177-179)
 ```rust
-fn bind(&mut self, id: u32, v: Value) -> Result<(), MoonliftError> {
+fn bind(&mut self, id: u32, v: Value) -> Result<(), LalinError> {
     if self.values.insert(id, v).is_some() {
-        return Err(MoonliftError(format!("value {id} rebound")));
+        return Err(LalinError(format!("value {id} rebound")));
     }
     Ok(())
 }
@@ -49,27 +49,27 @@ fn bind(&mut self, id: u32, v: Value) -> Result<(), MoonliftError> {
 
 #### `val()` — looks up a value (line 181-183)
 ```rust
-fn val(&self, id: u32) -> Result<Value, MoonliftError> {
+fn val(&self, id: u32) -> Result<Value, LalinError> {
     self.values.get(&id).copied()
-        .ok_or_else(|| MoonliftError(format!("unknown value {id}")))
+        .ok_or_else(|| LalinError(format!("unknown value {id}")))
 }
 ```
 **Error path**: If `id` not in `values`, produces `"unknown value N"`.
 
 #### `blk()` — looks up a block (line 185-187)
 ```rust
-fn blk(&self, id: u32) -> Result<Block, MoonliftError> {
+fn blk(&self, id: u32) -> Result<Block, LalinError> {
     self.blocks.get(&id).copied()
-        .ok_or_else(|| MoonliftError(format!("unknown block {id}")))
+        .ok_or_else(|| LalinError(format!("unknown block {id}")))
 }
 ```
 **Error path**: If id not in `blocks`, produces `"unknown block N"`.
 
 #### `slot()` — looks up a stack slot (line 189-191)
 ```rust
-fn slot(&self, id: u32) -> Result<StackSlot, MoonliftError> {
+fn slot(&self, id: u32) -> Result<StackSlot, LalinError> {
     self.stack_slots.get(&id).copied()
-        .ok_or_else(|| MoonliftError(format!("unknown slot {id}")))
+        .ok_or_else(|| LalinError(format!("unknown slot {id}")))
 }
 ```
 **Error path**: If id not in `stack_slots`, produces `"unknown slot N"`.
@@ -87,7 +87,7 @@ fn finalize(mut self) {
 t if t == WireTag::CreateBlock as u32 => {
     let b = ctx.builder.create_block();
     if ctx.blocks.insert(s[0], b).is_some() {
-        return Err(MoonliftError(format!("block {} dup", s[0])));
+        return Err(LalinError(format!("block {} dup", s[0])));
     }
 }
 ```
@@ -114,7 +114,7 @@ Calls `ctx.blk()` (can produce "unknown block N") and `ctx.bind()` (can produce 
 
 #### `decode_module` (lines 296-324): The top-level orchestrator
 ```rust
-pub fn decode_module<M: Module>(buf: &[u8], module: &mut M) -> Result<DecodeResult, MoonliftError> {
+pub fn decode_module<M: Module>(buf: &[u8], module: &mut M) -> Result<DecodeResult, LalinError> {
     let mut pos = 0;
     let hdr = read_header(buf, &mut pos)?;
     let decl_end = hdr.decl_offset + hdr.decl_len;
@@ -135,7 +135,7 @@ pub fn decode_module<M: Module>(buf: &[u8], module: &mut M) -> Result<DecodeResu
             bctx.finalize();
         }
         module.define_function(cfid, &mut ctx)
-            .map_err(|e| MoonliftError(format!("define func {wire_fid}: {e:?}")))?;
+            .map_err(|e| LalinError(format!("define func {wire_fid}: {e:?}")))?;
         module.clear_context(&mut ctx);
     }
     // ...
@@ -810,8 +810,8 @@ My trace confirmed that `renumber()` generates unique numeric IDs for each disti
 ## Raw Facts Report
 
 ### Files Retrieved
-1. `lua/moonlift/back_command_binary.lua` (full read, 525 lines) — Binary wire format encoder
-2. `lua/moonlift/tree_to_back.lua` (lines 39, 627-631, 1029-1037, 1323-1327, 1529-1584) — Lowering logic
+1. `lua/lalin/back_command_binary.lua` (full read, 525 lines) — Binary wire format encoder
+2. `lua/lalin/tree_to_back.lua` (lines 39, 627-631, 1029-1037, 1323-1327, 1529-1584) — Lowering logic
 3. `src/decode.rs` (full read, 303 lines) — Rust Cranelift IR decoder
 4. `src/wire_tags.rs` (full read, ~200 lines) — TAG_SLOTS definitions
 5. `tests/test_tree_to_back_control_multiblock.lua` (full read) — Test file
@@ -953,13 +953,13 @@ Now I have all the data needed. Here is the complete raw-facts report.
 ## Raw Facts Report
 
 ## Files Retrieved
-1. `lua/moonlift/back_command_binary.lua` (full read, 733 lines) — Binary wire format encoder
+1. `lua/lalin/back_command_binary.lua` (full read, 733 lines) — Binary wire format encoder
 2. `src/decode.rs` (full read, 303 lines) — Rust Cranelift IR decoder
 3. `src/wire_tags.rs` (full read, ~200 lines) — TAG_SLOTS definitions
-4. `lua/moonlift/schema/back.lua` (via grep) — `CmdCreateSig`, `CmdDeclareExtern` schema
-5. `lua/moonlift/back_validate.lua` (full read, ~680 lines) — Validation (not relevant to sig bug)
+4. `lua/lalin/schema/back.lua` (via grep) — `CmdCreateSig`, `CmdDeclareExtern` schema
+5. `lua/lalin/back_validate.lua` (full read, ~680 lines) — Validation (not relevant to sig bug)
 6. `src/lib.rs` (lines 40-90) — `BackScalar::clif_type()`
-7. `lua/moonlift/tree_to_back.lua` (via grep) — `lower_extern_direct`, `CmdCall` lowering
+7. `lua/lalin/tree_to_back.lua` (via grep) — `lower_extern_direct`, `CmdCall` lowering
 8. `examples/json/json_lua_stack_decoder.mlua` (full read) — The test case exhibiting the bug
 9. `benchmarks/bench_json_stack_decode.lua` (full read) — Benchmark runner
 
@@ -1003,7 +1003,7 @@ let eid = read_u32(buf, pos)?;
 let sig_id = read_u32(buf, pos)?;
 ...
 let (p, r) = sig_types.get(&sig_id)
-    .ok_or_else(|| MoonliftError(format!("extern {eid}: unknown sig {sig_id}")))?;
+    .ok_or_else(|| LalinError(format!("extern {eid}: unknown sig {sig_id}")))?;
 let sig = mk_sig(module, p, r);
 let cfid = module.declare_function(&sym, Linkage::Import, &sig)
 ```
@@ -1036,7 +1036,7 @@ b.extern_map = extern_map   ← correct map exists but is not used in CmdCall
 ### How the two bugs combine to produce the exact error
 
 The JSON decoder .mlua declares externs in this order:
-```moonlift
+```lalin
 lua_createtable(L, narr: i32, nrec: i32)     → sig 0: [ptr, i32, i32] → void
 lua_pushlstring(L, s: ptr(u8), len: index)    → sig 1: [ptr, ptr, index] → void
 lua_pushnumber(L, n: f64)                     → sig 2: [ptr, f64] → void
@@ -1083,7 +1083,7 @@ local S = { BackBool=1, BackI8=2, BackI16=3, BackI32=4, BackI64=5,
 
 **Rust decoder** (`decode.rs` lines 43-56):
 ```rust
-fn st(code: u32, ptr_ty: Type) -> Result<Type, MoonliftError> {
+fn st(code: u32, ptr_ty: Type) -> Result<Type, LalinError> {
     let bs = match code {
         1 => BackScalar::Bool, 2 => BackScalar::I8, 3 => BackScalar::I16,
         4 => BackScalar::I32, 5 => BackScalar::I64, 6 => BackScalar::U8,
@@ -1250,13 +1250,13 @@ Now I have comprehensive information. Let me compile the raw facts report.
 
 ## Files Retrieved
 
-1. **`lua/moonlift/tree_typecheck.lua`** (line 391) — Float literal type inference
-2. **`lua/moonlift/tree_control_to_back.lua`** (full, 371 lines) — Control region lowering
-3. **`lua/moonlift/tree_to_back.lua`** (full, 2558 lines) — Main lowering pipeline
-4. **`lua/moonlift/type_to_back_scalar.lua`** (full, ~60 lines) — Moonlift type → BackScalar mapping
-5. **`lua/moonlift/back_command_binary.lua`** (lines 70-170) — Wire format encoder, `st()` function, `CmdAppendBlockParam` encoding
+1. **`lua/lalin/tree_typecheck.lua`** (line 391) — Float literal type inference
+2. **`lua/lalin/tree_control_to_back.lua`** (full, 371 lines) — Control region lowering
+3. **`lua/lalin/tree_to_back.lua`** (full, 2558 lines) — Main lowering pipeline
+4. **`lua/lalin/type_to_back_scalar.lua`** (full, ~60 lines) — Lalin type → BackScalar mapping
+5. **`lua/lalin/back_command_binary.lua`** (lines 70-170) — Wire format encoder, `st()` function, `CmdAppendBlockParam` encoding
 6. **`src/decode.rs`** (full, 303 lines) — Rust decoder, `st()`, `BodyCtx`, type mapping
-7. **`lua/moonlift/schema/back.lua`** — `CmdAppendBlockParam`, `CmdJump` schema
+7. **`lua/lalin/schema/back.lua`** — `CmdAppendBlockParam`, `CmdJump` schema
 8. **`examples/json/json_lua_stack_decoder.mlua`** (full, ~340 lines) — JSON decoder
 9. **`src/wire_tags.rs`** (referenced) — TAG_SLOTS
 
@@ -1306,7 +1306,7 @@ end
 
 ### 4. MOM native path also hardcodes float literals as BackF64 (mom/back/expr_lower.mlua:111-113)
 
-```moonlift
+```lalin
 let scalar: i32 = select(tok_kind == @{T.TK_TRUE} or tok_kind == @{T.TK_FALSE}, @{T.BackBool},
                    select(tok_kind == @{T.TK_FLOAT}, @{T.BackF64},   ← hardcoded BackF64
                           @{T.BackI32}))
@@ -1335,7 +1335,7 @@ local function param_specs(nonce, region_id, label, params, is_entry)
 end
 ```
 
-**Fact**: Block param types come from the Moonlift source's explicit type annotations (e.g., `i: i32`). The typed AST already has resolved types (from the typechecker), and `back_scalar()` converts them. For `parse_object`, all params are `i32`.
+**Fact**: Block param types come from the Lalin source's explicit type annotations (e.g., `i: i32`). The typed AST already has resolved types (from the typechecker), and `back_scalar()` converts them. For `parse_object`, all params are `i32`.
 
 ### 6. Region exit block gets its type from the function result (tree_control_to_back.lua:345-370)
 
@@ -1388,7 +1388,7 @@ elseif k == "CmdAppendBlockParam" then
 ### 9. Rust decoder maps wire codes correctly to Cranelift types (decode.rs:43-56)
 
 ```rust
-fn st(code: u32, ptr_ty: Type) -> Result<Type, MoonliftError> {
+fn st(code: u32, ptr_ty: Type) -> Result<Type, LalinError> {
     let bs = match code {
         10 => BackScalar::F32,
         11 => BackScalar::F64,

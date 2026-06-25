@@ -1,6 +1,6 @@
 # LLPVM Programmer Guide
 
-LLPVM is Moonlift's low-level PVM bytecode surface. Public authoring is a
+LLPVM is Lalin's low-level PVM bytecode surface. Public authoring is a
 no-seam LLB language object:
 
 ```text
@@ -15,10 +15,10 @@ There is no public `ll.vm` mutation API. The public authoring root is the
 LLB-backed `pvm. Name { ... }` program head. The canonical shape is:
 
 ```lua
-local moon = require("moonlift")
+local lalin = require("lalin")
 local ll = require("llpvm")
 
-moon.family.use()
+lalin.family.use()
 
 return pvm. Expr {
   lang. Expr {
@@ -94,16 +94,16 @@ bytecode assembly helpers as authoring syntax
 
 ## Environment model
 
-LLPVM depends on Moonlift type values. The preferred authoring environment is
-the Moonlift language family:
+LLPVM depends on Lalin type values. The preferred authoring environment is
+the Lalin language family:
 
 ```lua
-local moon = require("moonlift")
+local lalin = require("lalin")
 
-moon.family.use()
+lalin.family.use()
 ```
 
-The family installs Moonlift DSL exports and LLPVM DSL exports as one coherent
+The family installs Lalin DSL exports and LLPVM DSL exports as one coherent
 environment. It validates language capability dependencies and rejects
 undeclared export collisions.
 
@@ -111,11 +111,11 @@ For isolated environments:
 
 ```lua
 local env = {}
-moon.family.use { scope = "env", target = env, global = false }
+lalin.family.use { scope = "env", target = env, global = false }
 ```
 
 `ll.use()` remains the low-level member install for tests and tools that want
-only the LLPVM definition surface after Moonlift types are already installed.
+only the LLPVM definition surface after Lalin types are already installed.
 It provides:
 
 ```text
@@ -166,7 +166,7 @@ For isolated environments:
 
 ```lua
 local env = {}
-moon.use { scope = "env", target = env, global = false }
+lalin.use { scope = "env", target = env, global = false }
 ll.use { scope = "env", target = env, global = false }
 ```
 
@@ -371,7 +371,7 @@ local run = ll.task_run("compile", "done", {
 })
 ```
 
-Moonlift phase execution reports include `report.run`, an
+Lalin phase execution reports include `report.run`, an
 `LlPvm.TaskRun`. That means progress is not a compiler-local trace format.
 It is an LLPVM task value that tools can inspect, serialize, and project.
 

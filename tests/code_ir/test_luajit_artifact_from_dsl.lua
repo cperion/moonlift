@@ -7,7 +7,7 @@ package.path = table.concat({
 }, ';')
 
 local ffi = require('ffi')
-local moon = require('moonlift')
+local lalin = require('lalin')
 
 local source = [=[
 return unit. CopyPatchRegression {
@@ -500,9 +500,9 @@ return unit. CopyPatchRegression {
 }
 ]=]
 
-local session = moon.use { scope = 'env' }
+local session = lalin.use { scope = 'env' }
 local decl = assert(session:loadstring(source, 'test_luajit_artifact_from_dsl.lua'))()
-local artifact = moon.emit_luajit_artifact(decl, {
+local artifact = lalin.emit_luajit_artifact(decl, {
     path = 'target/test_artifacts/test_luajit_artifact_from_dsl.lua',
     name = 'CopyPatchRegression',
     stem = 'test_luajit_artifact_from_dsl',
@@ -513,23 +513,23 @@ assert(#artifact.artifacts == 18, 'expected selected stencil artifact for each D
 assert(artifact.source:match('__ml_check_stencil_target'), 'expected generated target guard')
 
 local expected_vocab = {
-    ['MoonStencil.StencilReduce'] = 'reduce',
-    ['MoonStencil.StencilCopy'] = 'copy',
-    ['MoonStencil.StencilFill'] = 'fill',
-    ['MoonStencil.StencilMap'] = 'map',
-    ['MoonStencil.StencilZipMap'] = 'zip_map',
-    ['MoonStencil.StencilCast'] = 'cast',
-    ['MoonStencil.StencilCompare'] = 'compare',
-    ['MoonStencil.StencilZipCompare'] = 'zip_compare',
-    ['MoonStencil.StencilGather'] = 'gather',
-    ['MoonStencil.StencilScatter'] = 'scatter',
-    ['MoonStencil.StencilInPlaceMap'] = 'in_place_map',
-    ['MoonStencil.StencilCount'] = 'count',
-    ['MoonStencil.StencilMapReduce'] = 'map_reduce',
-    ['MoonStencil.StencilZipReduce'] = 'zip_reduce',
-    ['MoonStencil.StencilScan'] = 'scan',
-    ['MoonStencil.StencilFind'] = 'find',
-    ['MoonStencil.StencilPartition'] = 'partition',
+    ['LalinStencil.StencilReduce'] = 'reduce',
+    ['LalinStencil.StencilCopy'] = 'copy',
+    ['LalinStencil.StencilFill'] = 'fill',
+    ['LalinStencil.StencilMap'] = 'map',
+    ['LalinStencil.StencilZipMap'] = 'zip_map',
+    ['LalinStencil.StencilCast'] = 'cast',
+    ['LalinStencil.StencilCompare'] = 'compare',
+    ['LalinStencil.StencilZipCompare'] = 'zip_compare',
+    ['LalinStencil.StencilGather'] = 'gather',
+    ['LalinStencil.StencilScatter'] = 'scatter',
+    ['LalinStencil.StencilInPlaceMap'] = 'in_place_map',
+    ['LalinStencil.StencilCount'] = 'count',
+    ['LalinStencil.StencilMapReduce'] = 'map_reduce',
+    ['LalinStencil.StencilZipReduce'] = 'zip_reduce',
+    ['LalinStencil.StencilScan'] = 'scan',
+    ['LalinStencil.StencilFind'] = 'find',
+    ['LalinStencil.StencilPartition'] = 'partition',
 }
 local expected_labels = {
     reduce = true,
@@ -552,7 +552,7 @@ local expected_labels = {
     partition = true,
 }
 local function selected_label(descriptor)
-    if tostring(descriptor.vocab) == 'MoonStencil.StencilCopy' then
+    if tostring(descriptor.vocab) == 'LalinStencil.StencilCopy' then
         if tostring(descriptor.skeleton):match('StencilCopyMemMove') then return 'copy_memmove' end
         return 'copy'
     end

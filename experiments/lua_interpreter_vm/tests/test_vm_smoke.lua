@@ -1,11 +1,11 @@
 -- VM verification test
 -- Confirms all VM modules load, link, and key regions compile.
--- The VM requires a Moonlift-level allocator to run (next step).
+-- The VM requires a Lalin-level allocator to run (next step).
 
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local vm = require("experiments.lua_interpreter_vm.src.init")
-local moon = require("moonlift")
+local lalin = require("lalin")
 
 local function ok(name, cond)
     io.write(string.format("  %s  %s\n", cond and "PASS" or "FAIL", name))
@@ -53,7 +53,7 @@ ok("Proto has 19 fields", #vm.products.Proto.decl.fields == 19)
 -- Test that compiling a function that uses VM regions works
 -- Build a small bundle with dispatch_instruction
 local di = vm.opcodes.dispatch_instruction
-local wrapper = moon.func { di = di } [[
+local wrapper = lalin.func { di = di } [[
 verify_di(L: ptr(LuaThread), frame: ptr(Frame),
           pc: index, base: index, top: index,
           code: ptr(Instr), constants: ptr(Value)): i32
@@ -94,7 +94,7 @@ test_compile("dispatch_instruction", function() return wrapper end)
 
 -- Compile vm_resume wrapper  
 local vr = vm.vm_loop.vm_resume
-local wrapper2 = moon.func { vr = vr } [[
+local wrapper2 = lalin.func { vr = vr } [[
 verify_vr(L: ptr(LuaThread), nargs: i32): i32
     return region: i32
     entry start()
@@ -111,7 +111,7 @@ end
 test_compile("vm_resume", function() return wrapper2 end)
 
 -- Try a full bundle compile
-local M = moon.bundle("VMVerify")
+local M = lalin.bundle("VMVerify")
 M:add_region(vm.vm_loop.vm_resume)
 M:add_region(vm.vm_loop.vm_loop)
 M:add_region(vm.vm_loop.dispatch_instruction)

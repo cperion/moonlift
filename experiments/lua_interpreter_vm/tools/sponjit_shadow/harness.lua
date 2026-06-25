@@ -86,10 +86,10 @@ Commands:
   sensitivity-profile --profile FILE --out DIR [--max-regions N]
   sensitivity-awfy    --awfy-root DIR --out DIR [--max-regions N]
   profile-root   --root DIR --out FILE [--max-files N]   (PUC static bytecode profile)
-  suite-initial  --awfy-root DIR --moonlift-root DIR --out DIR
+  suite-initial  --awfy-root DIR --lalin-root DIR --out DIR
   timeseries     --workload NAME --out DIR [--observe-fraction F]
-  foundry-initial --awfy-root DIR --moonlift-root DIR --out DIR [--layers N] [--layer-cap N] [--enumerate-ssa false]
-  enumerate-ssa  --awfy-root DIR --moonlift-root DIR --out DIR [--max-windows N] [--max-fact-combos N]
+  foundry-initial --awfy-root DIR --lalin-root DIR --out DIR [--layers N] [--layer-cap N] [--enumerate-ssa false]
+  enumerate-ssa  --awfy-root DIR --lalin-root DIR --out DIR [--max-windows N] [--max-fact-combos N]
   propose        --miss-report FILE --out DIR [--max-candidates N]
 
 Workloads: ]] .. table.concat(Workloads.names(), ", ") .. [[
@@ -197,26 +197,26 @@ local function main(argv)
         for _, w in ipairs(awfy_workloads) do w.name = "awfy_" .. tostring(w.name); awfy_results[#awfy_results + 1] = Sim.simulate(w, cfg) end
         Report.write_suite(awfy_results, out .. "/awfy", cfg)
 
-        local moon_profile, files = Loader.profile_lua_root(opts.moonlift_root or "lua/moonlift", {
+        local lalin_profile, files = Loader.profile_lua_root(opts.lalin_root or "lua/lalin", {
             max_files = tonumber(opts.max_files or 200),
             include = opts.include,
             exclude = opts.exclude,
             repo_root = opts.repo_root,
             lua_root = opts.lua_root,
         })
-        moon_profile.source_root = opts.moonlift_root or "lua/moonlift"
-        moon_profile.scanned_files = #files
-        Util.write_json(out .. "/moonlift_profile.json", moon_profile)
-        local moon_workloads = Loader.workloads_from_profile(moon_profile, { max_regions = max_regions, max_len = tonumber(opts.max_len or 8), min_len = tonumber(opts.min_len or 2), fact_mode = fact_mode })
-        local moon_results = {}
-        for _, w in ipairs(moon_workloads) do w.name = "moonlift_" .. tostring(w.name); moon_results[#moon_results + 1] = Sim.simulate(w, cfg) end
-        Report.write_suite(moon_results, out .. "/moonlift", cfg)
+        lalin_profile.source_root = opts.lalin_root or "lua/lalin"
+        lalin_profile.scanned_files = #files
+        Util.write_json(out .. "/lalin_profile.json", lalin_profile)
+        local lalin_workloads = Loader.workloads_from_profile(lalin_profile, { max_regions = max_regions, max_len = tonumber(opts.max_len or 8), min_len = tonumber(opts.min_len or 2), fact_mode = fact_mode })
+        local lalin_results = {}
+        for _, w in ipairs(lalin_workloads) do w.name = "lalin_" .. tostring(w.name); lalin_results[#lalin_results + 1] = Sim.simulate(w, cfg) end
+        Report.write_suite(lalin_results, out .. "/lalin", cfg)
 
         local combined = {}
         for _, r in ipairs(awfy_results) do combined[#combined + 1] = r end
-        for _, r in ipairs(moon_results) do combined[#combined + 1] = r end
+        for _, r in ipairs(lalin_results) do combined[#combined + 1] = r end
         Report.write_suite(combined, out .. "/combined", cfg)
-        print("[sponjit-shadow] initial corpus reports=" .. out .. "/{awfy,moonlift,combined}/suite_report.md")
+        print("[sponjit-shadow] initial corpus reports=" .. out .. "/{awfy,lalin,combined}/suite_report.md")
         return 0
     elseif cmd == "foundry-initial" then
         local fact_mode = opts.fact_mode or "balanced"
@@ -224,12 +224,12 @@ local function main(argv)
         local awfy_profile = Loader.load_awfy_profile(opts.awfy_root or "experiments/lua_interpreter_vm")
         local workloads = Loader.workloads_from_profile(awfy_profile, { max_regions = max_regions, max_len = tonumber(opts.max_len or 8), min_len = tonumber(opts.min_len or 2), fact_mode = fact_mode })
         for _, w in ipairs(workloads) do w.name = "awfy_" .. tostring(w.name) end
-        local moon_profile = Loader.profile_lua_root(opts.moonlift_root or "lua/moonlift", {
+        local lalin_profile = Loader.profile_lua_root(opts.lalin_root or "lua/lalin", {
             max_files = tonumber(opts.max_files or 100), include = opts.include, exclude = opts.exclude,
             repo_root = opts.repo_root, lua_root = opts.lua_root,
         })
-        local moon_workloads = Loader.workloads_from_profile(moon_profile, { max_regions = max_regions, max_len = tonumber(opts.max_len or 8), min_len = tonumber(opts.min_len or 2), fact_mode = fact_mode })
-        for _, w in ipairs(moon_workloads) do w.name = "moonlift_" .. tostring(w.name); workloads[#workloads + 1] = w end
+        local lalin_workloads = Loader.workloads_from_profile(lalin_profile, { max_regions = max_regions, max_len = tonumber(opts.max_len or 8), min_len = tonumber(opts.min_len or 2), fact_mode = fact_mode })
+        for _, w in ipairs(lalin_workloads) do w.name = "lalin_" .. tostring(w.name); workloads[#workloads + 1] = w end
         cfg.layers = tonumber(opts.layers or 3)
         cfg.layer_cap = tonumber(opts.layer_cap or opts.max_selected or 12)
         cfg.fact_mode = fact_mode
@@ -249,12 +249,12 @@ local function main(argv)
         local awfy_profile = Loader.load_awfy_profile(opts.awfy_root or "experiments/lua_interpreter_vm")
         local workloads = Loader.workloads_from_profile(awfy_profile, { max_regions = max_regions, max_len = tonumber(opts.max_len or 8), min_len = tonumber(opts.min_len or 2), fact_mode = fact_mode })
         for _, w in ipairs(workloads) do w.name = "awfy_" .. tostring(w.name) end
-        local moon_profile = Loader.profile_lua_root(opts.moonlift_root or "lua/moonlift", {
+        local lalin_profile = Loader.profile_lua_root(opts.lalin_root or "lua/lalin", {
             max_files = tonumber(opts.max_files or 50), include = opts.include, exclude = opts.exclude,
             repo_root = opts.repo_root, lua_root = opts.lua_root,
         })
-        local moon_workloads = Loader.workloads_from_profile(moon_profile, { max_regions = max_regions, max_len = tonumber(opts.max_len or 8), min_len = tonumber(opts.min_len or 2), fact_mode = fact_mode })
-        for _, w in ipairs(moon_workloads) do w.name = "moonlift_" .. tostring(w.name); workloads[#workloads + 1] = w end
+        local lalin_workloads = Loader.workloads_from_profile(lalin_profile, { max_regions = max_regions, max_len = tonumber(opts.max_len or 8), min_len = tonumber(opts.min_len or 2), fact_mode = fact_mode })
+        for _, w in ipairs(lalin_workloads) do w.name = "lalin_" .. tostring(w.name); workloads[#workloads + 1] = w end
         cfg.max_arity = tonumber(opts.max_arity or 4)
         cfg.max_windows = tonumber(opts.max_windows or 80)
         cfg.max_fact_axes = tonumber(opts.max_fact_axes or 12)

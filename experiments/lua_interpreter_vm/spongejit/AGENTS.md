@@ -15,19 +15,19 @@ runtime/foundry observations
 LuaSrc.Window + LuaFact.Evidence
   -> LuaCompile.Unit
   -> LuaExec.Kernel or LuaExec.Module
-  -> MoonCFG.Kernel + CompileContract.Contract
+  -> LalinCFG.Kernel + CompileContract.Contract
   -> Stencil typed backend artifacts
 ```
 
-Accepted compilation goes through LuaExec then MoonCFG. There is no maintained
-NormalForm/MoonOut/LuaSem/LuaNF pipeline.
+Accepted compilation goes through LuaExec then LalinCFG. There is no maintained
+NormalForm/LalinOut/LuaSem/LuaNF pipeline.
 
 ## Source of truth
 
 - `ssa_asdl/spongejit_lua_ssa.asdl` is the product vocabulary.
 - `lua_compile/schema.lua` is the only module that loads textual ASDL.
 - `lua_compile/init.lua` is the public LuaCompile facade.
-- `lua_compile/lua_compile_to_moon_kernel.lua` owns the public compile route.
+- `lua_compile/lua_compile_to_lalin_kernel.lua` owns the public compile route.
 - `experiments/lua_interpreter_vm/README.md` and
   `experiments/lua_interpreter_vm/SPONJIT_ARCHITECTURE.md` describe current
   direction.
@@ -78,9 +78,9 @@ named phase implementations and must return typed ASDL products.
 
 Do not reintroduce these as maintained architecture:
 
-- `LuaSem`, `LuaNF`, `LuaContract`, `LuaPlace`, `NormalForm`, `MoonOut`
+- `LuaSem`, `LuaNF`, `LuaContract`, `LuaPlace`, `NormalForm`, `LalinOut`
 - `lua_sem`, `lua_nf`, `lua_contract`, `lua_place`, `normal_form`,
-  `moon_cfg_closed`, `ssa2`
+  `lalin_cfg_closed`, `ssa2`
 - protocol exits as successful lowering completion
 - semantic `out_tag` / `out_event_kind` ABI as accepted execution
 - external semantic fallback or handoff

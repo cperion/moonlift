@@ -1,6 +1,6 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local function single(value) return { value } end
 local function as_list(values) return values end
 local function only(values)
@@ -36,17 +36,17 @@ local function flat_map(fn, values, n)
     for i = 1, n do append_all(out, fn(values[i])) end
     return out
 end
-local A = require("moonlift.schema_projection")
-local Rewrite = require("moonlift.open_rewrite")
+local A = require("lalin.schema_projection")
+local Rewrite = require("lalin.open_rewrite")
 
 local T = pvm.context()
 A(T)
 local R = Rewrite(T)
-local C = T.MoonCore
-local Ty = T.MoonType
-local O = T.MoonOpen
-local B = T.MoonBind
-local Tr = T.MoonTree
+local C = T.LalinCore
+local Ty = T.LalinType
+local O = T.LalinOpen
+local B = T.LalinBind
+local Tr = T.LalinTree
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local i64 = Ty.TScalar(C.ScalarI64)
@@ -109,4 +109,4 @@ assert(rewritten.items[2] == item_c)
 local func_item = rewritten.items[3]
 assert(func_item.func.body[1] == Tr.StmtReturnValue(Tr.StmtSurface, two))
 
-print("moonlift open_rewrite ok")
+print("lalin open_rewrite ok")

@@ -3,7 +3,7 @@
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 
 local pass, fail = 0, 0
@@ -14,7 +14,7 @@ end
 
 print("=== VM string protocol checks ===\n")
 
-local hash_fn = moon.func { string_hash = vm.regions_string.string_hash } [[
+local hash_fn = lalin.func { string_hash = vm.regions_string.string_hash } [[
 hash_bytes(bytes: ptr(u8), len: index): u32
     return region: u32
     entry start()
@@ -30,7 +30,7 @@ local expected = ((0 * 5 + string.byte("a")) * 5 + string.byte("b")) * 5 + strin
 check("string_hash computes VM hash", hash_fn(bytes, 3) == expected)
 hash_fn:free()
 
-local intern_probe = moon.func {
+local intern_probe = lalin.func {
     string_intern = vm.regions_string.string_intern,
     sys_realloc = vm.regions_allocator.sys_realloc,
 } [[

@@ -1,5 +1,5 @@
 # MOM ⇔ Rust Schema Seam 
-The MLBT v3 wire format schema (tag table, slot counts, per-variant encoding) is duplicated across 4 locations: Lua encoder, MOM Moonlift, Rust decoder, and spec doc. Explore whether the ASDL schema can be the single source of truth, and what it would take to derive encoder/decoder slot layouts from it.
+The MLBT v3 wire format schema (tag table, slot counts, per-variant encoding) is duplicated across 4 locations: Lua encoder, MOM Lalin, Rust decoder, and spec doc. Explore whether the ASDL schema can be the single source of truth, and what it would take to derive encoder/decoder slot layouts from it.
 **Started**: 2026-05-18 14:19:41
 ---
 
@@ -11,7 +11,7 @@ Now I have gathered all the key information. Let me compile the comprehensive re
 
 ## Files Retrieved
 
-### 1. Lua Encoder: `lua/moonlift/back_command_binary.lua` (entire file, 644 lines)
+### 1. Lua Encoder: `lua/lalin/back_command_binary.lua` (entire file, 644 lines)
 - **Lines 15-33**: `SCALAR_TAG` table — maps `BackBool`→1 through `BackIndex`→13
 - **Lines 36-72**: `CMD_TAG` table — maps all 61 command variants to numeric tags 1-61
 - **Lines 75-105**: Op tag tables — `INT_OP_TAG`, `BIT_OP_TAG`, `SHIFT_OP_TAG`, `ROTATE_OP_TAG`, `FLOAT_OP_TAG`, `UNARY_OP_TAG`, `INTRINSIC_OP_TAG`, `COMPARE_OP_TAG`, `CAST_OP_TAG`, `VEC_BIN_OP_TAG`, `VEC_CMP_OP_TAG`, `VEC_MASK_OP_TAG`, `ATOMIC_RMW_OP_TAG`
@@ -22,7 +22,7 @@ Now I have gathered all the key information. Let me compile the comprehensive re
 
 ### 2. MOM Wire Format Files
 
-#### 2a. `lua/moonlift/mom/driver/wire.mlua` (entire file, ~180 lines)
+#### 2a. `lua/lalin/mom/driver/wire.mlua` (entire file, ~180 lines)
 - **Lines 1-5**: Low-level MLBT v3 byte writer — `MomWireBuilder` struct definition
 - **Lines 7-36**: `mw_write_u32`, `mw_patch_u32`, `mw_align4` — byte-level primitives
 - **Lines 38-49**: `mw_init` — writes header (magic=0x4D4C4254, version=3, placeholder counts)
@@ -31,7 +31,7 @@ Now I have gathered all the key information. Let me compile the comprehensive re
 - **Lines 83-127**: `mw_write_cmd0/1/3/5/7` — command write helpers for 0, 1, 3, 5, 7 slot counts
 - **NOTE**: Only supports cmd0, cmd1, cmd3, cmd5, cmd7 — commands with 2, 4, 6, 8, 14, 15, 16, 17 slots use `mw_write_cmd` with explicit slot count
 
-#### 2b. `lua/moonlift/mom/driver/lower_wire.mlua` (entire file, ~280 lines)
+#### 2b. `lua/lalin/mom/driver/lower_wire.mlua` (entire file, ~280 lines)
 - **Lines 1-20**: Command tape serialization helpers for MOM
 - **Lines 51-97**: Duplicates `mw_init`, `mw_finish`, `mw_write_pool_string`, `mw_write_aux_i32s`, `mw_align4` and other primitives (code duplication from wire.mlua)
 - **Lines 99-170**: `mom_wire_slot_count` — **duplicated slot count table** (if-else chain, tags 1-61)
@@ -51,8 +51,8 @@ Now I have gathered all the key information. Let me compile the comprehensive re
 - **Lines 1567-1577**: `read_scalar_code()` scalar decoder (separate copy from `read_scalar`)
 - **Lines 1579-1622**: Atomic ordering/rmw op readers
 - **Lines 1624-1630**: `parse_back_command_binary()` public entry point
-- **Lines 1634-1680**: `moonlift_jit_compile_binary` FFI entry
-- **Lines 1682-1720**: `moonlift_object_compile_binary` FFI entry
+- **Lines 1634-1680**: `lalin_jit_compile_binary` FFI entry
+- **Lines 1682-1720**: `lalin_object_compile_binary` FFI entry
 
 ### 4. Rust BackCmd Enum: `src/lib.rs`
 - **Lines 310-402**: `BackCmd` enum — **~100+ flat variants** (not 61 schema variants; expanded by op kind)
@@ -61,26 +61,26 @@ Now I have gathered all the key information. Let me compile the comprehensive re
 - **Lines 702-707**: `BackBodyCmd` enum — wraps the sub-enums into ~90+ variant equivalent
 - **Lines 820-1080**: `BackProgram::partition()` — splits flat `BackCmd` into `BackDeclCmd` + `BackBodyCmd`
 
-### 5. ASDL Schema: `lua/moonlift/mom/schema/MoonBack.mlua` (entire file)
+### 5. ASDL Schema: `lua/lalin/mom/schema/LalinBack.mlua` (entire file)
 - **Lines 123-178**: `M.Cmd = union Cmd` — declares 61 command variants (from `CmdTargetModel` through `CmdFinalizeModule`)
 - **Lines 1-115**: Supporting types: `BackAddressBase`, `BackShape`, `BackScalar` (14 variants), `BackMemoryInfo`, `BackAlignment`, `BackDereference`, `BackTrap`, `BackMotion`, `BackAccessMode`, `BackLiteral`, `BackCallResult`, `BackCallTarget`, etc.
 - **Lines 180-227**: `BackProgram`, `BackValidationIssue` (35+ issue types), inspection types
 - Total: lines 1-233 of the schema file
 
 ### 6. Spec Doc: `BACK_WIRE_FORMAT.md` (entire file)
-- **Lines 182-183**: "Tags are assigned in declaration order from the `MoonBack.Cmd` ASDL union"
+- **Lines 182-183**: "Tags are assigned in declaration order from the `LalinBack.Cmd` ASDL union"
 - **Lines 191-328**: Command tag table with slot counts for all 61 tags
 - **Lines 330-331**: Scalar tag table (13 scalars)
 - **Lines 436-478**: Slot count table (Appendix A, for decoder convenience)
 - **Lines 480-500**: Validation checklist (Appendix B, 11 checks)
 
-### 7. MOM Schema Tags: `lua/moonlift/mom/back/back_tags.lua`
-- **Lines 40-50**: Derives all `BackCmd` tags from `MoonBack.mlua` schema via `protocol_variants`
+### 7. MOM Schema Tags: `lua/lalin/mom/back/back_tags.lua`
+- **Lines 40-50**: Derives all `BackCmd` tags from `LalinBack.mlua` schema via `protocol_variants`
 - **Lines 42-49**: `derive()` function: `variants` = union's protocol_variants; `tag = i - 1` (self-variant at index 1 is tag 0, unused)
-- Derives tags for: `Cmd`, `BackScalar`, all op unions, `MoonCore` scalars/ops, etc.
+- Derives tags for: `Cmd`, `BackScalar`, all op unions, `LalinCore` scalars/ops, etc.
 - Lines 51-101+: MachineCastOp tags, binary class tags, SurfaceCastOp tags
 
-### 8. MOM Generated Tags: `lua/moonlift/mom/tags/mom_tags.lua`
+### 8. MOM Generated Tags: `lua/lalin/mom/tags/mom_tags.lua`
 - Generated by `tags_gen.lua` from ASDL schema
 - Cmd tag constants: `CmdTargetModel=6`, `CmdCreateSig=7`, etc. — these are **schema variant array indices** (not wire tags)
 
@@ -97,8 +97,8 @@ Now I have gathered all the key information. Let me compile the comprehensive re
 - Tests `ret7()` returns 7
 
 #### 9c. `tests/test_mom_source_to_binary.lua` (29 lines)
-- Full source-to-binary pipeline: `moon.native_loadstring()` → `<native>.get("ret7")` → execute
-- Also tests `moon.host_mom.wire()` produces valid wire bytes
+- Full source-to-binary pipeline: `lalin.native_loadstring()` → `<native>.get("ret7")` → execute
+- Also tests `lalin.host_mom.wire()` produces valid wire bytes
 
 ---
 
@@ -142,7 +142,7 @@ The **MOM back_tags.lua** derives tags from the ASDL schema union variant order 
 For example:
 - Schema: `CmdTargetModel` is the first variant → schema tag = 1 (index 2, minus 1)
 - Wire: `CmdTargetModel` = 1 (matches by convention — but not guaranteed)
-- Schema: `CmdTrap` is at variant index → schema tag = ? (depends on order in MoonBack.mlua)
+- Schema: `CmdTrap` is at variant index → schema tag = ? (depends on order in LalinBack.mlua)
 - Wire: `CmdTrap` = 59
 
 `lower_wire.mlua` `mom_schema_cmd_tag_to_wire` explicitly maps schema tags to wire tags for only 14 command variants (the ones MOM currently emits). This mapping function is **incomplete** — only ~14 of 61 commands are mapped.
@@ -164,7 +164,7 @@ Lua Compiler Path:
                                                                   Jit::compile() ──► Cranelift
 
 MOM Compiler Path:
-  Moonlift source ──► native parse/typecheck/lower ──► CmdEntry[] ──► lower_wire.mlua ──► MLBT bytes
+  Lalin source ──► native parse/typecheck/lower ──► CmdEntry[] ──► lower_wire.mlua ──► MLBT bytes
                                                                          │
                                                                          ▼
                                                                   mom_backend_compile_binary() ──►
@@ -194,7 +194,7 @@ Missing are ~47 commands — all memory ops, atomics, vector ops, shifts, rotate
 ## Observations
 
 ### 1. Triplicated/quadruplicated tag definitions
-The 61 command tags, 13 scalar tags, and ~16 op tag tables are maintained in 3-5 separate locations with no automated cross-check. A tag added to `MoonBack.mlua` schema requires manual updates to:
+The 61 command tags, 13 scalar tags, and ~16 op tag tables are maintained in 3-5 separate locations with no automated cross-check. A tag added to `LalinBack.mlua` schema requires manual updates to:
 - `BACK_WIRE_FORMAT.md` (text table)
 - `back_command_binary.lua` (`CMD_TAG` table)
 - `lower_wire.mlua` (`mom_schema_cmd_tag_to_wire` + `mom_wire_slot_count`)
@@ -223,7 +223,7 @@ Slot counts (e.g., CmdLoadInfo = 15 slots) must be derived manually from the sch
 CmdLoadInfo stores: `[dst, shape_tag(0/1), scalar, lanes, base_tag, base_id, byte_offset, mem*8]` = 15 slots. The scalar and lanes duplicate info that's derivable from shape_tag — but shape_tag==0 means scalar with scalar_tag, shape_tag==1 means vec with (scalar_tag, lanes). The decoder has custom logic for this dual interpretation.
 
 ### 8. `schemas/wire_tags` could be the single source
-`MoonBack.mlua`'s `Cmd` union has `protocol_variants` listing all variants in order. If wire tags were derived from this order (like `back_tags.lua` already does for schema tags), and slot counts were derived from field counts (with a lookup for multi-field encodings like BackMemoryInfo), all duplication could be eliminated. The main blocker is: slot count is not the same as ASDL field count (e.g., BackMemoryInfo with 1 ASDL field expands to 8 wire slots).
+`LalinBack.mlua`'s `Cmd` union has `protocol_variants` listing all variants in order. If wire tags were derived from this order (like `back_tags.lua` already does for schema tags), and slot counts were derived from field counts (with a lookup for multi-field encodings like BackMemoryInfo), all duplication could be eliminated. The main blocker is: slot count is not the same as ASDL field count (e.g., BackMemoryInfo with 1 ASDL field expands to 8 wire slots).
 
 ## Knowledge-builder Output — 2026-05-18 14:25:22
 
@@ -269,14 +269,14 @@ This means: **any approach that derives wire layout from the ASDL schema must kn
 
 ### 3. The schema-tag/wire-tag "divergence" is not a deliberate abstraction — it's two independent implementations of the *same derivation function* that happen to produce the same result by accident
 
-The `back_tags.lua` derivation is: `tag = variant_index - 1` (skipping self-variant at index 0). The wire tag assignment is: declared in BACK_WIRE_FORMAT.md as "Tags are assigned in declaration order from the MoonBack.Cmd ASDL union." These are **structurally identical** — both compute `variant_index_in_protocol_variants - 1`.
+The `back_tags.lua` derivation is: `tag = variant_index - 1` (skipping self-variant at index 0). The wire tag assignment is: declared in BACK_WIRE_FORMAT.md as "Tags are assigned in declaration order from the LalinBack.Cmd ASDL union." These are **structurally identical** — both compute `variant_index_in_protocol_variants - 1`.
 
 They currently match because:
 1. The Cmd variants are listed in the ASDL schema in declaration order
 2. The `protocol_variants` method returns them in that order
 3. The wire tag table happens to list them in that order
 
-If someone reorders the Cmd variants in MoonBack.mlua, `back_tags.lua` auto-updates but the encoder's `CMD_TAG` table breaks **silently** — it still has entries for old names but with wrong numeric values. The Rust decoder's `SLOT_COUNT` also breaks silently. The `mom_schema_cmd_tag_to_wire` function breaks silently (maps go to wrong tags).
+If someone reorders the Cmd variants in LalinBack.mlua, `back_tags.lua` auto-updates but the encoder's `CMD_TAG` table breaks **silently** — it still has entries for old names but with wrong numeric values. The Rust decoder's `SLOT_COUNT` also breaks silently. The `mom_schema_cmd_tag_to_wire` function breaks silently (maps go to wrong tags).
 
 The only thing preventing this is manual discipline — there is no automated cross-check.
 
@@ -376,15 +376,15 @@ Now I have a complete picture. Let me synthesize three genuinely distinct approa
 
 ## Approach A: Schema-Annotated Wire Layout (Keep the Schema as Center)
 
-**Core idea**: The existing `MoonBack.mlua` ASDL schema remains the single source of truth. A companion encoding annotation file (`wire_layout.lua`) declares the lossy+additive wire encoding policy per type and per variant — which fields to drop, which to multiply, where to insert padding — and a Lua codegen script reads both to produce the Lua encoder, MOM encoder helpers, Rust decoder, SLOT_COUNT array, and spec doc.
+**Core idea**: The existing `LalinBack.mlua` ASDL schema remains the single source of truth. A companion encoding annotation file (`wire_layout.lua`) declares the lossy+additive wire encoding policy per type and per variant — which fields to drop, which to multiply, where to insert padding — and a Lua codegen script reads both to produce the Lua encoder, MOM encoder helpers, Rust decoder, SLOT_COUNT array, and spec doc.
 
 **Key changes**:
 
 | What | What happens |
 |------|-------------|
-| `MoonBack.mlua` | Unchanged — still defines 61 Cmd variants, sub-op unions, `BackShape`, `BackMemoryInfo`, etc. |
+| `LalinBack.mlua` | Unchanged — still defines 61 Cmd variants, sub-op unions, `BackShape`, `BackMemoryInfo`, etc. |
 | New: `wire_layout.lua` | Companion file declaring encoding policy: per-ASDL-type slot multiplier (e.g., `BackMemoryInfo → 8`, `BackShape → 3`, `BackLiteral → 3`), excluded fields (`BackAddress.provenance`, `BackAddress.formation_bounds`), per-command padding slots (`CmdAtomicLoad → [+0 after ordering]`), op sub-tag assignments for each op union |
-| New: `back_codegen.lua` | Lua codegen that reads `MoonBack.mlua` + `wire_layout.lua`, and emits: `back_command_binary.lua` (encoder), `mom/driver/encoder.mlua` (MOM encoder), `src/decoder_generated.rs` (Rust decode match arms + SLOT_COUNT), `BACK_WIRE_FORMAT.md` (updated live) |
+| New: `back_codegen.lua` | Lua codegen that reads `LalinBack.mlua` + `wire_layout.lua`, and emits: `back_command_binary.lua` (encoder), `mom/driver/encoder.mlua` (MOM encoder), `src/decoder_generated.rs` (Rust decode match arms + SLOT_COUNT), `BACK_WIRE_FORMAT.md` (updated live) |
 | `back_command_binary.lua` | Becomes **entirely generated** — hand-written CMD_TAG, SCALAR_TAG, and if-else chain replaced by generated output |
 | `mom/driver/lower_wire.mlua` | Replaced by generated `mom/driver/encoder.mlua` — `mom_wire_slot_count`, `mom_schema_cmd_tag_to_wire`, and per-command encode logic all derived |
 | `src/ffi.rs` | `SLOT_COUNT` array removed, `decode_commands` match arms replaced by `include!("decoder_generated.rs")` or a call into generated decode dispatcher |
@@ -418,7 +418,7 @@ Now I have a complete picture. Let me synthesize three genuinely distinct approa
 | New: `wire_decl.rs` | Single Rust file declaring each command's wire format using a custom derive macro or macro_rules. Example: `wire_cmd!(CmdCreateSig, tag=3, slots=[sig: SigId, params: Aux(Scalars), results: Aux(Scalars)])`. For command bodies: `wire_cmd!(CmdLoadInfo, tag=27, expand=Address+Memory, slots=[dst: ValId, shape: Shape, addr: AddressLayout, mem: MemoryLayout])`. |
 | `src/lib.rs` `BackCmd` enum | **Generated** from the wire declaration. No more hand-written 100+ variants. The macro expands each wire command into the appropriate Rust variant(s), including op-split expansions. |
 | `src/ffi.rs` decoder | Generated match arms + `SLOT_COUNT`. The `BinaryReader` helpers (`pool_val`, `decode_address`, `decode_memory`) are hand-written but called from generated dispatch. |
-| `build.rs` | New step: reads `wire_decl.rs` macro expansions and emits `lua/moonlift/back_command_binary_gen.lua` (Lua encoder) and `lua/moonlift/mom/driver/encoder_gen.lua` (MOM encoder). These are emitted at Rust compile time. |
+| `build.rs` | New step: reads `wire_decl.rs` macro expansions and emits `lua/lalin/back_command_binary_gen.lua` (Lua encoder) and `lua/lalin/mom/driver/encoder_gen.lua` (MOM encoder). These are emitted at Rust compile time. |
 | `back_command_binary.lua` | Replaced by generated file. Hand-written `CMD_TAG`, `SCALAR_TAG`, and encoder dispatch gone. |
 | `mom/driver/lower_wire.mlua` | Replaced by generated MOM encoder. MOM gets native code that matches Rust's declaration exactly. |
 | `BACK_WIRE_FORMAT.md` | Generated from the macro expansion (build.rs emits markdown). |
@@ -430,7 +430,7 @@ Now I have a complete picture. Let me synthesize three genuinely distinct approa
 - Pattern B (field-split): The macro accepts `shape_split = [AppendBlockParam, AppendVecBlockParam]` — when a shape field has tag=0 (scalar) it decodes to the first variant, tag=1 (vec) to the second.
 - Pattern C (synthetic injection): The macro accepts `expand = Address+Memory` and generates calls to helper functions that inject subsidiary commands.
 
-**Tradeoff**: Optimizes for **Rust-side correctness** — the decoder is always in sync with the declaration, and the Rust BackCmd enum is derived from the same source. Sacrifices **Lua philosophical fit** — the wire format is now defined and owned by Rust, and Lua/MOM get a generated encoder they cannot easily override or inspect. Build.rs emitting Lua code adds a build dependency (Rust must know how to emit Lua/Moonlift, not just Rust).
+**Tradeoff**: Optimizes for **Rust-side correctness** — the decoder is always in sync with the declaration, and the Rust BackCmd enum is derived from the same source. Sacrifices **Lua philosophical fit** — the wire format is now defined and owned by Rust, and Lua/MOM get a generated encoder they cannot easily override or inspect. Build.rs emitting Lua code adds a build dependency (Rust must know how to emit Lua/Lalin, not just Rust).
 
 **Risk**: Rust macros calling into build.rs to emit arbitrary Lua is fragile. If the Lua encoder needs a fix, the fix goes through the Rust macro system, not through Lua. For MOM, the generated encoder may not match MOM's allocation-free column-major model — MOM may need to re-architect its encoder to match the generated format. Also: the Rust BackCmd enum is currently a triple-layer hierarchy (flat enum → `BackBodyCmd` wrapping sub-enums → `BackProgram::partition()`). Generating this from macros requires the macro to understand the partition boundaries (which commands are decls vs body).
 
@@ -442,8 +442,8 @@ Now I have a complete picture. Let me synthesize three genuinely distinct approa
    c. Generates `fn slot_count(tag: usize) -> usize`
    d. Generates `fn encode_to_wire(cmd: &BackCmd, builder: &mut WireBuilder)` in both Rust (for roundtrip tests) and Lua (for encoder emission)
 3. In `build.rs`, read the expanded macro output and emit:
-   - `lua/moonlift/back_command_binary_gen.lua` (Lua encoder)
-   - `lua/moonlift/mom/driver/encoder_gen.lua` (MOM encoder)
+   - `lua/lalin/back_command_binary_gen.lua` (Lua encoder)
+   - `lua/lalin/mom/driver/encoder_gen.lua` (MOM encoder)
    - `BACK_WIRE_FORMAT_GEN.md` (spec doc)
 4. Delete `back_command_binary.lua` and `lower_wire.mlua`. Wire tests to the generated versions.
 5. The Rust decoder calls generated dispatch.
@@ -459,7 +459,7 @@ Now I have a complete picture. Let me synthesize three genuinely distinct approa
 | What | What happens |
 |------|-------------|
 | Wire format v4 | Every command becomes `[tag: u32] [n_slots: u32] [slot_0: u32] ... [slot_{n-1}: u32]`. The header still has magic + version + pool_count + aux_count. The command stream no longer needs a shared SLOT_COUNT table. |
-| `MoonBack.mlua` | Unchanged — still defines all Cmd variants. Tag assignment is automatic from variant order (same as today). |
+| `LalinBack.mlua` | Unchanged — still defines all Cmd variants. Tag assignment is automatic from variant order (same as today). |
 | New: `layout_spec.lua` | Compact declaration per variant of its wire layout — purely descriptive, no code. Example: `CmdLoadInfo: { dst: pid, shape: shape3, addr: addr3, mem: mem8 }` — this plus the schema defines exactly what goes on the wire. |
 | `WireBuilder:cmd()` | Changed to accept `(tag, slots)` and auto-insert `n_slots` before the slots. The `Encoder:encode_cmd()` methods stay mostly the same — they just get `n_slots` for free (Lua table length). |
 | `SLOT_COUNT` array | **Deleted entirely** — the decoder reads `n_slots` from the stream. |
@@ -491,7 +491,7 @@ Now I have a complete picture. Let me synthesize three genuinely distinct approa
 
 | Dimension | A: Schema-Annotated | B: Rust-DSL | C: Self-Describing |
 |-----------|-------------------|-------------|-------------------|
-| **Center of truth** | MoonBack.mlua + wire_layout.lua | Rust macro DSL (wire_decl.rs) | MoonBack.mlua (for semantics) + length prefix (for structure) |
+| **Center of truth** | LalinBack.mlua + wire_layout.lua | Rust macro DSL (wire_decl.rs) | LalinBack.mlua (for semantics) + length prefix (for structure) |
 | **Duplicate state eliminated** | CMD_TAG, SCALAR_TAG, slot counts, op tables, MOM encode logic, decoder match arms, spec doc | Same, plus generates BackCmd enum | SLOT_COUNT table (the most dangerous duplication) |
 | **Rust BackCmd enum** | Hand-written (preserved) | Generated from macro | Hand-written (preserved) |
 | **Build step required** | Yes — Lua codegen | Yes — build.rs emits Lua code | No — just change wire format |
@@ -501,7 +501,7 @@ Now I have a complete picture. Let me synthesize three genuinely distinct approa
 | **Codegen complexity** | High — must express lossy+additive encoding policy | Very high — must express 3 expansion patterns + emit Lua | None — just add length before slots |
 | **Best for** | Teams that want ASDL as architecture and are willing to invest in annotation DSL | Teams that want Rust to own the wire boundary and can tolerate generated Lua | Teams that want maximum robustness and minimal tooling investment |
 
-**Pick A if**: You want the Moonlift philosophy of "ASDL is the architecture" to extend to the wire format, and you're willing to design a clean encoding annotation DSL that handles the 3 expansion patterns, dropped fields, and padding slots. This is the philosophically purest choice.
+**Pick A if**: You want the Lalin philosophy of "ASDL is the architecture" to extend to the wire format, and you're willing to design a clean encoding annotation DSL that handles the 3 expansion patterns, dropped fields, and padding slots. This is the philosophically purest choice.
 
 **Pick B if**: You want the Rust backend to own and guarantee the wire format, and you're willing to accept that Lua encoders become generated artifacts. This works well if Rust is the primary target receiving the wire format and you want to eliminate the "schema variant reorder breaks everything silently" problem entirely.
 

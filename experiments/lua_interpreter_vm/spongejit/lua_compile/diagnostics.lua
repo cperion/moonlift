@@ -1,7 +1,7 @@
 -- lua_compile/diagnostics.lua -- structured debug formatting.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 
 local M = {}
 

@@ -1,5 +1,5 @@
 # Complete C backend design coverage audit 
-Complete upfront design audit for a production Moonlift C backend side projection from resolved typed program layer. No coding; gather exhaustive construct coverage facts.
+Complete upfront design audit for a production Lalin C backend side projection from resolved typed program layer. No coding; gather exhaustive construct coverage facts.
 **Workflow ID**: wf-c-backend-complete-design
 **Started**: 2026-06-08 08:55:56
 ---
@@ -8,40 +8,40 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ## Files Retrieved
 
-1. `lua/moonlift/schema/tree.lua` (lines 1-1394) — MoonTree source-of-truth schema: headers, places, views, domains, control regions, expressions, statements, funcs/items/modules, typecheck result nodes, tree-to-back env/result nodes.
-2. `lua/moonlift/schema/type.lua` (lines 1-247) — MoonType schema: type refs, type variants, type classes, layout/ABI result/plans.
-3. `lua/moonlift/schema/core.lua` (lines 1-271) — scalar, literal, operator, intrinsic, atomic, symbol schemas.
-4. `lua/moonlift/schema/sem.lua` (lines 1-80) — semantic field refs, memory/type layouts, const values, flow classes.
-5. `lua/moonlift/schema/bind.lua` (lines 1-178) — binding classes, refs, env, residence decisions.
-6. `lua/moonlift/schema/back.lua` (lines 1-1396) — MoonBack Cranelift-oriented command tape schema.
-7. `lua/moonlift/c/c_type.lua` (lines 1-644) — MoonC C import schema and current `CBackend*` side-projection schema.
+1. `lua/lalin/schema/tree.lua` (lines 1-1394) — LalinTree source-of-truth schema: headers, places, views, domains, control regions, expressions, statements, funcs/items/modules, typecheck result nodes, tree-to-back env/result nodes.
+2. `lua/lalin/schema/type.lua` (lines 1-247) — LalinType schema: type refs, type variants, type classes, layout/ABI result/plans.
+3. `lua/lalin/schema/core.lua` (lines 1-271) — scalar, literal, operator, intrinsic, atomic, symbol schemas.
+4. `lua/lalin/schema/sem.lua` (lines 1-80) — semantic field refs, memory/type layouts, const values, flow classes.
+5. `lua/lalin/schema/bind.lua` (lines 1-178) — binding classes, refs, env, residence decisions.
+6. `lua/lalin/schema/back.lua` (lines 1-1396) — LalinBack Cranelift-oriented command tape schema.
+7. `lua/lalin/c/c_type.lua` (lines 1-644) — LalinC C import schema and current `CBackend*` side-projection schema.
 8. `C_BACKEND_DESIGN.md` (lines 1-203) — existing design note for C side projection.
-9. `lua/moonlift/frontend_pipeline.lua` (lines 1-263) — current backend pipeline paths, including `lower_module_to_c` / `parse_and_lower_c`.
-10. `lua/moonlift/tree_typecheck.lua` (lines 1-1319) — typechecking/resolution into typed MoonTree.
-11. `lua/moonlift/tree_expr_type.lua` (lines 1-128) — expression type query phase coverage.
-12. `lua/moonlift/tree_module_type.lua` (lines 1-214) — module env/type/layout collection.
-13. `lua/moonlift/sem_layout_resolve.lua` (lines 1-393) — semantic field/layout resolution and `sizeof`/`alignof` rewrite.
-14. `lua/moonlift/type_classify.lua` (lines 1-111) — type classification.
-15. `lua/moonlift/type_size_align.lua` (lines 1-150) — memory size/alignment decisions.
-16. `lua/moonlift/type_to_back_scalar.lua` (lines 1-86) — MoonType → MoonBack scalar projection.
-17. `lua/moonlift/type_abi_classify.lua` (lines 1-73) — ABI class decisions.
-18. `lua/moonlift/type_func_abi_plan.lua` (lines 1-95) — executable function ABI plan.
-19. `lua/moonlift/sem_call_decide.lua` (lines 1-133) — semantic call-target classification.
-20. `lua/moonlift/closure_convert.lua` (lines 1-429) — closure conversion before backend projection.
-21. `lua/moonlift/tree_to_back.lua` (lines 1-2730) — current production Cranelift-side MoonTree lowering coverage.
-22. `lua/moonlift/tree_control_to_back.lua` (lines 1-509) — control-region lowering to MoonBack CFG commands.
-23. `lua/moonlift/tree_to_c.lua` (lines 1-352) — current C side-projection scaffold.
-24. `lua/moonlift/tree_control_to_c.lua` (lines 1-274) — current C control-region projection scaffold.
-25. `lua/moonlift/type_to_c.lua` (lines 1-157) — current MoonType → CBackendType mapper.
-26. `lua/moonlift/c_emit.lua` (lines 1-260) — current C emitter.
-27. `lua/moonlift/c_helpers.lua` (lines 1-241) — current helper registry/emitter.
-28. `lua/moonlift/c_validate.lua` (lines 1-251) — current CBackend validator.
+9. `lua/lalin/frontend_pipeline.lua` (lines 1-263) — current backend pipeline paths, including `lower_module_to_c` / `parse_and_lower_c`.
+10. `lua/lalin/tree_typecheck.lua` (lines 1-1319) — typechecking/resolution into typed LalinTree.
+11. `lua/lalin/tree_expr_type.lua` (lines 1-128) — expression type query phase coverage.
+12. `lua/lalin/tree_module_type.lua` (lines 1-214) — module env/type/layout collection.
+13. `lua/lalin/sem_layout_resolve.lua` (lines 1-393) — semantic field/layout resolution and `sizeof`/`alignof` rewrite.
+14. `lua/lalin/type_classify.lua` (lines 1-111) — type classification.
+15. `lua/lalin/type_size_align.lua` (lines 1-150) — memory size/alignment decisions.
+16. `lua/lalin/type_to_back_scalar.lua` (lines 1-86) — LalinType → LalinBack scalar projection.
+17. `lua/lalin/type_abi_classify.lua` (lines 1-73) — ABI class decisions.
+18. `lua/lalin/type_func_abi_plan.lua` (lines 1-95) — executable function ABI plan.
+19. `lua/lalin/sem_call_decide.lua` (lines 1-133) — semantic call-target classification.
+20. `lua/lalin/closure_convert.lua` (lines 1-429) — closure conversion before backend projection.
+21. `lua/lalin/tree_to_back.lua` (lines 1-2730) — current production Cranelift-side LalinTree lowering coverage.
+22. `lua/lalin/tree_control_to_back.lua` (lines 1-509) — control-region lowering to LalinBack CFG commands.
+23. `lua/lalin/tree_to_c.lua` (lines 1-352) — current C side-projection scaffold.
+24. `lua/lalin/tree_control_to_c.lua` (lines 1-274) — current C control-region projection scaffold.
+25. `lua/lalin/type_to_c.lua` (lines 1-157) — current LalinType → CBackendType mapper.
+26. `lua/lalin/c_emit.lua` (lines 1-260) — current C emitter.
+27. `lua/lalin/c_helpers.lua` (lines 1-241) — current helper registry/emitter.
+28. `lua/lalin/c_validate.lua` (lines 1-251) — current CBackend validator.
 29. `tests/test_tree_to_c_smoke.lua` (lines 1-83) — source-level C backend smoke coverage.
 30. `tests/test_c_emit.lua` (lines 1-72) — hand-built CBackend emission coverage.
 31. `tests/test_c_validate.lua` (lines 1-57) — CBackend validator coverage.
 32. `tests/test_type_to_c.lua` (lines 1-40) — type-to-C coverage.
-33. `tests/test_c_end_to_end.lua` (lines 1-110) — C frontend/importer/lower-to-MoonTree coverage.
-34. `tests/test_c_loops.lua` (lines 1-200) — C frontend loops lowered into MoonTree control regions.
+33. `tests/test_c_end_to_end.lua` (lines 1-110) — C frontend/importer/lower-to-LalinTree coverage.
+34. `tests/test_c_loops.lua` (lines 1-200) — C frontend loops lowered into LalinTree control regions.
 35. `tests/test_parse_typecheck.lua` (lines 1-88) — parse/typecheck/JIT coverage for loops, region expressions, structs/unions, casts.
 36. `tests/test_lang_features.lua` (lines 1-129) — language/backend regression coverage for inference, mutation, pointer arithmetic, switches.
 37. `tests/test_tree_to_back_add_select.lua` (lines 1-64) — hand-built Tree→Back scalar/select lowering.
@@ -55,9 +55,9 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ## Key Code
 
-### MoonTree construct coverage
+### LalinTree construct coverage
 
-`lua/moonlift/schema/tree.lua` defines:
+`lua/lalin/schema/tree.lua` defines:
 
 - Headers: `ExprSurface`, `ExprTyped`, `ExprOpen`; `PlaceSurface`, `PlaceTyped`, `PlaceOpen`; `StmtSurface`, `StmtOpen`, `StmtFlow`.
 - Views: `ViewFromExpr`, `ViewContiguous`, `ViewStrided`, `ViewRestrided`, `ViewWindow`, `ViewRowBase`, `ViewInterleaved`, `ViewInterleavedView`.
@@ -75,16 +75,16 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ### Type/layout/ABI facts
 
-`lua/moonlift/schema/type.lua` defines types:
+`lua/lalin/schema/type.lua` defines types:
 `TScalar`, `TPtr`, `TArray`, `TSlice`, `TView`, `TFunc`, `TClosure`, `TNamed`, `TSlot`, `TCType`, `TCFuncPtr`.
 
-`lua/moonlift/type_size_align.lua`:
+`lua/lalin/type_size_align.lua`:
 - scalars use fixed layouts: bool/i8/u8 = 1, i16/u16 = 2, i32/u32/f32 = 4, i64/u64/f64/rawptr/index = 8.
 - slice = 16 bytes, view = 24 bytes, closure = 16 bytes.
 - arrays multiply element size by constant count.
 - named layout resolved from `Sem.LayoutEnv`.
 
-`lua/moonlift/type_func_abi_plan.lua`:
+`lua/lalin/type_func_abi_plan.lua`:
 - `TView` params lower as data/len/stride.
 - scalar/pointer/function/closure direct scalars use `type_to_back_scalar`.
 - `TNamed` and `TArray` params lower as `BackPtr`.
@@ -93,7 +93,7 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ### Current `tree_to_back` coverage
 
-`lua/moonlift/tree_to_back.lua` currently lowers many typed/resolved MoonTree constructs:
+`lua/lalin/tree_to_back.lua` currently lowers many typed/resolved LalinTree constructs:
 
 - Expressions with handlers include:
   `ExprLit`, `ExprRef`, `ExprUnary`, `ExprBinary`, `ExprCompare`, `ExprMachineCast`, `ExprSelect`, `ExprCall`, `ExprCast`, `ExprLen`, `ExprLogic`, `ExprIf`, `ExprSwitch`, `ExprControl`, `ExprBlock`, `ExprDot`, `ExprIntrinsic`, `ExprAddrOf`, `ExprDeref`, `ExprField`, `ExprIndex`, `ExprAgg`, `ExprArray`, `ExprClosure`, `ExprView`, `ExprLoad`, `ExprAtomicLoad`, `ExprAtomicRmw`, `ExprAtomicCas`, `ExprNull`, `ExprIsNull`, `ExprSlotValue`, `ExprUseExprFrag`.
@@ -108,7 +108,7 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ### Current `tree_to_c` scaffold coverage/limits
 
-`lua/moonlift/tree_to_c.lua` currently supports a small subset:
+`lua/lalin/tree_to_c.lua` currently supports a small subset:
 
 - Exprs: `ExprLit`, `ExprNull`, `ExprRef`, `ExprBinary`, `ExprCompare`, `ExprMachineCast`, `ExprSelect`, `ExprCall`, `ExprLoad`.
 - `ExprControl` errors unless handled from statement return/control context.
@@ -120,7 +120,7 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ### CBackend ASDL
 
-`lua/moonlift/c/c_type.lua` adds `CBackend*` nodes under `MoonC`:
+`lua/lalin/c/c_type.lua` adds `CBackend*` nodes under `LalinC`:
 
 - Root: `CBackendUnit`.
 - Target: dialect/platform/endian/pointer/index/hosted facts.
@@ -142,8 +142,8 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 - `tree_module_type.lua` builds the module env used by typecheck: value entries, type entries, and layout env.
 - `sem_layout_resolve.lua` resolves `ExprDot`/`PlaceDot` to offset fields where layout is known, and rewrites `ExprSizeOf` / `ExprAlignOf` to typed integer literals.
 - `closure_convert.lua` rewrites `ExprClosure` into helper functions plus descriptor aggregates before backend projection.
-- `tree_to_back.lua` consumes typed/resolved tree and lowers to flat `MoonBack.Cmd[]`.
-- `tree_to_c.lua` consumes the same typed/resolved tree and currently produces `MoonC.CBackendUnit`.
+- `tree_to_back.lua` consumes typed/resolved tree and lowers to flat `LalinBack.Cmd[]`.
+- `tree_to_c.lua` consumes the same typed/resolved tree and currently produces `LalinC.CBackendUnit`.
 - `c_emit.lua` prints `CBackendUnit` directly; it does not reconstruct high-level loops.
 
 ## Observations
@@ -163,9 +163,9 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 - Confirm `C_BACKEND_DESIGN.md` is still the canonical contract and still contains the completeness rule and matrices (§1, §6-§21).
 - Confirm schema variants are unchanged:
-  - `lua/moonlift/schema/tree.lua`: View lines 92-143, Place lines 194-227, Expr lines 529-753, Stmt lines 756-865, Func lines 868-912, Item lines 1002-1050.
-  - `lua/moonlift/schema/type.lua`: Type lines 41-88.
-  - `lua/moonlift/schema/core.lua`: ops/intrinsics/atomics lines 107-191.
+  - `lua/lalin/schema/tree.lua`: View lines 92-143, Place lines 194-227, Expr lines 529-753, Stmt lines 756-865, Func lines 868-912, Item lines 1002-1050.
+  - `lua/lalin/schema/type.lua`: Type lines 41-88.
+  - `lua/lalin/schema/core.lua`: ops/intrinsics/atomics lines 107-191.
 - Confirm scaffold locations are unchanged:
   - `tree_to_c.lua`: `expr_to_c` starts ~110, `stmt_to_c` ~203, `func_to_c` ~264, `item_to_c` ~315.
   - `tree_control_to_c.lua`: control lowering starts ~61.
@@ -180,7 +180,7 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ## Files to Modify
 
-### `lua/moonlift/c/c_type.lua`
+### `lua/lalin/c/c_type.lua`
 
 **Goal**: Extend the restricted C backend ASDL so it can represent complete semantics, not just scalar scaffold IR.
 
@@ -244,7 +244,7 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ---
 
-### `lua/moonlift/type_size_align.lua`
+### `lua/lalin/type_size_align.lua`
 
 **Goal**: Make layout target-aware enough for the C backend target model.
 
@@ -267,7 +267,7 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ---
 
-### `lua/moonlift/tree_module_type.lua`
+### `lua/lalin/tree_module_type.lua`
 
 **Goal**: Compute struct/union layout using the selected C target.
 
@@ -288,7 +288,7 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ---
 
-### `lua/moonlift/sem_layout_resolve.lua`
+### `lua/lalin/sem_layout_resolve.lua`
 
 **Goal**: Resolve field/sizeof/alignof facts using the same target layout used by C lowering.
 
@@ -311,7 +311,7 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ---
 
-### `lua/moonlift/frontend_pipeline.lua`
+### `lua/lalin/frontend_pipeline.lua`
 
 **Goal**: Select C target before layout resolution.
 
@@ -328,9 +328,9 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ---
 
-### `lua/moonlift/type_to_c.lua`
+### `lua/lalin/type_to_c.lua`
 
-**Goal**: Complete MoonType projection.
+**Goal**: Complete LalinType projection.
 
 **Edit blocks**
 
@@ -359,7 +359,7 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ---
 
-### `lua/moonlift/c_helpers.lua`
+### `lua/lalin/c_helpers.lua`
 
 **Goal**: Implement UB-free helper semantics for every dangerous operation.
 
@@ -389,9 +389,9 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ---
 
-### `lua/moonlift/tree_to_c.lua`
+### `lua/lalin/tree_to_c.lua`
 
-**Goal**: Replace scaffold expression/statement/item lowering with complete typed/resolved MoonTree projection.
+**Goal**: Replace scaffold expression/statement/item lowering with complete typed/resolved LalinTree projection.
 
 **Edit blocks**
 
@@ -455,9 +455,9 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ---
 
-### `lua/moonlift/tree_control_to_c.lua`
+### `lua/lalin/tree_control_to_c.lua`
 
-**Goal**: Lower Moonlift regions to labels/gotos with correct block-param transfer semantics.
+**Goal**: Lower Lalin regions to labels/gotos with correct block-param transfer semantics.
 
 **Edit blocks**
 
@@ -479,7 +479,7 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ---
 
-### `lua/moonlift/c_emit.lua`
+### `lua/lalin/c_emit.lua`
 
 **Goal**: Emit deterministic, valid C for the extended CBackend dialect.
 
@@ -521,7 +521,7 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ---
 
-### `lua/moonlift/c_validate.lua`
+### `lua/lalin/c_validate.lua`
 
 **Goal**: Validate the extended restricted C dialect and coverage contract.
 
@@ -555,31 +555,31 @@ Complete upfront design audit for a production Moonlift C backend side projectio
 
 ## New Files
 
-### `lua/moonlift/c_coverage.lua`
+### `lua/lalin/c_coverage.lua`
 
 - **Purpose**: Canonical complete coverage classification table.
 - **Contents sketch**:
   - Tables for:
-    - `MoonType.Type`
-    - `MoonTree.View`
-    - `MoonTree.IndexBase`
-    - `MoonTree.Place`
-    - `MoonTree.Expr`
-    - `MoonTree.Stmt`
-    - `MoonTree.Func`
-    - `MoonTree.ExternFunc`
-    - `MoonTree.ConstItem`
-    - `MoonTree.StaticItem`
-    - `MoonTree.TypeDecl`
-    - `MoonTree.Item`
-    - relevant `MoonCore` op/intrinsic/atomic sums.
+    - `LalinType.Type`
+    - `LalinTree.View`
+    - `LalinTree.IndexBase`
+    - `LalinTree.Place`
+    - `LalinTree.Expr`
+    - `LalinTree.Stmt`
+    - `LalinTree.Func`
+    - `LalinTree.ExternFunc`
+    - `LalinTree.ConstItem`
+    - `LalinTree.StaticItem`
+    - `LalinTree.TypeDecl`
+    - `LalinTree.Item`
+    - relevant `LalinCore` op/intrinsic/atomic sums.
   - API:
     - `classification(sum_name, variant_name)`
     - `all_tables()`
     - `assert_known(sum_name, variant_name)`
-- **Imports required**: `moonlift.pvm`, schema context classes if needed.
+- **Imports required**: `lalin.pvm`, schema context classes if needed.
 
-### `lua/moonlift/c_abi.lua`
+### `lua/lalin/c_abi.lua`
 
 - **Purpose**: Internal/external C ABI planner.
 - **Contents sketch**:
@@ -588,7 +588,7 @@ Complete upfront design audit for a production Moonlift C backend side projectio
   - Handle view/closure descriptors, aggregate by-address, hidden out pointer.
   - Reject unsupported ABI with typed diagnostic.
 
-### `lua/moonlift/c_layout.lua`
+### `lua/lalin/c_layout.lua`
 
 - **Purpose**: Convert `Sem.LayoutEnv` and descriptor facts into CBackend type declarations/assertions.
 - **Contents sketch**:
@@ -597,9 +597,9 @@ Complete upfront design audit for a production Moonlift C backend side projectio
   - `decls_from_layout_env(ctx, env)`
   - `layout_assertions(ctx, decl)`
 
-### `lua/moonlift/c_places.lua`
+### `lua/lalin/c_places.lua`
 
-- **Purpose**: Lower MoonTree places and memory access safely.
+- **Purpose**: Lower LalinTree places and memory access safely.
 - **Contents sketch**:
   - `place_to_c(place, ctx)`
   - `addr_of_place(place, ctx)`
@@ -607,7 +607,7 @@ Complete upfront design audit for a production Moonlift C backend side projectio
   - `store_place(place, value, ctx)`
   - Direct lvalue vs byte-addressed classification.
 
-### `lua/moonlift/c_residence.lua`
+### `lua/lalin/c_residence.lua`
 
 - **Purpose**: Analyze address-taken/materialized storage needs.
 - **Contents sketch**:
@@ -615,7 +615,7 @@ Complete upfront design audit for a production Moonlift C backend side projectio
   - Mark bindings as value/addressed/aggregate/descriptor.
   - Feed lowering context.
 
-### `lua/moonlift/c_data.lua`
+### `lua/lalin/c_data.lua`
 
 - **Purpose**: Exact global/static data lowering.
 - **Contents sketch**:
@@ -623,7 +623,7 @@ Complete upfront design audit for a production Moonlift C backend side projectio
   - Endian-aware exact scalar encoding.
   - No Lua-number precision path for large ints.
 
-### `lua/moonlift/c_cfg.lua`
+### `lua/lalin/c_cfg.lua`
 
 - **Purpose**: CFG builder for non-terminal control and expression joins.
 - **Contents sketch**:
@@ -733,25 +733,25 @@ Major work completed:
 - Expanded focused tests for coverage, type projection, helpers, emitter, validator.
 
 ## Files Changed
-- `lua/moonlift/c_coverage.lua` - new canonical coverage matrix.
+- `lua/lalin/c_coverage.lua` - new canonical coverage matrix.
 - `tests/test_c_backend_coverage_matrix.lua` - new coverage exhaustiveness test.
-- `lua/moonlift/c/c_type.lua` - extended CBackend schema.
-- `lua/moonlift/type_size_align.lua` - target-aware layout.
-- `lua/moonlift/frontend_pipeline.lua` - C target propagation.
-- `lua/moonlift/tree_module_type.lua` - target-aware module layout.
-- `lua/moonlift/sem_layout_resolve.lua` - target-aware sizeof/alignof/layout resolution.
-- `lua/moonlift/c_abi.lua` - new C ABI planner.
-- `lua/moonlift/type_to_c.lua` - complete type projection coverage.
-- `lua/moonlift/c_layout.lua` - new layout declaration helper.
-- `lua/moonlift/c_places.lua` - new place lowering helper.
-- `lua/moonlift/c_residence.lua` - new residence analysis.
-- `lua/moonlift/c_data.lua` - new exact data lowering helper.
-- `lua/moonlift/c_helpers.lua` - expanded helper signatures/ids/emission.
-- `lua/moonlift/c_cfg.lua` - new CFG builder.
-- `lua/moonlift/tree_control_to_c.lua` - integrated CFG builder, variant rejection, irreducible-goto allowance.
-- `lua/moonlift/tree_to_c.lua` - refactored context and added reference/literal/scalar op partial lowering.
-- `lua/moonlift/c_emit.lua` - expanded type/place/storage/helper emission.
-- `lua/moonlift/c_validate.lua` - strengthened validation.
+- `lua/lalin/c/c_type.lua` - extended CBackend schema.
+- `lua/lalin/type_size_align.lua` - target-aware layout.
+- `lua/lalin/frontend_pipeline.lua` - C target propagation.
+- `lua/lalin/tree_module_type.lua` - target-aware module layout.
+- `lua/lalin/sem_layout_resolve.lua` - target-aware sizeof/alignof/layout resolution.
+- `lua/lalin/c_abi.lua` - new C ABI planner.
+- `lua/lalin/type_to_c.lua` - complete type projection coverage.
+- `lua/lalin/c_layout.lua` - new layout declaration helper.
+- `lua/lalin/c_places.lua` - new place lowering helper.
+- `lua/lalin/c_residence.lua` - new residence analysis.
+- `lua/lalin/c_data.lua` - new exact data lowering helper.
+- `lua/lalin/c_helpers.lua` - expanded helper signatures/ids/emission.
+- `lua/lalin/c_cfg.lua` - new CFG builder.
+- `lua/lalin/tree_control_to_c.lua` - integrated CFG builder, variant rejection, irreducible-goto allowance.
+- `lua/lalin/tree_to_c.lua` - refactored context and added reference/literal/scalar op partial lowering.
+- `lua/lalin/c_emit.lua` - expanded type/place/storage/helper emission.
+- `lua/lalin/c_validate.lua` - strengthened validation.
 - `tests/test_type_to_c.lua` - expanded type projection tests.
 - `tests/test_c_helpers.lua` - expanded helper textual semantics tests.
 - `tests/test_c_validate.lua` - expanded validator tests.
@@ -771,11 +771,11 @@ I resumed `wf-c-backend-complete-design` at `r66`, resumed/handled the blocked t
 
 ### ✅ Unblocked & completed
 - **T022** (tree_to_c CFG short-circuit + side-effect-safe select) is now complete:
-  - Added CFG-aware expression lowering helpers in `lua/moonlift/tree_to_c.lua` (`in_cfg`, `emit_stmts`, `normalize_bool`, `emit_expr_result`).
+  - Added CFG-aware expression lowering helpers in `lua/lalin/tree_to_c.lua` (`in_cfg`, `emit_stmts`, `normalize_bool`, `emit_expr_result`).
   - Implemented **CFG-based** short-circuit lowering for `ExprLogic` using generated labels/gotos.
   - Implemented **CFG-based** `ExprSelect` lowering that branches and only evaluates selected arm.
   - Wired function/block lowering through `CCfg` in cfg mode.
-  - Updated control lowering path to provide `ctx.cfg` during control-region lowering in `lua/moonlift/tree_control_to_c.lua`.
+  - Updated control lowering path to provide `ctx.cfg` during control-region lowering in `lua/lalin/tree_control_to_c.lua`.
   - Added regression test `tests/test_tree_to_c_logic_select.lua`.
 
 ### ⚠️ Progress on remaining readiness
@@ -789,12 +789,12 @@ I resumed `wf-c-backend-complete-design` at `r66`, resumed/handled the blocked t
 ## Files Changed
 - `.pi/workflows/wf-c-backend-complete-design.edit-plan.json`  
   - Updated task statuses/evidence and blocked tasks (`T022`, `T023`, `T024`, `T025`, `T026`).
-- `lua/moonlift/tree_to_c.lua`
+- `lua/lalin/tree_to_c.lua`
   - CFG-mode emission helpers added.
   - `ExprLogic` and `ExprSelect` now lowered via CFG for correct short-circuit / side-effect-safe branch execution.
   - `lower_body` now emits through CFG when active.
   - `func_to_c` switched to block/sealed CFG assembly instead of single fixed block construction.
-- `lua/moonlift/tree_control_to_c.lua`
+- `lua/lalin/tree_control_to_c.lua`
   - Context wiring added so nested expr/stmt lowering during control-region lowering can use the shared CFG (`ctx.cfg` set during body lowering, restored after).
 - `tests/test_tree_to_c_logic_select.lua` (new)
   - New focused regression test for CFG lowering of logic and select expressions, plus cc syntax check.
@@ -823,13 +823,13 @@ Implemented:
 - Status appendix in `C_BACKEND_DESIGN.md`.
 
 ## Files Changed
-- `lua/moonlift/tree_to_c.lua` - expanded C lowering coverage.
-- `lua/moonlift/c_places.lua` - view/pointer place indexing fixes.
-- `lua/moonlift/c_abi.lua` - descriptor layout assertions.
-- `lua/moonlift/type_to_c.lua` - named slice/view descriptors.
-- `lua/moonlift/c/c_type.lua` - address-of-place rvalue and validation-input schema.
-- `lua/moonlift/c_emit.lua` - address-of/place indexing emission.
-- `lua/moonlift/c_validate.lua` - validation input, storage/uninit diagnostics, collector-safe issue recording.
+- `lua/lalin/tree_to_c.lua` - expanded C lowering coverage.
+- `lua/lalin/c_places.lua` - view/pointer place indexing fixes.
+- `lua/lalin/c_abi.lua` - descriptor layout assertions.
+- `lua/lalin/type_to_c.lua` - named slice/view descriptors.
+- `lua/lalin/c/c_type.lua` - address-of-place rvalue and validation-input schema.
+- `lua/lalin/c_emit.lua` - address-of/place indexing emission.
+- `lua/lalin/c_validate.lua` - validation input, storage/uninit diagnostics, collector-safe issue recording.
 - `tests/test_c_validate.lua` - real ABI/storage/uninit negative validation tests.
 - `tests/test_type_to_c.lua` - updated descriptor expectations.
 - `tests/test_tree_to_c_smoke.lua` - coverage assertions.

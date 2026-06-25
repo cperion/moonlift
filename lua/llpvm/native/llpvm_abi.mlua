@@ -1,13 +1,13 @@
 -- llpvm_abi.mlua -- C ABI seals over typed LLPVM regions.
 
-local H = moon.require("llpvm_header")
+local H = lalin.require("llpvm_header")
 local T = H.T
 local F = H.F
-local Kernel = moon.require("llpvm_kernel_store")
-local Machine = moon.require("llpvm_machine")
-local Buffers = moon.require("llpvm_buffer_store")
-local Report = moon.require("llpvm_report")
-local Image = moon.require("llpvm_image")
+local Kernel = lalin.require("llpvm_kernel_store")
+local Machine = lalin.require("llpvm_machine")
+local Buffers = lalin.require("llpvm_buffer_store")
+local Report = lalin.require("llpvm_report")
+local Image = lalin.require("llpvm_image")
 
 local llpvm_load_program = func @{F.llpvm_load_program}
     if out == as(ptr(T.LlTapeRef), 0) then

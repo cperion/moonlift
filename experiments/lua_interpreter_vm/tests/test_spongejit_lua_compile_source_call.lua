@@ -4,10 +4,10 @@ package.path = "./experiments/lua_interpreter_vm/spongejit/?.lua;./experiments/l
 local ffi = require("ffi")
 local C = require("lua_compile")
 local Schema = require("lua_compile.schema")
-local Validate = require("lua_compile.moon_cfg_validate")
-local Emit = require("lua_compile.moon_cfg_emit")
+local Validate = require("lua_compile.lalin_cfg_validate")
+local Emit = require("lua_compile.lalin_cfg_emit")
 local ValueModel = require("lua_compile.lua_rt_value_model")
-local ExecToMoon = require("lua_compile.lua_exec_to_moon_cfg_lower")
+local ExecToLalin = require("lua_compile.lua_exec_to_lalin_cfg_lower")
 local T = Schema.get()
 local RT, Exec = T.LuaRT, T.LuaExec
 
@@ -106,18 +106,18 @@ end
 
 -- Positive: public source CALL route accepts only typed static closure evidence.
 local unit = fixture()
-local compiled = C.compile_to_moon_kernel(unit)
+local compiled = C.compile_to_lalin_kernel(unit)
 assert(compiled.kind == "Ok", "public source CALL fixture must compile: " .. tostring(compiled.diagnostic and compiled.diagnostic.reason and compiled.diagnostic.reason.kind))
 local exec_product, exec_errors = C.lua_src_to_lua_exec_lower.lower(unit.source, unit.evidence)
 assert(exec_product and exec_product.kernels and exec_product.regions, table.concat(exec_errors or {}, ";"))
-local cfg, cfg_errors = ExecToMoon.lower_module_outcome(exec_product, "lua_exec_core_kernel", "value1_payload_i64")
+local cfg, cfg_errors = ExecToLalin.lower_module_outcome(exec_product, "lua_exec_core_kernel", "value1_payload_i64")
 assert(cfg, table.concat(cfg_errors or {}, ";"))
 local out, caller_stack = run_cfg(cfg, "test_source_call_value1")
 assert(out == 502, "second static callee result must be returned")
 assert(caller_stack[0].payload_i64 == 501 and caller_stack[1].payload_i64 == 502, "ReceiveCallResults must copy callee results to caller slots")
 
 local function reject(opts, needle)
-  local r = C.compile_to_moon_kernel(fixture(opts))
+  local r = C.compile_to_lalin_kernel(fixture(opts))
   local parts = {}
   for _, e in ipairs((r.diagnostic and r.diagnostic.errors) or {}) do parts[#parts + 1] = tostring(e) end
   if r.diagnostic and r.diagnostic.message then parts[#parts + 1] = tostring(r.diagnostic.message) end
@@ -146,7 +146,7 @@ reject({ region_opts = { yield_term = true } }, "terminate via Continue")
 
 -- Direct kernel EmitRegion guardrail remains separate from the source CALL route.
 local k = exec_product.kernels[1]
-local direct_cfg, direct_errors = ExecToMoon.lower_outcome(k, "value1_payload_i64")
+local direct_cfg, direct_errors = ExecToLalin.lower_outcome(k, "value1_payload_i64")
 assert(not direct_cfg and table.concat(direct_errors or {}, ";"):match("EmitRegion:requires_typed_static_region_lowering"), "direct kernel EmitRegion must reject")
 
 print("ok - SpongeJIT LuaCompile source CALL static slice")

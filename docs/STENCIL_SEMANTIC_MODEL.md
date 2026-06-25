@@ -1,6 +1,6 @@
 # Stencil Semantic Model
 
-This document defines the semantic model for Moonlift stencils.
+This document defines the semantic model for Lalin stencils.
 
 The current implementation has two intentionally different surfaces:
 
@@ -96,9 +96,9 @@ operator, reducer, skeleton, and memory facts.
 The stencil path is deliberately split into layers.
 
 ```text
-MoonCode loops/fragments
+LalinCode loops/fragments
   -> graph/flow/value/memory/effect facts
-  -> MoonKernel semantic skeletons
+  -> LalinKernel semantic skeletons
   -> Llisle stencil selection
   -> stencil_artifact_plan descriptor-backed artifact
   -> provider materialization
@@ -192,7 +192,7 @@ grow domains, topologies, operators, skeletons, and memory semantics;
 do not grow duplicate language families for reducible cases.
 ```
 
-This keeps the Moonlift family reduced. A new concrete stencil name is allowed
+This keeps the Lalin family reduced. A new concrete stencil name is allowed
 only when it classifies a genuinely new combination of normalized semantics or a
 backend-relevant specialization of one. It is not allowed just to spell product
 and sum semantics twice.
@@ -262,7 +262,7 @@ diagnostics, and measurement gate all agree.
     topology:    field projection over contiguous records, composed over parent
                  topology
     skeletons:   apply, reduce, find, compare, fill at the C vocabulary layer;
-                 map/reduce from MoonCode facts through LuaJIT lowering
+                 map/reduce from LalinCode facts through LuaJIT lowering
     first proof:  map/reduce one field without materializing SoA
     gate:        schema constructs StencilTopologyFieldProjection;
                  stencil_artifact_plan constructs field-projected artifacts;
@@ -355,7 +355,7 @@ minimum completion gate for each family is:
 
 ```text
 1. ASDL descriptor shape exists.
-2. Kernel/MoonCode facts can express the family without backend guessing.
+2. Kernel/LalinCode facts can express the family without backend guessing.
 3. Llisle selector classifies the family from facts.
 4. stencil_artifact_plan or copy-patch artifact generation consumes the descriptor.
 5. Diagnostics explain rejection in terms of the normalized axes.
@@ -513,7 +513,7 @@ Examples:
 { kind = "compare", pred = "gt", args = { "src", 0 }, result = "dst" }
 ```
 
-Predicates are currently represented by `MoonStencil.StencilPredicate`:
+Predicates are currently represented by `LalinStencil.StencilPredicate`:
 
 ```text
 StencilPredNonZero
@@ -627,7 +627,7 @@ Descriptor shape:
 `scan` stores the prefix values of a recurrence and returns the final
 accumulator.
 
-MoonKernel representation:
+LalinKernel representation:
 
 ```text
 KernelEffectScan(dst, index, reduction, mode)
@@ -651,7 +651,7 @@ scan_array
 
 `copy` moves one source lane to one destination lane over a domain.
 
-MoonKernel representation:
+LalinKernel representation:
 
 ```text
 KernelEffectCopy(dst, src, semantics)
@@ -674,7 +674,7 @@ is not disproven but the operation is still semantically a copy.
 `find` searches the domain and returns the first matching index, or a not-found
 sentinel.
 
-MoonKernel representation:
+LalinKernel representation:
 
 ```text
 KernelResultFind(src, pred, not_found)
@@ -700,7 +700,7 @@ find_array
 `partition` writes matching elements first and non-matching elements second,
 returning the split index.
 
-MoonKernel representation:
+LalinKernel representation:
 
 ```text
 KernelEffectPartition(dst, src, pred, semantics)
@@ -725,10 +725,10 @@ return split
 That is why the kernel subject is function-level while the body domain still
 cites the counted loop domain used for stencil arguments.
 
-## MoonKernel Bridge
+## LalinKernel Bridge
 
 The current semantic bridge from compiler facts to backend stencils is
-`MoonKernel`.
+`LalinKernel`.
 
 Important nodes:
 
@@ -778,7 +778,7 @@ stencil_rules
 
 luajit_lower
   consumes preplanned stencil machines
-  projects planned machines or scalar Code blocks into MoonLuaJIT
+  projects planned machines or scalar Code blocks into LalinLuaJIT
 ```
 
 This keeps the decision matrix inspectable as family data instead of hiding it
@@ -970,7 +970,7 @@ luajit benchmarks/bench_luajit_stencil_matrix.lua full
 luajit benchmarks/bench_luajit_lower_stencil_matrix.lua full
 ```
 
-The lower matrix is the key bottom-up gate. It proves that real MoonCode shapes
+The lower matrix is the key bottom-up gate. It proves that real LalinCode shapes
 select the expected stencil vocabulary and run against the raw artifact path.
 
 ## Template/Bank Selection Key

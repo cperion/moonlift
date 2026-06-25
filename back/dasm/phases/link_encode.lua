@@ -1,6 +1,6 @@
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 
-local link_phase = pvm.phase("moonlift_dasm_link_encode", function(plan)
+local link_phase = pvm.phase("lalin_dasm_link_encode", function(plan)
     return plan
 end)
 

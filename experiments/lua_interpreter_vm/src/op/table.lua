@@ -1,4 +1,4 @@
--- Moonlift VM — Table access opcode handlers
+-- Lalin VM — Table access opcode handlers
 
 local B = require("experiments.lua_interpreter_vm.src.op._init")
 local R, H = B.R, B.H

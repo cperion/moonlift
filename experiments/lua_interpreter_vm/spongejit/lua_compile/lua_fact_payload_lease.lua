@@ -3,7 +3,7 @@
 local B = require("lua_compile.builders")
 local T = B.T
 local Fact = T.LuaFact
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 
 local M = {}
 

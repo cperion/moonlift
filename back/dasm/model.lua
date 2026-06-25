@@ -1,5 +1,5 @@
-local pvm = require("moonlift.pvm")
-local A2 = require("moonlift.asdl")
+local pvm = require("lalin.pvm")
+local A2 = require("lalin.asdl")
 
 local M = {}
 
@@ -7,18 +7,18 @@ local CTX = nil
 
 function M.set_context(T)
     CTX = T
-    if T and (not T.MoonBack or not T.MoonDasm) then A2.Define(T) end
+    if T and (not T.LalinBack or not T.LalinDasm) then A2.Define(T) end
 end
 
 local function ensure_context()
     if not CTX then error("back.dasm.model: context not set; call Mx.set_context(T) first", 2) end
-    if not CTX.MoonBack or not CTX.MoonDasm then A2.Define(CTX) end
+    if not CTX.LalinBack or not CTX.LalinDasm then A2.Define(CTX) end
     return CTX
 end
 
 function M.context() return ensure_context() end
-function M.back() return ensure_context().MoonBack end
-function M.dasm() return ensure_context().MoonDasm end
+function M.back() return ensure_context().LalinBack end
+function M.dasm() return ensure_context().LalinDasm end
 
 function M.idkey(v)
     return type(v) == "string" and v or (v and v.text) or nil
@@ -92,7 +92,7 @@ end
 function M.phase_func_cmds(v)
     local D = M.dasm()
     if pvm.classof(v) ~= D.DPhaseFunc then
-        error("expected MoonDasm.DPhaseFunc", 2)
+        error("expected LalinDasm.DPhaseFunc", 2)
     end
     return v.cmds
 end
@@ -100,7 +100,7 @@ end
 function M.phase_func_id(v)
     local D = M.dasm()
     if pvm.classof(v) ~= D.DPhaseFunc then
-        error("expected MoonDasm.DPhaseFunc", 2)
+        error("expected LalinDasm.DPhaseFunc", 2)
     end
     return v.func
 end
@@ -178,7 +178,7 @@ end
 function M.phase_module_maps(v)
     local D = M.dasm()
     if pvm.classof(v) ~= D.DPhaseModule then
-        error("expected MoonDasm.DPhaseModule", 2)
+        error("expected LalinDasm.DPhaseModule", 2)
     end
 
     local out = {

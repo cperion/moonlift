@@ -1,4 +1,4 @@
--- lexgen.lua — Pure-Lua trie builder for MoonLift lexer generators.
+-- lexgen.lua — Pure-Lua trie builder for LalinLift lexer generators.
 --
 -- Provides trie construction, name assignment, and traversal helpers.
 -- The region...end factory functions stay in the .mlua file where

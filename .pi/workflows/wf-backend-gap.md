@@ -1,4 +1,4 @@
-# Backend Completeness Audit 
+# Backend Completeness Audit
 Map the gap between LANGUAGE_REFERENCE.md features and the Cranelift backend implementation. Identify every unsupported BackCmd variant, stub, and missing codegen path.
 **Workflow ID**: wf-backend-gap
 **Started**: 2026-06-17 19:46:03
@@ -63,17 +63,17 @@ Now I have all the materials. Let me compile the comprehensive gap map.
 | 2 | `src/wire_tags.rs` (full) | All 111 Rust WireTag enum variants serving as the bridge contract |
 | 3 | `src/decode.rs` (full) | Rust body decoder — `decode_body()` is the complete per-tag codegen dispatch (~600 lines) |
 | 4 | `src/lib.rs` (full) | Top-level: JIT, object emission, `compile_tape` (stubbed), `compile_binary`, error types |
-| 5 | `src/ffi.rs` (full) | C FFI surface — `moonlift_jit_compile_binary`, `compile_tape` absent from FFI |
+| 5 | `src/ffi.rs` (full) | C FFI surface — `lalin_jit_compile_binary`, `compile_tape` absent from FFI |
 | 6 | `src/main.rs` (full) | Host binary — uses `_host_compile_binary` via hosted_jit.lua, never tape |
-| 7 | `lua/moonlift/schema/back.asdl` (full) | ASDL schema — all `BackCmd` variants, `BackScalar`, `BackLiteral`, ops, vec types |
-| 8 | `lua/moonlift/back_command_binary.lua` (full) | Binary wire encoder — Lua→Rust bridge encoding dispatch |
-| 9 | `lua/moonlift/back_jit.lua` (full) | FFI-based JIT bridge (loads `libmoonlift.so`) |
-| 10 | `lua/moonlift/hosted_jit.lua` (full) | In-process hosted JIT (used by `moonlift` binary) |
-| 11 | `lua/moonlift/lower_to_back.lua` | LowerModule→BackProgram: vector kernel lowering with stubbed reductions |
-| 12 | `lua/moonlift/code_to_back.lua` | MoonCode→BackProgram: view return ABI stubbed |
-| 13 | `lua/moonlift/tree_control_to_back.lua` | Control regions→BackCmd (blocks, jumps, brif, switch, phi) |
-| 14 | `lua/moonlift/tape_encode.lua` | Legacy text tape encoder (kept for CI cross-check, more limited than binary) |
-| 15 | `lua/moonlift/back_validate.lua` | Backend validation (has handlers for ALL ASDL variants including CmdRotate, CmdVecMask, CmdAtomic*) |
+| 7 | `lua/lalin/schema/back.asdl` (full) | ASDL schema — all `BackCmd` variants, `BackScalar`, `BackLiteral`, ops, vec types |
+| 8 | `lua/lalin/back_command_binary.lua` (full) | Binary wire encoder — Lua→Rust bridge encoding dispatch |
+| 9 | `lua/lalin/back_jit.lua` (full) | FFI-based JIT bridge (loads `liblalin.so`) |
+| 10 | `lua/lalin/hosted_jit.lua` (full) | In-process hosted JIT (used by `lalin` binary) |
+| 11 | `lua/lalin/lower_to_back.lua` | LowerModule→BackProgram: vector kernel lowering with stubbed reductions |
+| 12 | `lua/lalin/code_to_back.lua` | LalinCode→BackProgram: view return ABI stubbed |
+| 13 | `lua/lalin/tree_control_to_back.lua` | Control regions→BackCmd (blocks, jumps, brif, switch, phi) |
+| 14 | `lua/lalin/tape_encode.lua` | Legacy text tape encoder (kept for CI cross-check, more limited than binary) |
+| 15 | `lua/lalin/back_validate.lua` | Backend validation (has handlers for ALL ASDL variants including CmdRotate, CmdVecMask, CmdAtomic*) |
 
 ---
 
@@ -83,7 +83,7 @@ Now I have all the materials. Let me compile the comprehensive gap map.
 
 All integer/float arithmetic, bitwise, shift/rotate, compare, cast/convert, intrinsics, address ops, memory (load/store/atomic/cmpxchg/fence/memcpy/memset/memcmp), pointer, vector (splat/lane/arith/cmp/select/mask/load/store), select, control flow, call (direct/extern/indirect), alias, boolnot. **Every tag has a handler in `decode_body()`.**
 
-### BackCmd ASDL schema (`lua/moonlift/schema/back.asdl`) — 57 command variants
+### BackCmd ASDL schema (`lua/lalin/schema/back.asdl`) — 57 command variants
 
 Declarations: `CmdCreateSig`, `CmdDeclareData`, `CmdDataInitZero`, `CmdDataInit`, `CmdDataAddr`, `CmdFuncAddr`, `CmdExternAddr`, `CmdDeclareFunc`, `CmdDeclareExtern`, `CmdBeginFunc`
 
@@ -139,11 +139,11 @@ These LANGUAGE_REFERENCE.md features have **neither backend codegen nor lowering
 
 `src/lib.rs:98-100`:
 ```rust
-pub fn compile_tape(&self, _tape: &str) -> Result<Artifact, MoonliftError> {
-    Err(MoonliftError("tape compiler not yet migrated; use binary wire format".into()))
+pub fn compile_tape(&self, _tape: &str) -> Result<Artifact, LalinError> {
+    Err(LalinError("tape compiler not yet migrated; use binary wire format".into()))
 }
 ```
-The legacy text tape path is explicitly not migrated. The FFI surface (`src/ffi.rs`) doesn't even export a tape compilation function. The `moonlift` binary uses the binary path exclusively.
+The legacy text tape path is explicitly not migrated. The FFI surface (`src/ffi.rs`) doesn't even export a tape compilation function. The `lalin` binary uses the binary path exclusively.
 
 ### Gap D: Hosted JIT disassembly stub
 
@@ -205,10 +205,10 @@ The binary encoder handles `CmdDeclareFuncExport`, `CmdDeclareFuncExtern`, `CmdD
 .mlua source
   → parse (scan_document)
   → tree_typecheck
-  → tree_to_code (MoonTree → MoonCode)
-  → code_to_back / lower_to_back (MoonCode → BackCmd[])
+  → tree_to_code (LalinTree → LalinCode)
+  → code_to_back / lower_to_back (LalinCode → BackCmd[])
   → back_command_binary.encode (BackCmd[] → binary wire bytes)
-  → moonlift_jit_compile_binary (FFI → decode.rs → Cranelift JITModule)
+  → lalin_jit_compile_binary (FFI → decode.rs → Cranelift JITModule)
   → native machine code
 ```
 
@@ -246,7 +246,7 @@ CmdAtomicLoad (ASDL defined)
 
 5. **Vector reductions and view returns are explicitly error-stubbed** in the Lua lowering pipeline — these are known unimplemented features with loud failures.
 
-6. **The tape path is dead.** `src/lib.rs` returns an error. The FFI doesn't export it. The `moonlift` binary never calls it. Only the legacy `back_jit.lua` (cdylib path) mentions `compile_tape` in its FFI declarations.
+6. **The tape path is dead.** `src/lib.rs` returns an error. The FFI doesn't export it. The `lalin` binary never calls it. Only the legacy `back_jit.lua` (cdylib path) mentions `compile_tape` in its FFI declarations.
 
 7. **The legacy tape encoder (`tape_encode.lua`) handles even fewer variants** than the binary encoder — no atomics, no vec operations, no Memcmp, no data/extern/func addr commands, no finalize/finish. It does handle `CmdRotate` though (which the binary encoder doesn't).
 
@@ -389,16 +389,16 @@ Now I have all the critical data. Here is the comprehensive scout report.
 
 | # | File | Range | Purpose |
 |---|------|-------|---------|
-| 1 | `lua/moonlift/back_command_binary.lua` | Full (all ~415 lines) | Binary encoder — complete if-elseif chain, helpers, body layout |
+| 1 | `lua/lalin/back_command_binary.lua` | Full (all ~415 lines) | Binary encoder — complete if-elseif chain, helpers, body layout |
 | 2 | `src/wire_tags.rs` | Full | TAG_SLOTS static array — definitive slot counts for all 191 tags |
 | 3 | `src/decode.rs` | Full | Complete Cranelift backend decoder — all tag handlers, memflags/rmw helpers |
-| 4 | `lua/moonlift/schema/back.asdl` | Full | Complete ASDL schema — all Cmd* variants, BackAtomicOrdering, BackAtomicRmwOp |
+| 4 | `lua/lalin/schema/back.asdl` | Full | Complete ASDL schema — all Cmd* variants, BackAtomicOrdering, BackAtomicRmwOp |
 | 5 | `BACK_WIRE_FORMAT.md` | Full | Wire format specification — tag table, slot layouts, MemFlags encoding |
 | 6 | `tests/test_atomics.lua` | Full (47 lines) | Atomic test — asserts BackCmd presence + JIT execution |
 | 7 | `tests/test_dasm_multi_compile.lua` | Full (93 lines) | Rotate stress test via dasm backend (has CmdRotate) |
 | 8 | `tests/test_back_cast_intrinsic_switch.lua` | Lines 70-95 | Rotate test via dasm backend |
-| 9 | `lua/moonlift/lower_to_back.lua` | Lines 298-340 | Memory lowering helpers — is_write_access, is_read_access, memory_info_for |
-| 10 | `lua/moonlift/lower_to_back.lua` | Lines 400-440 | Kernel load/store emission — uses CmdLoadInfo/CmdStoreInfo, NEVER CmdAtomic* |
+| 9 | `lua/lalin/lower_to_back.lua` | Lines 298-340 | Memory lowering helpers — is_write_access, is_read_access, memory_info_for |
+| 10 | `lua/lalin/lower_to_back.lua` | Lines 400-440 | Kernel load/store emission — uses CmdLoadInfo/CmdStoreInfo, NEVER CmdAtomic* |
 
 ---
 
@@ -466,7 +466,7 @@ CmdAtomicFence(ordering:BackAtomicOrdering)
 
 **Rust decoder** (`decode.rs` lines ~95-102):
 ```rust
-fn rmw(kind: u32) -> Result<AtomicRmwOp, MoonliftError> {
+fn rmw(kind: u32) -> Result<AtomicRmwOp, LalinError> {
     match kind {
         1 => Ok(AtomicRmwOp::Add), 2 => Ok(AtomicRmwOp::Sub),
         3 => Ok(AtomicRmwOp::And), 4 => Ok(AtomicRmwOp::Or),
@@ -613,7 +613,7 @@ Before any edits begin, a worker should verify:
 
 ## Files to Modify
 
-### `lua/moonlift/back_command_binary.lua`
+### `lua/lalin/back_command_binary.lua`
 
 **Goal**: Add 7 missing encoder branches (atomics, rotate, vecmask) plus a loud `else error(...)` clause so future gaps fail immediately instead of silently dropping commands.
 
@@ -798,7 +798,7 @@ This is the **only file modified**. All changes are in the `encode_body()` funct
 
 ### New Files
 
-None. All changes are in `lua/moonlift/back_command_binary.lua` only.
+None. All changes are in `lua/lalin/back_command_binary.lua` only.
 
 ---
 
@@ -826,7 +826,7 @@ After each block of branches (atomics, rotate, vecmask), there is **no way to te
 -- Pattern for hand-constructed test (follow test_dasm_multi_compile.lua style)
 local T = pvm.context()
 A.Define(T)
-local B = T.MoonBack
+local B = T.LalinBack
 
 -- Construct a program with the new BackCmd
 local program = B.BackProgram({
@@ -842,7 +842,7 @@ local program = B.BackProgram({
 })
 
 -- Verify: encode → JIT compile → call
-local jit = require("moonlift.back_jit").Define(T).jit()
+local jit = require("lalin.back_jit").Define(T).jit()
 local artifact = jit:compile(program)
 -- Should not error
 artifact:free()
@@ -1006,7 +1006,7 @@ The indirect call gap is **interpreter-only**. The full JIT pipeline (binary enc
 
 ### .mlua Source (lines 12–20)
 
-```moonlift
+```lalin
 func atomic_demo(p: ptr(i32)): i32
     atomic_store(i32, p, 10)
     let old: i32 = atomic_fetch_add(i32, p, 5)
@@ -1066,17 +1066,17 @@ Here is the complete report.
 
 | # | File | Lines | Purpose |
 |---|------|-------|---------|
-| 1 | `lua/moonlift/code_to_back.lua` | 312–338 | `inst_dst_type()` — value-to-type helper, also missing atomics |
-| 2 | `lua/moonlift/code_to_back.lua` | 446–608 | `inst()` — the full CodeInst→BackCmd dispatch chain |
-| 3 | `lua/moonlift/code_to_back.lua` | 562–584 | The CodeInstStore / CodeInstCall boundary — insertion point |
-| 4 | `lua/moonlift/schema/code.asdl` | 153–157 | ASDL definitions of all 5 CodeInstAtomic* variants |
+| 1 | `lua/lalin/code_to_back.lua` | 312–338 | `inst_dst_type()` — value-to-type helper, also missing atomics |
+| 2 | `lua/lalin/code_to_back.lua` | 446–608 | `inst()` — the full CodeInst→BackCmd dispatch chain |
+| 3 | `lua/lalin/code_to_back.lua` | 562–584 | The CodeInstStore / CodeInstCall boundary — insertion point |
+| 4 | `lua/lalin/schema/code.asdl` | 153–157 | ASDL definitions of all 5 CodeInstAtomic* variants |
 
 ---
 
 ## Key Finding: ZERO CodeInstAtomic* references in code_to_back.lua
 
 ```bash
-grep -rn "CodeInstAtomic" lua/moonlift/code_to_back.lua
+grep -rn "CodeInstAtomic" lua/lalin/code_to_back.lua
 # (no matches)
 ```
 
@@ -1212,8 +1212,8 @@ There is no alternative path that could handle atomics. Any atomic CodeInst that
 
 ## Precondition Checks
 
-- Confirm `lua/moonlift/back_command_binary.lua` has encoder branches for `CmdAtomic*`, `CmdRotate`, `CmdVecMask`, and the final `else error("unrecognized BackCmd: ...")` at ~lines 371, 298, 520, 592.
-- Confirm current failure is still in `lua/moonlift/code_to_back.lua`: `CodeInstAtomicStore` reaches `unsupported(k)` near line 607.
+- Confirm `lua/lalin/back_command_binary.lua` has encoder branches for `CmdAtomic*`, `CmdRotate`, `CmdVecMask`, and the final `else error("unrecognized BackCmd: ...")` at ~lines 371, 298, 520, 592.
+- Confirm current failure is still in `lua/lalin/code_to_back.lua`: `CodeInstAtomicStore` reaches `unsupported(k)` near line 607.
 - Confirm `tree_to_code.lua` already emits:
   - `CodeInstAtomicLoad/Rmw/Cas` at lines 904–923
   - `CodeInstAtomicStore/Fence` at lines 1313–1318
@@ -1221,9 +1221,9 @@ There is no alternative path that could handle atomics. Any atomic CodeInst that
 
 ## Files to Modify
 
-### `lua/moonlift/code_to_back.lua`
+### `lua/lalin/code_to_back.lua`
 
-**Goal**: Lower `MoonCode.CodeInstAtomic*` instructions into executable `MoonBack.CmdAtomic*` commands.
+**Goal**: Lower `LalinCode.CodeInstAtomic*` instructions into executable `LalinBack.CmdAtomic*` commands.
 
 #### Edit blocks
 
@@ -1352,17 +1352,17 @@ There is no alternative path that could handle atomics. Any atomic CodeInst that
 
 ## Later / Blocked Files
 
-### `lua/moonlift/lower_to_back.lua`
+### `lua/lalin/lower_to_back.lua`
 
 - **Blocked**: Vector reductions error at line 631.
 - Needs design for reducing vector accumulators to scalar values via lane extraction/pairwise ops.
 
-### `lua/moonlift/code_to_back.lua`
+### `lua/lalin/code_to_back.lua`
 
 - **Blocked**: View return ABI error at line 646.
 - Needs ABI decision: sret pointer vs multi-result lowered descriptor.
 
-### `lua/moonlift/debug_interpreter.lua`
+### `lua/lalin/debug_interpreter.lua`
 
 - **Blocked**: `BackCallIndirect` zero-stub at lines 1110–1115.
 - Needs function-address representation; `CmdFuncAddr` currently no-ops in interpreter.
@@ -1411,18 +1411,18 @@ Created `wf-backend-gap/lowering` sidecar at revision `r1` with:
 
 ## Files Retrieved
 
-1. `lua/moonlift/lower_to_back.lua` (lines 1–925) — Back semantic lowering; scalar/vector kernel emitters; vector reduction stub.
-2. `lua/moonlift/code_kernel_plan.lua` (lines 1–369) — builds `KernelBody`, detects streams/effects/folds/results from Flow/Value/Mem.
-3. `lua/moonlift/code_schedule_plan.lua` (lines 1–160) — schedule selection; currently excludes vector schedules for reduction/closed-form results.
-4. `lua/moonlift/kernel_emit_support.lua` (lines 1–314) — executable capability classifier; currently rejects vector reductions/closed forms.
-5. `lua/moonlift/code_lower_plan.lua` (lines 1–189) — converts kernel/schedule decisions into lower fragments.
-6. `lua/moonlift/code_value_facts.lua` (lines 1–333) — detects `ReductionFact` and `ClosedFormFact`.
-7. `lua/moonlift/code_flow_facts.lua` (lines 1–340) — counted-loop / edge-arg / induction facts.
-8. `lua/moonlift/schema/kernel.asdl` (all) — kernel/reduction/result data structures.
-9. `lua/moonlift/schema/value.asdl` (all) — reduction facts and value expression types.
-10. `lua/moonlift/schema/schedule.asdl` (all) — `ScheduleVector`, `TailScalar`, lane shape.
-11. `lua/moonlift/schema/flow.asdl` (all) — loop facts, edge args, counted domains.
-12. `lua/moonlift/schema/back.asdl` (relevant vector/reduction-capable BackCmds) — vector commands.
+1. `lua/lalin/lower_to_back.lua` (lines 1–925) — Back semantic lowering; scalar/vector kernel emitters; vector reduction stub.
+2. `lua/lalin/code_kernel_plan.lua` (lines 1–369) — builds `KernelBody`, detects streams/effects/folds/results from Flow/Value/Mem.
+3. `lua/lalin/code_schedule_plan.lua` (lines 1–160) — schedule selection; currently excludes vector schedules for reduction/closed-form results.
+4. `lua/lalin/kernel_emit_support.lua` (lines 1–314) — executable capability classifier; currently rejects vector reductions/closed forms.
+5. `lua/lalin/code_lower_plan.lua` (lines 1–189) — converts kernel/schedule decisions into lower fragments.
+6. `lua/lalin/code_value_facts.lua` (lines 1–333) — detects `ReductionFact` and `ClosedFormFact`.
+7. `lua/lalin/code_flow_facts.lua` (lines 1–340) — counted-loop / edge-arg / induction facts.
+8. `lua/lalin/schema/kernel.asdl` (all) — kernel/reduction/result data structures.
+9. `lua/lalin/schema/value.asdl` (all) — reduction facts and value expression types.
+10. `lua/lalin/schema/schedule.asdl` (all) — `ScheduleVector`, `TailScalar`, lane shape.
+11. `lua/lalin/schema/flow.asdl` (all) — loop facts, edge args, counted domains.
+12. `lua/lalin/schema/back.asdl` (relevant vector/reduction-capable BackCmds) — vector commands.
 13. `src/wire_tags.rs` (vector tags/slots) — actual wire contract.
 14. `src/decode.rs` (lines 500–560) — Cranelift vector tag handlers.
 15. `tests/test_lower_to_back_kernel_vector.lua` — current vector Back lowering test.
@@ -1439,7 +1439,7 @@ Created `wf-backend-gap/lowering` sidecar at revision `r1` with:
 
 ### Vector reduction stub in Back lowering
 
-`lua/moonlift/lower_to_back.lua:624–632`
+`lua/lalin/lower_to_back.lua:624–632`
 
 ```lua
 local function emit_vector_kernel_fragment(ctx, code_module, graph, flow, schedules, kernels, fragment)
@@ -1455,7 +1455,7 @@ local function emit_vector_kernel_fragment(ctx, code_module, graph, flow, schedu
 
 ### Scalar kernel reduction preservation
 
-`lua/moonlift/lower_to_back.lua:438–441`
+`lua/lalin/lower_to_back.lua:438–441`
 
 ```lua
 elseif cls == Kernel.KernelEffectFold then
@@ -1472,7 +1472,7 @@ ctx.cmds[#ctx.cmds + 1] = Back.CmdJump(block_id(header), edge_args(ctx, latch_fa
 
 ### Current vector loop structure
 
-`lua/moonlift/lower_to_back.lua:646–733`
+`lua/lalin/lower_to_back.lua:646–733`
 
 Facts:
 - Creates two synthetic blocks:
@@ -1492,7 +1492,7 @@ ctx.cmds[#ctx.cmds + 1] = Back.CmdJump(block_id(header), jump_args)
 
 ### Vector expression support
 
-`lua/moonlift/lower_to_back.lua:541–592`
+`lua/lalin/lower_to_back.lua:541–592`
 
 Current vector value lowering supports:
 - `ValueExprValue`
@@ -1509,7 +1509,7 @@ No reduction-specific operation exists here.
 
 ### Kernel planner reduction construction
 
-`lua/moonlift/code_value_facts.lua:159–231`
+`lua/lalin/code_value_facts.lua:159–231`
 
 Detected reductions:
 - `BinAdd` → `ReductionAdd`
@@ -1530,7 +1530,7 @@ end
 
 ### Kernel result/effect construction
 
-`lua/moonlift/code_kernel_plan.lua:297–307`
+`lua/lalin/code_kernel_plan.lua:297–307`
 
 ```lua
 local reductions, closed_forms = reductions_for_domain(value, domain)
@@ -1548,7 +1548,7 @@ end
 
 ### Vector schedule currently blocked for reductions
 
-`lua/moonlift/code_schedule_plan.lua:75–78`
+`lua/lalin/code_schedule_plan.lua:75–78`
 
 ```lua
 local function vector_candidate_kind(plan, target)
@@ -1559,7 +1559,7 @@ local function vector_candidate_kind(plan, target)
 
 ### Capability classifier also rejects vector reductions
 
-`lua/moonlift/kernel_emit_support.lua:252–254`
+`lua/lalin/kernel_emit_support.lua:252–254`
 
 ```lua
 if pvm.classof(result) == Kernel.KernelResultReduction or pvm.classof(result) == Kernel.KernelResultClosedForm then rejects[#rejects + 1] = reject_target("vector reductions/closed forms are not implemented") end
@@ -1569,7 +1569,7 @@ So the normal planner path does not currently select `ScheduleVector` for reduct
 
 ### Back vector capabilities
 
-`lua/moonlift/schema/back.asdl:276–282`
+`lua/lalin/schema/back.asdl:276–282`
 
 ```asdl
 CmdVecSplat(dst, ty, value)
@@ -1630,7 +1630,7 @@ Code blocks with loop params/backedges
 
 For `KernelResultClosedForm`, `emit_closed_form_fragment()` lowers the closed-form expression and substitutes it for the reduction accumulator on the loop exit edge, or returns it directly if the exit block immediately returns the accumulator.
 
-`lua/moonlift/lower_to_back.lua:760–775`
+`lua/lalin/lower_to_back.lua:760–775`
 
 ```lua
 local result, _ = lower_value_expr(ctx, strategy.fact.expr)
@@ -2072,9 +2072,9 @@ The most important tests are those where wrong initialization still compiles but
 
 ### Comparison
 
-Pick **Approach A** if Moonlift wants real vector reduction structure now without changing the wire/backend contract.  
-Pick **Approach B** if semantic completeness is more important than SIMD arithmetic performance and you want to avoid backend changes.  
-Pick **Approach C** if reductions are considered a core backend concept and Moonlift should have a durable, explicit reduction ABI instead of synthesizing everything in Lua.
+Pick **Approach A** if Lalin wants real vector reduction structure now without changing the wire/backend contract.
+Pick **Approach B** if semantic completeness is more important than SIMD arithmetic performance and you want to avoid backend changes.
+Pick **Approach C** if reductions are considered a core backend concept and Lalin should have a durable, explicit reduction ABI instead of synthesizing everything in Lua.
 
 All three should test the full algebra: add, mul, and, or, xor, min, max; signed/unsigned/float variants; non-zero init; identities; `n = 0`, `< lanes`, `== lanes`, `lanes + 1`, divisible and non-divisible trip counts; scalar tail; `TailNone`; direct return and exit-block-param consumers; multiple simultaneous reductions; and vector stores plus reductions in the same loop.
 
@@ -2089,11 +2089,11 @@ All three should test the full algebra: add, mul, and, or, xor, min, max; signed
 | **Cohesion** | 3/5 | Reduction logic belongs in lowering, but a full algebra table plus tail/exit handling risks making `lower_to_back.lua` too broad. |
 | **Implementation cost** | 3/5 | Moderate-high: vector accumulator state, identities, horizontal fold, tail merge, exit substitution. |
 | **Long-term maintainability** | 4/5 | If centralized cleanly, this is maintainable: one lowering path, no ASDL churn, no backend synchronization burden. |
-| **Moonlift philosophy fit** | 4/5 | Fits flat BackCmds and explicit lowering. Keeps ASDL as primitive architecture rather than adding semantic mega-ops. |
+| **Lalin philosophy fit** | 4/5 | Fits flat BackCmds and explicit lowering. Keeps ASDL as primitive architecture rather than adding semantic mega-ops. |
 | **Overengineering risk** | 3/5 | Complete min/max/float/signed algebra could become too ambitious if done all at once. |
 | **Brittle local paths risk** | 3/5 | Main risk is tail/exit substitution and accumulator initialization, but it can remain one coherent path. |
 
-**Verdict**: **Yes with caveats**  
+**Verdict**: **Yes with caveats**
 **Key concern**: Keep it as one disciplined reduction-lowering mechanism, not scattered special cases for each reduction kind and tail shape.
 
 ---
@@ -2107,11 +2107,11 @@ All three should test the full algebra: add, mul, and, or, xor, min, max; signed
 | **Cohesion** | 2/5 | Hybrid path: vector loads/computation plus scalar per-lane reduction. Conceptually muddier than true vector reduction. |
 | **Implementation cost** | 3/5 | May be simpler for min/max and scalar semantics, but expression scalarization and per-lane state grow quickly. |
 | **Long-term maintainability** | 2/5 | High risk of becoming many brittle little paths: per-lane extraction, scalarized fallbacks, multiple reductions, expression coverage gaps. |
-| **Moonlift philosophy fit** | 3/5 | Explicit and flat, but less clean: the semantic reduction is obscured by generated lane plumbing. |
+| **Lalin philosophy fit** | 3/5 | Explicit and flat, but less clean: the semantic reduction is obscured by generated lane plumbing. |
 | **Overengineering risk** | 3/5 | Not heavy architecturally, but can overproduce IR and fallback logic. |
 | **Brittle local paths risk** | 5/5 | This is the biggest weakness: many small lane-specific cases are likely to accumulate. |
 
-**Verdict**: **Significant concerns**  
+**Verdict**: **Significant concerns**
 **Key concern**: It solves correctness by multiplying local lowering machinery, which conflicts with the priority to avoid brittle little paths.
 
 ---
@@ -2125,11 +2125,11 @@ All three should test the full algebra: add, mul, and, or, xor, min, max; signed
 | **Cohesion** | 4/5 | Backend owns backend lowering details, which is cohesive if reductions are considered a backend primitive. |
 | **Implementation cost** | 5/5 | Highest cost: schema, wire format, Lua encoder, Rust decoder, validation, docs, migration tests. |
 | **Long-term maintainability** | 3/5 | Could be durable if reductions become central, but creates another Lua/Rust synchronization surface. |
-| **Moonlift philosophy fit** | 3/5 | Fits “ASDL as architecture,” but less clearly fits “flat BackCmds” if commands become semantic reduction abstractions. |
+| **Lalin philosophy fit** | 3/5 | Fits “ASDL as architecture,” but less clearly fits “flat BackCmds” if commands become semantic reduction abstractions. |
 | **Overengineering risk** | 5/5 | Highest. This is a large architectural expansion for a lowering problem currently expressible with existing primitives. |
 | **Brittle local paths risk** | 2/5 | Centralizes semantics better than B, but replaces local brittleness with cross-layer contract brittleness. |
 
-**Verdict**: **Significant concerns**  
+**Verdict**: **Significant concerns**
 **Key concern**: Do not expand the Back/wire/Rust contract unless vector reductions are truly a first-class backend concept, not just missing lowering.
 
 ---
@@ -2146,26 +2146,26 @@ All three should test the full algebra: add, mul, and, or, xor, min, max; signed
 
 ## Goal
 
-Enable Moonlift’s Back lowering to compile vectorized reductions correctly by synthesizing reduction state and finalization in Lua using existing `BackCmd` primitives, without changing the Back ASDL, binary wire format, or Rust Cranelift backend contract.
+Enable Lalin’s Back lowering to compile vectorized reductions correctly by synthesizing reduction state and finalization in Lua using existing `BackCmd` primitives, without changing the Back ASDL, binary wire format, or Rust Cranelift backend contract.
 
 ## Incentives
 
 Vector reductions are a documented language/backend expectation, but the current Back lowering path explicitly rejects them. `lower_to_back.lua` errors with `"vector reductions are not implemented"` when a vector kernel has `KernelResultReduction` or `KernelResultClosedForm`. Earlier planner layers also reject these cases, so normal vector scheduling avoids them. This protects correctness, because the current vector loop advances the induction counter by `lanes` while passing non-counter loop parameters, including reduction accumulators, through unchanged. If the guard were removed without a design, vectorized iterations would be skipped from the final reduction.
 
-The decision addresses this semantic gap while preserving Moonlift’s existing architecture: flat `BackCmd[]`, primitive backend commands, and no new Lua/Rust wire synchronization surface.
+The decision addresses this semantic gap while preserving Lalin’s existing architecture: flat `BackCmd[]`, primitive backend commands, and no new Lua/Rust wire synchronization surface.
 
 ## Current State
 
 Reduction facts are discovered before Back lowering:
 
-- `lua/moonlift/code_value_facts.lua` detects `ReductionFact` values for:
+- `lua/lalin/code_value_facts.lua` detects `ReductionFact` values for:
   - add
   - mul
   - bitand
   - bitor
   - bitxor
 - It can also produce `ClosedFormFact` for additive arithmetic-series reductions.
-- `lua/moonlift/code_kernel_plan.lua` converts these into:
+- `lua/lalin/code_kernel_plan.lua` converts these into:
   - `KernelEffectFold(reduction)`
   - `KernelResultReduction(reduction)` or `KernelResultClosedForm(closed_form)`
 
@@ -2208,7 +2208,7 @@ There is no first-class horizontal reduction `BackCmd`, and the chosen design pr
 
 Use **Approach A: Lua-synthesized vector monoid accumulators**.
 
-Vector reductions will be implemented inside `lua/moonlift/lower_to_back.lua` as explicit compositions of existing Back commands. The Back ASDL, binary encoder, wire tags, and Rust decoder remain unchanged.
+Vector reductions will be implemented inside `lua/lalin/lower_to_back.lua` as explicit compositions of existing Back commands. The Back ASDL, binary encoder, wire tags, and Rust decoder remain unchanged.
 
 This approach was chosen because it keeps Back commands flat and primitive, avoids adding a new Lua/Rust synchronization contract, and keeps reduction lowering as a compiler lowering responsibility rather than a new backend ABI feature.
 
@@ -2333,7 +2333,7 @@ Known risks from the critique and analysis:
 
 ## Implementation Implications
 
-The implementation should focus on `lua/moonlift/lower_to_back.lua`.
+The implementation should focus on `lua/lalin/lower_to_back.lua`.
 
 Expected changes include:
 
@@ -2360,19 +2360,19 @@ Tests must cover:
 
 Before editing, verify:
 
-1. `lua/moonlift/lower_to_back.lua:631` still contains:
+1. `lua/lalin/lower_to_back.lua:631` still contains:
    ```lua
    if pvm.classof(kplan.body.result) == Kernel.KernelResultReduction
       or pvm.classof(kplan.body.result) == Kernel.KernelResultClosedForm then
        error("lower_to_back: vector reductions are not implemented", 2)
    end
    ```
-2. `lua/moonlift/code_schedule_plan.lua:80` still rejects both `KernelResultReduction` and `KernelResultClosedForm`.
-3. `lua/moonlift/kernel_emit_support.lua:254` still has the blanket vector rejection:
+2. `lua/lalin/code_schedule_plan.lua:80` still rejects both `KernelResultReduction` and `KernelResultClosedForm`.
+3. `lua/lalin/kernel_emit_support.lua:254` still has the blanket vector rejection:
    ```lua
    vector reductions/closed forms are not implemented
    ```
-4. `lua/moonlift/schema/value.asdl` already contains `ReductionMin` and `ReductionMax`; do **not** add Back ASDL/wire/Rust tags.
+4. `lua/lalin/schema/value.asdl` already contains `ReductionMin` and `ReductionMax`; do **not** add Back ASDL/wire/Rust tags.
 5. Run a baseline:
    ```sh
    luajit tests/test_lower_to_back_kernel_vector.lua
@@ -2384,7 +2384,7 @@ Before editing, verify:
 
 ## Files to Modify
 
-### `lua/moonlift/reduction_algebra.lua` *(new)*
+### `lua/lalin/reduction_algebra.lua` *(new)*
 
 **Goal**: Centralize all reduction semantics and legality decisions.
 
@@ -2394,10 +2394,10 @@ Before editing, verify:
 local M = {}
 
 function M.Define(T)
-    local Core = T.MoonCore
-    local Code = T.MoonCode
-    local Value = T.MoonValue
-    local Back = T.MoonBack
+    local Core = T.LalinCore
+    local Code = T.LalinCode
+    local Value = T.LalinValue
+    local Back = T.LalinBack
 
     local api = {}
 
@@ -2469,7 +2469,7 @@ return M
 
 ---
 
-### `lua/moonlift/code_value_facts.lua`
+### `lua/lalin/code_value_facts.lua`
 
 **Goal**: Use the centralized algebra for reduction detection and add min/max fact detection.
 
@@ -2479,9 +2479,9 @@ return M
 
    **After**:
    ```lua
-   local CodeGraph = require("moonlift.code_graph").Define(T)
-   local CodeFlowFacts = require("moonlift.code_flow_facts").Define(T)
-   local ReductionAlgebra = require("moonlift.reduction_algebra").Define(T)
+   local CodeGraph = require("lalin.code_graph").Define(T)
+   local CodeFlowFacts = require("lalin.code_flow_facts").Define(T)
+   local ReductionAlgebra = require("lalin.reduction_algebra").Define(T)
    ```
 
 2. **Lines 159–165**: Replace local `reduction_kind_for`.
@@ -2535,7 +2535,7 @@ return M
 
 ---
 
-### `lua/moonlift/lower_to_back.lua`
+### `lua/lalin/lower_to_back.lua`
 
 **Goal**: Implement forced TailScalar vector reduction lowering using existing BackCmd primitives.
 
@@ -2545,8 +2545,8 @@ return M
 
    **After**:
    ```lua
-   local CodeLowerPlan = require("moonlift.code_lower_plan").Define(T)
-   local ReductionAlgebra = require("moonlift.reduction_algebra").Define(T)
+   local CodeLowerPlan = require("lalin.code_lower_plan").Define(T)
+   local ReductionAlgebra = require("lalin.reduction_algebra").Define(T)
    ```
 
 2. **After line 56**: Add CodeValue override plumbing.
@@ -2697,7 +2697,7 @@ return M
 
 ---
 
-### `lua/moonlift/kernel_emit_support.lua`
+### `lua/lalin/kernel_emit_support.lua`
 
 **Goal**: Let classifier validate vector reductions through the central algebra.
 
@@ -2728,7 +2728,7 @@ return M
 
 ---
 
-### `lua/moonlift/code_schedule_plan.lua`
+### `lua/lalin/code_schedule_plan.lua`
 
 **Goal**: Relax scheduler guard only after forced lowering/tests pass.
 
@@ -2757,11 +2757,11 @@ Classifier still decides whether vector reduction is executable.
 
 Add tests for:
 - min recurrence:
-  ```moonlift
+  ```lalin
   acc = select(acc < xs[i], acc, xs[i])
   ```
 - max recurrence:
-  ```moonlift
+  ```lalin
   acc = select(acc > xs[i], acc, xs[i])
   ```
 - operand-order variants.
@@ -2812,7 +2812,7 @@ Document remaining limitations:
 
 ## Order of Operations
 
-1. Add `lua/moonlift/reduction_algebra.lua`.
+1. Add `lua/lalin/reduction_algebra.lua`.
 2. Update `code_value_facts.lua` and test min/max facts.
 3. Add override plumbing in `lower_to_back.lua`.
 4. Add reduction emission helpers.

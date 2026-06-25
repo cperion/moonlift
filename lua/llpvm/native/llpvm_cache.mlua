@@ -1,11 +1,11 @@
 -- llpvm_cache.mlua -- Recording and cache store protocols.
 
-local H = moon.require("llpvm_header")
+local H = lalin.require("llpvm_header")
 local T = H.T
 local R = H.R
-local Mem = moon.require("llpvm_memory")
-local Buffers = moon.require("llpvm_buffer_store")
-local Machine = moon.require("llpvm_machine")
+local Mem = lalin.require("llpvm_memory")
+local Buffers = lalin.require("llpvm_buffer_store")
+local Machine = lalin.require("llpvm_machine")
 
 local llpvm_recording_index = func(ref: T.LlRecordingRef): index
     return as(index, repr(ref) - 1)

@@ -1,6 +1,6 @@
 -- compile_contract_key.lua -- structural identity for CompileContract values.
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local Schema = require("lua_compile.schema")
 local T = Schema.get()
 

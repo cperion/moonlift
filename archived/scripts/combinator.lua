@@ -1,6 +1,6 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 local ffi = require("ffi")
-local Host = require("moonlift.mlua_run")
+local Host = require("lalin.mlua_run")
 
 local parse_abc_fn = Host.eval [[
 local match_a = region(p: ptr(u8), n: i32, pos: i32;

@@ -1,4 +1,4 @@
-# Fix Moonlift Memory Kit — 3 remaining issues 
+# Fix Lalin Memory Kit — 3 remaining issues
 Investigate and fix three critical issues: StmtTrap flow termination, std:memory module naming, and null(T) non-pointer type acceptance
 **Started**: 2026-05-21 18:53:20
 ---
@@ -13,17 +13,17 @@ Now I have all the information I need. Here's my comprehensive report.
 
 ### Issue 1: StmtTrap Flow Termination
 
-1. **`lua/moonlift/tree_to_back.lua`** (lines 2137-2142) — **The fix is already applied.** The `[Tr.StmtTrap]` handler returns `Back.BackTerminates` (line 2139). Earlier context says it was `BackFallsThrough` but the current code is correct.
+1. **`lua/lalin/tree_to_back.lua`** (lines 2137-2142) — **The fix is already applied.** The `[Tr.StmtTrap]` handler returns `Back.BackTerminates` (line 2139). Earlier context says it was `BackFallsThrough` but the current code is correct.
 
-2. **`lua/moonlift/tree_to_back.lua`** (lines 2145-2153) — `lower_body` function: the flow-propagation loop checks `if flow == Back.BackTerminates then break end` (line 2150). With `BackTerminates`, subsequent dead statements are skipped.
+2. **`lua/lalin/tree_to_back.lua`** (lines 2145-2153) — `lower_body` function: the flow-propagation loop checks `if flow == Back.BackTerminates then break end` (line 2150). With `BackTerminates`, subsequent dead statements are skipped.
 
-3. **`lua/moonlift/frontend_pipeline.lua`** (lines 61-63) — The `assert_no_cmd_trap` call is gated behind `if not _G.MOONLIFT_ALLOW_TRAP then` (line 61). The trap gate is conditional.
+3. **`lua/lalin/frontend_pipeline.lua`** (lines 61-63) — The `assert_no_cmd_trap` call is gated behind `if not _G.LALIN_ALLOW_TRAP then` (line 61). The trap gate is conditional.
 
-4. **`lua/moonlift/schema/back.lua`** (line 906) — `CmdTrap` variant is defined as a zero-arg variant in the schema.
+4. **`lua/lalin/schema/back.lua`** (line 906) — `CmdTrap` variant is defined as a zero-arg variant in the schema.
 
-5. **`lua/moonlift/back_command_binary.lua`** (lines 399-400) — `CmdTrap` encodes with wire tag `T.Trap`.
+5. **`lua/lalin/back_command_binary.lua`** (lines 399-400) — `CmdTrap` encodes with wire tag `T.Trap`.
 
-6. **`lua/moonlift/back_validate.lua`** (lines 206, 487-489) — Validation treats `CmdTrap` as a function body terminator (same as `CmdReturnVoid`).
+6. **`lua/lalin/back_validate.lua`** (lines 206, 487-489) — Validation treats `CmdTrap` as a function body terminator (same as `CmdReturnVoid`).
 
 7. **`back/dasm/rules_x64.lisle`** (lines 170-172) — DynASM lowers `CmdTrap` to `int3`.
 
@@ -46,27 +46,27 @@ Now I have all the information I need. Here's my comprehensive report.
 
 5. **`stdlib/memory.mlua`** (full file) — Defines extern `__ml_*` functions and convenience wrappers (`memcpy`, `memset`, `memcmp`, `alloc`, `free`).
 
-6. **`stdlib/view.mlua`** (full file) — View helpers. Uses `trap` keyword but has NO `require` calls. Would need `_G.MOONLIFT_ALLOW_TRAP` set.
+6. **`stdlib/view.mlua`** (full file) — View helpers. Uses `trap` keyword but has NO `require` calls. Would need `_G.LALIN_ALLOW_TRAP` set.
 
-7. **`lua/moonlift/mlua_run.lua`** (lines 184-201) — `transform_mlua` function: treats non-island content as Lua. `require "stdlib.memory"` in `arena.mlua` stays as plain Lua, wrapped with `local moon = require('moonlift')` prefix. When no islands detected, entire source is Lua.
+7. **`lua/lalin/mlua_run.lua`** (lines 184-201) — `transform_mlua` function: treats non-island content as Lua. `require "stdlib.memory"` in `arena.mlua` stays as plain Lua, wrapped with `local lalin = require('lalin')` prefix. When no islands detected, entire source is Lua.
 
 ### Issue 3: `null(T)` Accepting Non-Pointer Types
 
-1. **`lua/moonlift/tree_typecheck.lua`** (lines 613-618) — **The fix is already applied.** The `[Tr.ExprNull]` handler checks `pvm.classof(self.elem) ~= Ty.TPtr` and emits `Tr.TypeIssueExpected("null", Ty.TPtr(Ty.TVoid), self.elem)` as an error.
+1. **`lua/lalin/tree_typecheck.lua`** (lines 613-618) — **The fix is already applied.** The `[Tr.ExprNull]` handler checks `pvm.classof(self.elem) ~= Ty.TPtr` and emits `Tr.TypeIssueExpected("null", Ty.TPtr(Ty.TVoid), self.elem)` as an error.
 
-2. **`lua/moonlift/schema/tree.lua`** (line 1097-1102) — `TypeIssueExpected` is defined with `site`, `expected`, `actual` fields.
+2. **`lua/lalin/schema/tree.lua`** (line 1097-1102) — `TypeIssueExpected` is defined with `site`, `expected`, `actual` fields.
 
-3. **`lua/moonlift/error/catalog.lua`** (line 109) — Maps `TypeIssueExpected` → `"E0301"` (type mismatch error, severity: error).
+3. **`lua/lalin/error/catalog.lua`** (line 109) — Maps `TypeIssueExpected` → `"E0301"` (type mismatch error, severity: error).
 
-4. **`lua/moonlift/tree_typecheck.lua`** (lines 977-979) — Error formatter for `TypeIssueExpected`: produces `error[E0301]: type mismatch`.
+4. **`lua/lalin/tree_typecheck.lua`** (lines 977-979) — Error formatter for `TypeIssueExpected`: produces `error[E0301]: type mismatch`.
 
-5. **`lua/moonlift/tree_to_back.lua`** (expr lowering section, lines around 607) — `ExprNull` lowering path. With the typecheck already catching the error, the lowering path only sees correctly-typed `ExprNull(ptr(T))` nodes.
+5. **`lua/lalin/tree_to_back.lua`** (expr lowering section, lines around 607) — `ExprNull` lowering path. With the typecheck already catching the error, the lowering path only sees correctly-typed `ExprNull(ptr(T))` nodes.
 
-6. **`lua/moonlift/tree_typecheck.lua`** (lines 627-632) — `ExprIsNull` has a parallel check using `TypeIssueNotPointer` (also error).
+6. **`lua/lalin/tree_typecheck.lua`** (lines 627-632) — `ExprIsNull` has a parallel check using `TypeIssueNotPointer` (also error).
 
-7. **`lua/moonlift/parse.lua`** (lines 82, 162-163) — Token definitions for `null_kw` (162) and `is_null_kw` (163), keywords map for `null` and `is_null`.
+7. **`lua/lalin/parse.lua`** (lines 82, 162-163) — Token definitions for `null_kw` (162) and `is_null_kw` (163), keywords map for `null` and `is_null`.
 
-8. **`lua/moonlift/sem_layout_resolve.lua`** (line 324-330) — Identity pass for `ExprNull` and `StmtTrap` (no resolution needed).
+8. **`lua/lalin/sem_layout_resolve.lua`** (line 324-330) — Identity pass for `ExprNull` and `StmtTrap` (no resolution needed).
 
 ---
 
@@ -75,7 +75,7 @@ Now I have all the information I need. Here's my comprehensive report.
 ### Issue 1 — StmtTrap lowering (already correct):
 
 ```lua
--- lua/moonlift/tree_to_back.lua:2137-2142
+-- lua/lalin/tree_to_back.lua:2137-2142
 [Tr.StmtTrap] = function(_, env)
     return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates))
 end,
@@ -83,7 +83,7 @@ end,
 ```
 
 ```lua
--- lua/moonlift/tree_to_back.lua:2145-2153
+-- lua/lalin/tree_to_back.lua:2145-2153
 lower_body = function(stmts, env)
     local current = env
     local cmds = {}
@@ -100,8 +100,8 @@ end
 ```
 
 ```lua
--- lua/moonlift/frontend_pipeline.lua:61-63
-if not _G.MOONLIFT_ALLOW_TRAP then
+-- lua/lalin/frontend_pipeline.lua:61-63
+if not _G.LALIN_ALLOW_TRAP then
     assert_no_cmd_trap(T, program, site)
 end
 ```
@@ -147,7 +147,7 @@ for (name, source) in embedded_hosted_lua::embedded_modules() {
 }
 ```
 
-```moonlift
+```lalin
 -- stdlib/arena.mlua:2
 require "stdlib.memory"   -- Lua-level require, resolves via package.preload["stdlib.memory"]
 ```
@@ -155,7 +155,7 @@ require "stdlib.memory"   -- Lua-level require, resolves via package.preload["st
 ### Issue 3 — null(T) typecheck (already correct):
 
 ```lua
--- lua/moonlift/tree_typecheck.lua:613-618
+-- lua/lalin/tree_typecheck.lua:613-618
 [Tr.ExprNull] = function(self, ctx)
     local issues = {}
     if pvm.classof(self.elem) ~= Ty.TPtr then
@@ -166,7 +166,7 @@ end,
 ```
 
 ```lua
--- lua/moonlift/tree_typecheck.lua:627-632 (parallel check for is_null)
+-- lua/lalin/tree_typecheck.lua:627-632 (parallel check for is_null)
 [Tr.ExprIsNull] = function(self, ctx)
     local value = pvm.one(type_expr(self.value, ctx))
     local issues = {}; append_all(issues, value.issues)
@@ -178,7 +178,7 @@ end,
 ```
 
 ```lua
--- lua/moonlift/error/catalog.lua:109
+-- lua/lalin/error/catalog.lua:109
 TypeIssueExpected = "E0301",   -- E0301 = type mismatch, severity: error
 ```
 
@@ -195,7 +195,7 @@ Source: trap
   → Layout resolve (sem_layout_resolve.lua:330): identity pass
   → Lowering (tree_to_back.lua:2138-2140): Tr.TreeBackStmtResult(env, {Back.CmdTrap}, Back.BackTerminates)
     → lower_body (tree_to_back.lua:2145-2153): flow=BackTerminates → subsequent stmts skipped
-  → Pipeline gate (frontend_pipeline.lua:61-63): skipped if _G.MOONLIFT_ALLOW_TRAP is set
+  → Pipeline gate (frontend_pipeline.lua:61-63): skipped if _G.LALIN_ALLOW_TRAP is set
   → Backend validation (back_validate.lua:487-489): treats as body terminator
   → Encoder (back_command_binary.lua:399-400): WireTag::Trap
   → Cranelift decoder (decode.rs): ctx.builder.ins().trap(TrapCode::unwrap_user(1))
@@ -218,7 +218,7 @@ stdlib/arena.mlua: `require "stdlib.memory"`
 ```
 Source: null(ptr(i32))
   → Parse (parse.lua): Tr.ExprNull(Tr.ExprSurface, Ty.TPtr(Ty.TScalar(ScalarI32)))
-  → Typecheck (tree_typecheck.lua:613-618): 
+  → Typecheck (tree_typecheck.lua:613-618):
     - pvm.classof(elem) == Ty.TPtr → no issue
     - typed as ptr(i32) (the type passed to null())
   → Layout resolve (sem_layout_resolve.lua:324): identity pass
@@ -246,7 +246,7 @@ Source: null(i32)
 
 ### All three issues appear to be already fixed.
 
-1. **StmtTrap flow**: `tree_to_back.lua:2139` uses `Back.BackTerminates` (correct). The `assert_no_cmd_trap` guard is gated behind `_G.MOONLIFT_ALLOW_TRAP` at `frontend_pipeline.lua:61`.
+1. **StmtTrap flow**: `tree_to_back.lua:2139` uses `Back.BackTerminates` (correct). The `assert_no_cmd_trap` guard is gated behind `_G.LALIN_ALLOW_TRAP` at `frontend_pipeline.lua:61`.
 
 2. **Stdlib module naming**: `build.rs` produces `stdlib.memory` (not just `memory`), `embedded_hosted_lua.rs` shows `("stdlib.memory", ...)`, and `arena.mlua` uses `require "stdlib.memory"` — all consistent. The module is registered as `package.preload["stdlib.memory"]` in `main.rs`.
 
@@ -254,8 +254,8 @@ Source: null(i32)
 
 ### Remaining concerns:
 
-1. **`_G.MOONLIFT_ALLOW_TRAP` is never set** in any code path. `stdlib/view.mlua` uses `trap` (line 4: `trap -- bounds check`). For this to work, something must set `_G.MOONLIFT_ALLOW_TRAP = true` before compilation. Currently, this doesn't happen anywhere visible — meaning `view.mlua` would fail to compile with the default pipeline.
+1. **`_G.LALIN_ALLOW_TRAP` is never set** in any code path. `stdlib/view.mlua` uses `trap` (line 4: `trap -- bounds check`). For this to work, something must set `_G.LALIN_ALLOW_TRAP = true` before compilation. Currently, this doesn't happen anywhere visible — meaning `view.mlua` would fail to compile with the default pipeline.
 
 2. **With LSP/CollectingCollector**, `null(i32)` would produce an issue but compilation could continue with a mis-typed expression (typed as `i32` instead of `ptr(T)`). The backend would then try to lower an `ExprNull` with an `i32` element type, producing `CmdConst(dst, BackI32, BackLitNull)` — a type-inconsistent constant. This is a secondary concern since the production pipeline (ThrowingCollector) catches it as a hard error.
 
-3. **The MOM pipeline** (`lua/moonlift/mom/` directory) doesn't exist at the path searched, suggesting it may be in a different location or was not implemented yet. The hosted pipeline (through `frontend_pipeline.lua`) is the main path.
+3. **The MOM pipeline** (`lua/lalin/mom/` directory) doesn't exist at the path searched, suggesting it may be in a different location or was not implemented yet. The hosted pipeline (through `frontend_pipeline.lua`) is the main path.

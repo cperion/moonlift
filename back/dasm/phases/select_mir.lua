@@ -1,4 +1,4 @@
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local Mx = require("back.dasm.model")
 
 local function lower_cfg_to_backcmd(cfg)
@@ -67,7 +67,7 @@ local function phase()
     if PHASE then return PHASE end
     local D = Mx.dasm()
 
-    PHASE = pvm.phase("moonlift_dasm_select_mir", {
+    PHASE = pvm.phase("lalin_dasm_select_mir", {
         [D.DFuncCFG] = function(cfg)
             return pvm.once(lower_cfg_to_backcmd(cfg))
         end,

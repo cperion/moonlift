@@ -1,13 +1,13 @@
 -- Lua Interpreter VM — String regions
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 
 local I = {}
-for k, v in pairs(const.Tag) do I["TAG_" .. k] = moon.int(v) end
-for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
-I.SIZE_STRING = moon.int(40)
+for k, v in pairs(const.Tag) do I["TAG_" .. k] = lalin.int(v) end
+for k, v in pairs(const.Err) do I["ERR_" .. k] = lalin.int(v) end
+I.SIZE_STRING = lalin.int(40)
 
 -- string_hash: compute Lua-compatible string hash
 local string_hash = host.region [[

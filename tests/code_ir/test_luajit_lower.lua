@@ -2,20 +2,20 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 
 local ffi = require("ffi")
 local bit = require("bit")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local LJ = T.MoonLuaJIT
-local Kernel = T.MoonKernel
+local Core = T.LalinCore
+local Code = T.LalinCode
+local LJ = T.LalinLuaJIT
+local Kernel = T.LalinKernel
 
-local Lower = require("moonlift.luajit_lower")(T)
-local Emit = require("moonlift.luajit_emit")(T)
-local Backend = require("moonlift.luajit_backend")(T)
+local Lower = require("lalin.luajit_lower")(T)
+local Emit = require("lalin.luajit_emit")(T)
+local Backend = require("lalin.luajit_backend")(T)
 
 local origin = Code.CodeOriginGenerated("test_luajit_lower")
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)
@@ -191,4 +191,4 @@ local add_compiled, add_err, add_src = Emit.compile_module(add_lj, { chunk_name 
 assert(add_compiled ~= nil, tostring(add_err) .. "\n" .. tostring(add_src))
 assert(add_compiled.add(12, 30) == 42)
 
-io.write("moonlift luajit_lower ok\n")
+io.write("lalin luajit_lower ok\n")

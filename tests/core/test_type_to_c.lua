@@ -1,17 +1,17 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-assert(package.loaded["moonlift.type_to_c"] == nil)
+assert(package.loaded["lalin.type_to_c"] == nil)
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 local T = pvm.context(); Schema(T)
 
-local Core = T.MoonCore
-local Ty = T.MoonType
-local Open = T.MoonOpen
-local C = T.MoonC
-local Code = T.MoonCode
-local api = require("moonlift.code_type")(T)
+local Core = T.LalinCore
+local Ty = T.LalinType
+local Open = T.LalinOpen
+local C = T.LalinC
+local Code = T.LalinCode
+local api = require("lalin.code_type")(T)
 
 local all_scalars = {
     Core.ScalarVoid, Core.ScalarBool,
@@ -70,7 +70,7 @@ assert(pvm.classof(local_named) == C.CBackendNamed and local_named.id.module_nam
 local ctype = api.type_to_c(Ty.TCType(C.CTypeId("host", "uint128_t")), {})
 assert(pvm.classof(ctype) == C.CBackendNamed and ctype.id.module_name == "host" and ctype.id.spelling == "uint128_t")
 
-local ok_arr, err_arr = pcall(function() api.type_to_c(Ty.TArray(Ty.ArrayLenExpr(T.MoonTree.ExprLit(T.MoonTree.ExprTyped(i32), Core.LitInt("3"))), i32), {}) end)
+local ok_arr, err_arr = pcall(function() api.type_to_c(Ty.TArray(Ty.ArrayLenExpr(T.LalinTree.ExprLit(T.LalinTree.ExprTyped(i32), Core.LitInt("3"))), i32), {}) end)
 assert(not ok_arr and tostring(err_arr):match("typechecking must reject ArrayLenExpr"))
 
 local ok_slot, err_slot = pcall(function() api.type_to_c(Ty.TSlot(Open.TypeSlot("T", "T")), {}) end)
@@ -82,5 +82,5 @@ assert(pvm.classof(target.endian) == pvm.classof(C.CBackendBigEndian))
 local target2 = api.default_target({ pointer_bits = 64, index_bits = 32 })
 assert(target2.pointer_bits == 64 and target2.index_bits == 32)
 
-assert(package.loaded["moonlift.type_to_c"] == nil)
-io.write("moonlift code_type C projection ok\n")
+assert(package.loaded["lalin.type_to_c"] == nil)
+io.write("lalin code_type C projection ok\n")

@@ -1,7 +1,7 @@
--- Moonlift VM — Arithmetic, bitwise, unary, MMBIN, and NOT opcode handlers.
+-- Lalin VM — Arithmetic, bitwise, unary, MMBIN, and NOT opcode handlers.
 --
 -- This module is intentionally explicit.  Earlier versions generated these
--- handlers by substituting expression strings into Moonlift source templates;
+-- handlers by substituting expression strings into Lalin source templates;
 -- that hid opcode semantics and kept hot Value accesses in aggregate-copy form.
 -- The handlers below read/write Value fields through pointers in the hot path.
 --

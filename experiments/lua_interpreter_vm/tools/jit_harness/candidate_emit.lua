@@ -1,5 +1,5 @@
 -- candidate_emit.lua
--- Emits low-level Moonlift stencil kernels from candidate descriptions.
+-- Emits low-level Lalin stencil kernels from candidate descriptions.
 -- The emitted kernels are self-contained object-emission units with the same
 -- leading VM product layout as experiments/lua_interpreter_vm/src/products.lua.
 
@@ -758,7 +758,7 @@ local function emit_c_candidate_kernel(candidate, config)
     return { id = kernel_name, name = kernel_name, source = source, path = config.output_dir and (config.output_dir .. "/" .. kernel_name .. ".c") or nil, candidate_id = candidate.id, arity = candidate.arity or #ops, ops = ops, abi = "jit_stencil_v0", language = "c", backend = "gcc" }
 end
 
--- Emit a candidate kernel in Moonlift or C source format.
+-- Emit a candidate kernel in Lalin or C source format.
 function M.emit_candidate_kernel(candidate, config)
     config = config or {}
     if config.backend == "gcc" or config.backend == "c" then

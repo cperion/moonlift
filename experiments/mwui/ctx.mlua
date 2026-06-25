@@ -1,9 +1,9 @@
 -- ctx.mlua — Arena-based context text storage for mwui components.
 --
 -- Implements R.ctx_store_text, R.ctx_store_owned_text, R.ctx_release
--- from moonlift_webui_blueprint.md §10.7.
+-- from lalin_webui_blueprint.md §10.7.
 
-local M = moon.require("mwui_types")
+local M = lalin.require("mwui_types")
 
 --------------------------------------------------------------------------------
 -- Chunk header layout:  [ size: u64 (8 bytes) | next: u64 (8 bytes) | data... ]

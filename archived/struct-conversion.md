@@ -21,21 +21,21 @@
 
  Schema:
 
-- lua/moonlift/mom/schema/MoonBack.mlua - Add all 11 missing structs here
+- lua/lalin/mom/schema/LalinBack.mlua - Add all 11 missing structs here
 
  Backend lowering (conversion sites):
 
-- lua/moonlift/mom/back/lower_ctx.mlua - MomBackLowerCtx struct (add missing fields)
-- lua/moonlift/mom/back/control_lower.mlua - 100% raw aux_i32, needs MomControlRegionWorkspace
-- lua/moonlift/mom/back/expr_lower.mlua - 32 continuation sites, uses missing context fields
-- lua/moonlift/mom/back/stmt_lower.mlua - 25 continuation sites, phi table conversions
-- lua/moonlift/mom/back/address.mlua - 8 continuation sites
+- lua/lalin/mom/back/lower_ctx.mlua - MomBackLowerCtx struct (add missing fields)
+- lua/lalin/mom/back/control_lower.mlua - 100% raw aux_i32, needs MomControlRegionWorkspace
+- lua/lalin/mom/back/expr_lower.mlua - 32 continuation sites, uses missing context fields
+- lua/lalin/mom/back/stmt_lower.mlua - 25 continuation sites, phi table conversions
+- lua/lalin/mom/back/address.mlua - 8 continuation sites
 
  Supporting:
 
-- lua/moonlift/mom/back/module.mlua - Function signatures (MomFuncSig)
-- lua/moonlift/mom/back/validate.mlua - Command slices (MomCmdSlice)
-- lua/moonlift/mom/vec/*.mlua - Vector fact slices (MomVecFactSlice)
+- lua/lalin/mom/back/module.mlua - Function signatures (MomFuncSig)
+- lua/lalin/mom/back/validate.mlua - Command slices (MomCmdSlice)
+- lua/lalin/mom/vec/*.mlua - Vector fact slices (MomVecFactSlice)
 
  Missing Structs (must add to schema)
 
@@ -86,7 +86,7 @@
 
  Simplest struct, broadest impact (4 files)
 
- 1. Add MomExprResult struct to MoonBack.mlua
+ 1. Add MomExprResult struct to LalinBack.mlua
  2. Convert mb_lower_expr_region continuation signature (expr_lower.mlua:469)
 
 - From: done(value: i32, scalar: i32, ok: bool)
@@ -109,7 +109,7 @@
 
  Phase 2: MomStmtResult + MomAddressResult (4 hours)
 
- 1. Add both structs to MoonBack.mlua
+ 1. Add both structs to LalinBack.mlua
  2. Convert stmt_lower.mlua:
 
 - mb_lower_stmt signature + 10 exit points + 15 call sites
@@ -127,7 +127,7 @@
 
  Most complex: 8 fields including view types, threading through 3 blocks
 
- 1. Add struct to MoonBack.mlua with all 8 fields
+ 1. Add struct to LalinBack.mlua with all 8 fields
  2. Add mb_build_region_workspace constructor in control_lower.mlua:
 
 - Computes total_params (sum across blocks)
@@ -261,29 +261,29 @@
 
  Phase 0: Context Fields (MUST DO FIRST)
 
-- File: lua/moonlift/mom/back/lower_ctx.mlua
+- File: lua/lalin/mom/back/lower_ctx.mlua
 - Add 5 fields to MomBackLowerCtx struct (lines 32-70): last_expr_value, last_expr_scalar, last_expr_ok, last_addr, last_pointee_scalar
 - Initialize in mb_ctx_init if needed
 - Test: cargo build --release
 
  Phase 1: MomExprResult
 
-- File: lua/moonlift/mom/schema/MoonBack.mlua - add struct definition
-- File: lua/moonlift/mom/back/expr_lower.mlua - convert continuation (line 469) + ~15 exit sites
+- File: lua/lalin/mom/schema/LalinBack.mlua - add struct definition
+- File: lua/lalin/mom/back/expr_lower.mlua - convert continuation (line 469) + ~15 exit sites
 - Files: control_lower.mlua (7 sites), stmt_lower.mlua (10 sites), address.mlua (3 sites) - update call sites
 - Test: func main() -> i32 return 2 + 2 end
 
  Phase 2: MomStmtResult + MomAddressResult
 
-- File: lua/moonlift/mom/schema/MoonBack.mlua - add 2 struct definitions
-- File: lua/moonlift/mom/back/stmt_lower.mlua - convert mb_lower_stmt + if/switch signatures
-- File: lua/moonlift/mom/back/address.mlua - convert mb_place_addr_to_back, add _fn wrappers
+- File: lua/lalin/mom/schema/LalinBack.mlua - add 2 struct definitions
+- File: lua/lalin/mom/back/stmt_lower.mlua - convert mb_lower_stmt + if/switch signatures
+- File: lua/lalin/mom/back/address.mlua - convert mb_place_addr_to_back, add _fn wrappers
 - Test: func main() -> i32 let x = 2; var y = x; return y end
 
  Phase 3: MomControlRegionWorkspace
 
-- File: lua/moonlift/mom/schema/MoonBack.mlua - add struct with 8 fields including views
-- File: lua/moonlift/mom/back/control_lower.mlua:
+- File: lua/lalin/mom/schema/LalinBack.mlua - add struct with 8 fields including views
+- File: lua/lalin/mom/back/control_lower.mlua:
   - Add mb_build_region_workspace constructor
   - Thread workspace through init_params, lower_blocks, seal_exit (3 blocks)
   - Replace ALL aux_i32 arithmetic (lines 84, 143, 188+)
@@ -291,19 +291,19 @@
 
  Phase 4: Phi/Switch Arenas
 
-- File: lua/moonlift/mom/schema/MoonBack.mlua - add MomIfPhiEntry, MomIfPhiTable, MomSwitchCaseEntry, MomSwitchCaseTable
-- File: lua/moonlift/mom/back/lower_ctx.mlua - add arena fields to MomBackLowerCtx
-- File: lua/moonlift/mom/back/stmt_lower.mlua:
+- File: lua/lalin/mom/schema/LalinBack.mlua - add MomIfPhiEntry, MomIfPhiTable, MomSwitchCaseEntry, MomSwitchCaseTable
+- File: lua/lalin/mom/back/lower_ctx.mlua - add arena fields to MomBackLowerCtx
+- File: lua/lalin/mom/back/stmt_lower.mlua:
   - NEW: Implement mb_collect_changed_bindings region
   - Convert if-lowering to build MomIfPhiTable (currently simplified, no phi)
   - Add rebinding logic after join block
-- File: lua/moonlift/mom/back/control_lower.mlua:
+- File: lua/lalin/mom/back/control_lower.mlua:
   - Convert switch to use MomSwitchCaseTable (lines 392-406)
   - Update mb_emit_switch_int signature
 - Test: If with changed var, switch with multiple cases
 
  Phase 5: Infrastructure
 
-- File: lua/moonlift/mom/schema/MoonBack.mlua - add MomFuncSig, MomCmdSlice, MomVecFactSlice
+- File: lua/lalin/mom/schema/LalinBack.mlua - add MomFuncSig, MomCmdSlice, MomVecFactSlice
 - Files: module.mlua, validate.mlua, vec/*.mlua - convert to use structs
 - Test: Full test ladder

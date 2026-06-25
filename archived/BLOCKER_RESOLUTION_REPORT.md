@@ -13,7 +13,7 @@ All 3 critical blockers have been **RESOLVED**. A working `back_lower.mlua` has 
 ## Files Delivered
 
 ### 1. Working Implementation
-**File:** `/home/cedric/dev/moonlift/lua/moonlift/mom/back/back_lower.mlua`
+**File:** `/home/cedric/dev/lalin/lua/lalin/mom/back/back_lower.mlua`
 
 **Status:** Compiles cleanly (no syntax errors in this file)
 
@@ -28,7 +28,7 @@ All 3 critical blockers have been **RESOLVED**. A working `back_lower.mlua` has 
 **Line count:** 393 lines (clean, well-commented)
 
 ### 2. Implementation Guide
-**File:** `/home/cedric/dev/moonlift/lua/moonlift/mom/back/BACK_LOWER_GUIDE.md`
+**File:** `/home/cedric/dev/lalin/lua/lalin/mom/back/BACK_LOWER_GUIDE.md`
 
 **Contents:**
 - Architecture overview (region pattern, continuation protocol)
@@ -205,7 +205,7 @@ M.mb_fresh_val = mb_fresh_val
 
 ### Region-Based Lowering
 
-Each lowering function is a **region** (Moonlift control-flow construct):
+Each lowering function is a **region** (Lalin control-flow construct):
 
 ```
 Region = entry block + named blocks + continuations
@@ -310,13 +310,13 @@ Compile with `make` and verify no syntax errors.
 
 **Chosen:** Continuation protocol (emit/jump)
 
-**Why:** Moonlift regions REQUIRE this pattern. It enables proper control-flow analysis and thread-safe state management. No alternative.
+**Why:** Lalin regions REQUIRE this pattern. It enables proper control-flow analysis and thread-safe state management. No alternative.
 
 ### 3. Immutable environment vs. mutable env cells
 
 **Chosen:** Immutable (mb_env_add_scalar returns new env)
 
-**Why:** Matches Moonlift design. Enables proper scoping and CFG merging (phi analysis).
+**Why:** Matches Lalin design. Enables proper scoping and CFG merging (phi analysis).
 
 ### 4. Tape-based vs. tree-based expression representation
 

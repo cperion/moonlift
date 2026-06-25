@@ -3,7 +3,7 @@ package.path = "./experiments/lua_interpreter_vm/spongejit/?.lua;./experiments/l
 
 local C = require("lua_compile")
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local F = T.LuaFFI
 local S = T.Stencil

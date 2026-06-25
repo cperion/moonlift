@@ -1,19 +1,19 @@
 # LuaTrace Stencil Backend
 
-LuaTrace is a real MoonStencil backend. It consumes the same scheduled
+LuaTrace is a real LalinStencil backend. It consumes the same scheduled
 `StencilArtifact` values as copy-patch, but materializes them as generated
 LuaJIT loops instead of binary machine-code stencils.
 
 The backend boundary is:
 
 ```text
-MoonStencil descriptor + schedule + vector facts
+LalinStencil descriptor + schedule + vector facts
   -> LuaTrace provider-local trace plan
   -> materializer
-  -> named Lua functions in __moonlift_luajit_stencil_symbols
+  -> named Lua functions in __lalin_luajit_stencil_symbols
 ```
 
-LuaTrace does not rediscover loops from MoonCode. It receives already-selected
+LuaTrace does not rediscover loops from LalinCode. It receives already-selected
 stencil descriptors and must lower those descriptors honestly.
 
 ## Materializers

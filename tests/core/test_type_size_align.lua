@@ -1,16 +1,16 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local Size = require("moonlift.type_size_align")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local Size = require("lalin.type_size_align")
 
 local T = pvm.context()
 A(T)
 local L = Size(T)
-local C = T.MoonCore
-local Ty = T.MoonType
-local Sem = T.MoonSem
-local O = T.MoonOpen
+local C = T.LalinCore
+local Ty = T.LalinType
+local Sem = T.LalinSem
+local O = T.LalinOpen
 
 local function known(ty, size, align, env)
     local result = L.result(ty, env)
@@ -57,4 +57,4 @@ unknown(Ty.TNamed(Ty.TypeRefGlobal("Demo", "Missing")), pair_env)
 unknown(Ty.TArray(Ty.ArrayLenSlot(O.ExprSlot("n", "n", i32)), i32))
 unknown(Ty.TSlot(O.TypeSlot("T", "T")))
 
-print("moonlift type_size_align ok")
+print("lalin type_size_align ok")

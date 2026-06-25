@@ -1,29 +1,29 @@
--- Benchmark MoonCode -> kernel facts -> MoonLuaJIT vector-reduce lowering.
+-- Benchmark LalinCode -> kernel facts -> LalinLuaJIT vector-reduce lowering.
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
 local bit = require("bit")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
-local Measure = require("moonlift.luajit_measure")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
+local Measure = require("lalin.luajit_measure")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local Lower = require("moonlift.luajit_lower")(T)
-local Emit = require("moonlift.luajit_emit")(T)
+local Core = T.LalinCore
+local Code = T.LalinCode
+local Lower = require("lalin.luajit_lower")(T)
+local Emit = require("lalin.luajit_emit")(T)
 
 local mode = arg and arg[1] or "quick"
 local full = mode == "full"
-local n = tonumber(os.getenv("MOONLIFT_LJ_LOWER_BENCH_N") or (full and "5000000" or "350000"))
-local samples = tonumber(os.getenv("MOONLIFT_LJ_LOWER_BENCH_SAMPLES") or (full and "9" or "5"))
-local rounds = tonumber(os.getenv("MOONLIFT_LJ_LOWER_BENCH_ROUNDS") or "1")
-local cc = os.getenv("MOONLIFT_LJ_LOWER_BENCH_CC") or os.getenv("CC") or "gcc"
-local cflags = os.getenv("MOONLIFT_LJ_LOWER_BENCH_CFLAGS") or "-std=c99 -O3 -march=native"
-local with_gcc = os.getenv("MOONLIFT_LJ_LOWER_BENCH_GCC") ~= "0"
+local n = tonumber(os.getenv("LALIN_LJ_LOWER_BENCH_N") or (full and "5000000" or "350000"))
+local samples = tonumber(os.getenv("LALIN_LJ_LOWER_BENCH_SAMPLES") or (full and "9" or "5"))
+local rounds = tonumber(os.getenv("LALIN_LJ_LOWER_BENCH_ROUNDS") or "1")
+local cc = os.getenv("LALIN_LJ_LOWER_BENCH_CC") or os.getenv("CC") or "gcc"
+local cflags = os.getenv("LALIN_LJ_LOWER_BENCH_CFLAGS") or "-std=c99 -O3 -march=native"
+local with_gcc = os.getenv("LALIN_LJ_LOWER_BENCH_GCC") ~= "0"
 
 local origin = Code.CodeOriginGenerated("bench_luajit_lower_sum")
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)
@@ -90,7 +90,7 @@ local function handwritten_sum()
 end
 assert(lowered_sum() == handwritten_sum())
 
-print(string.format("MoonCode -> LuaJIT lower sum benchmark mode=%s n=%d samples=%d rounds=%d", mode, n, samples, rounds))
+print(string.format("LalinCode -> LuaJIT lower sum benchmark mode=%s n=%d samples=%d rounds=%d", mode, n, samples, rounds))
 print("emitted source bytes " .. tostring(#src))
 for _, result in ipairs(Measure.measure({
     { name = "lowered kernel sum_i32", fn = lowered_sum },
@@ -172,4 +172,4 @@ int main(int argc, char **argv) {
     end
 end
 
-if os.getenv("MOONLIFT_LJ_LOWER_BENCH_SOURCE") == "1" then print(src) end
+if os.getenv("LALIN_LJ_LOWER_BENCH_SOURCE") == "1" then print(src) end

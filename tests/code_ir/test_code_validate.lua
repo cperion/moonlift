@@ -1,19 +1,19 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-assert(package.loaded["moonlift.tree_to_c"] == nil)
-assert(package.loaded["moonlift.type_to_c"] == nil)
+assert(package.loaded["lalin.tree_to_c"] == nil)
+assert(package.loaded["lalin.type_to_c"] == nil)
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 local T = pvm.context()
 Schema(T)
 
-local Validate = require("moonlift.code_validate")(T)
-assert(package.loaded["moonlift.tree_to_c"] == nil)
-assert(package.loaded["moonlift.type_to_c"] == nil)
+local Validate = require("lalin.code_validate")(T)
+assert(package.loaded["lalin.tree_to_c"] == nil)
+assert(package.loaded["lalin.type_to_c"] == nil)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
+local Core = T.LalinCore
+local Code = T.LalinCode
 
 local origin = Code.CodeOriginGenerated("test_code_validate")
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)
@@ -59,7 +59,7 @@ local function valid_module()
 end
 
 local report = Validate.validate(valid_module())
-assert(#report.issues == 0, "valid module should have no MoonCode validation issues, got " .. tostring(#report.issues))
+assert(#report.issues == 0, "valid module should have no LalinCode validation issues, got " .. tostring(#report.issues))
 
 local bad = valid_module()
 local missing = Code.CodeValueId("v:missing")
@@ -175,6 +175,6 @@ bad.data = { Code.CodeData(Code.CodeDataId("data:rel"), "rel", Code.CodeLinkageL
 report = Validate.validate(bad)
 assert(has_issue(report, Code.CodeIssueMissingFunc))
 
-assert(package.loaded["moonlift.tree_to_c"] == nil)
-assert(package.loaded["moonlift.type_to_c"] == nil)
-io.write("moonlift code_validate ok\n")
+assert(package.loaded["lalin.tree_to_c"] == nil)
+assert(package.loaded["lalin.type_to_c"] == nil)
+io.write("lalin code_validate ok\n")

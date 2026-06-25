@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Design a first-class Lua FFI for the Moonlift-native Lua VM and SpongeJIT path,
+Design a first-class Lua FFI for the Lalin-native Lua VM and SpongeJIT path,
 with LuaJIT-class ergonomics and performance, but expressed through explicit
 programming: typed data, typed control protocols, no hidden interpreter dispatch,
 and no stringly semantic runtime.
@@ -18,7 +18,7 @@ and cdata identity all need explicit types and protocols.
 
 FFI parses C declarations into typed FFI declaration data, resolves layouts and
 symbols into typed runtime handles, represents cdata as typed values, lowers FFI
-operations into LuaExec/MoonCFG semantic regions, and generates stencils whose
+operations into LuaExec/LalinCFG semantic regions, and generates stencils whose
 calls/loads/stores/relocs are derived from those typed FFI facts.
 
 ```text
@@ -26,13 +26,13 @@ Lua ffi API call / cdef source
   -> FFI declaration/type model
   -> FFI registry + symbol table
   -> cdata values and operations
-  -> LuaExec / MoonCFG regions
-  -> Moonlift / Cranelift calls, loads, stores
+  -> LuaExec / LalinCFG regions
+  -> Lalin / Cranelift calls, loads, stores
   -> stencil templates with symbol/offset/ABI patch holes
 ```
 
 No FFI operation may be implemented as “call LuaJIT FFI” or “ask host
-interpreter.” The Moonlift VM owns the FFI runtime.
+interpreter.” The Lalin VM owns the FFI runtime.
 
 ---
 
@@ -79,7 +79,7 @@ No status strings. No integer kind fields with comments. No hidden global magic.
 
 ## Handles
 
-```moonlift
+```lalin
 struct CTypeId        id: u64 end
 struct CDeclId        id: u64 end
 struct CLibId         id: u64 end
@@ -92,7 +92,7 @@ Handles are typed. They are not interchangeable integers.
 
 ## C scalar kinds
 
-```moonlift
+```lalin
 union CScalarKind
     c_void()
   | c_bool()
@@ -127,7 +127,7 @@ end
 
 ## C type model
 
-```moonlift
+```lalin
 union CType
     scalar(kind: CScalarKind)
   | pointer(to: CTypeId, is_const: bool, is_volatile: bool)
@@ -149,7 +149,7 @@ variant, not a null layout.
 
 Names are data, but internal distinctions are handles.
 
-```moonlift
+```lalin
 struct CNameId id: u64 end
 struct CName
     id: CNameId
@@ -161,7 +161,7 @@ The runtime can compare `CNameId`; diagnostics can print `bytes`.
 
 ## Parameters and functions
 
-```moonlift
+```lalin
 union CParamMode
     by_value()
   | pointer_in()
@@ -193,7 +193,7 @@ ABI is explicit because call lowering and stencil relocation depend on it.
 
 ## Record layout
 
-```moonlift
+```lalin
 union CFieldKind
     normal()
   | bitfield(width_bits: u16, bit_offset: u16)
@@ -223,7 +223,7 @@ end
 
 ## Enum layout
 
-```moonlift
+```lalin
 struct CEnumItem
     name: CNameId
     value: i64
@@ -238,7 +238,7 @@ end
 
 ## Libraries and symbols
 
-```moonlift
+```lalin
 union CLibKind
     default_process()
   | dynamic_library(path: CNameId)
@@ -268,7 +268,7 @@ Symbols are typed. A function symbol and a data symbol are distinct variants.
 
 ## C data values
 
-```moonlift
+```lalin
 union CStorageKind
     inline_bytes()
   | external_pointer()
@@ -297,7 +297,7 @@ inline struct cdata.
 
 ## Finalizers and ownership
 
-```moonlift
+```lalin
 struct CFinalizerId id: u64 end
 
 union CFinalizer
@@ -319,7 +319,7 @@ convention.
 
 ## Callbacks
 
-```moonlift
+```lalin
 struct CCallback
     id: CCallbackId
     signature: CTypeId
@@ -334,7 +334,7 @@ and lifetime.
 
 ## FFI registry
 
-```moonlift
+```lalin
 struct FFIRegistry
     types: view(CType)
     records: view(CRecordLayout)
@@ -354,7 +354,7 @@ The registry is an explicit state object passed to FFI regions.
 
 ## Declaration parsing and interning
 
-```moonlift
+```lalin
 region ffi_cdef(reg: ptr(FFIRegistry), src: view(u8);
     ok(updated: ptr(FFIRegistry)),
     parse_error(offset: index, code: u32),
@@ -365,7 +365,7 @@ region ffi_cdef(reg: ptr(FFIRegistry), src: view(u8);
 `ffi.cdef` is not stringly after parsing. Source text is input; typed
 declarations are output.
 
-```moonlift
+```lalin
 region intern_ctype(reg: ptr(FFIRegistry), ctype: CType;
     interned(id: CTypeId),
     recursive_incomplete(name: CNameId),
@@ -374,7 +374,7 @@ region intern_ctype(reg: ptr(FFIRegistry), ctype: CType;
 
 ## Type queries
 
-```moonlift
+```lalin
 region ffi_typeof(reg: ptr(FFIRegistry), spec: view(u8);
     found(type_id: CTypeId),
     parse_error(offset: index, code: u32),
@@ -397,7 +397,7 @@ region ffi_offsetof(reg: ptr(FFIRegistry), type_id: CTypeId, field: CNameId;
 
 ## Library and symbol resolution
 
-```moonlift
+```lalin
 region ffi_load(reg: ptr(FFIRegistry), path: view(u8);
     loaded(lib: CLibId),
     open_failed(code: i32))
@@ -410,7 +410,7 @@ region ffi_resolve_symbol(reg: ptr(FFIRegistry), lib: CLibId, name: CNameId;
 
 ## Allocation and casting
 
-```moonlift
+```lalin
 region ffi_new(reg: ptr(FFIRegistry), type_id: CTypeId, init: LuaValueSeq;
     created(cdata: CData),
     incomplete_type(type_id: CTypeId),
@@ -425,7 +425,7 @@ region ffi_cast(reg: ptr(FFIRegistry), target: CTypeId, value: LuaValue;
 
 ## Field and element access
 
-```moonlift
+```lalin
 region ffi_get_field(reg: ptr(FFIRegistry), cdata: CData, field: CNameId;
     value(result: LuaValue),
     no_such_field(field: CNameId),
@@ -447,7 +447,7 @@ region ffi_index(reg: ptr(FFIRegistry), cdata: CData, index: i64;
 
 ## C function calls
 
-```moonlift
+```lalin
 region ffi_call(
     reg: ptr(FFIRegistry),
     symbol: CSymbolId,
@@ -467,7 +467,7 @@ but JIT/stencil lowering must specialize to typed signature and ABI.
 
 ## Callbacks
 
-```moonlift
+```lalin
 region ffi_make_callback(reg: ptr(FFIRegistry), signature: CTypeId, callable: LuaValue;
     made(callback: CCallback),
     not_function_type(type_id: CTypeId),
@@ -485,7 +485,7 @@ and conversion failure explicitly.
 
 ## Finalizers
 
-```moonlift
+```lalin
 region ffi_gc_attach(reg: ptr(FFIRegistry), cdata: CData, finalizer: CFinalizer;
     attached(cdata: CData),
     invalid_finalizer,
@@ -530,7 +530,7 @@ FFI facts become part of stencil selection when needed.
 
 Examples:
 
-```moonlift
+```lalin
 union RuntimeFact
     ffi_type_eq(value_slot: u32, type_id: CTypeId)
   | ffi_symbol_resolved(symbol: CSymbolId, address: ptr(u8))
@@ -541,7 +541,7 @@ end
 
 FFI patch holes may include:
 
-```moonlift
+```lalin
 union PatchKind
     ffi_symbol_addr64(symbol: CSymbolId)
   | ffi_field_offset32(type_id: CTypeId, field: CNameId)
@@ -586,7 +586,7 @@ string `"memcpy"` alone or by Lua opcode shape.
 - Hot FFI calls specialize by signature and ABI.
 - Field offsets and sizes are constants/patch holes, not dynamic string lookups.
 - Symbol addresses are resolved once and become typed patch values/relocs.
-- Cdata loads/stores lower to MoonCFG memory ops.
+- Cdata loads/stores lower to LalinCFG memory ops.
 - No vararg boxing loop in hot path unless the C signature is genuinely variadic.
 - Callbacks use precompiled typed thunks.
 
@@ -605,21 +605,21 @@ string `"memcpy"` alone or by Lua opcode shape.
 
 ---
 
-# Relationship to Moonlift extern
+# Relationship to Lalin extern
 
-Moonlift `extern` is the compiler/runtime implementation tool. Lua FFI is the
+Lalin `extern` is the compiler/runtime implementation tool. Lua FFI is the
 Lua-visible feature.
 
 ```text
-Moonlift extern:
-  typed import used by Moonlift code and runtime implementation.
+Lalin extern:
+  typed import used by Lalin code and runtime implementation.
 
 Lua FFI:
   dynamic Lua API that parses C declarations and creates cdata/symbol/call
   semantics for Lua programs.
 ```
 
-The FFI runtime may use Moonlift externs for platform functions (`dlopen`,
+The FFI runtime may use Lalin externs for platform functions (`dlopen`,
 `dlsym`, `mmap`, libc helpers), but the Lua FFI semantic model is separate and
 first-class.
 
@@ -664,10 +664,10 @@ First-class FFI adds a new explicit subsystem:
 
 ```text
 C declarations -> typed FFI registry -> cdata/symbol/callback values
-  -> LuaExec/MoonCFG FFI regions
-  -> Moonlift/Cranelift/stencil fast paths
+  -> LuaExec/LalinCFG FFI regions
+  -> Lalin/Cranelift/stencil fast paths
 ```
 
 It should feel like LuaJIT FFI at the Lua surface, but internally every C type,
 layout, symbol, cdata value, call ABI, callback, finalizer, and error path is a
-Moonlift/ASDL-visible typed distinction.
+Lalin/ASDL-visible typed distinction.

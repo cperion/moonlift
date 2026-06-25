@@ -1,14 +1,14 @@
 -- back/dasm/init.lua — DynASM backend entry point
 --
--- Drop-in replacement for moonlift.back_jit.
+-- Drop-in replacement for lalin.back_jit.
 -- Implements Define(T) → { jit = function() ... end } with the same
 -- API shape as the Cranelift back_jit module.
 
 local M = {}
 
 function M.Define(T, opts)
-    local Back = T.MoonBack or T.MoonBack
-    assert(Back, "back.dasm.Define expects MoonBack in the context")
+    local Back = T.LalinBack or T.LalinBack
+    assert(Back, "back.dasm.Define expects LalinBack in the context")
 
     require("back.dasm.model").set_context(T)
     local mod = require("back.dasm.compile")

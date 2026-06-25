@@ -1,4 +1,4 @@
-# Moonlift UI Backend Contract
+# Lalin UI Backend Contract
 
 This document defines the contract between the typed UI kernel and concrete
 platform backends. Backends draw typed `View.Op` streams, normalize host input,

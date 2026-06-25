@@ -1,16 +1,16 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Tr = T.MoonTree
-local Ty = T.MoonType
-local Bind = T.MoonBind
-local Open = T.MoonOpen
-local Rules = require("moonlift.tree_typecheck_rules")(T)
+local Core = T.LalinCore
+local Tr = T.LalinTree
+local Ty = T.LalinType
+local Bind = T.LalinBind
+local Open = T.LalinOpen
+local Rules = require("lalin.tree_typecheck_rules")(T)
 
 local i32 = Ty.TScalar(Core.ScalarI32)
 local binding = Bind.Binding(Core.Id("b:x"), "x", i32, Bind.BindingClassLocalValue)
@@ -67,4 +67,4 @@ assert_select("select_item_typecheck", Tr.ItemFunc(Tr.FuncLocal("f", {}, i32, {}
 assert_select("select_item_typecheck", Tr.ItemUseItemsSlot(Open.ItemsSlot("items", "items")), "item", "use_items_slot")
 assert_select("select_module_typecheck", Tr.Module(Tr.ModuleSurface, {}), "module", "module")
 
-io.write("moonlift tree_typecheck_rules ok\n")
+io.write("lalin tree_typecheck_rules ok\n")

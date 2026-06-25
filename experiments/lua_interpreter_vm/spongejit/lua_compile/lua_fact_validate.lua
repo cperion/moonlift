@@ -3,7 +3,7 @@
 local Validate = require("lua_compile.validate")
 local B = require("lua_compile.builders")
 local T = B.T
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local Payload = require("lua_compile.lua_fact_payload_lease")
 
 local M = {}

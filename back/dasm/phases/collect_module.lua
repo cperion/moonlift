@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local Mx = require("back.dasm.model")
 
 local function sorted_keys(map)
@@ -51,7 +51,7 @@ local function phase()
     if PHASE then return PHASE end
     local B = Mx.back()
 
-    PHASE = pvm.phase("moonlift_dasm_collect_module", {
+    PHASE = pvm.phase("lalin_dasm_collect_module", {
         [B.BackProgram] = function(program)
             local sigs, funcs, externs = {}, {}, {}
             local body = nil

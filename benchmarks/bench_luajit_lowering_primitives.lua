@@ -1,6 +1,6 @@
 -- Measure primitive LuaJIT lowering choices with real traces.
 --
--- This is intentionally below the eventual MoonCode -> LuaJIT lowering:
+-- This is intentionally below the eventual LalinCode -> LuaJIT lowering:
 -- candidates here model physical representation decisions and keep them
 -- measurable before they become compiler defaults.
 
@@ -8,31 +8,31 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 
 local ffi = require("ffi")
 local bit = require("bit")
-local Measure = require("moonlift.luajit_measure")
+local Measure = require("lalin.luajit_measure")
 
 ffi.cdef [[
-typedef struct moonlift_lj_i32_view_bench {
+typedef struct lalin_lj_i32_view_bench {
     int32_t *data;
     intptr_t len;
     intptr_t stride;
-} moonlift_lj_i32_view_bench;
+} lalin_lj_i32_view_bench;
 ]]
 
 local mode = arg and arg[1] or "quick"
 local full = mode == "full"
-local n = tonumber(os.getenv("MOONLIFT_LJ_BENCH_N") or (full and "2000000" or "350000"))
-local samples = tonumber(os.getenv("MOONLIFT_LJ_BENCH_SAMPLES") or (full and "11" or "5"))
-local rounds = tonumber(os.getenv("MOONLIFT_LJ_BENCH_ROUNDS") or "1")
-local cc = os.getenv("MOONLIFT_LJ_BENCH_CC") or os.getenv("CC") or "gcc"
-local cflags = os.getenv("MOONLIFT_LJ_BENCH_CFLAGS") or "-std=c99 -O3 -march=native"
-local with_gcc = os.getenv("MOONLIFT_LJ_BENCH_GCC") ~= "0"
+local n = tonumber(os.getenv("LALIN_LJ_BENCH_N") or (full and "2000000" or "350000"))
+local samples = tonumber(os.getenv("LALIN_LJ_BENCH_SAMPLES") or (full and "11" or "5"))
+local rounds = tonumber(os.getenv("LALIN_LJ_BENCH_ROUNDS") or "1")
+local cc = os.getenv("LALIN_LJ_BENCH_CC") or os.getenv("CC") or "gcc"
+local cflags = os.getenv("LALIN_LJ_BENCH_CFLAGS") or "-std=c99 -O3 -march=native"
+local with_gcc = os.getenv("LALIN_LJ_BENCH_GCC") ~= "0"
 
 local i32_data = ffi.new("int32_t[?]", n)
 for i = 0, n - 1 do
     i32_data[i] = bit.tobit(i * 17 + 11)
 end
 
-local view_struct = ffi.new("moonlift_lj_i32_view_bench")
+local view_struct = ffi.new("lalin_lj_i32_view_bench")
 view_struct.data = i32_data
 view_struct.len = n
 view_struct.stride = 1
@@ -137,11 +137,11 @@ local function c_source()
 #include <string.h>
 #include <time.h>
 
-typedef struct moonlift_lj_i32_view_bench {
+typedef struct lalin_lj_i32_view_bench {
     int32_t *data;
     intptr_t len;
     intptr_t stride;
-} moonlift_lj_i32_view_bench;
+} lalin_lj_i32_view_bench;
 
 static double now_s(void) {
     struct timespec ts;
@@ -185,7 +185,7 @@ static int32_t c_view_tuple_locals(const int32_t *data, int n) {
     return double_to_i32_wrap(acc);
 }
 
-static int32_t c_view_struct(const moonlift_lj_i32_view_bench *view) {
+static int32_t c_view_struct(const lalin_lj_i32_view_bench *view) {
     double acc = 0.0;
     for (intptr_t i = 0; i < view->len; i++) acc += (double)view->data[i * view->stride];
     return double_to_i32_wrap(acc);
@@ -215,7 +215,7 @@ typedef struct bench_ctx {
     int n;
     int32_t *i32_data;
     uint64_t *u64_data;
-    moonlift_lj_i32_view_bench view;
+    lalin_lj_i32_view_bench view;
 } bench_ctx;
 
 static int64_t run_i32_double(void *p) {

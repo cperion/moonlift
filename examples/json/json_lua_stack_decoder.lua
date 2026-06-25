@@ -1,7 +1,7 @@
--- Moonlift JSON Decoder → Lua stack values
+-- Lalin JSON Decoder → Lua stack values
 --
--- Pure Lua using the moon.XXX quoting API. No .mlua pipeline needed.
--- Region fragments and externs are referenced by name in Moonlift source.
+-- Pure Lua using the lalin.XXX quoting API. No .mlua pipeline needed.
+-- Region fragments and externs are referenced by name in Lalin source.
 -- Only @{} is used for truly Lua-generated values (literal_arms).
 --
 -- Run:
@@ -10,7 +10,7 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local moon = require("moonlift")
+local lalin = require("lalin")
 
 ffi.cdef [[
     typedef struct lua_State lua_State;
@@ -23,22 +23,22 @@ ffi.cdef [[
 ]]
 
 -- ---------------------------------------------------------------------------
--- Extern imports — referenced by name in Moonlift source
+-- Extern imports — referenced by name in Lalin source
 -- ---------------------------------------------------------------------------
 
-local lua_createtable = moon.extern [[lua_createtable(L: ptr(u8), narr: i32, nrec: i32) end]]
-local lua_pushlstring = moon.extern [[lua_pushlstring(L: ptr(u8), s: ptr(u8), len: index) end]]
-local lua_pushnumber  = moon.extern [[lua_pushnumber(L: ptr(u8), n: f64) end]]
-local lua_pushboolean = moon.extern [[lua_pushboolean(L: ptr(u8), b: i32) end]]
-local lua_pushnil     = moon.extern [[lua_pushnil(L: ptr(u8)) end]]
-local lua_settable    = moon.extern [[lua_settable(L: ptr(u8), idx: i32) end]]
-local lua_rawseti     = moon.extern [[lua_rawseti(L: ptr(u8), idx: i32, n: i32) end]]
+local lua_createtable = lalin.extern [[lua_createtable(L: ptr(u8), narr: i32, nrec: i32) end]]
+local lua_pushlstring = lalin.extern [[lua_pushlstring(L: ptr(u8), s: ptr(u8), len: index) end]]
+local lua_pushnumber  = lalin.extern [[lua_pushnumber(L: ptr(u8), n: f64) end]]
+local lua_pushboolean = lalin.extern [[lua_pushboolean(L: ptr(u8), b: i32) end]]
+local lua_pushnil     = lalin.extern [[lua_pushnil(L: ptr(u8)) end]]
+local lua_settable    = lalin.extern [[lua_settable(L: ptr(u8), idx: i32) end]]
+local lua_rawseti     = lalin.extern [[lua_rawseti(L: ptr(u8), idx: i32, n: i32) end]]
 
 -- ---------------------------------------------------------------------------
 -- Region fragments — referenced by name via emit, no @{} needed
 -- ---------------------------------------------------------------------------
 
-local skip_ws = moon.region [[skip_ws(p: ptr(u8), n: i32, pos: i32; ok(i: i32))
+local skip_ws = lalin.region [[skip_ws(p: ptr(u8), n: i32, pos: i32; ok(i: i32))
 entry loop(i: i32 = pos)
     if i >= n then jump ok(i = i) end
     switch as(i32, p[i]) do
@@ -52,7 +52,7 @@ entry loop(i: i32 = pos)
 end
 end]]
 
-local parse_string = moon.region [[parse_string(
+local parse_string = lalin.region [[parse_string(
     L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8);
     ok(next_i: i32) | err
 )
@@ -142,7 +142,7 @@ block hex4_low(i: i32, j: i32, hi: i32, cp: i32, left: i32)
 end
 end]]
 
-local parse_number = moon.region [[parse_number(
+local parse_number = lalin.region [[parse_number(
     L: ptr(u8), p: ptr(u8), n: i32, pos: i32;
     ok(next_i: i32) | err
 )
@@ -230,7 +230,7 @@ end]]
 -- @{} only for literal_arms (Lua-generated data)
 -- ---------------------------------------------------------------------------
 
-local parse_array = moon.func { skip_ws = skip_ws } [[parse_array(L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
+local parse_array = lalin.func { skip_ws = skip_ws } [[parse_array(L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
     return region: i32
     entry start()
         lua_createtable(L, 16, 0)
@@ -279,7 +279,7 @@ local parse_array = moon.func { skip_ws = skip_ws } [[parse_array(L: ptr(u8), p:
     end
 end]]
 
-local parse_object = moon.func { skip_ws = skip_ws, parse_string = parse_string } [[parse_object(L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
+local parse_object = lalin.func { skip_ws = skip_ws, parse_string = parse_string } [[parse_object(L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
     return region: i32
     entry start()
         lua_createtable(L, 0, 16)
@@ -333,7 +333,7 @@ local function literal_arm(text, push_src)
     lines[#lines + 1] = ("jump done(next_i = i + %d)"):format(#bytes)
     return {
         raw_key = tostring(bytes[1]),
-        body = moon.stmts(table.concat(lines, "\n")),
+        body = lalin.stmts(table.concat(lines, "\n")),
     }
 end
 
@@ -343,7 +343,7 @@ local literal_arms = {
     literal_arm("null",  "lua_pushnil(L)"),
 }
 
-local parse_value = moon.func { skip_ws = skip_ws, parse_string = parse_string, parse_number = parse_number, literal_arms = literal_arms } [[
+local parse_value = lalin.func { skip_ws = skip_ws, parse_string = parse_string, parse_number = parse_number, literal_arms = literal_arms } [[
 func parse_value(L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
     return region: i32
     entry start()
@@ -377,7 +377,7 @@ func parse_value(L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
 end
 ]]
 
-local decode_json_to_lua_stack = moon.func { skip_ws = skip_ws } [[decode_json_to_lua_stack(L: ptr(u8), p: ptr(u8), n: i32, buf: ptr(u8)): i32
+local decode_json_to_lua_stack = lalin.func { skip_ws = skip_ws } [[decode_json_to_lua_stack(L: ptr(u8), p: ptr(u8), n: i32, buf: ptr(u8)): i32
     return region: i32
     entry start()
         let after_value = parse_value(L, p, n, 0, buf)
@@ -395,7 +395,7 @@ end]]
 -- Execution test
 -- ---------------------------------------------------------------------------
 
-local bundle = moon.bundle("json_lua_stack_decoder")
+local bundle = lalin.bundle("json_lua_stack_decoder")
 bundle:pack(lua_createtable, lua_pushlstring, lua_pushnumber, lua_pushboolean,
            lua_pushnil, lua_settable, lua_rawseti)
 bundle:pack(parse_array, parse_object, parse_value, decode_json_to_lua_stack)
@@ -441,7 +441,7 @@ assert(ffi.C.lua_gettop(L) == 1)
 assert(ffi.C.lua_type(L, 1) == 5)
 close(L)
 
-L, parsed = decode_into_new_state([[{"name":"Moonlift","fast":true,"version":2.0,"features":["Splices","Regions","ASDL"],"overhead":null}]])
+L, parsed = decode_into_new_state([[{"name":"Lalin","fast":true,"version":2.0,"features":["Splices","Regions","ASDL"],"overhead":null}]])
 assert(parsed > 0)
 assert(ffi.C.lua_gettop(L) == 1)
 assert(ffi.C.lua_type(L, 1) == 5)
@@ -490,6 +490,6 @@ assert(tonumber(lenp[0]) == 4)
 assert(string.byte(ffi.string(s, 4), 1) == 0xF0)
 close(L)
 
-print("Moonlift Lua-stack JSON decoder ok")
+print("Lalin Lua-stack JSON decoder ok")
 return { fn = compiled, artifact = artifact }
 -- artifact kept alive for caller to free

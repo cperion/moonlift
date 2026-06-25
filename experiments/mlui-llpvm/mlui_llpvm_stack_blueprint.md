@@ -1,12 +1,12 @@
 # MLUI as a Real LLPVM VM Stack — Full Spec Blueprint
 
-Status: blueprint v0.1  
-Target artifact: Moonlift-native MLUI kernel + LLPVM stack + C embedding profile  
+Status: blueprint v0.1
+Target artifact: Lalin-native MLUI kernel + LLPVM stack + C embedding profile
 Primary rule: **MLUI is immediate-mode at the authoring layer and retained by construction at the LLPVM phase layer.**
 
 This document redesigns MLUI as a real LLPVM virtual-machine stack. It preserves the original `lua/ui` semantic richness: authored UI is not flattened into a widget-callback API, render ops are not confused with authored ops, text remains an explicit product boundary, backends stay op appliers/input producers, and the public C surface is a sealed ABI over stable rows and opaque handles.
 
-The separate `mlui_bytecode.md` and `mlui_c_api.h` files referenced by the uploaded design were not part of the uploaded file set available to this drafting pass. This blueprint therefore defines a coherent v1 row/ABI contract from the uploaded MLUI, LLPVM, Moonlift, and Design Bible documents. Numeric constants are specified here as v1 defaults, but the implementation rule is stronger: numeric constants must be generated from `mlui_stack.mlua` or tested against it, never hand-maintained in divergent files.
+The separate `mlui_bytecode.md` and `mlui_c_api.h` files referenced by the uploaded design were not part of the uploaded file set available to this drafting pass. This blueprint therefore defines a coherent v1 row/ABI contract from the uploaded MLUI, LLPVM, Lalin, and Design Bible documents. Numeric constants are specified here as v1 defaults, but the implementation rule is stronger: numeric constants must be generated from `mlui_stack.mlua` or tested against it, never hand-maintained in divergent files.
 
 ---
 
@@ -62,7 +62,7 @@ phase cache policies
 C ABI projection names
 row-kind names
 validation tables
-Moonlift products/protocols/ABI seals
+Lalin products/protocols/ABI seals
 ```
 
 Everything else is generated from or mechanically checked against it:
@@ -150,7 +150,7 @@ UiKernel owns:
 ```text
 Lua owns authoring convenience and metaprogramming.
 LLPVM owns typed UI languages, streams, machines, phase caches, and bytecode images.
-Moonlift MLUI runtime owns native stores, durable handles, materialized buffers, and interaction state.
+Lalin MLUI runtime owns native stores, durable handles, materialized buffers, and interaction state.
 Backends own windows, renderers, fonts, textures, clipboard, IME, and platform event acquisition.
 Applications own domain state and consume UiEvent streams.
 ```
@@ -453,11 +453,11 @@ Public C ABI scalar mapping:
 | `UiIndex` | `uint32_t` or `size_t` | ABI-local indices; row fields use `uint32_t`, pointer-count APIs use `size_t` |
 | `UiScalar` | `float` | logical-pixel geometric scalar |
 
-Moonlift internal `index` remains pointer-sized. ABI rows use fixed-width scalars for portability.
+Lalin internal `index` remains pointer-sized. ABI rows use fixed-width scalars for portability.
 
 ### 6.2 Handles
 
-Handles are nominal in Moonlift and encoded in C as `uint32_t` by the default v1 profile:
+Handles are nominal in Lalin and encoded in C as `uint32_t` by the default v1 profile:
 
 ```text
 bits  0..23  slot index + 1
@@ -532,9 +532,9 @@ typedef struct mlui_size {
 
 ### 6.4 Common handles
 
-Moonlift header names:
+Lalin header names:
 
-```moonlift
+```lalin
 handle UiKernelRef     : u32 invalid 0 domain UiKernelStore     target UiKernel end
 handle UiNodeRef       : u32 invalid 0 domain UiNodeStore       target UiNodeRecord end
 handle UiContentRef    : u32 invalid 0 domain UiContentStore    target UiContent end
@@ -695,13 +695,13 @@ This section names the semantic constructors. The row ABI may encode these with 
 
 ### 8.1 Core language
 
-```moonlift
-local Id        = moon.u64
-local Ref       = moon.u32
-local Epoch     = moon.u64
-local Flags     = moon.u32
-local Kind      = moon.u16
-local Index32   = moon.u32
+```lalin
+local Id        = lalin.u64
+local Ref       = lalin.u32
+local Epoch     = lalin.u64
+local Flags     = lalin.u32
+local Kind      = lalin.u16
+local Index32   = lalin.u32
 
 local Vec2 = struct MluiCore_Vec2
     x: f32,
@@ -2012,14 +2012,14 @@ instead of side metadata.
 
 ---
 
-## 12. Moonlift declaration blueprint
+## 12. Lalin declaration blueprint
 
-The public Moonlift declaration surface lives in the canonical stack module. It contains products `T.*`, protocols `R.*`, ABI seals `F.*`, and the LLPVM machine definition. A separate `mlui_header.mlua` may exist only as a compatibility shim that imports the stack with `moon.require`.
+The public Lalin declaration surface lives in the canonical stack module. It contains products `T.*`, protocols `R.*`, ABI seals `F.*`, and the LLPVM machine definition. A separate `mlui_header.mlua` may exist only as a compatibility shim that imports the stack with `lalin.require`.
 
 ### 12.1 Canonical module layout
 
 ```lua
-local moon = require "moonlift"
+local lalin = require "lalin"
 local ll = require "llpvm"
 
 local M = {
@@ -2045,7 +2045,7 @@ return M
 Implementation files import the stack directly:
 
 ```lua
-local H = moon.require("mlui_stack")
+local H = lalin.require("mlui_stack")
 local T = H.T
 local R = H.R
 local F = H.F
@@ -2054,17 +2054,17 @@ local F = H.F
 Compatibility-only imports may use:
 
 ```lua
-local H = moon.require("mlui_header")
+local H = lalin.require("mlui_header")
 ```
 
-`mlui_header.mlua` must be a Moonlift-aware shim. It must not use plain Lua
-`dofile`, because `mlui_stack.mlua` contains Moonlift declarations.
+`mlui_header.mlua` must be a Lalin-aware shim. It must not use plain Lua
+`dofile`, because `mlui_stack.mlua` contains Lalin declarations.
 
 ### 12.2 Required region declarations
 
 Representative region signatures:
 
-```moonlift
+```lalin
 region ui_kernel_create(config: ptr(UiConfig);
     created(kernel: owned UiKernelRef)
   | oom(needed: index)) end
@@ -2523,7 +2523,7 @@ laid-out world.
 
 Pseudo-control:
 
-```moonlift
+```lalin
 func mlui_frame(ui: ptr(UiKernel), root: UiNodeRef, width: f32, height: f32, raw: ptr(UiRawInputBuffer)): UiStatus
     return region: UiStatus
     entry start()
@@ -2661,7 +2661,7 @@ Flat folder, semantic machine names:
 
 ```text
 experiments/mlui-llpvm/
-  mlui_stack.mlua              -- canonical LLPVM stack + Moonlift declarations
+  mlui_stack.mlua              -- canonical LLPVM stack + Lalin declarations
   mlui_header.mlua             -- compatibility shim over mlui_stack.mlua
   mlui_types.mlua              -- removed or compatibility alias only if needed
   mlui_memory.mlua             -- allocator, buffer growth, byte copy, resets
@@ -2779,7 +2779,7 @@ LLPVM phases own semantic retention; no hidden Lua side tables.
 UiKernel owns stores/resources/model/materialized buffers; not a parallel cache universe.
 All kind decoding has one owning visitor/consumer region.
 The single-file C artifact exposes stable row buffers and opaque kernel handles.
-No C API depends on LuaJIT, FFI, Moonlift host objects, or Lua authoring tables.
+No C API depends on LuaJIT, FFI, Lalin host objects, or Lua authoring tables.
 Lua no-parens authoring and C/LLPV bytecode authoring must produce equivalent VM input.
 Generated numeric constants must match `mlui_stack.mlua`.
 ```
@@ -2809,9 +2809,9 @@ MLUI is complete when:
 ```text
 1. `mlui_stack.mlua` is the source of truth for languages/worlds/machines/phases and public `T/R/F` declarations.
 2. Every generated C/bytecode projection is generated from or checked against the stack.
-3. Every `R.*` region has a real Moonlift body.
-4. Every `F.*` ABI function has a real Moonlift body.
-5. C header and Moonlift ABI declarations agree.
+3. Every `R.*` region has a real Lalin body.
+4. Every `F.*` ABI function has a real Lalin body.
+5. C header and Lalin ABI declarations agree.
 6. A C frontend can construct a UiProgram without Lua.
 7. A Lua no-parens frontend and C/fast-row frontend produce equivalent VM input.
 8. LLPV canonical bytecode and MLUI fast-row projection validate/import through the same semantics.

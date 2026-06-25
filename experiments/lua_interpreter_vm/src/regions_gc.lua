@@ -1,14 +1,14 @@
 -- Lua Interpreter VM — GC protocol regions
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 
 local I = {}
-for k, v in pairs(const.Tag) do I["TAG_" .. k] = moon.int(v) end
-for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
-for k, v in pairs(const.GCColor) do I["COLOR_" .. k] = moon.int(v) end
-for k, v in pairs(const.GCState) do I["GCSTATE_" .. k] = moon.int(v) end
+for k, v in pairs(const.Tag) do I["TAG_" .. k] = lalin.int(v) end
+for k, v in pairs(const.Err) do I["ERR_" .. k] = lalin.int(v) end
+for k, v in pairs(const.GCColor) do I["COLOR_" .. k] = lalin.int(v) end
+for k, v in pairs(const.GCState) do I["GCSTATE_" .. k] = lalin.int(v) end
 
 -- alloc_object lives in regions_allocator so every allocation path crosses the
 -- same explicit Allocator.realloc boundary.

@@ -2,7 +2,7 @@ local M = {}
 
 function M.compile(T, artifacts, opts)
     opts = opts or {}
-    local Bank = require("moonlift.stencil_bank")(T)
+    local Bank = require("lalin.stencil_bank")(T)
     local bank, bank_err, source = Bank.build_binary_bank(artifacts, opts)
     if bank == nil then return nil, bank_err, source end
     local realization, realize_err = Bank.realize_binary_artifacts(artifacts, {

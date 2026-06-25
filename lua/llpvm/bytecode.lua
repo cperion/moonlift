@@ -1,4 +1,4 @@
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local Asdl = require("llpvm.asdl")
 local ffi = require("ffi")
 

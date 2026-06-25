@@ -1,18 +1,18 @@
 -- Lua Interpreter VM — Call and return engine (Lua 5.5)
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 local resume_regions = require("experiments.lua_interpreter_vm.src.regions_resume")
 local native_regions = require("experiments.lua_interpreter_vm.src.regions_native")
 
 local I = {}
-for k, v in pairs(const.Tag) do I["TAG_" .. k] = moon.int(v) end
-for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
-for k, v in pairs(const.Resume) do I["RESUME_" .. k] = moon.int(v) end
-for k, v in pairs(const.TM) do I["TM_" .. k] = moon.int(v) end
-for k, v in pairs(const.ProtoFlag) do I[k] = moon.int(v) end
-for k, v in pairs(const.Abi) do I["ABI_" .. k] = moon.int(v) end
+for k, v in pairs(const.Tag) do I["TAG_" .. k] = lalin.int(v) end
+for k, v in pairs(const.Err) do I["ERR_" .. k] = lalin.int(v) end
+for k, v in pairs(const.Resume) do I["RESUME_" .. k] = lalin.int(v) end
+for k, v in pairs(const.TM) do I["TM_" .. k] = lalin.int(v) end
+for k, v in pairs(const.ProtoFlag) do I[k] = lalin.int(v) end
+for k, v in pairs(const.Abi) do I["ABI_" .. k] = lalin.int(v) end
 
 local stack_check_lua_call = host.region [[
 region stack_check_lua_call(L: ptr(LuaThread), base: index, ncall: i32, topcall: index, maxstack: u16;

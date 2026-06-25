@@ -1,13 +1,13 @@
 -- Regression coverage for VM allocator/native hook indirect calls.
 -- The allocator boundary stores callbacks as ptr(u8) fields and casts them to
--- typed function pointers at the Moonlift boundary. This must compile and run
+-- typed function pointers at the Lalin boundary. This must compile and run
 -- with the exact indirect-call signature, not accidentally reuse the enclosing
 -- function signature.
 
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local moon = require("moonlift")
+local lalin = require("lalin")
 
 ffi.cdef [[
 void* malloc(size_t size);
@@ -33,7 +33,7 @@ local callback = ffi.cast("uint64_t (*)(uint8_t*, uint64_t, uint64_t, uint64_t)"
         return ffi.cast("uint64_t", ffi.cast("uintptr_t", p))
     end)
 
-local probe = moon.func [[
+local probe = lalin.func [[
 probe_allocator_hook(fp: ptr(u8)): i32
     let realloc_fn: func(ptr(u8), index, index, index): u64 = as(func(ptr(u8), index, index, index): u64, fp)
     let bits: u64 = realloc_fn(as(ptr(u8), as(u64, 0)), as(index, 0), as(index, 16), as(index, 8))

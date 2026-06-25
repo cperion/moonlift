@@ -1,4 +1,4 @@
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local Mx = require("back.dasm.model")
 
 local function sorted_keys(set)
@@ -158,7 +158,7 @@ local function phase()
     if PHASE then return PHASE end
     local D = Mx.dasm()
 
-    PHASE = pvm.phase("moonlift_dasm_phi_lower", {
+    PHASE = pvm.phase("lalin_dasm_phi_lower", {
         [D.DFuncCFG] = function(cfg)
             return pvm.once(lower_cfg(cfg))
         end,

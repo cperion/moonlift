@@ -1,4 +1,4 @@
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local Mx = require("back.dasm.model")
 
 local PHASE = nil
@@ -6,7 +6,7 @@ local function phase()
     if PHASE then return PHASE end
     local D = Mx.dasm()
 
-    PHASE = pvm.phase("moonlift_dasm_normalize_module", {
+    PHASE = pvm.phase("lalin_dasm_normalize_module", {
         [D.DPhaseModule] = function(mod)
             local d = Mx.phase_module_maps(mod)
 

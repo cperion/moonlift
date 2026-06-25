@@ -1,5 +1,5 @@
 -- compile.lua
--- Compiles Lua source into the Moonlift Lua VM bytecode bundle used by the harness.
+-- Compiles Lua source into the Lalin Lua VM bytecode bundle used by the harness.
 -- Per LUA_STENCIL_HARNESS_DESIGN.md §4.4
 
 local M = {}
@@ -72,20 +72,20 @@ local function init_real_compiler(config)
         end
     end
     if repo_root then
-        -- moonlift.back_jit/back_object probe ./target/... relative to cwd.
+        -- lalin.back_jit/back_object probe ./target/... relative to cwd.
         if lfs_ok and lfs.chdir then lfs.chdir(repo_root)
         elseif ffi_for_chdir then ffi_for_chdir.C.chdir(repo_root) end
     end
 
     local ok, state_or_err = pcall(function()
         local ffi = require("ffi")
-        local moon = require("moonlift")
+        local lalin = require("lalin")
         local vm = require("experiments.lua_interpreter_vm.src.init")
 
         require("experiments.lua_interpreter_vm.tools.vm_ffi_schema").apply(ffi)
 
         local compile_region = vm.regions_compiler.compile_lua_source_into
-        local wrapper = moon.func { compile_lua_source_into = compile_region } [[
+        local wrapper = lalin.func { compile_lua_source_into = compile_region } [[
 compile_text_for_jit_harness(cu: ptr(CompileUnit), b: ptr(FuncBuilder), p: ptr(Proto), bytes: ptr(u8), n: index, code: ptr(Instr), code_cap: index, locals: ptr(CompileLocal), locals_cap: index, workspace: ptr(u8), workspace_cap: index): i32
     return region: i32
     entry start()
@@ -182,7 +182,7 @@ local fallback_keywords = {
 }
 
 local function compile_with_fallback(source, name)
-    -- Conservative lexical fallback used only when the Moonlift VM compiler cannot be loaded.
+    -- Conservative lexical fallback used only when the Lalin VM compiler cannot be loaded.
     -- It preserves reproducible corpus/profiling behavior instead of pretending this is VM semantics.
     local code = {}
     local i = 1
@@ -250,7 +250,7 @@ function M.compile_lua_unit(unit, config)
         root_proto = proto.id,
         protos = { proto },
         constants = {},
-        compiler = proto.fallback and "fallback-token" or "moonlift-lua-vm",
+        compiler = proto.fallback and "fallback-token" or "lalin-lua-vm",
         compiler_config_hash = util.stable_hash(util.to_json(config)),
     }
 end

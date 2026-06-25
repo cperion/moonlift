@@ -1,29 +1,29 @@
 -- Lua Interpreter VM — Instruction dispatch (Lua 5.5)
--- Switch arms are built as typed moon.switch_arms-compatible values.
+-- Switch arms are built as typed lalin.switch_arms-compatible values.
 -- Hot inline arms (MOVE, LOADK, ADD) avoid second-level region emit.
 -- Every arm is a grep-shaped { raw_key, body } pair.
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 local bytecode = require("experiments.lua_interpreter_vm.src.bytecode")
 local handlers = require("experiments.lua_interpreter_vm.src.op_handlers")
 
 local VALS = {}
-for k, v in pairs(const.Tag)    do VALS["TAG_" .. k]    = moon.int(v) end
-for k, v in pairs(const.Err)    do VALS["ERR_" .. k]    = moon.int(v) end
-for k, v in pairs(const.Op)     do VALS["OP_" .. k]     = moon.int(v) end
-for k, v in pairs(const.Resume) do VALS["RESUME_" .. k] = moon.int(v) end
-for k, v in pairs(const.ProtoFlag) do VALS["PF_" .. k] = moon.int(v) end
+for k, v in pairs(const.Tag)    do VALS["TAG_" .. k]    = lalin.int(v) end
+for k, v in pairs(const.Err)    do VALS["ERR_" .. k]    = lalin.int(v) end
+for k, v in pairs(const.Op)     do VALS["OP_" .. k]     = lalin.int(v) end
+for k, v in pairs(const.Resume) do VALS["RESUME_" .. k] = lalin.int(v) end
+for k, v in pairs(const.ProtoFlag) do VALS["PF_" .. k] = lalin.int(v) end
 
 -- Handler regions are spliced into emit targets as region fragments.  Opcode
 -- argument lists are spliced as expression lists.  This keeps generation in the
--- intended moon.xxxx{values}[[...]] API instead of assembling Moonlift source
+-- intended lalin.xxxx{values}[[...]] API instead of assembling Lalin source
 -- with Lua string concatenation.
 
-local expr = moon.expr(VALS)
-local stmts = moon.stmts(VALS)
+local expr = lalin.expr(VALS)
+local stmts = lalin.stmts(VALS)
 
--- Decode helpers — typed Moonlift expressions from the packed instruction word.
+-- Decode helpers — typed Lalin expressions from the packed instruction word.
 local D = bytecode.exprs(expr)
 local A, B, C, K = D.A, D.B, D.C, D.K
 local VB, VC = D.VB, D.VC
@@ -85,35 +85,35 @@ local C_NEXT_JMP     = "next_jump"
 
 local emit_templates = {}
 
-emit_templates[C_NEXT] = function(v) return moon.stmts(v) [[
+emit_templates[C_NEXT] = function(v) return lalin.stmts(v) [[
     emit @{handler}(L, cur_frame, cur_pc, cur_base, cur_top, @{args...}; next = cont_next)
 ]] end
 
-emit_templates[C_NEXT_ERR] = function(v) return moon.stmts(v) [[
+emit_templates[C_NEXT_ERR] = function(v) return lalin.stmts(v) [[
     emit @{handler}(L, cur_frame, cur_pc, cur_base, cur_top, @{args...}; next = cont_next, error = cont_error)
 ]] end
 
-emit_templates[C_NEXT_OOM] = function(v) return moon.stmts(v) [[
+emit_templates[C_NEXT_OOM] = function(v) return lalin.stmts(v) [[
     emit @{handler}(L, cur_frame, cur_pc, cur_base, cur_top, @{args...}; next = cont_next, oom = cont_oom)
 ]] end
 
-emit_templates[C_NEXT_ERR_OOM] = function(v) return moon.stmts(v) [[
+emit_templates[C_NEXT_ERR_OOM] = function(v) return lalin.stmts(v) [[
     emit @{handler}(L, cur_frame, cur_pc, cur_base, cur_top, @{args...}; next = cont_next, error = cont_error, oom = cont_oom)
 ]] end
 
-emit_templates[C_TABLE] = function(v) return moon.stmts(v) [[
+emit_templates[C_TABLE] = function(v) return lalin.stmts(v) [[
     emit @{handler}(L, cur_frame, cur_pc, cur_base, cur_top, @{args...}; next = cont_next,
         enter_lua = cont_enter_lua, enter_native = cont_enter_native, yielded = cont_yielded,
         error = cont_error, oom = cont_oom)
 ]] end
 
-emit_templates[C_CMP] = function(v) return moon.stmts(v) [[
+emit_templates[C_CMP] = function(v) return lalin.stmts(v) [[
     emit @{handler}(L, cur_frame, cur_pc, cur_base, cur_top, @{args...}; next = cont_next,
         do_jump = cont_jump, enter_lua = cont_enter_lua, enter_native = cont_enter_native,
         yielded = cont_yielded, error = cont_error, oom = cont_oom)
 ]] end
 
-emit_templates[C_MMBIN] = function(v) return moon.stmts(v) [[
+emit_templates[C_MMBIN] = function(v) return lalin.stmts(v) [[
     emit @{handler}(L, cur_frame, cur_pc, cur_base, cur_top, @{args...};
         enter_lua = cont_enter_lua, enter_native = cont_enter_native, yielded = cont_yielded,
         error = cont_error, oom = cont_oom)
@@ -123,36 +123,36 @@ emit_templates[C_TFORCALL] = emit_templates[C_MMBIN]
 
 emit_templates[C_CALL] = emit_templates[C_TABLE]
 
-emit_templates[C_RET] = function(v) return moon.stmts(v) [[
+emit_templates[C_RET] = function(v) return lalin.stmts(v) [[
     emit @{handler}(L, cur_frame, cur_pc, cur_base, cur_top, @{args...};
         resume_parent = cont_resume, finished = cont_returned, error = cont_error, oom = cont_oom)
 ]] end
 
-emit_templates[C_JMP] = function(v) return moon.stmts(v) [[
+emit_templates[C_JMP] = function(v) return lalin.stmts(v) [[
     emit @{handler}(L, cur_frame, cur_pc, cur_base, cur_top, @{args...}; do_jump = cont_jump)
 ]] end
 
-emit_templates[C_JMP_ERR] = function(v) return moon.stmts(v) [[
+emit_templates[C_JMP_ERR] = function(v) return lalin.stmts(v) [[
     emit @{handler}(L, cur_frame, cur_pc, cur_base, cur_top, @{args...}; do_jump = cont_jump, error = cont_error)
 ]] end
 
-emit_templates[C_LOOP] = function(v) return moon.stmts(v) [[
+emit_templates[C_LOOP] = function(v) return lalin.stmts(v) [[
     emit @{handler}(L, cur_frame, cur_pc, cur_base, cur_top, @{args...}; next = cont_next,
         do_jump = cont_jump, error = cont_error)
 ]] end
 
 emit_templates[C_RET0] = emit_templates[C_RET]
 
-emit_templates[C_JMP_NEXT] = function(v) return moon.stmts(v) [[
+emit_templates[C_JMP_NEXT] = function(v) return lalin.stmts(v) [[
     emit @{handler}(L, cur_frame, cur_pc, cur_base, cur_top, @{args...}; do_jump = cont_jump, next = cont_next)
 ]] end
 
-emit_templates[C_NEXT_JMP] = function(v) return moon.stmts(v) [[
+emit_templates[C_NEXT_JMP] = function(v) return lalin.stmts(v) [[
     emit @{handler}(L, cur_frame, cur_pc, cur_base, cur_top, @{args...}; next = cont_next, do_jump = cont_jump)
 ]] end
 
 -- Build a single emit statement referencing a spliced handler region and a
--- spliced list of already-parsed Moonlift argument expressions.
+-- spliced list of already-parsed Lalin argument expressions.
 local function emit_arm(op_num, handler_name, cont_set, arg_exprs)
     if inlined_ops[op_num] then return end
     local handler = assert(handlers[handler_name], "missing opcode handler " .. tostring(handler_name))
@@ -283,7 +283,7 @@ for k, v in pairs(VALS) do loadnil_values[k] = v end
 inlined_ops[8] = true
 switch_arms[#switch_arms + 1] = {
     raw_key = "8",
-    body = moon.stmts(loadnil_values) [[
+    body = lalin.stmts(loadnil_values) [[
         let first: index = cur_base + as(index, (word >> 7) & 255)
         let count: u16 = as(u16, (word >> 16) & 255)
         L.stack[first].tag = @{TAG_NIL}
@@ -546,7 +546,7 @@ for k, v in pairs(VALS) do lt_values[k] = v end
 inlined_ops[58] = true
 switch_arms[#switch_arms + 1] = {
     raw_key = "58",
-    body = moon.stmts(lt_values) [[
+    body = lalin.stmts(lt_values) [[
         let lhs: ptr(Value) = L.stack + (cur_base + as(index, (word >> 16) & 255))
         let rhs: ptr(Value) = L.stack + (cur_base + as(index, (word >> 24) & 255))
         let expect: bool = as(u16, (word >> 7) & 255) ~= 0
@@ -755,7 +755,7 @@ local dispatch_values = {}
 for k, v in pairs(VALS) do dispatch_values[k] = v end
 dispatch_values.switch_arms = switch_arms
 
-local dispatch_instruction = moon.region(dispatch_values)(dispatch_src)
+local dispatch_instruction = lalin.region(dispatch_values)(dispatch_src)
 
 -- ── Opcode metadata (tooling, disassembly) ────────────────────────────────
 

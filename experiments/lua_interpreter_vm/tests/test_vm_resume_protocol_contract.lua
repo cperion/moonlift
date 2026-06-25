@@ -2,11 +2,11 @@
 
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
-local route = moon.func { decode = vm.regions_resume.decode_resume_kind } [[
+local route = lalin.func { decode = vm.regions_resume.decode_resume_kind } [[
 route_resume(kind: u16): i32
     return region: i32
     entry start()

@@ -1,5 +1,5 @@
 /*
-** MoonLift DynASM encoding engine.
+** LalinLift DynASM encoding engine.
 ** Compiles dasm_x86.h into a shared library for LuaJIT FFI.
 **
 ** Build:  gcc -shared -fPIC -O2 -I.vendor/LuaJIT/dynasm -I.vendor/LuaJIT/src \
@@ -61,7 +61,7 @@ void dasm_set_extern_fn(int (*fn)(void *, unsigned char *, int, int)) {
 void dasm_put_array(dasm_State **Dst, int start, const int *args, int nargs) {
     /* dasm_put internally uses va_arg.  We forward through a small
        switch to avoid the need for libffi or platform-specific vararg
-       calling.  12 args covers essentially all MoonLift fragments. */
+       calling.  12 args covers essentially all LalinLift fragments. */
     switch (nargs) {
     case  0: dasm_put(Dst, start); break;
     case  1: dasm_put(Dst, start, args[0]); break;

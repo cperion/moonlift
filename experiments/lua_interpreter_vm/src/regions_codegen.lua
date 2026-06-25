@@ -1,17 +1,17 @@
 -- Lua Interpreter VM — Typed bytecode builder regions
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 local pconst = require("experiments.lua_interpreter_vm.src.parser_constants")
 
 local V = {}
-for k, v in pairs(const.Op) do V["OP_" .. k] = moon.int(v) end
-for k, v in pairs(const.Tag) do V["TAG_" .. k] = moon.int(v) end
-for k, v in pairs(const.TM) do V["TM_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.ParseErr) do V["PERR_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.ExpKind) do V["EXP_" .. k] = moon.int(v) end
-V.SIZE_STRING = moon.int(40)
+for k, v in pairs(const.Op) do V["OP_" .. k] = lalin.int(v) end
+for k, v in pairs(const.Tag) do V["TAG_" .. k] = lalin.int(v) end
+for k, v in pairs(const.TM) do V["TM_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.ParseErr) do V["PERR_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.ExpKind) do V["EXP_" .. k] = lalin.int(v) end
+V.SIZE_STRING = lalin.int(40)
 
 local emit_compile_error = host.region(V) [[
 region emit_compile_error(cu: ptr(CompileUnit), code: i32, token: u16;

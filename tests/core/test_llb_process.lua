@@ -70,14 +70,14 @@ assert(#ch.diagnostics.items == 2, "diagnostics are collected on handle")
 local desc = llb.describe_process("records")
 assert(desc and desc.name == "records", "process registered for introspection")
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 local env = {}
-moon.use { scope = "env", target = env, global = false, searcher = false }
-assert(env.process == llb.process, "Moonlift DSL env exposes process")
-assert(moon.source, "Moonlift exposes source process")
+lalin.use { scope = "env", target = env, global = false, searcher = false }
+assert(env.process == llb.process, "Lalin DSL env exposes process")
+assert(lalin.source, "Lalin exposes source process")
 
 local source_events = {}
-for ev in moon.source([[return fn. add { a [i32], b [i32] } [i32] { ret (a) }]], "process-source.lua", { eval = true }) do
+for ev in lalin.source([[return fn. add { a [i32], b [i32] } [i32] { ret (a) }]], "process-source.lua", { eval = true }) do
   source_events[#source_events + 1] = ev
 end
 assert(source_events[1].kind == "load", "source process emits load")

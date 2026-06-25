@@ -23,9 +23,9 @@ Focused workflow for designing and implementing exact no-residual coverage for r
 13. `experiments/lua_interpreter_vm/spongejit/src/materialize_native_x64.lua` (lines 1-360) — copy/link/patch materializer; supports payload patching including `array_base_offset`.
 14. `experiments/lua_interpreter_vm/spongejit/include/sponbank.h` (lines 1-271) — generated bank C ABI/context.
 15. `experiments/lua_interpreter_vm/spongejit/src/build_bank.lua` (lines 1-760) — generated selector ABI, L0 table, exact-native flag requirements, fact remapping.
-16. `experiments/lua_interpreter_vm/src/products.lua` (lines 1-132) — Moonlift VM Value/Table/UpVal/LClosure layouts.
-17. `experiments/lua_interpreter_vm/src/op/load.lua` (lines 1-175) — Moonlift VM GETUPVAL/SETUPVAL semantics.
-18. `experiments/lua_interpreter_vm/src/op/table.lua` (lines 1-260) — Moonlift VM GETTABUP/GETTABLE/GETI/SETTABUP/SETTABLE/SETI handlers.
+16. `experiments/lua_interpreter_vm/src/products.lua` (lines 1-132) — Lalin VM Value/Table/UpVal/LClosure layouts.
+17. `experiments/lua_interpreter_vm/src/op/load.lua` (lines 1-175) — Lalin VM GETUPVAL/SETUPVAL semantics.
+18. `experiments/lua_interpreter_vm/src/op/table.lua` (lines 1-260) — Lalin VM GETTABUP/GETTABLE/GETI/SETTABUP/SETTABLE/SETI handlers.
 19. `experiments/lua_interpreter_vm/src/regions_table.lua` (lines 1-360) — local raw table get/set and metamethod chains.
 20. `experiments/lua_interpreter_vm/src/regions_key.lua` (lines 1-130) — local table key hash/equality/array-index protocol.
 21. `experiments/lua_interpreter_vm/src/regions_upvalue.lua` (lines 1-180) — local upvalue representation/lifecycle.
@@ -153,7 +153,7 @@ typedef struct Table {
   ((void)L, (b == 2) ? (a)*(a) : l_mathop(pow)(a,b))
 ```
 
-### Local Moonlift VM representations
+### Local Lalin VM representations
 
 `products.lua` uses a different explicit VM layout:
 
@@ -357,8 +357,8 @@ opcode/facts
 - `ssa_fact_axes.lua` includes `GETTABUP` in `FIELD_GET`, but `ssa_lift.lua` rejects it as `upvalue_table_not_lowered`.
 - `ssa_fact_axes.lua` includes `SETTABUP` in `FIELD_SET`, but `bundle_field_set` immediately returns for `SETTABUP`.
 - Existing field tests use a synthetic `SponTestTable` with payload offsets; they do not prove actual PUC `Table` array/hash layout handling.
-- Spon native byte surface uses PUC-style `SponTValueABI { value_, tt_ }` tags (`3`, `19`, `69`, etc.), while the local Moonlift VM uses `Value { tag, aux, bits }` tags (`INTEGER=4`, `NUM=5`, `TABLE=7`, etc.).
-- Local Moonlift VM `op_pow`/`op_powk` are explicit `ERR_ARITH` stubs, whereas PUC Lua has real float pow semantics.
+- Spon native byte surface uses PUC-style `SponTValueABI { value_, tt_ }` tags (`3`, `19`, `69`, etc.), while the local Lalin VM uses `Value { tag, aux, bits }` tags (`INTEGER=4`, `NUM=5`, `TABLE=7`, etc.).
+- Local Lalin VM `op_pow`/`op_powk` are explicit `ERR_ARITH` stubs, whereas PUC Lua has real float pow semantics.
 
 ## Worker Output — 2026-06-01 09:24:23
 

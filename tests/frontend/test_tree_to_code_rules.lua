@@ -1,15 +1,15 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Tr = T.MoonTree
-local Ty = T.MoonType
-local Bind = T.MoonBind
-local Rules = require("moonlift.tree_to_code_rules")(T)
+local Core = T.LalinCore
+local Tr = T.LalinTree
+local Ty = T.LalinType
+local Bind = T.LalinBind
+local Rules = require("lalin.tree_to_code_rules")(T)
 
 local typed_i32 = Tr.ExprTyped(Ty.TScalar(Core.ScalarI32))
 local typed_place_i32 = Tr.PlaceTyped(Ty.TScalar(Core.ScalarI32))
@@ -54,4 +54,4 @@ assert_select("select_item_lowering", Tr.ItemConst(Tr.ConstItem("k", Ty.TScalar(
 assert_select("select_contract_fact_lowering", Tr.ContractFactBounds(binding, binding), "contract_fact", "bounds")
 assert_select("select_contract_fact_lowering", Tr.ContractFactNoAlias(binding), "contract_fact", "noalias")
 
-io.write("moonlift tree_to_code_rules ok\n")
+io.write("lalin tree_to_code_rules ok\n")

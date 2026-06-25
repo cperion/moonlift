@@ -1,6 +1,6 @@
 -- stencil_foundry.lua -- foundry-facing helpers for ASDL stencil identity.
 --
--- This layer computes Stencil.VariantKey identity for MoonCFG artifacts. For
+-- This layer computes Stencil.VariantKey identity for LalinCFG artifacts. For
 -- executable foundry identity, the contract passed here must be kernel.contract
 -- and must be a CompileContract.Contract. It does not build binary templates;
 -- real StencilTemplate values require object-byte extraction metadata through

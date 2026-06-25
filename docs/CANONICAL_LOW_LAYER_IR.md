@@ -22,8 +22,8 @@ Realization is materialization.
 Vectorization belongs in the schedule. It must not create a new semantic
 vocabulary.
 
-This shape is not Moonlift-specific. It is a reusable compiler architecture for
-any language, DSL, or runtime that can expose typed kernels. Moonlift is one
+This shape is not Lalin-specific. It is a reusable compiler architecture for
+any language, DSL, or runtime that can expose typed kernels. Lalin is one
 producer of this stack. LLB languages, LLPVM machines, query DSLs, tensor/image
 kernels, bytecode runtimes, and embedded data-processing libraries can use the
 same shape if they can describe:
@@ -38,7 +38,7 @@ what memory facts are known
 ```
 
 That is why this layer should not be named after C, LuaJIT bytecode, native banks, or even
-Moonlift. It is a small descriptor/schedule/realization algebra.
+Lalin. It is a small descriptor/schedule/realization algebra.
 
 ## Descriptor
 
@@ -251,12 +251,12 @@ machine artifact in realization
 
 This is the part worth standardizing.
 
-## Moonlift Projection
+## Lalin Projection
 
 ```text
-Moonlift DSL
-  -> MoonSyntax
-  -> MoonTree
+Lalin DSL
+  -> LalinSyntax
+  -> LalinTree
   -> typed Code CFG
 
 typed Code CFG
@@ -286,28 +286,28 @@ Realization
   -> runtime function pointer
 ```
 
-Moonlift implements the generic layers with concrete ASDL families:
+Lalin implements the generic layers with concrete ASDL families:
 
 ```text
 typed kernel facts
-  = MoonCode plus graph/flow/value/memory/effect facts
+  = LalinCode plus graph/flow/value/memory/effect facts
 
 semantic descriptor
-  = MoonKernel plans and MoonStencil.StencilDescriptor
+  = LalinKernel plans and LalinStencil.StencilDescriptor
 
 target schedule
-  = MoonSchedule plans and MoonStencil.StencilSchedule
+  = LalinSchedule plans and LalinStencil.StencilSchedule
 
 concrete realization
-  = MoonStencil.StencilArtifact, MoonExec fragments, LJStencilMachinePlan,
+  = LalinStencil.StencilArtifact, LalinExec fragments, LJStencilMachinePlan,
     backend projections
 
 artifact planning
-  = lua/moonlift/stencil_artifact_plan.lua constructs descriptor-backed
+  = lua/lalin/stencil_artifact_plan.lua constructs descriptor-backed
     StencilArtifact records with ABI, symbol, schedule, and proofs
 
 source realization
-  = lua/moonlift/stencil_c.lua turns planned artifacts into C source
+  = lua/lalin/stencil_c.lua turns planned artifacts into C source
 
 callable artifact
   = LuaJIT bytecode artifact, C object, native bank entry, or link artifact
@@ -316,21 +316,21 @@ callable artifact
 The implementation-specific spelling is:
 
 ```text
-MoonStencil.StencilReduce + MoonStencil.StencilScheduleVector
-not MoonStencil.StencilReduceVector
+LalinStencil.StencilReduce + LalinStencil.StencilScheduleVector
+not LalinStencil.StencilReduceVector
 ```
 
 and:
 
 ```text
-MoonStencil.StencilZipMap + MoonStencil.StencilScheduleVector
-not MoonStencil.StencilZipMapVector
+LalinStencil.StencilZipMap + LalinStencil.StencilScheduleVector
+not LalinStencil.StencilZipMapVector
 ```
 
 ## Doctrine
 
 The canonical low-layer IR is not C, LuaJIT bytecode, native machine code, backend
-commands, or a Moonlift-only internal form.
+commands, or a Lalin-only internal form.
 
 It is:
 
@@ -355,7 +355,7 @@ This model applies wherever a program can be reduced to typed kernel facts.
 Examples:
 
 ```text
-Moonlift native functions
+Lalin native functions
   typed CFG -> stream descriptors -> schedules -> native artifacts
 
 LLPVM machines

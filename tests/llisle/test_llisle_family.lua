@@ -1,11 +1,11 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 local llb = require("llb")
 local llisle = require("llisle")
 
-local env = moon.family.env { scope = "env", base = {} }
-assert(env.llisle, "Moonlift family installs llisle namespace")
+local env = lalin.family.env { scope = "env", base = {} }
+assert(env.llisle, "Lalin family installs llisle namespace")
 assert(rawget(env, "relation") == nil and rawget(env, "rule") == nil, "family keeps llisle heads namespaced")
 assert(llb.describe(env.llisle).tag == "Namespace", "llisle export is an LLB namespace")
 
@@ -61,10 +61,10 @@ assert(#zone.items == 2, "zone contains relation and rule")
 assert(getmetatable(zone.items[1]) == llisle.RelationSpec, "relation head returns Lisle relation spec")
 assert(getmetatable(zone.items[2]) == llisle.RuleSpec, "rule head returns Lisle rule spec")
 
-local diagnostics = moon.family.diagnostics(zone)
+local diagnostics = lalin.family.diagnostics(zone)
 assert(not diagnostics:has_errors(), diagnostics.items[1] and diagnostics.items[1].message or "llisle diagnostics should accept coherent rules")
 
-local index = moon.family.index(zone)
+local index = lalin.family.index(zone)
 local saw_relation, saw_rule, saw_alt = false, false, false
 for _, sym in ipairs(index.symbols or {}) do
   saw_relation = saw_relation or sym.name == "lower_expr" and sym.kind == "llisle.relation"
@@ -73,7 +73,7 @@ for _, sym in ipairs(index.symbols or {}) do
 end
 assert(saw_relation and saw_rule and saw_alt, "family index includes llisle relations, rules, and alternatives")
 
-local formatted = moon.family.format(zone, { width = 100 })
+local formatted = lalin.family.format(zone, { width = 100 })
 assert(formatted:match("llisle%s*{"), "family formatter preserves llisle zone")
 assert(formatted:match("relation%. lower_expr"), "llisle formatter renders relation heads")
 assert(formatted:match("rule%. add_i32"), "llisle formatter renders rule heads")
@@ -81,7 +81,7 @@ assert(formatted:match("choose"), "llisle formatter renders local sum eliminatio
 assert(formatted:match("%*"), "llisle formatter renders product/and guard algebra")
 assert(formatted:match("%+"), "llisle formatter renders sum/or guard algebra")
 
-local bad = moon.family.load([[
+local bad = lalin.family.load([[
 return llisle {
   llisle.rule. orphan {
     llisle.missing_relation { expr = llisle.P. expr },
@@ -89,11 +89,11 @@ return llisle {
   },
 }
 ]], "llisle_bad.lua")
-local bad_diagnostics = moon.family.diagnostics(bad)
+local bad_diagnostics = lalin.family.diagnostics(bad)
 assert(bad_diagnostics:has_errors(), "llisle diagnostics reports unknown relations")
 assert(bad_diagnostics.items[1].code == "E_LLISLE_UNKNOWN_RELATION", "llisle diagnostics use stable codes")
 
-local md = moon.markdown { title = "Moonlift Family Reference" }
+local md = lalin.markdown { title = "Lalin Family Reference" }
 assert(md:match("## llisle%.dsl"), "family markdown includes llisle member docs")
 assert(md:match("Llisle LLB Surface"), "family markdown includes llisle language introspection")
 assert(md:match("sum%-elimination"), "family markdown includes llisle semantic ownership")

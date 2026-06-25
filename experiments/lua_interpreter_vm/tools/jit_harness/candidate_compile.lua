@@ -1,5 +1,5 @@
 -- candidate_compile.lua
--- Compiles candidate kernels through Moonlift/Cranelift
+-- Compiles candidate kernels through Lalin/Cranelift
 -- Per LUA_STENCIL_HARNESS_DESIGN.md §4.11
 
 local M = {}
@@ -41,7 +41,7 @@ local function compile_kernel_gcc(kernel, config, output_dir, obj_path)
     return { id = kernel.id, compiled = false, backend = "gcc", error = output or "gcc compilation failed", command = cmd, status = why, code = code }
 end
 
--- Compile a single kernel through Moonlift or GCC
+-- Compile a single kernel through Lalin or GCC
 function M.compile_kernel(kernel, config)
     config = config or {}
 
@@ -49,7 +49,7 @@ function M.compile_kernel(kernel, config)
     util.mkdir_p(output_dir)
 
     local obj_path = output_dir .. "/" .. kernel.id .. ".o"
-    local backend = config.backend or kernel.backend or (kernel.language == "c" and "gcc") or "moonlift"
+    local backend = config.backend or kernel.backend or (kernel.language == "c" and "gcc") or "lalin"
     if backend == "gcc" or backend == "c" then
         return compile_kernel_gcc(kernel, config, output_dir, obj_path)
     end

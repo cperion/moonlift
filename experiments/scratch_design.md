@@ -8,10 +8,10 @@
 -- ═══════════════════════════════════════════════
 -- 1. Single raw extern (Rust side)
 -- ═══════════════════════════════════════════════
--- extern func moonlift_scratch_raw(slot: i32, elem_size: i32, count: i32): ptr(u8)
+-- extern func lalin_scratch_raw(slot: i32, elem_size: i32, count: i32): ptr(u8)
 --
 -- Implemented as:
---   fn moonlift_scratch_raw(slot: i32, elem_size: i32, count: i32) -> *mut u8
+--   fn lalin_scratch_raw(slot: i32, elem_size: i32, count: i32) -> *mut u8
 --   Thread-local Vec<Vec<u8>>, keyed by slot, grows as needed.
 --   Zeros the requested range. Returns null on bad args.
 
@@ -19,14 +19,14 @@
 -- 2. Lua factory: generates typed scratch regions
 -- ═══════════════════════════════════════════════
 
-local function make_scratch_type(prefix, elem_size, moon_type)
-    -- Generates: scratch_@{prefix}(slot: i32, count: i32) -> view(@{moon_type})
+local function make_scratch_type(prefix, elem_size, lalin_type)
+    -- Generates: scratch_@{prefix}(slot: i32, count: i32) -> view(@{lalin_type})
     return region scratch_@{prefix}(slot: i32, count: i32;
-        ok(v: view(@{moon_type})))
+        ok(v: view(@{lalin_type})))
     entry start()
-        if count <= 0 then jump ok(v = view(null_ptr(@{moon_type}), 0)) end
-        let raw: ptr(u8) = moonlift_scratch_raw(slot, @{elem_size}, count)
-        let p: ptr(@{moon_type}) = as(ptr(@{moon_type}), raw)
+        if count <= 0 then jump ok(v = view(null_ptr(@{lalin_type}), 0)) end
+        let raw: ptr(u8) = lalin_scratch_raw(slot, @{elem_size}, count)
+        let p: ptr(@{lalin_type}) = as(ptr(@{lalin_type}), raw)
         jump ok(v = view(p, as(index, count)))
     end
     end
@@ -40,7 +40,7 @@ local scratch_i64 = make_scratch_type("i64", 8, i64)
 -- ... add more as needed
 
 -- ═══════════════════════════════════════════════
--- 3. Usage in Moonlift code
+-- 3. Usage in Lalin code
 -- ═══════════════════════════════════════════════
 -- 
 --   emit @{scratch_i32}(0, 4096; ok = got_tape)

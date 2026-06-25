@@ -3,10 +3,10 @@ package.path = "./experiments/lua_interpreter_vm/spongejit/?.lua;./experiments/l
 
 local ffi = require("ffi")
 local Schema = require("lua_compile.schema")
-local Validate = require("lua_compile.moon_cfg_validate")
-local Emit = require("lua_compile.moon_cfg_emit")
+local Validate = require("lua_compile.lalin_cfg_validate")
+local Emit = require("lua_compile.lalin_cfg_emit")
 local ExecValidate = require("lua_compile.lua_exec_validate")
-local ExecToMoon = require("lua_compile.lua_exec_to_moon_cfg_lower")
+local ExecToLalin = require("lua_compile.lua_exec_to_lalin_cfg_lower")
 local Arity = require("lua_compile.lua_rt_arity_model")
 local ValueModel = require("lua_compile.lua_rt_value_model")
 local T = Schema.get()
@@ -63,8 +63,8 @@ local frame = RT.Frame(caller, RT.StackRef(caller), RT.TopRef(caller), RT.NoVara
 
 local function params()
   return {
-    Exec.Param(en("caller_stack"), Exec.MoonType("ptr(LuaRTValue)")),
-    Exec.Param(en("callee_stack"), Exec.MoonType("ptr(LuaRTValue)")),
+    Exec.Param(en("caller_stack"), Exec.LalinType("ptr(LuaRTValue)")),
+    Exec.Param(en("callee_stack"), Exec.LalinType("ptr(LuaRTValue)")),
   }
 end
 
@@ -147,7 +147,7 @@ local good_contract = static_contract(good_callee)
 local good_module = module_with(good_callee, good_contract)
 local ok_module, module_errors = ExecValidate.module(good_module)
 assert(ok_module, table.concat(module_errors, ";"))
-local cfg, cfg_errors = ExecToMoon.lower_module_outcome(good_module, "kernel", "value2_payload_i64")
+local cfg, cfg_errors = ExecToLalin.lower_module_outcome(good_module, "kernel", "value2_payload_i64")
 assert(cfg, table.concat(cfg_errors or {}, ";"))
 local caller_stack = ffi.new("LuaRTValue[8]")
 local callee_stack = ffi.new("LuaRTValue[8]")
@@ -155,11 +155,11 @@ for i = 1, 3 do caller_stack[i].tag = ValueModel.TAG.IntegerTag; caller_stack[i]
 assert(run(cfg, "test_static_invoke_value2", caller_stack, callee_stack) == 403)
 assert(caller_stack[6].payload_i64 == 403, "static callee result must flow through ReceiveCallResults")
 
-local direct_cfg, direct_errors = ExecToMoon.lower_outcome(kernel_with_emit(good_contract), "value2_payload_i64")
+local direct_cfg, direct_errors = ExecToLalin.lower_outcome(kernel_with_emit(good_contract), "value2_payload_i64")
 assert(not direct_cfg and table.concat(direct_errors or {}, ";"):match("EmitRegion:requires_typed_static_region_lowering"), "direct kernel EmitRegion must still reject")
 
 local function lower_module_rejects(module, needle)
-  local out, errs = ExecToMoon.lower_module_outcome(module, "kernel", "value2_payload_i64")
+  local out, errs = ExecToLalin.lower_module_outcome(module, "kernel", "value2_payload_i64")
   local joined = table.concat(errs or {}, ";")
   assert(not out and joined:match(needle), "expected rejection matching " .. needle .. ", got: " .. joined)
 end

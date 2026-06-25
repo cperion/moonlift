@@ -1,7 +1,7 @@
 -- lua_rt_object_model.lua -- executable string/table object substrate.
 --
--- This is a deliberately explicit Moonlift layout for the LuaRT string/table
--- handle model used by LuaExec/MoonCFG. LuaRTValue ref payloads carry integer
+-- This is a deliberately explicit Lalin layout for the LuaRT string/table
+-- handle model used by LuaExec/LalinCFG. LuaRTValue ref payloads carry integer
 -- handles into the string/table banks supplied as kernel parameters.
 --
 -- Strings:
@@ -38,7 +38,7 @@ M.HASH_ENTRY_STATE = {
   Tombstone = 2,
 }
 
--- The current MoonCFG emitter emits a bounded, explicit, unrolled probe over
+-- The current LalinCFG emitter emits a bounded, explicit, unrolled probe over
 -- this many hash entries. Tables with larger hash_capacity are treated as
 -- malformed for raw SETTABLE (typed RuntimeError) until dynamic block-loop
 -- table regions are introduced.

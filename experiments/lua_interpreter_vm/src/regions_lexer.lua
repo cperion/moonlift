@@ -1,13 +1,13 @@
 -- Lua Interpreter VM — Source-byte lexer regions (first Lua 5.5 slice)
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local pconst = require("experiments.lua_interpreter_vm.src.parser_constants")
 
 local V = {}
-for k, v in pairs(pconst.Tok) do V["TOK_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.Kw) do V["KW_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.ParseErr) do V["PERR_" .. k] = moon.int(v) end
+for k, v in pairs(pconst.Tok) do V["TOK_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.Kw) do V["KW_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.ParseErr) do V["PERR_" .. k] = lalin.int(v) end
 
 local make_lex_error = host.region(V) [[
 region make_lex_error(cu: ptr(CompileUnit), code: i32, token: u16;

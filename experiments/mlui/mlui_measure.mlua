@@ -1,7 +1,7 @@
 -- mlui_measure.mlua — Intrinsic measurement for layout nodes.
 -- Implements R.ui_measure_node.
 
-local H = moon.require("mlui_types")
+local H = lalin.require("mlui_types")
 local T = H.T
 local R = H.R
 local F = H.F

@@ -9,7 +9,7 @@
 
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require "moonlift"
+local lalin = require "lalin"
 local ll = require "llpvm"
 
 local M = {}
@@ -35,15 +35,15 @@ local T = M.T
 local R = M.R
 local F = M.F
 
-T.Id      = moon.u64
-T.Ref     = moon.u32
-T.Epoch   = moon.u64
-T.Kind    = moon.u16
-T.Flags   = moon.u32
-T.Index32 = moon.u32
-T.Axis    = moon.u8
-T.Role    = moon.u8
-T.Policy  = moon.u16
+T.Id      = lalin.u64
+T.Ref     = lalin.u32
+T.Epoch   = lalin.u64
+T.Kind    = lalin.u16
+T.Flags   = lalin.u32
+T.Index32 = lalin.u32
+T.Axis    = lalin.u8
+T.Role    = lalin.u8
+T.Policy  = lalin.u16
 
 T.Vec2 = struct MluiCore_Vec2 x: f32, y: f32 end
 
@@ -166,29 +166,29 @@ M.Model    = M.vm.language "MluiModel"
 M.EnvClass = M.Env "Class"
 M.EnvClass.Default = {}
 M.EnvClass.Custom = {
-    breakpoint = moon.u8,
-    color_scheme = moon.u8,
-    motion = moon.u8,
-    density = moon.u8,
-    pointer = moon.u8,
-    platform = moon.u8,
-    flags = moon.u32,
+    breakpoint = lalin.u8,
+    color_scheme = lalin.u8,
+    motion = lalin.u8,
+    density = lalin.u8,
+    pointer = lalin.u8,
+    platform = lalin.u8,
+    flags = lalin.u32,
 }
 
 M.EnvViewport = M.Env "Viewport"
 M.EnvViewport.Viewport = {
-    width = moon.f32,
-    height = moon.f32,
-    device_scale = moon.f32,
+    width = lalin.f32,
+    height = lalin.f32,
+    device_scale = lalin.f32,
 }
 
 M.ThemeRecord = M.Theme "Record"
 M.ThemeRecord.Palette = { name = T.Id, color = T.Color }
-M.ThemeRecord.Spacing = { name = T.Id, value = moon.f32 }
-M.ThemeRecord.Font = { name = T.Id, content_ref = T.Ref, font_ref = T.Ref, size = moon.f32, weight = moon.u32, flags = moon.u32 }
-M.ThemeRecord.Radius = { name = T.Id, value = moon.f32 }
-M.ThemeRecord.Border = { name = T.Id, width = moon.f32, color = T.Color }
-M.ThemeRecord.Opacity = { name = T.Id, value = moon.f32 }
+M.ThemeRecord.Spacing = { name = T.Id, value = lalin.f32 }
+M.ThemeRecord.Font = { name = T.Id, content_ref = T.Ref, font_ref = T.Ref, size = lalin.f32, weight = lalin.u32, flags = lalin.u32 }
+M.ThemeRecord.Radius = { name = T.Id, value = lalin.f32 }
+M.ThemeRecord.Border = { name = T.Id, width = lalin.f32, color = T.Color }
+M.ThemeRecord.Opacity = { name = T.Id, value = lalin.f32 }
 M.ThemeRecord.Theme = {
     id = T.Ref,
     epoch = T.Epoch,
@@ -205,18 +205,18 @@ M.StyleToken.Token = {
     id = T.Id,
     conds = T.Range,
     atoms = T.Range,
-    order = moon.u32,
-    flags = moon.u32,
+    order = lalin.u32,
+    flags = lalin.u32,
 }
 
 M.StyleCond = M.Style "Cond"
-M.StyleCond.State = { mask = moon.u32, op = moon.u8, flags = moon.u32 }
-M.StyleCond.Env = { key = moon.u32, op = moon.u8, rhs_i = moon.i32, rhs_f = moon.f32, rhs_id = T.Id, flags = moon.u32 }
-M.StyleCond.Resource = { section = moon.u8, ref = T.Ref, epoch = T.Epoch, flags = moon.u32 }
+M.StyleCond.State = { mask = lalin.u32, op = lalin.u8, flags = lalin.u32 }
+M.StyleCond.Env = { key = lalin.u32, op = lalin.u8, rhs_i = lalin.i32, rhs_f = lalin.f32, rhs_id = T.Id, flags = lalin.u32 }
+M.StyleCond.Resource = { section = lalin.u8, ref = T.Ref, epoch = T.Epoch, flags = lalin.u32 }
 
 M.StyleAtom = M.Style "Atom"
-M.StyleAtom.Display = { kind = moon.u16 }
-M.StyleAtom.Position = { kind = moon.u16 }
+M.StyleAtom.Display = { kind = lalin.u16 }
+M.StyleAtom.Position = { kind = lalin.u16 }
 M.StyleAtom.Width = { length = T.Length }
 M.StyleAtom.Height = { length = T.Length }
 M.StyleAtom.MinWidth = { length = T.Length }
@@ -225,60 +225,60 @@ M.StyleAtom.MaxWidth = { length = T.Length }
 M.StyleAtom.MaxHeight = { length = T.Length }
 M.StyleAtom.Margin = { insets = T.Insets }
 M.StyleAtom.Padding = { insets = T.Insets }
-M.StyleAtom.Gap = { x = moon.f32, y = moon.f32 }
-M.StyleAtom.FlexDirection = { direction = moon.u8 }
-M.StyleAtom.FlexGrow = { value = moon.f32 }
-M.StyleAtom.FlexShrink = { value = moon.f32 }
+M.StyleAtom.Gap = { x = lalin.f32, y = lalin.f32 }
+M.StyleAtom.FlexDirection = { direction = lalin.u8 }
+M.StyleAtom.FlexGrow = { value = lalin.f32 }
+M.StyleAtom.FlexShrink = { value = lalin.f32 }
 M.StyleAtom.FlexBasis = { length = T.Length }
-M.StyleAtom.AlignItems = { value = moon.u16 }
-M.StyleAtom.JustifyContent = { value = moon.u16 }
+M.StyleAtom.AlignItems = { value = lalin.u16 }
+M.StyleAtom.JustifyContent = { value = lalin.u16 }
 M.StyleAtom.GridTracks = { axis = T.Axis, tracks = T.Range }
 M.StyleAtom.Overflow = { axis = T.Axis, policy = T.Policy }
 M.StyleAtom.BackgroundColor = { color = T.Color, theme_name = T.Id }
 M.StyleAtom.ForegroundColor = { color = T.Color, theme_name = T.Id }
 M.StyleAtom.BorderColor = { color = T.Color, theme_name = T.Id }
-M.StyleAtom.BorderWidth = { width = moon.f32 }
-M.StyleAtom.Radius = { radius = moon.f32 }
-M.StyleAtom.Opacity = { value = moon.f32 }
+M.StyleAtom.BorderWidth = { width = lalin.f32 }
+M.StyleAtom.Radius = { radius = lalin.f32 }
+M.StyleAtom.Opacity = { value = lalin.f32 }
 M.StyleAtom.Font = { font_ref = T.Ref, theme_name = T.Id }
-M.StyleAtom.FontSize = { size = moon.f32 }
-M.StyleAtom.FontWeight = { weight = moon.u32 }
-M.StyleAtom.TextAlign = { align = moon.u16 }
-M.StyleAtom.LineHeight = { value = moon.f32 }
-M.StyleAtom.Cursor = { cursor = moon.u16 }
-M.StyleAtom.LayerOrder = { order = moon.i32 }
-M.StyleAtom.UserFlag = { flag = moon.u32 }
+M.StyleAtom.FontSize = { size = lalin.f32 }
+M.StyleAtom.FontWeight = { weight = lalin.u32 }
+M.StyleAtom.TextAlign = { align = lalin.u16 }
+M.StyleAtom.LineHeight = { value = lalin.f32 }
+M.StyleAtom.Cursor = { cursor = lalin.u16 }
+M.StyleAtom.LayerOrder = { order = lalin.i32 }
+M.StyleAtom.UserFlag = { flag = lalin.u32 }
 
 M.StyleResolved = M.Style "Resolved"
-M.StyleResolved.Layout = { id = T.Id, style_index = moon.u32, flags = moon.u32 }
-M.StyleResolved.Decor = { id = T.Id, style_index = moon.u32, flags = moon.u32 }
-M.StyleResolved.Interaction = { id = T.Id, role = T.Role, policy = T.Policy, flags = moon.u32 }
+M.StyleResolved.Layout = { id = T.Id, style_index = lalin.u32, flags = lalin.u32 }
+M.StyleResolved.Decor = { id = T.Id, style_index = lalin.u32, flags = lalin.u32 }
+M.StyleResolved.Interaction = { id = T.Id, role = T.Role, policy = T.Policy, flags = lalin.u32 }
 
 -- -----------------------------------------------------------------------------
 -- Resource language.
 -- -----------------------------------------------------------------------------
 
 M.ResourceRecord = M.Resource "Record"
-M.ResourceRecord.Content = { ref = T.Ref, byte_len = moon.u32, encoding = moon.u32, layout_affecting = moon.bool, epoch = T.Epoch }
-M.ResourceRecord.TextLayout = { ref = T.Ref, content_ref = T.Ref, font_ref = T.Ref, width_constraint = moon.f32, epoch = T.Epoch }
+M.ResourceRecord.Content = { ref = T.Ref, byte_len = lalin.u32, encoding = lalin.u32, layout_affecting = lalin.bool, epoch = T.Epoch }
+M.ResourceRecord.TextLayout = { ref = T.Ref, content_ref = T.Ref, font_ref = T.Ref, width_constraint = lalin.f32, epoch = T.Epoch }
 M.ResourceRecord.PaintProgram = { ref = T.Ref, ops = T.Range, epoch = T.Epoch }
-M.ResourceRecord.Image = { ref = T.Ref, host_key = moon.u64, width = moon.f32, height = moon.f32, format = moon.u32, epoch = T.Epoch }
-M.ResourceRecord.Font = { ref = T.Ref, host_key = moon.u64, family_content_ref = T.Ref, size = moon.f32, weight = moon.u32, style = moon.u32, epoch = T.Epoch }
-M.ResourceRecord.Value = { ref = T.Ref, kind = moon.u16, payload_a = moon.u64, payload_b = moon.u64, epoch = T.Epoch }
+M.ResourceRecord.Image = { ref = T.Ref, host_key = lalin.u64, width = lalin.f32, height = lalin.f32, format = lalin.u32, epoch = T.Epoch }
+M.ResourceRecord.Font = { ref = T.Ref, host_key = lalin.u64, family_content_ref = T.Ref, size = lalin.f32, weight = lalin.u32, style = lalin.u32, epoch = T.Epoch }
+M.ResourceRecord.Value = { ref = T.Ref, kind = lalin.u16, payload_a = lalin.u64, payload_b = lalin.u64, epoch = T.Epoch }
 
 M.Value = M.Resource "Value"
 M.Value.None = {}
-M.Value.Bool = { value = moon.bool }
-M.Value.I32 = { value = moon.i32 }
-M.Value.U32 = { value = moon.u32 }
-M.Value.F32 = { value = moon.f32 }
-M.Value.F64 = { value = moon.f64 }
+M.Value.Bool = { value = lalin.bool }
+M.Value.I32 = { value = lalin.i32 }
+M.Value.U32 = { value = lalin.u32 }
+M.Value.F32 = { value = lalin.f32 }
+M.Value.F64 = { value = lalin.f64 }
 M.Value.Id = { value = T.Id }
 M.Value.Ref = { value = T.Ref }
-M.Value.Range = { min = moon.f32, max = moon.f32, value = moon.f32 }
+M.Value.Range = { min = lalin.f32, max = lalin.f32, value = lalin.f32 }
 M.Value.Color = { color = T.Color }
 M.Value.Text = { content_ref = T.Ref }
-M.Value.Custom = { kind = moon.u16, data_ref = T.Ref }
+M.Value.Custom = { kind = lalin.u16, data_ref = T.Ref }
 
 -- -----------------------------------------------------------------------------
 -- Auth and compose languages.  Auth nodes are authored semantic opcodes, not
@@ -295,23 +295,23 @@ M.AuthNode.TextRef = { id = T.Id, text_layout_ref = T.Ref, styles = T.Range, sta
 M.AuthNode.Paint = { id = T.Id, paint_ref = T.Ref, paint_range = T.Range, styles = T.Range, state = T.StateFacts }
 M.AuthNode.Canvas = { id = T.Id, value_ref = T.Ref, paint_ref = T.Ref, paint_range = T.Range, styles = T.Range, state = T.StateFacts }
 M.AuthNode.Image = { id = T.Id, image_ref = T.Ref, styles = T.Range, state = T.StateFacts }
-M.AuthNode.Scroll = { id = T.Id, axis = T.Axis, policy = T.Policy, child = moon.u32, styles = T.Range, state = T.StateFacts }
-M.AuthNode.InputSurface = { id = T.Id, role = T.Role, policy = T.Policy, child = moon.u32, styles = T.Range, state = T.StateFacts }
-M.AuthNode.DragSource = { id = T.Id, policy = T.Policy, child = moon.u32, styles = T.Range, state = T.StateFacts }
-M.AuthNode.DropTarget = { id = T.Id, policy = T.Policy, child = moon.u32, styles = T.Range, state = T.StateFacts }
+M.AuthNode.Scroll = { id = T.Id, axis = T.Axis, policy = T.Policy, child = lalin.u32, styles = T.Range, state = T.StateFacts }
+M.AuthNode.InputSurface = { id = T.Id, role = T.Role, policy = T.Policy, child = lalin.u32, styles = T.Range, state = T.StateFacts }
+M.AuthNode.DragSource = { id = T.Id, policy = T.Policy, child = lalin.u32, styles = T.Range, state = T.StateFacts }
+M.AuthNode.DropTarget = { id = T.Id, policy = T.Policy, child = lalin.u32, styles = T.Range, state = T.StateFacts }
 M.AuthNode.FocusScope = { id = T.Id, policy = T.Policy, children = T.Range, styles = T.Range, state = T.StateFacts }
-M.AuthNode.Layer = { id = T.Id, layer_kind = moon.u8, order = moon.i32, child = moon.u32, styles = T.Range, state = T.StateFacts }
-M.AuthNode.Overlay = { id = T.Id, anchor_id = T.Id, placement = moon.u8, child = moon.u32, styles = T.Range, state = T.StateFacts }
-M.AuthNode.Modal = { id = T.Id, barrier_policy = T.Policy, child = moon.u32, styles = T.Range, state = T.StateFacts }
+M.AuthNode.Layer = { id = T.Id, layer_kind = lalin.u8, order = lalin.i32, child = lalin.u32, styles = T.Range, state = T.StateFacts }
+M.AuthNode.Overlay = { id = T.Id, anchor_id = T.Id, placement = lalin.u8, child = lalin.u32, styles = T.Range, state = T.StateFacts }
+M.AuthNode.Modal = { id = T.Id, barrier_policy = T.Policy, child = lalin.u32, styles = T.Range, state = T.StateFacts }
 M.AuthNode.TextField = { id = T.Id, content_ref = T.Ref, text_field_state_ref = T.Ref, styles = T.Range, state = T.StateFacts }
-M.AuthNode.Slot = { id = T.Id, slot_kind = moon.u16, value_ref = T.Ref, child = moon.u32, styles = T.Range, state = T.StateFacts }
+M.AuthNode.Slot = { id = T.Id, slot_kind = lalin.u16, value_ref = T.Ref, child = lalin.u32, styles = T.Range, state = T.StateFacts }
 
 M.ComposeNode = M.Compose "Node"
-M.ComposeNode.Panel = { id = T.Id, header = moon.u32, body = moon.u32, footer = moon.u32, styles = T.Range, state = T.StateFacts }
-M.ComposeNode.ScrollPanel = { id = T.Id, header = moon.u32, body = moon.u32, footer = moon.u32, axis = T.Axis, styles = T.Range, state = T.StateFacts }
+M.ComposeNode.Panel = { id = T.Id, header = lalin.u32, body = lalin.u32, footer = lalin.u32, styles = T.Range, state = T.StateFacts }
+M.ComposeNode.ScrollPanel = { id = T.Id, header = lalin.u32, body = lalin.u32, footer = lalin.u32, axis = T.Axis, styles = T.Range, state = T.StateFacts }
 M.ComposeNode.HSplit = { id = T.Id, panes = T.Range, ratios = T.Range, styles = T.Range, state = T.StateFacts }
 M.ComposeNode.VSplit = { id = T.Id, panes = T.Range, ratios = T.Range, styles = T.Range, state = T.StateFacts }
-M.ComposeNode.Workbench = { id = T.Id, toolbar = moon.u32, sidebar = moon.u32, main = moon.u32, bottom = moon.u32, styles = T.Range, state = T.StateFacts }
+M.ComposeNode.Workbench = { id = T.Id, toolbar = lalin.u32, sidebar = lalin.u32, main = lalin.u32, bottom = lalin.u32, styles = T.Range, state = T.StateFacts }
 
 M.ImportedNode = M.Imported "Node"
 M.ImportedNode.Record = {
@@ -329,8 +329,8 @@ M.ImportedNode.Record = {
     axis = T.Axis,
     role = T.Role,
     policy = T.Policy,
-    state_mask = moon.u32,
-    flags = moon.u32,
+    state_mask = lalin.u32,
+    flags = lalin.u32,
     epoch = T.Epoch,
 }
 
@@ -341,103 +341,103 @@ M.ImportedNode.Record = {
 M.SceneLayout = M.Scene "Layout"
 M.SceneLayout.Empty = { id = T.Id }
 M.SceneLayout.Fragment = { id = T.Id, children = T.Range }
-M.SceneLayout.Flow = { id = T.Id, children = T.Range, style_index = moon.u32 }
-M.SceneLayout.FlexRow = { id = T.Id, children = T.Range, style_index = moon.u32 }
-M.SceneLayout.FlexColumn = { id = T.Id, children = T.Range, style_index = moon.u32 }
-M.SceneLayout.Grid = { id = T.Id, children = T.Range, tracks = T.Range, style_index = moon.u32 }
-M.SceneLayout.Text = { id = T.Id, content_ref = T.Ref, style_index = moon.u32 }
-M.SceneLayout.TextRef = { id = T.Id, text_layout_ref = T.Ref, style_index = moon.u32 }
-M.SceneLayout.Paint = { id = T.Id, paint_ref = T.Ref, style_index = moon.u32 }
-M.SceneLayout.Canvas = { id = T.Id, value_ref = T.Ref, paint_ref = T.Ref, style_index = moon.u32 }
-M.SceneLayout.Image = { id = T.Id, image_ref = T.Ref, style_index = moon.u32 }
-M.SceneLayout.Scroll = { id = T.Id, axis = T.Axis, child = moon.u32, style_index = moon.u32 }
-M.SceneLayout.InputSurface = { id = T.Id, role = T.Role, child = moon.u32, style_index = moon.u32 }
-M.SceneLayout.Wrapper = { id = T.Id, kind = T.Kind, child = moon.u32, style_index = moon.u32 }
+M.SceneLayout.Flow = { id = T.Id, children = T.Range, style_index = lalin.u32 }
+M.SceneLayout.FlexRow = { id = T.Id, children = T.Range, style_index = lalin.u32 }
+M.SceneLayout.FlexColumn = { id = T.Id, children = T.Range, style_index = lalin.u32 }
+M.SceneLayout.Grid = { id = T.Id, children = T.Range, tracks = T.Range, style_index = lalin.u32 }
+M.SceneLayout.Text = { id = T.Id, content_ref = T.Ref, style_index = lalin.u32 }
+M.SceneLayout.TextRef = { id = T.Id, text_layout_ref = T.Ref, style_index = lalin.u32 }
+M.SceneLayout.Paint = { id = T.Id, paint_ref = T.Ref, style_index = lalin.u32 }
+M.SceneLayout.Canvas = { id = T.Id, value_ref = T.Ref, paint_ref = T.Ref, style_index = lalin.u32 }
+M.SceneLayout.Image = { id = T.Id, image_ref = T.Ref, style_index = lalin.u32 }
+M.SceneLayout.Scroll = { id = T.Id, axis = T.Axis, child = lalin.u32, style_index = lalin.u32 }
+M.SceneLayout.InputSurface = { id = T.Id, role = T.Role, child = lalin.u32, style_index = lalin.u32 }
+M.SceneLayout.Wrapper = { id = T.Id, kind = T.Kind, child = lalin.u32, style_index = lalin.u32 }
 
 M.SceneDecor = M.Scene "Decor"
 M.SceneDecor.None = { id = T.Id }
-M.SceneDecor.Box = { id = T.Id, visual_index = moon.u32 }
-M.SceneDecor.Text = { id = T.Id, text_style_index = moon.u32, content_ref = T.Ref, text_layout_ref = T.Ref }
+M.SceneDecor.Box = { id = T.Id, visual_index = lalin.u32 }
+M.SceneDecor.Text = { id = T.Id, text_style_index = lalin.u32, content_ref = T.Ref, text_layout_ref = T.Ref }
 M.SceneDecor.Paint = { id = T.Id, paint_ref = T.Ref, paint_range = T.Range }
 M.SceneDecor.Image = { id = T.Id, image_ref = T.Ref }
-M.SceneDecor.Cursor = { id = T.Id, cursor = moon.u16 }
+M.SceneDecor.Cursor = { id = T.Id, cursor = lalin.u16 }
 M.SceneDecor.Hit = { id = T.Id, role = T.Role, policy = T.Policy }
 M.SceneDecor.Focus = { id = T.Id, policy = T.Policy }
 M.SceneDecor.Drag = { id = T.Id, policy = T.Policy }
 M.SceneDecor.Drop = { id = T.Id, policy = T.Policy }
-M.SceneDecor.Layer = { id = T.Id, layer_kind = moon.u8, order = moon.i32 }
-M.SceneDecor.Overlay = { id = T.Id, anchor_id = T.Id, placement = moon.u8 }
+M.SceneDecor.Layer = { id = T.Id, layer_kind = lalin.u8, order = lalin.i32 }
+M.SceneDecor.Overlay = { id = T.Id, anchor_id = T.Id, placement = lalin.u8 }
 M.SceneDecor.ModalBarrier = { id = T.Id, policy = T.Policy }
 
 M.MeasureNode = M.Measure "Node"
-M.MeasureNode.Measured = { id = T.Id, layout_index = moon.u32, intrinsic = T.IntrinsicSize, text_layout_ref = T.Ref, epoch = T.Epoch }
-M.MeasureNode.Missing = { id = T.Id, layout_index = moon.u32, reason = moon.u16 }
+M.MeasureNode.Measured = { id = T.Id, layout_index = lalin.u32, intrinsic = T.IntrinsicSize, text_layout_ref = T.Ref, epoch = T.Epoch }
+M.MeasureNode.Missing = { id = T.Id, layout_index = lalin.u32, reason = lalin.u16 }
 
 M.SolveNode = M.Solve "Node"
 M.SolveNode.Placed = {
     kind = T.Kind,
     id = T.Id,
-    layout_index = moon.u32,
-    decor_index = moon.u32,
-    parent = moon.u32,
+    layout_index = lalin.u32,
+    decor_index = lalin.u32,
+    parent = lalin.u32,
     children = T.Range,
     border_rect = T.Rect,
     content_rect = T.Rect,
     clip_rect = T.Rect,
-    scroll_x = moon.f32,
-    scroll_y = moon.f32,
-    content_w = moon.f32,
-    content_h = moon.f32,
+    scroll_x = lalin.f32,
+    scroll_y = lalin.f32,
+    content_w = lalin.f32,
+    content_h = lalin.f32,
     text_layout_ref = T.Ref,
-    flags = moon.u32,
+    flags = lalin.u32,
 }
 
 M.ViewOp = M.View "Op"
-M.ViewOp.Box = { id = T.Id, rect = T.Rect, visual_index = moon.u32, flags = moon.u32 }
-M.ViewOp.Text = { id = T.Id, rect = T.Rect, text_layout_ref = T.Ref, text_style_index = moon.u32, flags = moon.u32 }
-M.ViewOp.Paint = { id = T.Id, rect = T.Rect, paint_ref = T.Ref, paint_range = T.Range, flags = moon.u32 }
+M.ViewOp.Box = { id = T.Id, rect = T.Rect, visual_index = lalin.u32, flags = lalin.u32 }
+M.ViewOp.Text = { id = T.Id, rect = T.Rect, text_layout_ref = T.Ref, text_style_index = lalin.u32, flags = lalin.u32 }
+M.ViewOp.Paint = { id = T.Id, rect = T.Rect, paint_ref = T.Ref, paint_range = T.Range, flags = lalin.u32 }
 M.ViewOp.PushClipRect = { rect = T.Rect }
 M.ViewOp.PopClip = {}
-M.ViewOp.PushTx = { dx = moon.f32, dy = moon.f32 }
+M.ViewOp.PushTx = { dx = lalin.f32, dy = lalin.f32 }
 M.ViewOp.PopTx = {}
-M.ViewOp.PushScroll = { id = T.Id, viewport_rect = T.Rect, content_w = moon.f32, content_h = moon.f32, scroll_x = moon.f32, scroll_y = moon.f32 }
+M.ViewOp.PushScroll = { id = T.Id, viewport_rect = T.Rect, content_w = lalin.f32, content_h = lalin.f32, scroll_x = lalin.f32, scroll_y = lalin.f32 }
 M.ViewOp.PopScroll = {}
 M.ViewOp.Hit = { id = T.Id, rect = T.Rect, role = T.Role, policy = T.Policy }
 M.ViewOp.Focus = { id = T.Id, rect = T.Rect, policy = T.Policy }
-M.ViewOp.Cursor = { id = T.Id, rect = T.Rect, cursor = moon.u16 }
+M.ViewOp.Cursor = { id = T.Id, rect = T.Rect, cursor = lalin.u16 }
 M.ViewOp.DragSource = { id = T.Id, rect = T.Rect, policy = T.Policy }
 M.ViewOp.DropTarget = { id = T.Id, rect = T.Rect, policy = T.Policy }
 M.ViewOp.DropSlot = { id = T.Id, rect = T.Rect, other_id = T.Id, policy = T.Policy }
 M.ViewOp.BeginFocusScope = { id = T.Id, rect = T.Rect, policy = T.Policy }
 M.ViewOp.EndFocusScope = { id = T.Id }
-M.ViewOp.BeginLayer = { id = T.Id, layer_kind = moon.u8, order = moon.i32 }
+M.ViewOp.BeginLayer = { id = T.Id, layer_kind = lalin.u8, order = lalin.i32 }
 M.ViewOp.EndLayer = { id = T.Id }
-M.ViewOp.Overlay = { id = T.Id, anchor_id = T.Id, rect = T.Rect, placement = moon.u8 }
+M.ViewOp.Overlay = { id = T.Id, anchor_id = T.Id, rect = T.Rect, placement = lalin.u8 }
 M.ViewOp.ModalBarrier = { id = T.Id, rect = T.Rect, policy = T.Policy }
 
 M.ReportFact = M.Report "Fact"
-M.ReportFact.HitBox = { id = T.Id, rect = T.Rect, role = T.Role, policy = T.Policy, order = moon.i32, layer = moon.i32, flags = moon.u32 }
-M.ReportFact.FocusBox = { id = T.Id, rect = T.Rect, policy = T.Policy, scope_id = T.Id, order = moon.i32, flags = moon.u32 }
-M.ReportFact.ScrollBox = { id = T.Id, viewport_rect = T.Rect, content_w = moon.f32, content_h = moon.f32, scroll_x = moon.f32, scroll_y = moon.f32, axis = T.Axis, policy = T.Policy, flags = moon.u32 }
-M.ReportFact.DragBox = { id = T.Id, rect = T.Rect, policy = T.Policy, flags = moon.u32 }
-M.ReportFact.DropBox = { id = T.Id, rect = T.Rect, policy = T.Policy, slot_id = T.Id, flags = moon.u32 }
-M.ReportFact.LayerBox = { id = T.Id, order = moon.i32, layer_kind = moon.u8, range = T.Range, flags = moon.u32 }
-M.ReportFact.OverlayBox = { id = T.Id, anchor_id = T.Id, rect = T.Rect, placement = moon.u8, flags = moon.u32 }
-M.ReportFact.ModalBarrier = { id = T.Id, rect = T.Rect, policy = T.Policy, flags = moon.u32 }
-M.ReportFact.FocusScope = { id = T.Id, rect = T.Rect, policy = T.Policy, parent_scope_id = T.Id, flags = moon.u32 }
-M.ReportFact.ReportHeader = { epoch = T.Epoch, viewport = T.Rect, pointer = T.Vec2, hover_id = T.Id, cursor_id = T.Id, cursor = moon.u16, scroll_target_id = T.Id, modal_depth = moon.u32, flags = moon.u32 }
+M.ReportFact.HitBox = { id = T.Id, rect = T.Rect, role = T.Role, policy = T.Policy, order = lalin.i32, layer = lalin.i32, flags = lalin.u32 }
+M.ReportFact.FocusBox = { id = T.Id, rect = T.Rect, policy = T.Policy, scope_id = T.Id, order = lalin.i32, flags = lalin.u32 }
+M.ReportFact.ScrollBox = { id = T.Id, viewport_rect = T.Rect, content_w = lalin.f32, content_h = lalin.f32, scroll_x = lalin.f32, scroll_y = lalin.f32, axis = T.Axis, policy = T.Policy, flags = lalin.u32 }
+M.ReportFact.DragBox = { id = T.Id, rect = T.Rect, policy = T.Policy, flags = lalin.u32 }
+M.ReportFact.DropBox = { id = T.Id, rect = T.Rect, policy = T.Policy, slot_id = T.Id, flags = lalin.u32 }
+M.ReportFact.LayerBox = { id = T.Id, order = lalin.i32, layer_kind = lalin.u8, range = T.Range, flags = lalin.u32 }
+M.ReportFact.OverlayBox = { id = T.Id, anchor_id = T.Id, rect = T.Rect, placement = lalin.u8, flags = lalin.u32 }
+M.ReportFact.ModalBarrier = { id = T.Id, rect = T.Rect, policy = T.Policy, flags = lalin.u32 }
+M.ReportFact.FocusScope = { id = T.Id, rect = T.Rect, policy = T.Policy, parent_scope_id = T.Id, flags = lalin.u32 }
+M.ReportFact.ReportHeader = { epoch = T.Epoch, viewport = T.Rect, pointer = T.Vec2, hover_id = T.Id, cursor_id = T.Id, cursor = lalin.u16, scroll_target_id = T.Id, modal_depth = lalin.u32, flags = lalin.u32 }
 
 M.InputRaw = M.Input "Raw"
-M.InputRaw.PointerMoved = { x = moon.f32, y = moon.f32 }
-M.InputRaw.PointerPressed = { button = moon.u16, x = moon.f32, y = moon.f32 }
-M.InputRaw.PointerReleased = { button = moon.u16, x = moon.f32, y = moon.f32 }
+M.InputRaw.PointerMoved = { x = lalin.f32, y = lalin.f32 }
+M.InputRaw.PointerPressed = { button = lalin.u16, x = lalin.f32, y = lalin.f32 }
+M.InputRaw.PointerReleased = { button = lalin.u16, x = lalin.f32, y = lalin.f32 }
 M.InputRaw.PointerCancelled = {}
-M.InputRaw.WheelMoved = { dx = moon.f32, dy = moon.f32, x = moon.f32, y = moon.f32 }
-M.InputRaw.KeyPressed = { key = moon.u32, mods = moon.u32, repeat_ = moon.u32 }
-M.InputRaw.KeyReleased = { key = moon.u32, mods = moon.u32 }
-M.InputRaw.TextInput = { text_data = T.Ref, text_len = moon.u32 }
-M.InputRaw.TextEditing = { text_data = T.Ref, text_len = moon.u32, start = moon.u32, length = moon.u32 }
-M.InputRaw.FocusMove = { direction = moon.u32 }
+M.InputRaw.WheelMoved = { dx = lalin.f32, dy = lalin.f32, x = lalin.f32, y = lalin.f32 }
+M.InputRaw.KeyPressed = { key = lalin.u32, mods = lalin.u32, repeat_ = lalin.u32 }
+M.InputRaw.KeyReleased = { key = lalin.u32, mods = lalin.u32 }
+M.InputRaw.TextInput = { text_data = T.Ref, text_len = lalin.u32 }
+M.InputRaw.TextEditing = { text_data = T.Ref, text_len = lalin.u32, start = lalin.u32, length = lalin.u32 }
+M.InputRaw.FocusMove = { direction = lalin.u32 }
 M.InputRaw.FocusLost = {}
 M.InputRaw.ActivateFocused = {}
 M.InputRaw.CancelInteraction = {}
@@ -452,29 +452,29 @@ M.ModelState.Model = {
     focus_id = T.Id,
     active_id = T.Id,
     drag_id = T.Id,
-    drag_state = moon.u8,
+    drag_state = lalin.u8,
     drag_start = T.Vec2,
     modal_scope_id = T.Id,
     focus_scope_id = T.Id,
     scroll_epoch = T.Epoch,
 }
-M.ModelState.Scroll = { id = T.Id, x = moon.f32, y = moon.f32, content_w = moon.f32, content_h = moon.f32, viewport_w = moon.f32, viewport_h = moon.f32, epoch = T.Epoch }
-M.ModelState.TextEdit = { id = T.Id, cursor = moon.u32, selection_start = moon.u32, selection_end = moon.u32, composing_start = moon.u32, composing_len = moon.u32, flags = moon.u32, epoch = T.Epoch }
+M.ModelState.Scroll = { id = T.Id, x = lalin.f32, y = lalin.f32, content_w = lalin.f32, content_h = lalin.f32, viewport_w = lalin.f32, viewport_h = lalin.f32, epoch = T.Epoch }
+M.ModelState.TextEdit = { id = T.Id, cursor = lalin.u32, selection_start = lalin.u32, selection_end = lalin.u32, composing_start = lalin.u32, composing_len = lalin.u32, flags = lalin.u32, epoch = T.Epoch }
 
 M.EventEvent = M.Event "Event"
-M.EventEvent.HoverChanged = { id = T.Id, hovered = moon.bool }
-M.EventEvent.Pressed = { id = T.Id, button = moon.u16 }
-M.EventEvent.Released = { id = T.Id, button = moon.u16 }
+M.EventEvent.HoverChanged = { id = T.Id, hovered = lalin.bool }
+M.EventEvent.Pressed = { id = T.Id, button = lalin.u16 }
+M.EventEvent.Released = { id = T.Id, button = lalin.u16 }
 M.EventEvent.Activated = { id = T.Id }
 M.EventEvent.FocusChanged = { old_id = T.Id, new_id = T.Id }
-M.EventEvent.ScrollChanged = { id = T.Id, x = moon.f32, y = moon.f32 }
-M.EventEvent.DragStarted = { id = T.Id, x = moon.f32, y = moon.f32 }
-M.EventEvent.DragMoved = { id = T.Id, x = moon.f32, y = moon.f32, dx = moon.f32, dy = moon.f32 }
-M.EventEvent.DragEnded = { id = T.Id, x = moon.f32, y = moon.f32 }
+M.EventEvent.ScrollChanged = { id = T.Id, x = lalin.f32, y = lalin.f32 }
+M.EventEvent.DragStarted = { id = T.Id, x = lalin.f32, y = lalin.f32 }
+M.EventEvent.DragMoved = { id = T.Id, x = lalin.f32, y = lalin.f32, dx = lalin.f32, dy = lalin.f32 }
+M.EventEvent.DragEnded = { id = T.Id, x = lalin.f32, y = lalin.f32 }
 M.EventEvent.DragCancelled = { id = T.Id }
 M.EventEvent.Dropped = { source_id = T.Id, target_id = T.Id, slot_id = T.Id }
 M.EventEvent.TextInput = { id = T.Id, text_ref = T.Ref }
-M.EventEvent.TextEditing = { id = T.Id, text_ref = T.Ref, start = moon.u32, length = moon.u32 }
+M.EventEvent.TextEditing = { id = T.Id, text_ref = T.Ref, start = lalin.u32, length = lalin.u32 }
 M.EventEvent.TextInputWithoutFocus = { text_ref = T.Ref }
 M.EventEvent.Cancelled = { id = T.Id }
 M.EventEvent.CaptureChanged = { old_id = T.Id, new_id = T.Id }
@@ -1002,7 +1002,7 @@ end
 
 
 -- -----------------------------------------------------------------------------
--- Moonlift header declarations.
+-- Lalin header declarations.
 -- -----------------------------------------------------------------------------
 
 -- -----------------------------------------------------------------------------
@@ -1032,13 +1032,13 @@ T.ValueKind = M.enums.value_kind
 -- Scalar aliases for hosted Lua generators.
 -- -----------------------------------------------------------------------------
 
-T.UiId = moon.u64
-T.UiRefBits = moon.u32
-T.UiEpoch = moon.u64
-T.UiKind = moon.u16
-T.UiFlags = moon.u32
-T.UiIndex32 = moon.u32
-T.UiScalar = moon.f32
+T.UiId = lalin.u64
+T.UiRefBits = lalin.u32
+T.UiEpoch = lalin.u64
+T.UiKind = lalin.u16
+T.UiFlags = lalin.u32
+T.UiIndex32 = lalin.u32
+T.UiScalar = lalin.f32
 
 -- -----------------------------------------------------------------------------
 -- Handles.  C encodes these as uint32_t in the v1 fast-row profile.

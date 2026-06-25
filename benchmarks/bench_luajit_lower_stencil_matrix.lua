@@ -1,33 +1,33 @@
--- Benchmark MoonCode -> luajit_lower stencil selection against direct binary stencil calls.
+-- Benchmark LalinCode -> luajit_lower stencil selection against direct binary stencil calls.
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
-local Measure = require("moonlift.luajit_measure")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
+local Measure = require("lalin.luajit_measure")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local LJ = T.MoonLuaJIT
-local Stencil = T.MoonStencil
-local Value = T.MoonValue
+local Core = T.LalinCore
+local Code = T.LalinCode
+local LJ = T.LalinLuaJIT
+local Stencil = T.LalinStencil
+local Value = T.LalinValue
 
-local Lower = require("moonlift.luajit_lower")(T)
-local Emit = require("moonlift.luajit_emit")(T)
-local StencilArtifactPlan = require("moonlift.stencil_artifact_plan")(T)
-local StencilBank = require("moonlift.stencil_bank")(T)
+local Lower = require("lalin.luajit_lower")(T)
+local Emit = require("lalin.luajit_emit")(T)
+local StencilArtifactPlan = require("lalin.stencil_artifact_plan")(T)
+local StencilBank = require("lalin.stencil_bank")(T)
 
 local mode = arg and arg[1] or "quick"
 local full = mode == "full"
-local n = tonumber(os.getenv("MOONLIFT_LJ_LOWER_STENCIL_BENCH_N") or (full and "1000000" or "120000"))
-local samples = tonumber(os.getenv("MOONLIFT_LJ_LOWER_STENCIL_BENCH_SAMPLES") or (full and "5" or "3"))
-local rounds = tonumber(os.getenv("MOONLIFT_LJ_LOWER_STENCIL_BENCH_ROUNDS") or (full and "3" or "2"))
-local cc = os.getenv("MOONLIFT_LJ_LOWER_STENCIL_BENCH_CC") or os.getenv("CC") or "gcc"
-local cflags = os.getenv("MOONLIFT_LJ_LOWER_STENCIL_BENCH_CFLAGS") or "-std=c99 -O3 -march=native"
+local n = tonumber(os.getenv("LALIN_LJ_LOWER_STENCIL_BENCH_N") or (full and "1000000" or "120000"))
+local samples = tonumber(os.getenv("LALIN_LJ_LOWER_STENCIL_BENCH_SAMPLES") or (full and "5" or "3"))
+local rounds = tonumber(os.getenv("LALIN_LJ_LOWER_STENCIL_BENCH_ROUNDS") or (full and "3" or "2"))
+local cc = os.getenv("LALIN_LJ_LOWER_STENCIL_BENCH_CC") or os.getenv("CC") or "gcc"
+local cflags = os.getenv("LALIN_LJ_LOWER_STENCIL_BENCH_CFLAGS") or "-std=c99 -O3 -march=native"
 
 local function stencil_object_cflags()
     return cflags .. " -ffunction-sections -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -c"
@@ -534,7 +534,7 @@ for _, case in ipairs(compiled) do
     cases[#cases + 1] = { name = "raw " .. case.kind, fn = raw_fn(case) }
 end
 
-print(string.format("MoonCode -> LuaJIT stencil lowering benchmark mode=%s n=%d samples=%d rounds=%d", mode, n, samples, rounds))
+print(string.format("LalinCode -> LuaJIT stencil lowering benchmark mode=%s n=%d samples=%d rounds=%d", mode, n, samples, rounds))
 print("lowered vocabulary cells 18/18")
 for _, result in ipairs(Measure.measure(cases, {
     samples = samples,

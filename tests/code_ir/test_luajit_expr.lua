@@ -1,16 +1,16 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Ty = T.MoonType
-local Code = T.MoonCode
-local LJ = T.MoonLuaJIT
-local Expr = require("moonlift.luajit_expr")(T)
+local Core = T.LalinCore
+local Ty = T.LalinType
+local Code = T.LalinCode
+local LJ = T.LalinLuaJIT
+local Expr = require("lalin.luajit_expr")(T)
 
 local function cls(value) return pvm.classof(value) end
 
@@ -109,7 +109,7 @@ local sig = Code.CodeSig(Code.CodeSigId("sig:add"), { i32, i32 }, { i32 })
 ctx.code_sigs = { [sig.id.text] = sig }
 local local_place = Code.CodePlaceLocal(Code.CodeLocalId("local:x"), i32)
 local deref_place = Code.CodePlaceDeref(data_dst, i32, 4)
-local field_ref = T.MoonSem.FieldByName("x", Ty.TScalar(Core.ScalarI32))
+local field_ref = T.LalinSem.FieldByName("x", Ty.TScalar(Core.ScalarI32))
 local named_ty = Code.CodeTyNamed("Demo", "Pair", Ty.TNamed(Ty.TypeRefGlobal("Demo", "Pair")))
 local variant = Code.CodeVariantRef(named_ty, "some", 1, i32)
 local access = Code.CodeMemoryAccess(Code.CodeMemoryReadWrite, i32, 4, Code.CodeMayTrap, false, Core.AtomicSeqCst)
@@ -177,4 +177,4 @@ assert(cls(astore) == LJ.LJStmtAtomicStore)
 local fence = Expr.inst_to_stmt(ctx, Code.CodeInst(Code.CodeInstId("inst:fence"), Code.CodeInstAtomicFence(Core.AtomicSeqCst), origin))
 assert(cls(fence) == LJ.LJStmtAtomicFence)
 
-io.write("moonlift luajit_expr ok\n")
+io.write("lalin luajit_expr ok\n")

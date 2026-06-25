@@ -1,7 +1,7 @@
--- Moonlift JSON library showcase.
+-- Lalin JSON library showcase.
 --
 -- This is intentionally a library-shaped .mlua artifact, not a benchmark body.
--- Lua owns the ergonomic API and policy objects. Moonlift owns the byte parser,
+-- Lua owns the ergonomic API and policy objects. Lalin owns the byte parser,
 -- value construction, strict JSON grammar, and the C ABI boundary.
 --
 -- Public Lua surface returned by this file:
@@ -22,8 +22,8 @@
 -- source bytes in, value-event tags/slices/numbers/string bytes out.
 
 local ffi = require("ffi")
-local moon = require("moonlift")
-local dsl = require("moonlift.dsl")
+local lalin = require("lalin")
+local dsl = require("lalin.dsl")
 
 local json_module = dsl.loadstring([=[
 return unit. json_library_showcase {
@@ -810,7 +810,7 @@ return unit. json_library_showcase {
 }
 ]=], "json_library_showcase_dsl")()
 
-local c_artifact = json_module:emit_c_artifact({ module_name = "moonlift_json_showcase" })
+local c_artifact = json_module:emit_c_artifact({ module_name = "lalin_json_showcase" })
 local c_blob = c_artifact.combined
 local c_header = c_artifact.header
 

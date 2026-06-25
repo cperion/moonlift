@@ -182,8 +182,8 @@ local function compile(program, symbols)
         local typed_pf = P_type_values.run(lowered_pf, sig)
         local value_scalars = Mx.scalar_map_from_entries(typed_pf.value_scalars)
 
-        -- MoonBack fact extraction + family-based lowering decisions.
-        -- MoonBack remains the semantic source; this phase stack reflects
+        -- LalinBack fact extraction + family-based lowering decisions.
+        -- LalinBack remains the semantic source; this phase stack reflects
         -- and selects target shapes without changing semantics.
         local fact_set = P_extract.run(lowered_pf, value_scalars)
         local lowered = P_lower_facts.run(fact_set)

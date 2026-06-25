@@ -19,7 +19,7 @@ function M.normalize_lua_file(file_path, config)
     end
 
     -- Do not use LuaJIT syntax as the default corpus gate: the target corpus is
-    -- PUC Lua 5.5 and must be accepted/rejected by the Moonlift Lua VM compiler.
+    -- PUC Lua 5.5 and must be accepted/rejected by the Lalin Lua VM compiler.
     if config.syntax_check == "luajit" then
         local chunk, syntax_err = load(content, file_path)
         if not chunk then

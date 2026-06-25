@@ -1,4 +1,4 @@
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local regalloc = require("back.dasm.regalloc")
 local Mx = require("back.dasm.model")
 
@@ -10,7 +10,7 @@ local function value_class(D, B, sk)
     return D.DValueGpr(scalar)
 end
 
-local regalloc_phase = pvm.phase("moonlift_dasm_regalloc_banked", function(pf, value_scalars)
+local regalloc_phase = pvm.phase("lalin_dasm_regalloc_banked", function(pf, value_scalars)
     local D = Mx.dasm()
     local B = Mx.back()
 
@@ -47,7 +47,7 @@ return {
     run = function(phase_func, value_scalars)
         local D = Mx.dasm()
         if pvm.classof(phase_func) ~= D.DPhaseFunc then
-            error("regalloc_banked.run expects MoonDasm.DPhaseFunc", 2)
+            error("regalloc_banked.run expects LalinDasm.DPhaseFunc", 2)
         end
         return pvm.one(regalloc_phase(phase_func, value_scalars or {}))
     end,

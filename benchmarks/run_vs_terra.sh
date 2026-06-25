@@ -20,7 +20,7 @@ else
 fi
 awk '
   function suffix(k) {
-    sub(/^moonlift_/, "", k)
+    sub(/^lalin_/, "", k)
     sub(/^terra_/, "", k)
     return k
   }
@@ -31,25 +31,25 @@ awk '
     terra_t[$1]=$2; terra_r[$1]=$3
   }
   END {
-    printf("\nMoonlift vs Terra: jump-first typed block/jump kernel suite\n")
+    printf("\nLalin vs Terra: jump-first typed block/jump kernel suite\n")
     printf("Mode: %s\n\n", mode == "" ? "default" : mode)
-    printf("%-32s %12s %12s %8s  %s\n", "kernel", "moonlift", "terra", "ratio", "result/check")
+    printf("%-32s %12s %12s %8s  %s\n", "kernel", "lalin", "terra", "ratio", "result/check")
     printf("%-32s %12s %12s %8s  %s\n", "--------------------------------", "------------", "------------", "--------", "------------")
     for (i=1;i<=n;i++) {
       s=order[i]
-      mk="moonlift_" s
+      mk="lalin_" s
       tk="terra_" s
       if (!(tk in terra_t)) continue
       ratio=ml_t[mk] / terra_t[tk]
       mismatch=(ml_r[mk] != terra_r[tk]) ? "  MISMATCH terra=" terra_r[tk] : ""
       printf("%-32s %9.3f ms %9.3f ms %7.2fx  %s%s\n", s, ml_t[mk]*1000, terra_t[tk]*1000, ratio, ml_r[mk], mismatch)
     }
-    printf("\nMoonlift / Terra ratios by family (lower is better for Moonlift):\n")
-    printf("compile                  %.2fx\n", ml_t["moonlift_compile"] / terra_t["terra_compile"])
+    printf("\nLalin / Terra ratios by family (lower is better for Lalin):\n")
+    printf("compile                  %.2fx\n", ml_t["lalin_compile"] / terra_t["terra_compile"])
     for (i=1;i<=n;i++) {
       s=order[i]
       if (s == "compile") continue
-      mk="moonlift_" s
+      mk="lalin_" s
       tk="terra_" s
       if (!(tk in terra_t)) continue
       printf("%-24s %.2fx\n", s, ml_t[mk] / terra_t[tk])

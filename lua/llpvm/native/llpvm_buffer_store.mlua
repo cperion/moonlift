@@ -1,10 +1,10 @@
 -- llpvm_buffer_store.mlua -- Buffers, tape constructors, and pull terminals.
 
-local H = moon.require("llpvm_header")
+local H = lalin.require("llpvm_header")
 local T = H.T
 local R = H.R
-local Mem = moon.require("llpvm_memory")
-local Schema = moon.require("llpvm_schema")
+local Mem = lalin.require("llpvm_memory")
+local Schema = lalin.require("llpvm_schema")
 
 local llpvm_op_index = func(ref: T.LlOpRef): index
     return as(index, repr(ref) - 1)

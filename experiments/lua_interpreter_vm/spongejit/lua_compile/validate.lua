@@ -1,7 +1,7 @@
 -- lua_compile/validate.lua -- shared cross-layer invariants.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local LuaFFIValidate = require("lua_compile.lua_ffi_validate")
 local LuaGCValidate = require("lua_compile.lua_gc_validate")
@@ -125,9 +125,9 @@ function M.lua_exec_module(module)
   return LuaExecValidate.module(module)
 end
 
-function M.moon_cfg_kernel(kernel)
+function M.lalin_cfg_kernel(kernel)
   local errors = {}
-  if pvm.classof(kernel) ~= T.MoonCFG.Kernel then add(errors, "expected MoonCFG.Kernel") end
+  if pvm.classof(kernel) ~= T.LalinCFG.Kernel then add(errors, "expected LalinCFG.Kernel") end
   return #errors == 0, errors
 end
 

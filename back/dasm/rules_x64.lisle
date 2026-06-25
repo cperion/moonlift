@@ -1,6 +1,6 @@
-;; rules_x64.lisle — x64 instruction selector for MoonBack.Cmd
+;; rules_x64.lisle — x64 instruction selector for LalinBack.Cmd
 ;;
-;; Each rule maps a MoonBack.Cmd constructor to the handler in
+;; Each rule maps a LalinBack.Cmd constructor to the handler in
 ;; back/dasm/isel_x64.lua.  The lisle compiler turns this into a
 ;; pattern-matching trie; compile.lua calls the generated
 ;; M.lower_cmd(cmd, regmap, cmd_index).

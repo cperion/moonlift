@@ -1,7 +1,7 @@
 -- lua_compile_validate.lua -- whole-pipeline invariants.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local M = {}
 
@@ -36,8 +36,8 @@ function M.validate_exec_lower_result(result)
   return true, {}
 end
 
-function M.validate_moon_lower_result(result)
-  if not T.LuaCompile.MoonLowerResult.members[pvm.classof(result)] then return false, { "expected LuaCompile.MoonLowerResult" } end
+function M.validate_lalin_lower_result(result)
+  if not T.LuaCompile.LalinLowerResult.members[pvm.classof(result)] then return false, { "expected LuaCompile.LalinLowerResult" } end
   return true, {}
 end
 

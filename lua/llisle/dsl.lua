@@ -317,7 +317,7 @@ local L = llb.define "LlisleDsl" {
 
     -- Declares a typed product-to-product relation. Rules satisfy relations.
     g.head .relation { g.trait .named, slot_name(g.slot .name), slot_body(g.slot .body, g.relation_body), emit = function(n) return setmetatable({ kind = "relation", name = ident_text(n.name, "relation name"), body = n.body or {}, origin = n.origin }, RelationSpec) end },
-    -- Declares a projection relation. Projection turns family values into MoonSchema-backed facts.
+    -- Declares a projection relation. Projection turns family values into LalinSchema-backed facts.
     g.head .project { g.trait .named, slot_name(g.slot .name), slot_body(g.slot .body, g.relation_body), emit = function(n) return setmetatable({ kind = "project", name = ident_text(n.name, "project name"), body = n.body or {}, origin = n.origin }, RelationSpec) end },
     -- Declares a semantic predicate used by guards. The optional [] slot carries the Lua implementation value.
     g.head .predicate { g.trait .named, slot_name(g.slot .name), slot_index_impl(g.slot .impl), slot_body(g.slot .body, g.predicate_body), emit = function(n) return setmetatable({ name = ident_text(n.name, "predicate name"), impl = n.impl, body = n.body or {}, origin = n.origin }, PredicateDecl) end },
@@ -366,7 +366,7 @@ local L = llb.define "LlisleDsl" {
 M.language = L
 M._ = llb.spread
 M.spread = llb.spread
-M.llisle = llb.zone_head { family = "moonlift", member = "llisle.dsl", name = "llisle", role = "rules" }
+M.llisle = llb.zone_head { family = "lalin", member = "llisle.dsl", name = "llisle", role = "rules" }
 
 local function is_llisle_zone(v)
     return llb.is(v, "Zone") and (v.member == "llisle.dsl" or v.name == "llisle")
@@ -624,7 +624,7 @@ function M.namespace(opts)
     if M.compile ~= nil then exports.compile = M.compile end
     if M.engine ~= nil then exports.engine = M.engine end
     return llb.namespace {
-        family = "moonlift",
+        family = "lalin",
         member = "llisle.dsl",
         name = "llisle",
         exports = exports,

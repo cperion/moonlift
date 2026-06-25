@@ -1,21 +1,21 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local Gather = require("moonlift.bind_residence_gather")
-local Decide = require("moonlift.bind_residence_decide")
-local Machine = require("moonlift.bind_machine_binding")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local Gather = require("lalin.bind_residence_gather")
+local Decide = require("lalin.bind_residence_decide")
+local Machine = require("lalin.bind_machine_binding")
 
 local T = pvm.context()
 A(T)
 local G = Gather(T)
 local D = Decide(T)
 local M = Machine(T)
-local C = T.MoonCore
-local Ty = T.MoonType
-local B = T.MoonBind
-local O = T.MoonOpen
-local Tr = T.MoonTree
+local C = T.LalinCore
+local Ty = T.LalinType
+local B = T.LalinBind
+local O = T.LalinOpen
+local Tr = T.LalinTree
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local fn_ty = Ty.TFunc({ i32 }, i32)
@@ -85,4 +85,4 @@ for i = 1, #bindings do
     assert(has(machine.bindings, B.MachineBinding(bindings[i], residence)))
 end
 
-print("moonlift bind_residence_coverage ok")
+print("lalin bind_residence_coverage ok")

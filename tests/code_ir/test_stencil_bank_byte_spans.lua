@@ -1,17 +1,17 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local Value = T.MoonValue
-local Stencil = T.MoonStencil
-local StencilArtifactPlan = require("moonlift.stencil_artifact_plan")(T)
+local Core = T.LalinCore
+local Code = T.LalinCode
+local Value = T.LalinValue
+local Stencil = T.LalinStencil
+local StencilArtifactPlan = require("lalin.stencil_artifact_plan")(T)
 local StencilBinary = require("tests.code_ir.stencil_binary_helper")
 
 local u8 = Code.CodeTyInt(8, Code.CodeUnsigned)
@@ -66,4 +66,4 @@ assert(mask[0] == 0 and mask[1] == 0 and mask[2] == 1 and mask[3] == 0 and mask[
 
 assert(sym(artifacts[6])(xs, 0, 6) == 3, "byte count")
 
-io.write("moonlift stencil_bank byte spans ok\n")
+io.write("lalin stencil_bank byte spans ok\n")

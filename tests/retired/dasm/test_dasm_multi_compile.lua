@@ -2,16 +2,16 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;"
   .. package.path
 
 local ffi = require("ffi")
-local pvm = require("moonlift.pvm")
-local A2 = require("moonlift.schema_projection")
+local pvm = require("lalin.pvm")
+local A2 = require("lalin.schema_projection")
 local D = require("back.dasm")
 
 local T = pvm.context()
 A2(T)
 local api = D(T)
 
-local B = T.MoonBack
-local C = T.MoonCore
+local B = T.LalinBack
+local C = T.LalinCore
 
 local function sid(t) return B.BackSigId(t) end
 local function fid(t) return B.BackFuncId(t) end

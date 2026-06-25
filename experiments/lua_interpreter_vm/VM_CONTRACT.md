@@ -1,10 +1,10 @@
-# Moonlift Lua VM Contract / ABI
+# Lalin Lua VM Contract / ABI
 
-This document records the pre-SponJIT contract for the Moonlift-native Lua 5.5 VM. It is an architectural gate: SponJIT must consume this contract only after the VM validator, frame/cache rules, native boundary, allocator boundary, and error/yield protocols are implemented and tested.
+This document records the pre-SponJIT contract for the Lalin-native Lua 5.5 VM. It is an architectural gate: SponJIT must consume this contract only after the VM validator, frame/cache rules, native boundary, allocator boundary, and error/yield protocols are implemented and tested.
 
 ## Scope
 
-- The VM targets Lua 5.5 semantics in Moonlift-native data/control structures.
+- The VM targets Lua 5.5 semantics in Lalin-native data/control structures.
 - PUC Lua is a semantic reference only. PUC layouts, `longjmp`, C-stack behavior, allocator conventions, and internal bytecode/runtime shapes MUST NOT be treated as implementation dependencies.
 - Scratch-memory FFI tests are test fixtures only. They are not the stable host ABI.
 - SponJIT remains separate and MUST NOT optimize or depend on scaffolding behavior.
@@ -27,7 +27,7 @@ Host-visible access is through sealed API functions only. Host callers MUST NOT 
 
 ## Native ABI
 
-Native Lua-callable functions use a Moonlift-owned ABI contract:
+Native Lua-callable functions use a Lalin-owned ABI contract:
 
 - Native descriptors MUST carry an ABI version.
 - Native execution MUST expose normal return, Lua error, yield, OOM, and stack-growth outcomes explicitly.

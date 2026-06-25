@@ -1,13 +1,13 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local CoreScalar = require("moonlift.core_scalar")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local CoreScalar = require("lalin.core_scalar")
 
 local T = pvm.context()
 A(T)
 local L = CoreScalar(T)
-local C = T.MoonCore
+local C = T.LalinCore
 
 local function expect(scalar, family, bits)
     assert(L.family(scalar) == family)
@@ -30,4 +30,4 @@ expect(C.ScalarF64, C.ScalarFamilyFloat, 64)
 expect(C.ScalarRawPtr, C.ScalarFamilyRawPtr, 64)
 expect(C.ScalarIndex, C.ScalarFamilyIndex, 64)
 
-print("moonlift core_scalar ok")
+print("lalin core_scalar ok")

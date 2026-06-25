@@ -1,11 +1,11 @@
 #!/usr/bin/env luajit
--- Verify semantic equivalence: generated Moonlift code produces same results as StateOps
+-- Verify semantic equivalence: generated Lalin code produces same results as StateOps
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local Builder = require("experiments.lua_interpreter_vm.src.jit.library_builder")
 local codegen = require("experiments.lua_interpreter_vm.src.jit.stencil_codegen_production")
-local moon = require("moonlift")
+local lalin = require("lalin")
 
 -- Reference StateOp interpreter
 local function interpret_stateops(ops, state, exits)
@@ -79,7 +79,7 @@ for i, cand in ipairs(plan.library or {}) do
     if cand.kind == "compound_candidate" and cand.replacement and cand.replacement.kind == "code_stencil_needed" then
         test_count = test_count + 1
 
-        -- Generate Moonlift code
+        -- Generate Lalin code
         local func, err = codegen.generate_function(cand)
         if not func then
             -- Skip candidates with generation errors

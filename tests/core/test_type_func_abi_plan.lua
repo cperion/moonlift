@@ -1,16 +1,16 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local Abi = require("moonlift.type_func_abi_plan")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local Abi = require("lalin.type_func_abi_plan")
 
 local T = pvm.context()
 A(T)
 local L = Abi(T)
-local C = T.MoonCore
-local Ty = T.MoonType
-local B = T.MoonBind
-local Back = T.MoonBack
+local C = T.LalinCore
+local Ty = T.LalinType
+local B = T.LalinBind
+local Back = T.LalinBack
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local view_i32 = Ty.TView(i32)
@@ -51,4 +51,4 @@ assert(pvm.classof(view_result_plan.result) == Ty.AbiResultView)
 assert(view_result_plan.result.elem == i32)
 assert(view_result_plan.result.out == Back.BackValId("arg:make:return:out"))
 
-print("moonlift type_func_abi_plan ok")
+print("lalin type_func_abi_plan ok")

@@ -9,9 +9,9 @@ Current SpongeJIT path:
 PUC bytecode windows
 → LuaSrc + LuaFact
 → LuaRT / LuaExec
-→ MoonCFG
+→ LalinCFG
 → Stencil artifacts
-→ Moonlift-native selection and copy/patch materialization
+→ Lalin-native selection and copy/patch materialization
 ```
 
 Use the harness only as a source of bytecode windows, profiles, or comparison

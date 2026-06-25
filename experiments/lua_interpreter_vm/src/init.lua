@@ -1,4 +1,4 @@
--- Moonlift Lua Interpreter VM — Module loader
+-- Lalin Lua Interpreter VM — Module loader
 
 local vm = {}
 

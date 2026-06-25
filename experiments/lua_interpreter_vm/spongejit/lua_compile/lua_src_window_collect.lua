@@ -1,7 +1,7 @@
 -- lua_src_window_collect.lua -- opcode stream -> LuaSrc.Window.
 
 local B = require("lua_compile.builders")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local Decode = require("lua_compile.lua_src_from_puc_decode")
 local Compile = B.T.LuaCompile
 

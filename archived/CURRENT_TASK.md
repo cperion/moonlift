@@ -10,14 +10,14 @@ The mapping is:
 - BIN_* → Bin* (BIN_ADD → BinAdd, BIN_SUB → BinSub, BIN_MUL → BinMul, BIN_DIV → BinDiv, BIN_REM → BinRem, BIN_BIT_AND → BinBitAnd, BIN_BIT_OR → BinBitOr, BIN_BIT_XOR → BinBitXor, BIN_SHL → BinShl, BIN_LSHR → BinLShr, BIN_ASHR → BinAShr)
 - CMP_* → Cmp* (CMP_EQ → CmpEq, CMP_NE → CmpNe, CMP_LT → CmpLt, CMP_LE → CmpLe, CMP_GT → CmpGt, CMP_GE → CmpGe)
 - U_* → Unary* (U_NEG → UnaryNeg, U_NOT → UnaryNot, U_BIT_NOT → UnaryBitNot)
-- C_* → Scalar* for MoonCore scalars (C_VOID → ScalarVoid, C_BOOL → ScalarBool, C_I8 → ScalarI8, C_I16 → ScalarI16, C_I32 → ScalarI32, C_I64 → ScalarI64, C_U8 → ScalarU8, C_U16 → ScalarU16, C_U32 → ScalarU32, C_U64 → ScalarU64, C_F32 → ScalarF32, C_F64 → ScalarF64, C_RAWPTR → ScalarRawPtr, C_INDEX → ScalarIndex)
+- C_* → Scalar* for LalinCore scalars (C_VOID → ScalarVoid, C_BOOL → ScalarBool, C_I8 → ScalarI8, C_I16 → ScalarI16, C_I32 → ScalarI32, C_I64 → ScalarI64, C_U8 → ScalarU8, C_U16 → ScalarU16, C_U32 → ScalarU32, C_U64 → ScalarU64, C_F32 → ScalarF32, C_F64 → ScalarF64, C_RAWPTR → ScalarRawPtr, C_INDEX → ScalarIndex)
 - ISS_* → BackIssue* (ISS_EMPTY_PROGRAM → BackIssueEmptyProgram, ISS_MISSING_FINALIZE → BackIssueMissingFinalize, ISS_CMD_AFTER_FINALIZE → BackIssueCommandAfterFinalize, ISS_CMD_OUTSIDE_FUNC → BackIssueCommandOutsideFunction, ISS_NESTED_FUNC → BackIssueNestedFunction, ISS_FINISH_WITHOUT_BEGIN → BackIssueFinishWithoutBegin, ISS_FINISH_WRONG_FUNC → BackIssueFinishWrongFunction, ISS_UNFINISHED_FUNC → BackIssueUnfinishedFunction, ISS_DUP_SIG → BackIssueDuplicateSig, ISS_DUP_DATA → BackIssueDuplicateData, ISS_DUP_FUNC → BackIssueDuplicateFunc, ISS_DUP_EXTERN → BackIssueDuplicateExtern, ISS_DUP_BLOCK → BackIssueDuplicateBlock, ISS_DUP_SLOT → BackIssueDuplicateStackSlot, ISS_DUP_VALUE → BackIssueDuplicateValue, ISS_MISSING_SIG → BackIssueMissingSig, ISS_MISSING_DATA → BackIssueMissingData, ISS_MISSING_FUNC → BackIssueMissingFunc, ISS_MISSING_EXTERN → BackIssueMissingExtern, ISS_MISSING_BLOCK → BackIssueMissingBlock, ISS_MISSING_SLOT → BackIssueMissingStackSlot, ISS_MISSING_VALUE → BackIssueMissingValue, ISS_DUP_ACCESS → BackIssueDuplicateAccess, ISS_MISSING_ACCESS → BackIssueMissingAccess)
 
 Important notes:
 - Inside @{T.XXX} splice expressions, change the reference name. E.g., @{T.CMD_TRAP} → @{T.CmdTrap}
 - The MB_BIN_*, MC_*, SC_*, TK_*, EX_*, ST_*, CF_*, VF_*, VD_*, VP_*, CR_*, CD_* tags stay the same (they're already correctly named or non-schema)
-- TY_* tags stay the same (MoonCyclic not derived yet)
-- All files that use `local T = require("moonlift.mom.back.back_tags")` keep the same import AI! -->
+- TY_* tags stay the same (LalinCyclic not derived yet)
+- All files that use `local T = require("lalin.mom.back.back_tags")` keep the same import AI! -->
 
 ## Progress
 <!-- KEEP THIS UPDATED: Check off items as you complete them -->
@@ -125,16 +125,16 @@ Important notes:
 - [ ] Change T.MC_FTOU to T.MC_FTOU, T.BACK_FTOU to T.BackFToU
 
 ## Files Being Edited
-- lua/moonlift/mom/back/cmd.mlua
+- lua/lalin/mom/back/cmd.mlua
 
 ## Context Files
-- lua/moonlift/mom/back/cmd.mlua
-- lua/moonlift/mom/back/ops.mlua
-- lua/moonlift/mom/back/expr_lower.mlua
-- lua/moonlift/mom/back/stmt_lower.mlua
-- lua/moonlift/mom/back/validate.mlua
-- lua/moonlift/mom/back/control.mlua
-- lua/moonlift/mom/vec/vec_facts.mlua
-- lua/moonlift/mom/vec/vec_decide.mlua
-- lua/moonlift/mom/vec/vec_plan.mlua
-- lua/moonlift/mom/vec/vec_lower.mlua
+- lua/lalin/mom/back/cmd.mlua
+- lua/lalin/mom/back/ops.mlua
+- lua/lalin/mom/back/expr_lower.mlua
+- lua/lalin/mom/back/stmt_lower.mlua
+- lua/lalin/mom/back/validate.mlua
+- lua/lalin/mom/back/control.mlua
+- lua/lalin/mom/vec/vec_facts.mlua
+- lua/lalin/mom/vec/vec_decide.mlua
+- lua/lalin/mom/vec/vec_plan.mlua
+- lua/lalin/mom/vec/vec_lower.mlua

@@ -1,4 +1,4 @@
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local bit = require("bit")
 local Mx = require("back.dasm.model")
 
@@ -161,7 +161,7 @@ local function phase_const()
     local B = Mx.back()
     local D = Mx.dasm()
 
-    PHASE_CONST = pvm.phase("moonlift_dasm_cmd_const_fact", {
+    PHASE_CONST = pvm.phase("lalin_dasm_cmd_const_fact", {
         [B.CmdConst] = function(cmd)
             return pvm.once(D.DFactValueConst(cmd.dst, const_kind_of(D, cmd.value)))
         end,
@@ -206,7 +206,7 @@ local function phase_atom()
         return emit_many(out)
     end
 
-    PHASE_ATOM = pvm.phase("moonlift_dasm_cmd_atoms", handlers)
+    PHASE_ATOM = pvm.phase("lalin_dasm_cmd_atoms", handlers)
     return PHASE_ATOM
 end
 
@@ -333,7 +333,7 @@ local function phase_family()
         if not handlers[B[n]] then handlers[B[n]] = none end
     end
 
-    PHASE_FAMILY = pvm.phase("moonlift_dasm_cmd_family", handlers)
+    PHASE_FAMILY = pvm.phase("lalin_dasm_cmd_family", handlers)
     return PHASE_FAMILY
 end
 
@@ -387,7 +387,7 @@ local PHASE_EXTRACT = nil
 local function phase_extract()
     if PHASE_EXTRACT then return PHASE_EXTRACT end
     local D = Mx.dasm()
-    PHASE_EXTRACT = pvm.phase("moonlift_dasm_extract_facts", {
+    PHASE_EXTRACT = pvm.phase("lalin_dasm_extract_facts", {
         [D.DPhaseFunc] = function(pf, value_scalars)
             return pvm.once(run_extract(pf, value_scalars))
         end,
@@ -400,7 +400,7 @@ return {
     run = function(phase_func, value_scalars)
         local D = Mx.dasm()
         if pvm.classof(phase_func) ~= D.DPhaseFunc then
-            error("extract_facts.run expects MoonDasm.DPhaseFunc", 2)
+            error("extract_facts.run expects LalinDasm.DPhaseFunc", 2)
         end
         return pvm.one(phase_extract()(phase_func, value_scalars or {}))
     end,

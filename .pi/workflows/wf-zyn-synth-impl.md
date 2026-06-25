@@ -1,5 +1,5 @@
-# Zyn Moonlift Synth Implementation 
-Plan implementation of examples/synth/zyn_moonlift_synth_impl.mlua from zyn_moonlift_synth_headers.mlua and zyn_moonlift_synth_spec.md, following THE_MOONLIFT_DESIGN_BIBLE discipline. Implementation must transcribe the spec: internal regions/protocols, ABI status only at F.* seals, no hidden state or convenient exits.
+# Zyn Lalin Synth Implementation
+Plan implementation of examples/synth/zyn_lalin_synth_impl.mlua from zyn_lalin_synth_headers.mlua and zyn_lalin_synth_spec.md, following THE_LALIN_DESIGN_BIBLE discipline. Implementation must transcribe the spec: internal regions/protocols, ABI status only at F.* seals, no hidden state or convenient exits.
 **Workflow ID**: wf-zyn-synth-impl
 **Started**: 2026-06-13 09:00:09
 ---
@@ -8,13 +8,13 @@ Plan implementation of examples/synth/zyn_moonlift_synth_impl.mlua from zyn_moon
 
 ### Precondition Checks
 
-- Confirm `examples/synth/zyn_moonlift_synth_impl.mlua` still does **not** exist.
-- Confirm `examples/synth/zyn_moonlift_synth_headers.mlua` remains the source of truth:
+- Confirm `examples/synth/zyn_lalin_synth_impl.mlua` still does **not** exist.
+- Confirm `examples/synth/zyn_lalin_synth_headers.mlua` remains the source of truth:
   - Encodings at lines 52-209.
   - Products at lines 213-758.
   - Regions at lines 760-1179.
   - ABI function headers at lines 1181-1203.
-- Confirm `examples/synth/zyn_moonlift_synth_spec.md` still contains:
+- Confirm `examples/synth/zyn_lalin_synth_spec.md` still contains:
   - ABI mapping lines 20-46.
   - Storage contract lines 48-98.
   - Patch format lines 100-268.
@@ -33,15 +33,15 @@ No existing files should be modified. The header and spec are contracts only.
 
 ### New Files
 
-#### `examples/synth/zyn_moonlift_synth_impl.mlua`
+#### `examples/synth/zyn_lalin_synth_impl.mlua`
 
-**Purpose**: Implement every region and ABI seal declared by `zyn_moonlift_synth_headers.mlua`, faithfully transcribing `zyn_moonlift_synth_spec.md`.
+**Purpose**: Implement every region and ABI seal declared by `zyn_lalin_synth_headers.mlua`, faithfully transcribing `zyn_lalin_synth_spec.md`.
 
 **Contents sketch / edit blocks**
 
 1. **Lines 1-35: Add module scaffold**
    - Load header:
-     - `local H = dofile("examples/synth/zyn_moonlift_synth_headers.mlua")`
+     - `local H = dofile("examples/synth/zyn_lalin_synth_headers.mlua")`
      - bind `M/E/T/R/F`.
    - Add comment: implementation bodies are transcription of the sibling spec.
    - Return `M` at end after replacing closures with implemented bodies.
@@ -213,13 +213,13 @@ No existing files should be modified. The header and spec are contracts only.
 
 ---
 
-#### `tests/test_zyn_moonlift_synth_impl.lua`
+#### `tests/test_zyn_lalin_synth_impl.lua`
 
 **Purpose**: Compile/load and smoke-test the implementation against the spec.
 
 **Contents sketch**
 
-- Load implementation with `moonlift.mlua_run`.
+- Load implementation with `lalin.mlua_run`.
 - Assert every `M.R.*` and `M.F.*` header entry is now implemented.
 - Bundle/compile all implemented regions/functions.
 - Add minimal FFI-backed checks:
@@ -234,7 +234,7 @@ No existing files should be modified. The header and spec are contracts only.
 
 ### Order of Operations
 
-1. Create `examples/synth/zyn_moonlift_synth_impl.mlua` scaffold.
+1. Create `examples/synth/zyn_lalin_synth_impl.mlua` scaffold.
 2. Add internal helpers before any region body depends on them.
 3. Implement storage sizing/init first; many later regions depend on initialized storage shape.
 4. Implement borrow/lifetime regions.
@@ -256,7 +256,7 @@ Run incrementally:
 
 ```sh
 cargo build --release
-luajit tests/test_zyn_moonlift_synth_impl.lua
+luajit tests/test_zyn_lalin_synth_impl.lua
 ```
 
 After scaffold/helper work:
@@ -268,7 +268,7 @@ After each region family:
 
 Final checks:
 - Full test file.
-- Compile/load `examples/synth/zyn_moonlift_synth_impl.mlua`.
+- Compile/load `examples/synth/zyn_lalin_synth_impl.mlua`.
 - Evidence should include commands run and exact failures if blocked by compiler/backend limitations.
 
 ---
@@ -306,19 +306,19 @@ Created tasks `T001`–`T017` covering:
 ## Completed
 Implemented T001 only: created the synth implementation scaffold and verified the correct `.mlua` header/body idiom before writing it.
 
-- Uses `moon.dofile(...)` to load the `.mlua` header, because standard Lua `dofile` cannot parse Moonlift islands.
+- Uses `lalin.dofile(...)` to load the `.mlua` header, because standard Lua `dofile` cannot parse Lalin islands.
 - Binds `M/E/T/R/F`.
 - Adds compile-time constants and a future body binding table.
 - Leaves all region/function bodies unimplemented for later tasks.
 
 ## Files Changed
-- `examples/synth/zyn_moonlift_synth_impl.mlua` - new scaffold module.
+- `examples/synth/zyn_lalin_synth_impl.mlua` - new scaffold module.
 
 ## Notes
 Verification run:
 
 ```sh
-luajit -e 'package.path="./lua/?.lua;./lua/?/init.lua;"..package.path; local moon=require("moonlift"); local M=moon.dofile("examples/synth/zyn_moonlift_synth_impl.mlua"); print("loaded_impl", type(M), type(M.R.borrow_published_program), M.R.borrow_published_program.kind, M.F.synth_required_storage.kind)'
+luajit -e 'package.path="./lua/?.lua;./lua/?/init.lua;"..package.path; local lalin=require("lalin"); local M=lalin.dofile("examples/synth/zyn_lalin_synth_impl.mlua"); print("loaded_impl", type(M), type(M.R.borrow_published_program), M.R.borrow_published_program.kind, M.F.synth_required_storage.kind)'
 ```
 
 Result: scaffold loads successfully.
@@ -332,7 +332,7 @@ Marked edit-plan task `T001` done with evidence.
 - Claimed `T003` and implemented a substantial partial storage sizing/init body, but blocked it because `synth_init` is not compile-verified.
 
 ## Files Changed
-- `examples/synth/zyn_moonlift_synth_impl.mlua`
+- `examples/synth/zyn_lalin_synth_impl.mlua`
   - Added helpers: checked add/mul, align, byte range validation, byte/view/stereo validation, arena allocation, LE u16/u32/f32 readers, finite/clamp/min/max/abs, RNG/noise, denormal clamp.
   - Added partial `F.synth_required_storage`.
   - Added partial `F.synth_init`.
@@ -347,7 +347,7 @@ Blocked:
 - `F.synth_required_storage:compile()` via Cranelift timed out after 60s.
 - C backend lowering reached tcc but failed on generated C.
 - `F.synth_init:compile()` currently hits:
-  - `(asdl.gc_ctor.1.false):10: bad arg #1 to 'MoonTree.ExprTyped': expected 'MoonType.Type' got 'nil'`
+  - `(asdl.gc_ctor.1.false):10: bad arg #1 to 'LalinTree.ExprTyped': expected 'LalinType.Type' got 'nil'`
 
 Workflow ID: `wf-zyn-synth-impl`
 
@@ -359,7 +359,7 @@ Workflow ID: `wf-zyn-synth-impl`
 - Did not attempt `T007`; no ready tasks remain.
 
 ## Files Changed
-- `examples/synth/zyn_moonlift_synth_impl.mlua`
+- `examples/synth/zyn_lalin_synth_impl.mlua`
   - Added `R.decode_patch_source`
   - Added `R.next_patch_section`
   - Added primitive prep bodies:
@@ -384,8 +384,8 @@ Verification:
   - Compile fails: `prepare_tuning`, `prepare_modulation`, `prepare_additive_plan`, `prepare_subtractive_plan`, `prepare_effect_bus`
   - Error:
     ```text
-    ./lua/moonlift/tree_to_back.lua:2344:
-    moonlift tree_to_back unsupported lowering:
+    ./lua/lalin/tree_to_back.lua:2344:
+    lalin tree_to_back unsupported lowering:
     aggregate let initializer could not be lowered
     ```
   - Appears tied to aggregate products containing `view(...)` fields.
@@ -399,21 +399,21 @@ Edit plan:
 
 ## Files Retrieved
 
-1. `lua/moonlift/tree_to_back.lua` (lines 93-103, 265-354) - Backend environment representation for scalar/stack/view locals; view/aggregate classification and layout helpers.
-2. `lua/moonlift/tree_to_back.lua` (lines 901-920, 1299-1349, 1450-1457, 1668-1772, 2332-2350, 2559-2624, 2735-2786) - Expression/call/aggregate/view lowering, aggregate `StmtLet` failure site, function ABI lowering.
-3. `lua/moonlift/type_size_align.lua` (lines 1-180) - Memory layout classification; `TView` layout is `{ptr,index,index}`.
-4. `lua/moonlift/type_to_back_scalar.lua` (lines 1-85) - Backend scalar availability; `TView`, slices, arrays, aggregates unavailable as scalar values.
-5. `lua/moonlift/type_abi_classify.lua` (lines 1-82) - ABI class decisions; views/closures/slices descriptors, aggregates indirect.
-6. `lua/moonlift/type_func_abi_plan.lua` (lines 1-91) - Executable function ABI; view params flattened to data/len/stride, aggregate params by pointer, view result out pointer.
-7. `lua/moonlift/schema/tree.asdl` (lines 25-31, 130-143, 271-284) - AST/schema for views, aggregate exprs, backend expression result variants.
-8. `lua/moonlift/schema/open.asdl` (lines 1-56, 120-139) - Open slots and slot values including `ExprSlot`, `FuncSlot`, `SlotValueFunc`.
-9. `lua/moonlift/host.lua` (lines 299-392, 58-84) - `moon.func` header/body closure implementation and `CallableFunc:compile` dependency bundling.
-10. `lua/moonlift/chain.lua` (lines 68-132) - Full quote `{bindings}` path: fills splices, expands open slots, attaches `_dep_values`.
-11. `lua/moonlift/host_splice.lua` (lines 130-197) - Expression splice coercion; function-like host value becomes `ExprRef(ValueRefName(name))`.
-12. `lua/moonlift/parse.lua` (lines 827-831, 977-1015, 2524-2533) - Expression holes parse as `ExprSlotValue(ExprSlot(..., ty=nil))`; calls wrap hole as callee.
-13. `lua/moonlift/tree_typecheck.lua` (lines 387-395, 629-645, 675-722, 869-870) - Ref/call typing, aggregate typing, `ExprSlotValue` typing failure site.
-14. `lua/moonlift/open_expand.lua` (lines 420-451, 612-619, 673-688, 818-845) - Open-slot lookup/expansion for expression refs and calls.
-15. `lua/moonlift/sem_layout_resolve.lua` (lines 217-281) - Field/size/align resolution and aggregate recursion.
+1. `lua/lalin/tree_to_back.lua` (lines 93-103, 265-354) - Backend environment representation for scalar/stack/view locals; view/aggregate classification and layout helpers.
+2. `lua/lalin/tree_to_back.lua` (lines 901-920, 1299-1349, 1450-1457, 1668-1772, 2332-2350, 2559-2624, 2735-2786) - Expression/call/aggregate/view lowering, aggregate `StmtLet` failure site, function ABI lowering.
+3. `lua/lalin/type_size_align.lua` (lines 1-180) - Memory layout classification; `TView` layout is `{ptr,index,index}`.
+4. `lua/lalin/type_to_back_scalar.lua` (lines 1-85) - Backend scalar availability; `TView`, slices, arrays, aggregates unavailable as scalar values.
+5. `lua/lalin/type_abi_classify.lua` (lines 1-82) - ABI class decisions; views/closures/slices descriptors, aggregates indirect.
+6. `lua/lalin/type_func_abi_plan.lua` (lines 1-91) - Executable function ABI; view params flattened to data/len/stride, aggregate params by pointer, view result out pointer.
+7. `lua/lalin/schema/tree.asdl` (lines 25-31, 130-143, 271-284) - AST/schema for views, aggregate exprs, backend expression result variants.
+8. `lua/lalin/schema/open.asdl` (lines 1-56, 120-139) - Open slots and slot values including `ExprSlot`, `FuncSlot`, `SlotValueFunc`.
+9. `lua/lalin/host.lua` (lines 299-392, 58-84) - `lalin.func` header/body closure implementation and `CallableFunc:compile` dependency bundling.
+10. `lua/lalin/chain.lua` (lines 68-132) - Full quote `{bindings}` path: fills splices, expands open slots, attaches `_dep_values`.
+11. `lua/lalin/host_splice.lua` (lines 130-197) - Expression splice coercion; function-like host value becomes `ExprRef(ValueRefName(name))`.
+12. `lua/lalin/parse.lua` (lines 827-831, 977-1015, 2524-2533) - Expression holes parse as `ExprSlotValue(ExprSlot(..., ty=nil))`; calls wrap hole as callee.
+13. `lua/lalin/tree_typecheck.lua` (lines 387-395, 629-645, 675-722, 869-870) - Ref/call typing, aggregate typing, `ExprSlotValue` typing failure site.
+14. `lua/lalin/open_expand.lua` (lines 420-451, 612-619, 673-688, 818-845) - Open-slot lookup/expansion for expression refs and calls.
+15. `lua/lalin/sem_layout_resolve.lua` (lines 217-281) - Field/size/align resolution and aggregate recursion.
 
 ## Key Code
 
@@ -511,8 +511,8 @@ end
 Observed repro:
 
 ```text
-./lua/moonlift/tree_to_back.lua:2344:
-moonlift tree_to_back unsupported lowering:
+./lua/lalin/tree_to_back.lua:2344:
+lalin tree_to_back unsupported lowering:
 aggregate let initializer could not be lowered
 ```
 
@@ -550,7 +550,7 @@ Function header body path in `host.lua` does not use the quote binder expansion 
 
 ```lua
 local full = strip_bodyless_decl_end(header_src) .. "\n" .. arg .. "\nend"
-local res = require("moonlift.parse").Define(T2).parse_func(full)
+local res = require("lalin.parse").Define(T2).parse_func(full)
 ...
 return setmetatable({ kind = "func", ... func = fv, item = Tr2.ItemFunc(fv), ... }, CallableFunc)
 ```
@@ -581,8 +581,8 @@ If `self.slot.ty == nil`, ASDL constructor throws:
 
 ```text
 (asdl.gc_ctor.1.false):10:
-bad arg #1 to 'MoonTree.ExprTyped':
-expected 'MoonType.Type' got 'nil'
+bad arg #1 to 'LalinTree.ExprTyped':
+expected 'LalinType.Type' got 'nil'
 ```
 
 Observed AST for body-header repro `h{dep=dep}[[ return @{dep}(x) ]]`:
@@ -600,7 +600,7 @@ parse slots: dep / SlotExpr / role expr
 Observed contrast: full quote path works:
 
 ```lua
-local f = moon.func{dep=dep}[[
+local f = lalin.func{dep=dep}[[
 func main(x: i32): i32
   return @{dep}(x)
 end
@@ -626,7 +626,7 @@ _dep_values table present
 ## Relationships
 
 - `parse.lua` creates open slots for `@{...}`.
-- `chain.lua` is the normal binder path for `moon.func{...}[[...]]`; it calls `host_splice.fill`, then `open_expand`, then wraps the expanded function and attaches `_dep_values`.
+- `chain.lua` is the normal binder path for `lalin.func{...}[[...]]`; it calls `host_splice.fill`, then `open_expand`, then wraps the expanded function and attaches `_dep_values`.
 - `host.lua` function-header body closure reconstructs source text and calls `parse_func(full)` directly. It only text-substitutes header type bindings, not body expression splices.
 - Therefore `@{dep}` inside a body-only implementation remains an `ExprSlotValue` with nil `ExprSlot.ty`.
 - `tree_typecheck.lua` attempts to construct `ExprTyped(self.slot.ty)` for any remaining `ExprSlotValue`; nil causes the ASDL error.
@@ -643,7 +643,7 @@ _dep_values table present
 - Aggregate initialization only consumes the scalar/address channel.
 - Non-aggregate `StmtLet` has a special case for view initializer bindings, but aggregate field initialization does not.
 - Function ABI lowering knows how to flatten top-level view parameters, but ordinary `ExprCall` lowering currently consumes arguments via `expr_value(...)`.
-- `moon.func` header body closures differ materially from `moon.region` headers: region headers call `M.region(merged)(full)` when bindings exist; function headers call raw `parse_func(full)`.
+- `lalin.func` header body closures differ materially from `lalin.region` headers: region headers call `M.region(merged)(full)` when bindings exist; function headers call raw `parse_func(full)`.
 - The exact nil-typed expression slot path is: `@{dep}` in expression position → `ExprSlotValue(ExprSlot ty=nil)` → no expansion → `tree_typecheck ExprSlotValue` → `ExprTyped(nil)` constructor error.
 
 ## Worker Output — 2026-06-13 10:38:47
@@ -656,7 +656,7 @@ _dep_values table present
 - No further tasks were ready after T003 was blocked.
 
 ## Files Changed
-- `examples/synth/zyn_moonlift_synth_impl.mlua`
+- `examples/synth/zyn_lalin_synth_impl.mlua`
   - f32 literal casts in helper expressions and storage init loops.
   - `F.synth_init` final synth initialization rewritten as a single aggregate assignment.
 
@@ -664,7 +664,7 @@ _dep_values table present
 Verification:
 - Module load succeeds:
   ```sh
-  luajit -e '... moon.dofile("examples/synth/zyn_moonlift_synth_impl.mlua") ...'
+  luajit -e '... lalin.dofile("examples/synth/zyn_lalin_synth_impl.mlua") ...'
   ```
 - `F.synth_required_storage` C source emission succeeds.
 - Still blocked:
@@ -689,7 +689,7 @@ Edit plan status: T003 blocked; no ready downstream tasks.
 - Claimed `T007`, added a substantial partial implementation, then marked it **blocked** because it is not semantically complete.
 
 ## Files Changed
-- `examples/synth/zyn_moonlift_synth_impl.mlua`
+- `examples/synth/zyn_lalin_synth_impl.mlua`
   - Rewrote `F.synth_required_storage` to avoid lowering memory blow-up.
   - Verified `F.synth_required_storage:compile()` and `F.synth_init:compile()` under `ulimit`.
   - Added memory/lifetime regions:
@@ -728,7 +728,7 @@ No further tasks are ready because `T007` is blocked.
 - Did not claim downstream tasks because `T007` remains blocked.
 
 ## Files Changed
-- `examples/synth/zyn_moonlift_synth_impl.mlua`
+- `examples/synth/zyn_lalin_synth_impl.mlua`
   - Added tuning propagation attempt in `prepare_program`.
   - Added effect graph allocation/mapping for insert/send/master buses.
   - Expanded `validate_program`.
@@ -769,7 +769,7 @@ Edit plan:
 - Preserved `arena.used` rollback paths and carried tuning/effect graph state explicitly.
 
 ## Files Changed
-- `examples/synth/zyn_moonlift_synth_impl.mlua` - refactored `prepare_program` state flow and helper regions.
+- `examples/synth/zyn_lalin_synth_impl.mlua` - refactored `prepare_program` state flow and helper regions.
 
 ## Notes
 `T007` is marked **blocked**, not done.
@@ -805,11 +805,11 @@ This appears to be a separate compiler/frontend nested region-fragment expansion
 - Claimed `T010`, added partial modulation/envelope/LFO/filter implementation, but marked it **blocked honestly** because `render_voice_modulation` does not yet apply modulation routes.
 
 ## Files Changed
-- `lua/moonlift/tree_control_to_back.lua`
+- `lua/lalin/tree_control_to_back.lua`
   - Added view-param lowering for control regions.
 - `tests/test_control_region_view_params.lua`
   - New regression test for emitted control regions with view-valued params.
-- `examples/synth/zyn_moonlift_synth_impl.mlua`
+- `examples/synth/zyn_lalin_synth_impl.mlua`
   - Implemented/expanded `R.apply_host_events`.
   - Tightened `R.next_note_layer` and `R.allocate_voice`.
   - Added partial T010 regions:
@@ -846,7 +846,7 @@ Caveats:
 - Verified module still loads.
 
 ## Files Changed
-- `examples/synth/zyn_moonlift_synth_impl.mlua`
+- `examples/synth/zyn_lalin_synth_impl.mlua`
   - Added AD/SUB/PAD tone renderers.
   - Added ToneMask routing helpers.
   - Added audio clear/mix/pan/effect/finalize regions.
@@ -855,7 +855,7 @@ Caveats:
 ## Notes
 Verification:
 ```sh
-luajit -e '... moon.dofile("examples/synth/zyn_moonlift_synth_impl.mlua") ...'
+luajit -e '... lalin.dofile("examples/synth/zyn_lalin_synth_impl.mlua") ...'
 # module_load_ok
 
 (ulimit -v 1500000; timeout 180 luajit /tmp/check_t011.lua)
@@ -884,15 +884,15 @@ Edit plan now has no ready tasks: `T011` and `T012` are blocked with evidence.
 - Left T016 ready/unclaimed.
 
 ## Files Changed
-- `examples/synth/zyn_moonlift_synth_impl.mlua`
+- `examples/synth/zyn_lalin_synth_impl.mlua`
   - Implemented render orchestration regions.
   - Implemented ABI seals.
   - Added state-explicit render/note/retirement helpers.
-- `lua/moonlift/host.lua`
-  - Fixed `moon.func` header body binding expansion via full `M.func(bindings)(full)` path.
+- `lua/lalin/host.lua`
+  - Fixed `lalin.func` header body binding expansion via full `M.func(bindings)(full)` path.
 - `tests/test_func_header_body_region_splices.lua`
   - Regression test for function-header body region splices.
-- `tests/test_zyn_moonlift_synth_impl.lua`
+- `tests/test_zyn_lalin_synth_impl.lua`
   - New implementation compile coverage test.
 
 ## Verification
@@ -901,14 +901,14 @@ Passed:
 ```sh
 (ulimit -v 4000000; timeout 240 luajit /tmp/check_t013.lua)
 (ulimit -v 4000000; timeout 300 luajit /tmp/check_t014.lua)
-(ulimit -v 4000000; timeout 600 luajit tests/test_zyn_moonlift_synth_impl.lua)
+(ulimit -v 4000000; timeout 600 luajit tests/test_zyn_lalin_synth_impl.lua)
 (ulimit -v 1500000; timeout 60 luajit tests/test_func_header_body_region_splices.lua)
 (ulimit -v 1500000; timeout 60 luajit tests/test_control_region_view_params.lua)
 ```
 
 ## Notes
 - Edit plan now: 15/17 done, T016 ready.
-- `tests/test_zyn_moonlift_synth_impl.lua` compiles all ABI functions and key render dependency wrappers; it intentionally avoids compiling a duplicate `render_block` wrapper after `F.synth_render_block` to stay within protected memory limits.
+- `tests/test_zyn_lalin_synth_impl.lua` compiles all ABI functions and key render dependency wrappers; it intentionally avoids compiling a duplicate `render_block` wrapper after `F.synth_render_block` to stay within protected memory limits.
 
 ## Worker Output — 2026-06-13 22:24:58
 
@@ -920,7 +920,7 @@ Passed:
 - Edit plan is now `17/17 done`.
 
 ## Files Changed
-- `tests/test_zyn_moonlift_synth_impl.lua`
+- `tests/test_zyn_lalin_synth_impl.lua`
   - Added FFI-backed behavioral smoke coverage for:
     - storage sizing/init happy path
     - invalid config status mapping
@@ -933,8 +933,8 @@ Passed:
 Passed:
 ```sh
 cargo build --release
-(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua)
-(ulimit -v 1500000; timeout 60 luajit -e '... moon.dofile("examples/synth/zyn_moonlift_synth_impl.mlua") ...')
+(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_lalin_synth_impl.lua)
+(ulimit -v 1500000; timeout 60 luajit -e '... lalin.dofile("examples/synth/zyn_lalin_synth_impl.mlua") ...')
 ```
 
 ## Notes
@@ -946,10 +946,10 @@ cargo build --release
 ## Files Retrieved
 
 1. `.pi/workflows/wf-zyn-synth-impl.edit-plan.json` (lines 1-460) - Verified T018 was ready, claimed it, and later marked done.
-2. `examples/synth/zyn_moonlift_synth_spec.md` (lines 1-454) - Behavioral contract and spec references.
-3. `examples/synth/zyn_moonlift_synth_headers.mlua` (lines 1-220, 213-758, 760-1203) - Encodings, products, region signatures, ABI seals.
-4. `examples/synth/zyn_moonlift_synth_impl.mlua` (lines 1-4125, key ranges below) - Audited implementation bodies.
-5. `THE_MOONLIFT_DESIGN_BIBLE.md` (lines 1-220, 923-952, 1073-1104, 1268-1276) - Relevant transcription/tag-owner/ABI-seal discipline.
+2. `examples/synth/zyn_lalin_synth_spec.md` (lines 1-454) - Behavioral contract and spec references.
+3. `examples/synth/zyn_lalin_synth_headers.mlua` (lines 1-220, 213-758, 760-1203) - Encodings, products, region signatures, ABI seals.
+4. `examples/synth/zyn_lalin_synth_impl.mlua` (lines 1-4125, key ranges below) - Audited implementation bodies.
+5. `THE_LALIN_DESIGN_BIBLE.md` (lines 1-220, 923-952, 1073-1104, 1268-1276) - Relevant transcription/tag-owner/ABI-seal discipline.
 
 T018 was marked `done` in edit-plan revision `63`. No implementation edits were made.
 
@@ -957,7 +957,7 @@ T018 was marked `done` in edit-plan revision `63`. No implementation edits were 
 
 ### Patch/program preparation gaps
 
-- `examples/synth/zyn_moonlift_synth_impl.mlua` lines 928-1340 accept zero-length payloads as `defaulted`, `disabled`, `bypass`, or `empty` for tuning/envelope/LFO/filter/AD/SUB/PAD/effects.  
+- `examples/synth/zyn_lalin_synth_impl.mlua` lines 928-1340 accept zero-length payloads as `defaulted`, `disabled`, `bypass`, or `empty` for tuning/envelope/LFO/filter/AD/SUB/PAD/effects.
   Spec lines 100-268 define fixed records; only `end_marker` is explicitly zero-length. This looks like convenient defaulting not justified by spec admission rule lines 445-450.
 
 - `prepare_layer` expects `LayerV1` length `184` and reads `nominal_gain`/`pan` at offsets `176`/`180`:
@@ -1147,14 +1147,14 @@ Implemented T019 only.
 - Marked T019 done in edit plan.
 
 ## Files Changed
-- `examples/synth/zyn_moonlift_synth_impl.mlua` - syntax refactor to header-implementation sugar for simple bodies; updated facade comments and local splice aliases.
+- `examples/synth/zyn_lalin_synth_impl.mlua` - syntax refactor to header-implementation sugar for simple bodies; updated facade comments and local splice aliases.
 
 ## Verification
 Passed:
 
 ```sh
-(ulimit -v 1500000; timeout 60 luajit -e '... moon.dofile("examples/synth/zyn_moonlift_synth_impl.mlua") ...')
-(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua)
+(ulimit -v 1500000; timeout 60 luajit -e '... lalin.dofile("examples/synth/zyn_lalin_synth_impl.mlua") ...')
+(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_lalin_synth_impl.lua)
 ```
 
 ## Notes
@@ -1172,14 +1172,14 @@ Implemented and completed T020.
 - Preserved raw MIDI CC values for modulation.
 
 ## Files Changed
-- `examples/synth/zyn_moonlift_synth_impl.mlua` - DSP/modulation/filter fidelity updates.
+- `examples/synth/zyn_lalin_synth_impl.mlua` - DSP/modulation/filter fidelity updates.
 
 ## Notes
 Verification passed:
 
 ```sh
 (ulimit -v 4000000; timeout 240 luajit /tmp/check_t020.lua)
-(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua)
+(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_lalin_synth_impl.lua)
 ```
 
 Edit plan: T020 marked done.
@@ -1188,7 +1188,7 @@ Edit plan: T020 marked done.
 
 ## Completed
 - Claimed and completed `T021`.
-- Reworked tone-field rendering in `examples/synth/zyn_moonlift_synth_impl.mlua`:
+- Reworked tone-field rendering in `examples/synth/zyn_lalin_synth_impl.mlua`:
   - Additive: sine-phase oscillator approximation with `phase_offsets`, gains, pan, detune, stereo spread, phase random, pitch modulation.
   - Subtractive: deterministic per-band noise shaped by center/bandwidth/gain/pan/source color/stereo width.
   - PAD: validates/interpolates `table_count`, `morph`, and `table_length`.
@@ -1196,20 +1196,20 @@ Edit plan: T020 marked done.
   - Propagates `stale_ref`, `missing_cache`, and `bad_buffer`.
 
 ## Files Changed
-- `examples/synth/zyn_moonlift_synth_impl.mlua` - tone renderer fidelity updates.
+- `examples/synth/zyn_lalin_synth_impl.mlua` - tone renderer fidelity updates.
 
 ## Verification
 Passed:
 
 ```sh
-(ulimit -v 4000000; timeout 240 env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_moonlift_synth_impl.lua)
-(ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_wrappers luajit tests/test_zyn_moonlift_synth_impl.lua)
-(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua)
+(ulimit -v 4000000; timeout 240 env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_lalin_synth_impl.lua)
+(ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_wrappers luajit tests/test_zyn_lalin_synth_impl.lua)
+(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_lalin_synth_impl.lua)
 ```
 
 ## Notes
 - `T021` marked done in edit plan.
-- Used a deterministic sine polynomial because Moonlift source currently has no direct `sin` intrinsic.
+- Used a deterministic sine polynomial because Lalin source currently has no direct `sin` intrinsic.
 - Did not claim `T022`; it is now ready.
 
 ## Worker Output — 2026-06-14 00:05:37
@@ -1226,15 +1226,15 @@ Implemented and completed `T022` for synth effects/mixing/metering fidelity.
 - `MeterFrame` updated once in finalization.
 
 ## Files Changed
-- `examples/synth/zyn_moonlift_synth_impl.mlua` - effects, mixing, send/master routing, pan, and metering updates.
+- `examples/synth/zyn_lalin_synth_impl.mlua` - effects, mixing, send/master routing, pan, and metering updates.
 
 ## Notes
 Verification passed:
 
 ```sh
-(ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_moonlift_synth_impl.lua)
-(ulimit -v 4000000; timeout 240 env ZYN_SYNTH_TEST_MODE=compile_wrappers luajit tests/test_zyn_moonlift_synth_impl.lua)
-(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua)
+(ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_lalin_synth_impl.lua)
+(ulimit -v 4000000; timeout 240 env ZYN_SYNTH_TEST_MODE=compile_wrappers luajit tests/test_zyn_lalin_synth_impl.lua)
+(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_lalin_synth_impl.lua)
 ```
 
 Edit plan: `T022` marked done.
@@ -1255,15 +1255,15 @@ Key updates:
 - `synth_note_on` maps full allocation to `exhausted_storage`.
 
 ## Files Changed
-- `examples/synth/zyn_moonlift_synth_impl.mlua` - event/render/voice behavioral fidelity updates.
+- `examples/synth/zyn_lalin_synth_impl.mlua` - event/render/voice behavioral fidelity updates.
 
 ## Verification
 Passed:
 
 ```sh
-(ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_moonlift_synth_impl.lua)
-(ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_wrappers luajit tests/test_zyn_moonlift_synth_impl.lua)
-(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua)
+(ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_lalin_synth_impl.lua)
+(ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_wrappers luajit tests/test_zyn_lalin_synth_impl.lua)
+(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_lalin_synth_impl.lua)
 ```
 
 ## Notes

@@ -97,7 +97,7 @@ local function new_model()
         modal_open = false,
         split_ratio = 0.46,
         canvas_last = "none",
-        name_field = text_field.state("Moonlift synth", 0, 0, {}),
+        name_field = text_field.state("Lalin synth", 0, 0, {}),
         form_field = text_field.state("Form value", 0, 0, {}),
         notes_field = text_field.state("Tab moves focus. Try the sliders, text fields, popup, select, menu, modal, and the scroll panel.\nTyped input uses the session text system by default.", 0, 0, {}),
     }
@@ -179,7 +179,7 @@ local function build_gallery(window, model, phase)
         id = "main-toolbar",
         title = false,
         children = node_list {
-            b.text { b.id("toolbar-title"), tw.text_lg, tw.font_semibold, tw.fg.white, "Moonlift SDL3 widget gallery" },
+            b.text { b.id("toolbar-title"), tw.text_lg, tw.font_semibold, tw.fg.white, "Lalin SDL3 widget gallery" },
             run_button,
             modal_button,
             popover_button,
@@ -577,7 +577,7 @@ end
 
 local function main()
     local session = session_sdl3.new {
-        title = "Moonlift SDL3 widget gallery",
+        title = "Lalin SDL3 widget gallery",
         width = 1120,
         height = 780,
         vsync = true,
@@ -587,7 +587,7 @@ local function main()
     }
 
     local window = session:create_window {
-        title = "Moonlift SDL3 widget gallery",
+        title = "Lalin SDL3 widget gallery",
         width = 1120,
         height = 780,
         state = new_model(),

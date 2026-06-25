@@ -1,12 +1,12 @@
 -- Lua Interpreter VM — explicit GC/weak/finalizer classification protocols.
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 
 local I = {}
-for k, v in pairs(const.TableFlag) do I["TABLE_" .. k] = moon.int(v) end
-for k, v in pairs(const.FinalizerState) do I["FINALIZER_" .. k] = moon.int(v) end
+for k, v in pairs(const.TableFlag) do I["TABLE_" .. k] = lalin.int(v) end
+for k, v in pairs(const.FinalizerState) do I["FINALIZER_" .. k] = lalin.int(v) end
 
 local decode_weak_mode = host.region(I) [[
 region decode_weak_mode(mode_flags: u8;

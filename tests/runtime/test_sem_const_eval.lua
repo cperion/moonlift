@@ -1,17 +1,17 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local Const = require("moonlift.sem_const_eval")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local Const = require("lalin.sem_const_eval")
 
 local T = pvm.context()
 A(T)
 local E = Const(T)
-local C = T.MoonCore
-local Ty = T.MoonType
-local B = T.MoonBind
-local Sem = T.MoonSem
-local Tr = T.MoonTree
+local C = T.LalinCore
+local Ty = T.LalinType
+local B = T.LalinBind
+local Sem = T.LalinSem
+local Tr = T.LalinTree
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local bool = Ty.TScalar(C.ScalarBool)
@@ -48,4 +48,4 @@ local result = E.stmts({
 })
 assert(result.kind == "return_value" and result.value == Sem.ConstInt(i32, "10"))
 
-print("moonlift sem_const_eval ok")
+print("lalin sem_const_eval ok")

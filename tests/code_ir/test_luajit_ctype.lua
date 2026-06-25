@@ -1,17 +1,17 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Ty = T.MoonType
-local Code = T.MoonCode
-local Back = T.MoonBack
-local LJ = T.MoonLuaJIT
-local CType = require("moonlift.luajit_ctype")(T)
+local Core = T.LalinCore
+local Ty = T.LalinType
+local Code = T.LalinCode
+local Back = T.LalinBack
+local LJ = T.LalinLuaJIT
+local CType = require("lalin.luajit_ctype")(T)
 
 local function cls(value) return pvm.classof(value) end
 
@@ -76,10 +76,10 @@ local named = CType.physical_type(Code.CodeTyNamed("Demo", "Pair", Ty.TNamed(Ty.
 assert(cls(named.storage) == LJ.LJCTypeNamed)
 assert(named.storage.spelling == "Demo_Pair")
 
-local imported = CType.physical_type(Code.CodeTyImportedC(T.MoonC.CTypeId("host", "uint128_t")), {})
+local imported = CType.physical_type(Code.CodeTyImportedC(T.LalinC.CTypeId("host", "uint128_t")), {})
 assert(imported.storage.spelling == "uint128_t")
 
-local moon_ptr = CType.type_to_physical(Ty.TPtr(Ty.TScalar(Core.ScalarI32)), {})
-assert(cls(moon_ptr.storage) == LJ.LJCTypePointer)
+local lalin_ptr = CType.type_to_physical(Ty.TPtr(Ty.TScalar(Core.ScalarI32)), {})
+assert(cls(lalin_ptr.storage) == LJ.LJCTypePointer)
 
-io.write("moonlift luajit_ctype ok\n")
+io.write("lalin luajit_ctype ok\n")

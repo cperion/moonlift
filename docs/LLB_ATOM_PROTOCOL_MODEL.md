@@ -1,7 +1,7 @@
 # LLB Atom and Protocol Model
 
-LLB is the standard Moonlift Lua DSL substrate. It is not a parser, a class
-system, or a Moonlift semantic engine. It is a language-event substrate built on
+LLB is the standard Lalin Lua DSL substrate. It is not a parser, a class
+system, or a Lalin semantic engine. It is a language-event substrate built on
 Lua values and metatables.
 
 Metatables are the implementation carrier. They are not the conceptual model.
@@ -423,7 +423,7 @@ A zone is a first-class family partition:
 
 ```lua
 return {
-  moonlift {
+  lalin {
     fn. add { a [i32], b [i32] } [i32] { ret (a + b) },
   },
 
@@ -440,16 +440,16 @@ return {
 Zones carry `family`, `member`, `name`, `role`, `items`, `origin`, and optional
 metadata. They are values, not lexical scopes.
 
-Projection is language-owned: Moonlift consumes Moonlift zones and LLPVM
+Projection is language-owned: Lalin consumes Lalin zones and LLPVM
 consumes LLPVM zones. Same-language zones concatenate with `..`; mixed zones
 compose into a family bundle.
 
 Public API:
 
 ```lua
-llb.zone_head { family = "moonlift", member = "moonlift.dsl", name = "moonlift", role = "decls" }
-llb.zone { family = "moonlift", member = "moonlift.dsl", name = "moonlift", role = "decls", items = { ... } }
-llb.family_bundle { family = "moonlift", zones = { ... } }
+llb.zone_head { family = "lalin", member = "lalin.dsl", name = "lalin", role = "decls" }
+llb.zone { family = "lalin", member = "lalin.dsl", name = "lalin", role = "decls", items = { ... } }
+llb.family_bundle { family = "lalin", zones = { ... } }
 llb.describe_zone(zone)
 llb.describe_family_bundle(bundle)
 ```
@@ -656,7 +656,7 @@ Family methods use dot syntax only:
 
 ```lua
 family.use { scope = "env" }
-family.only { "moonlift.types" }
+family.only { "lalin.types" }
 family.prefer { task = "llpvm.dsl" }
 ```
 
@@ -713,7 +713,7 @@ ctx:index_symbol(...)
 ctx:emit(...)
 ```
 
-The phase system is generic. Moonlift owns Moonlift-specific type rules and
+The phase system is generic. Lalin owns Lalin-specific type rules and
 lowering.
 
 ## Trait
@@ -913,7 +913,7 @@ LLB must not become:
 
 ```text
 a parser
-a Moonlift semantic engine
+a Lalin semantic engine
 a backend
 a CLOS clone
 a general-purpose class system

@@ -4,7 +4,7 @@
 -- schema.  All other LuaCompile modules consume the ASDL context/constructors
 -- exposed here.
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 
 local M = {}
 
@@ -38,7 +38,7 @@ local function read_file(path)
 end
 
 local function strip_lua_line_comments(text)
-  -- moonlift.asdl_parser accepts # comments, while this project schema is
+  -- lalin.asdl_parser accepts # comments, while this project schema is
   -- documented with Lua-style -- comments. Keep comment stripping here rather
   -- than weakening the canonical ASDL lexer globally.
   return (text or ""):gsub("%-%-[^\n]*", "")

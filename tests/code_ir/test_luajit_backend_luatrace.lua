@@ -2,17 +2,17 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 
 local ffi = require("ffi")
 local bit = require("bit")
-local moon = require("moonlift")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local lalin = require("lalin")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local Stencil = T.MoonStencil
-local Backend = require("moonlift.luajit_backend")(T)
+local Core = T.LalinCore
+local Code = T.LalinCode
+local Stencil = T.LalinStencil
+local Backend = require("lalin.luajit_backend")(T)
 
 local origin = Code.CodeOriginGenerated("test_luajit_backend_luatrace")
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)
@@ -104,7 +104,7 @@ assert(artifact_chunk ~= nil, tostring(load_err) .. "\n" .. artifact_source)
 local artifact_module = artifact_chunk()
 assert(artifact_module.sum_i32(arr, count) == expected)
 
-local dsl_sum = moon.loadstring([=[
+local dsl_sum = lalin.loadstring([=[
 return fn. sum_i32 { xs [ptr [i32]], n [i32] } [i32] {
   requires { bounds(xs, n), readonly(xs) },
 
@@ -128,7 +128,7 @@ return fn. sum_i32 { xs [ptr [i32]], n [i32] } [i32] {
 }
 ]=], "test_luajit_backend_luatrace_dsl.lua")
 
-local dsl_artifact = moon.emit_luajit_artifact(dsl_sum, {
+local dsl_artifact = lalin.emit_luajit_artifact(dsl_sum, {
     name = "test_luajit_backend_luatrace_dsl_artifact",
     stencil_provider = "lua_trace",
 })
@@ -141,4 +141,4 @@ assert(dsl_chunk ~= nil, tostring(dsl_load_err) .. "\n" .. dsl_artifact.source)
 local dsl_module = dsl_chunk()
 assert(dsl_module.sum_i32(arr, count) == expected)
 
-io.write("moonlift luajit_backend luatrace ok\n")
+io.write("lalin luajit_backend luatrace ok\n")

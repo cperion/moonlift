@@ -10,15 +10,15 @@
 		{
 			"id": "T001",
 			"title": "Create implementation module scaffold",
-			"detail": "Create the new implementation file. First verify the correct Moonlift implementation idiom from existing .mlua examples/LANGUAGE_REFERENCE (whether bodies replace header declarations, duplicate signatures with bodies, or use a closure/binding pattern). Then load examples/synth/zyn_moonlift_synth_headers.mlua, bind M/E/T/R/F, define only Lua constants/helper binding tables needed by body declarations, and return M after implementing header regions/functions. Do not edit the header declarations.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"detail": "Create the new implementation file. First verify the correct Lalin implementation idiom from existing .mlua examples/LANGUAGE_REFERENCE (whether bodies replace header declarations, duplicate signatures with bodies, or use a closure/binding pattern). Then load examples/synth/zyn_lalin_synth_headers.mlua, bind M/E/T/R/F, define only Lua constants/helper binding tables needed by body declarations, and return M after implementing header regions/functions. Do not edit the header declarations.",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [],
 			"status": "done",
 			"order": 1,
 			"claimedBy": "agent-9ZRAMJ",
-			"evidence": "Created examples/synth/zyn_moonlift_synth_impl.mlua scaffold only. Verified implementation idiom in LANGUAGE_REFERENCE.md §15.1-15.3 and §region-header sugar: signature closures take body-only strings, and dotted references like region R.foo / func F.foo are transformed into header closure calls. Verified with temporary .mlua smoke snippets that standard Lua dofile cannot load .mlua headers, while moon.dofile can load a header and implement a dotted func header. Loaded new scaffold via: luajit -e 'package.path=\"./lua/?.lua;./lua/?/init.lua;\"..package.path; local moon=require(\"moonlift\"); local M=moon.dofile(\"examples/synth/zyn_moonlift_synth_impl.mlua\"); print(...)' => loaded_impl table table region_header func_header. No header declarations edited; no large implementation begun.",
+			"evidence": "Created examples/synth/zyn_lalin_synth_impl.mlua scaffold only. Verified implementation idiom in LANGUAGE_REFERENCE.md §15.1-15.3 and §region-header sugar: signature closures take body-only strings, and dotted references like region R.foo / func F.foo are transformed into header closure calls. Verified with temporary .mlua smoke snippets that standard Lua dofile cannot load .mlua headers, while lalin.dofile can load a header and implement a dotted func header. Loaded new scaffold via: luajit -e 'package.path=\"./lua/?.lua;./lua/?/init.lua;\"..package.path; local lalin=require(\"lalin\"); local M=lalin.dofile(\"examples/synth/zyn_lalin_synth_impl.mlua\"); print(...)' => loaded_impl table table region_header func_header. No header declarations edited; no large implementation begun.",
 			"notes": [
-				"Planner amendment: first implementation slice must verify syntax/body pattern before writing large code, because the header/spec are contracts and implementation style must match Moonlift's actual .mlua API."
+				"Planner amendment: first implementation slice must verify syntax/body pattern before writing large code, because the header/spec are contracts and implementation style must match Lalin's actual .mlua API."
 			],
 			"createdAt": "2026-06-13T09:02:42.028Z",
 			"updatedAt": "2026-06-13T09:10:03.188Z"
@@ -27,14 +27,14 @@
 			"id": "T002",
 			"title": "Implement primitive helper fragments",
 			"detail": "Add internal helpers for checked index add/mul, align_up, byte-range validation, little-endian u16/u32/f32 loads, finite f32 checks, min/max/clamp/abs, deterministic RNG/noise, denormal clamp, buffer/view validation, and arena bump allocation. Helpers must return named protocol exits, never ABI status integers.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T001"
 			],
 			"status": "done",
 			"order": 2,
 			"claimedBy": "agent-PAMXDJ",
-			"evidence": "Implemented primitive helper fragments in examples/synth/zyn_moonlift_synth_impl.mlua under M.HLP: checked_add_index, checked_mul_index, align_up_index, checked_byte_range, byte/view/stereo validation, arena_alloc_bytes, little-endian u16/u32/f32 readers, finite/min/max/clamp/abs, deterministic_noise_step, denormal_clamp. Verified module load and compiled/executed a read_u32_le probe via luajit/moonlift returning 1515802189 for bytes 4d 4e 59 5a. ABI status ints were not used in helpers.",
+			"evidence": "Implemented primitive helper fragments in examples/synth/zyn_lalin_synth_impl.mlua under M.HLP: checked_add_index, checked_mul_index, align_up_index, checked_byte_range, byte/view/stereo validation, arena_alloc_bytes, little-endian u16/u32/f32 readers, finite/min/max/clamp/abs, deterministic_noise_step, denormal_clamp. Verified module load and compiled/executed a read_u32_le probe via luajit/lalin returning 1515802189 for bytes 4d 4e 59 5a. ABI status ints were not used in helpers.",
 			"notes": [],
 			"createdAt": "2026-06-13T09:02:42.028Z",
 			"updatedAt": "2026-06-13T09:20:23.998Z"
@@ -43,19 +43,19 @@
 			"id": "T003",
 			"title": "Implement storage sizing and initialization ABI",
 			"detail": "Implement/fix F.synth_required_storage and F.synth_init from spec Host Storage Contract lines 48-98: exact layout order, alignment, overflow-to-0 for sizing, config validation, free-list setup, zeroed controls/effects/cache/meter/transport, generation initialization, and boundary AbiStatus mapping. C backend is irrelevant for this task. Use only Cranelift/JIT or frontend lowering checks, and protect compile experiments with shell memory/time limits to avoid OOM. The host dependency-scope redesign removed ambient session region injection, so previous OOM blocker should be rechecked safely.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T002"
 			],
 			"status": "done",
 			"order": 3,
 			"claimedBy": "agent-2BJFJM",
-			"evidence": "Updated examples/synth/zyn_moonlift_synth_impl.mlua: rewrote F.synth_required_storage from mutable accumulator statements (which caused tree_to_back memory blow-up) into immutable let-chain exact layout calculation with validation and overflow checks; F.synth_init kept storage layout/init body and now compiles against the explicit-dependency compiler. Verified with protected Cranelift/JIT commands: `(ulimit -v 1500000; timeout 45 ... M.F.synth_required_storage:compile())` succeeded (mem ~90MB), and `(ulimit -v 1500000; timeout 60 ... M.F.synth_init:compile())` succeeded (mem ~109MB). C backend was not used.",
+			"evidence": "Updated examples/synth/zyn_lalin_synth_impl.mlua: rewrote F.synth_required_storage from mutable accumulator statements (which caused tree_to_back memory blow-up) into immutable let-chain exact layout calculation with validation and overflow checks; F.synth_init kept storage layout/init body and now compiles against the explicit-dependency compiler. Verified with protected Cranelift/JIT commands: `(ulimit -v 1500000; timeout 45 ... M.F.synth_required_storage:compile())` succeeded (mem ~90MB), and `(ulimit -v 1500000; timeout 60 ... M.F.synth_init:compile())` succeeded (mem ~109MB). C backend was not used.",
 			"notes": [
-				"Blocker investigation: synth_init frontend error is reproducible with a minimal signature-closure body that calls a function dependency via @{dep}(x). Complete moon.func{dep=dep}[[ func main... return @{dep}(x) end ]] works, but header/body-only h{dep=dep}[[ return @{dep}(x) ]] fails in tree_typecheck with ExprTyped expected MoonType.Type got nil. In synth_init this is likely the line `let required: index = @{synth_required_storage}(config)`, not storage logic itself. Workarounds: inline the sizing calculation in synth_init, avoid function dependency calls in header body strings, or fix signature-closure splicing/typecheck.",
-				"Compiler-side ExprTyped nil blocker from body-only function header dependency calls is fixed in lua/moonlift/host.lua; regression test tests/test_func_header_body_splice.lua passes. Rechecking F.synth_init now progresses past that blocker and reports a source/type issue (`invalid operator <=`), so remaining T003 work is in the synth implementation body (or separate comparison-language support), not the original signature-closure splice bug.",
+				"Blocker investigation: synth_init frontend error is reproducible with a minimal signature-closure body that calls a function dependency via @{dep}(x). Complete lalin.func{dep=dep}[[ func main... return @{dep}(x) end ]] works, but header/body-only h{dep=dep}[[ return @{dep}(x) ]] fails in tree_typecheck with ExprTyped expected LalinType.Type got nil. In synth_init this is likely the line `let required: index = @{synth_required_storage}(config)`, not storage logic itself. Workarounds: inline the sizing calculation in synth_init, avoid function dependency calls in header body strings, or fix signature-closure splicing/typecheck.",
+				"Compiler-side ExprTyped nil blocker from body-only function header dependency calls is fixed in lua/lalin/host.lua; regression test tests/test_func_header_body_splice.lua passes. Rechecking F.synth_init now progresses past that blocker and reports a source/type issue (`invalid operator <=`), so remaining T003 work is in the synth implementation body (or separate comparison-language support), not the original signature-closure splice bug.",
 				"Unblocked after compiler fixes in host.lua/tree_to_back.lua. Rechecking synth_init now reaches source/type issues instead of ExprTyped nil.",
-				"OOM investigation: likely not synth CFG itself. host_module_values:_lower_program/_lower_c_unit was injecting every session-registered region fragment (T._moonlift_host_region_frags) into every compile expansion env. Loading the synth implementation registers a huge protocol forest, so compiling a single ABI function can drag all region fragments into expansion/cache state and OOM. Changed host_module_values to include only explicit bundle region deps by default; legacy session-wide fallback now requires opts.include_session_region_frags=true. Do not rerun large synth compile until this exact change is reviewed/kept.",
+				"OOM investigation: likely not synth CFG itself. host_module_values:_lower_program/_lower_c_unit was injecting every session-registered region fragment (T._lalin_host_region_frags) into every compile expansion env. Loading the synth implementation registers a huge protocol forest, so compiling a single ABI function can drag all region fragments into expansion/cache state and OOM. Changed host_module_values to include only explicit bundle region deps by default; legacy session-wide fallback now requires opts.include_session_region_frags=true. Do not rerun large synth compile until this exact change is reviewed/kept.",
 				"KISS redesign applied to host dependency model: removed ambient session-region compile scope. chain.lua now records only actually used @{} values as _dep_values; host.lua function-header bodies do the same; BundleValue:pack recursively packs explicit dependency closures; host_module_values lower paths include only explicit bundle region_frags. Region quote no longer auto-registers globally. Small regression tests pass. This replaces the prior opt-in global fallback approach.",
 				"Unblocked after KISS dependency redesign: compile scope is explicit bundle contents + explicit @{} dependency closure; no ambient session region registry."
 			],
@@ -66,14 +66,14 @@
 			"id": "T004",
 			"title": "Implement memory and lifetime regions",
 			"detail": "Implement R.borrow_published_program through R.close_synth_storage from header lines 769-816: program slot borrow/publish/retire generation checks, voice/effect/pad borrow checks, scratch reset, render memory entry, and storage close. Preserve internal protocol exits; no status ints inside regions.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T003"
 			],
 			"status": "done",
 			"order": 4,
 			"claimedBy": "agent-2BJFJM",
-			"evidence": "Implemented memory/lifetime regions in examples/synth/zyn_moonlift_synth_impl.mlua: borrow_published_program, publish_prepared_program, retire_prepared_program, borrow_voice_state, borrow_effect_state, borrow_pad_table, reset_render_scratch, enter_render_memory, close_synth_storage. Preserved named protocol exits and no ABI status ints. Verified module load and protected frontend/Cranelift lowering for all nine T004 regions individually via bundles under `(ulimit -v 1500000; timeout 60 ...)`; all lowered successfully with ~88MB max RSS.",
+			"evidence": "Implemented memory/lifetime regions in examples/synth/zyn_lalin_synth_impl.mlua: borrow_published_program, publish_prepared_program, retire_prepared_program, borrow_voice_state, borrow_effect_state, borrow_pad_table, reset_render_scratch, enter_render_memory, close_synth_storage. Preserved named protocol exits and no ABI status ints. Verified module load and protected frontend/Cranelift lowering for all nine T004 regions individually via bundles under `(ulimit -v 1500000; timeout 60 ...)`; all lowered successfully with ~88MB max RSS.",
 			"notes": [],
 			"createdAt": "2026-06-13T09:02:42.028Z",
 			"updatedAt": "2026-06-13T15:40:21.228Z"
@@ -82,14 +82,14 @@
 			"id": "T005",
 			"title": "Implement patch section decoding",
 			"detail": "Implement R.decode_patch_source and R.next_patch_section from header lines 823-832 according to Patch Format V1 lines 100-174: ZYNM magic/version, little-endian directory parsing, section count bounds, alignment, sorted/non-overlap validation, unknown kind unsupported_section, malformed offsets/records.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T002"
 			],
 			"status": "done",
 			"order": 5,
 			"claimedBy": "agent-4K7SKT",
-			"evidence": "Implemented R.decode_patch_source and R.next_patch_section in examples/synth/zyn_moonlift_synth_impl.mlua. Module loads via luajit/moon.dofile. Added binding aliases for helper fragments/section constants used in body strings. Compiled wrapper probes that emit decode_patch_source and next_patch_section; both wrappers compiled successfully. Fixed helper checked_mul_index zero exits to return as(index, 0) after compile probe exposed an index/i32 mismatch.",
+			"evidence": "Implemented R.decode_patch_source and R.next_patch_section in examples/synth/zyn_lalin_synth_impl.mlua. Module loads via luajit/lalin.dofile. Added binding aliases for helper fragments/section constants used in body strings. Compiled wrapper probes that emit decode_patch_source and next_patch_section; both wrappers compiled successfully. Fixed helper checked_mul_index zero exits to return as(index, 0) after compile probe exposed an index/i32 mismatch.",
 			"notes": [],
 			"createdAt": "2026-06-13T09:02:42.028Z",
 			"updatedAt": "2026-06-13T09:42:46.375Z"
@@ -98,14 +98,14 @@
 			"id": "T006",
 			"title": "Implement primitive patch plan preparation",
 			"detail": "Implement R.prepare_tuning, prepare_envelope, prepare_lfo, prepare_filter, prepare_modulation, prepare_additive_plan, prepare_subtractive_plan, prepare_pad_plan, prepare_effect_slot, and prepare_effect_bus from header lines 834-904. Transcribe fixed record layouts and validation rules; allocate arrays only through ByteArena; restore explicit malformed/exhausted/unsupported exits.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T005"
 			],
 			"status": "done",
 			"order": 6,
 			"claimedBy": "agent-4K7SKT",
-			"evidence": "Compiler blocker fixed in lua/moonlift/tree_to_back.lua: view descriptors can now be stored/loaded inside aggregate products, view locals can be used as expressions, nil pointer view constructors lower, and aggregate-let errors include underlying reasons. Verified module load and compile-wrapper probes for all previously failing primitive prep regions: prepare_tuning, prepare_modulation, prepare_additive_plan, prepare_subtractive_plan, and prepare_effect_bus now compile. Added regression test tests/test_view_aggregate_lowering.lua and it passes with luajit.",
+			"evidence": "Compiler blocker fixed in lua/lalin/tree_to_back.lua: view descriptors can now be stored/loaded inside aggregate products, view locals can be used as expressions, nil pointer view constructors lower, and aggregate-let errors include underlying reasons. Verified module load and compile-wrapper probes for all previously failing primitive prep regions: prepare_tuning, prepare_modulation, prepare_additive_plan, prepare_subtractive_plan, and prepare_effect_bus now compile. Added regression test tests/test_view_aggregate_lowering.lua and it passes with luajit.",
 			"notes": [
 				"Blocker investigation: aggregate products with view fields are a backend lowering gap. Minimal repro: struct HasView { xs: view(i32), n: index }; region mk(...; ok(h: HasView)) with `let h: HasView = { xs = view(xs,n), n = n }` then wrapper compile fails at tree_to_back.lua:2344 `aggregate let initializer could not be lowered`. Cause: ExprAgg lowering calls expr_value on each field; view expressions lower as TreeBackExprView/StridedView, not scalar ExprValue. Reading/storing view fields also appears unsupported without descriptor load/store support. This affects TuningTable, ModulationPlan, AdditivePartialPlan, NoiseBandPlan, EffectBusPlan and later PreparedProgram/LayerPlan products."
 			],
@@ -116,7 +116,7 @@
 			"id": "T007",
 			"title": "Complete layer part program preparation",
 			"detail": "Complete R.prepare_layer, R.prepare_part, R.prepare_program, R.validate_program, and R.rebuild_pad_cache from header lines 880-920. Current blocker is prepare_program scan-loop design: continuation blocks from emit next_patch_section only receive the child continuation payload and cannot see scan_sections block parameters like header/parts/saved/tuning. Fix architecturally by rewriting prepare_program so the section scan keeps state in the same block graph (e.g. inline section directory parsing or otherwise avoid relying on non-lexical block params across emit callbacks). Finish prepared tuning propagation, effect_bus/effect graph construction, pad cache rebuild behavior, and validation rules; preserve arena.used rollback.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T006",
 				"T004"
@@ -124,10 +124,10 @@
 			"status": "done",
 			"order": 7,
 			"claimedBy": "agent-1YV9GY",
-			"evidence": "Unblocked and completed T007. Fixed RNF nested region emit expansion in lua/moonlift/region_normal_form.lua: continuation fills in partially/imported regions now rebase through enclosing label maps, nested emits carry captured runtime params only for target-declared params, and nested emit paths/param maps handle multi-level header-closure region expansion. Added regression test tests/test_nested_region_emit_rebase.lua. Fixed T007 implementation continuation arg name mismatch in examples/synth/zyn_moonlift_synth_impl.mlua (prepare_tuning ready/defaulted target now uses tuning param name). Verified protected wrapper compile for prepare_layer, prepare_part, prepare_program, validate_program, and rebuild_pad_cache with `(ulimit -v 1500000; timeout 120 luajit /tmp/check_t007.lua)` => ok. Also ran luajit tests/test_nested_region_emit_rebase.lua, tests/test_explicit_region_dependency_closure.lua, tests/test_func_header_body_splice.lua, tests/test_view_aggregate_lowering.lua.",
+			"evidence": "Unblocked and completed T007. Fixed RNF nested region emit expansion in lua/lalin/region_normal_form.lua: continuation fills in partially/imported regions now rebase through enclosing label maps, nested emits carry captured runtime params only for target-declared params, and nested emit paths/param maps handle multi-level header-closure region expansion. Added regression test tests/test_nested_region_emit_rebase.lua. Fixed T007 implementation continuation arg name mismatch in examples/synth/zyn_lalin_synth_impl.mlua (prepare_tuning ready/defaulted target now uses tuning param name). Verified protected wrapper compile for prepare_layer, prepare_part, prepare_program, validate_program, and rebuild_pad_cache with `(ulimit -v 1500000; timeout 120 luajit /tmp/check_t007.lua)` => ok. Also ran luajit tests/test_nested_region_emit_rebase.lua, tests/test_explicit_region_dependency_closure.lua, tests/test_func_header_body_splice.lua, tests/test_view_aggregate_lowering.lua.",
 			"notes": [
 				"Unblocked for continued implementation: previous block was semantic incompleteness, not compiler failure. Complete the missing behavior rather than redoing compiler investigation.",
-				"Unblocked with design guidance: do not fight Moonlift scoping. Continuation fill blocks do not inherit emitting block params; state must be explicit in the target block params/jumps or kept in memory, or the child region must be avoided for that stateful loop."
+				"Unblocked with design guidance: do not fight Lalin scoping. Continuation fill blocks do not inherit emitting block params; state must be explicit in the target block params/jumps or kept in memory, or the child region must be avoided for that stateful loop."
 			],
 			"createdAt": "2026-06-13T09:02:42.028Z",
 			"updatedAt": "2026-06-13T17:40:08.898Z"
@@ -136,7 +136,7 @@
 			"id": "T008",
 			"title": "Implement event and control protocols",
 			"detail": "Implement R.classify_host_event through R.apply_host_events from header lines 927-978. Dispatch only in owner regions for stored kind tags; normalize pitch bend and velocity-zero note-on; update controls/parameters/transport; ignore out-of-range event frames; first program change exits requested_program; panic clears voices then exits panic_requested.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T004",
 				"T007"
@@ -144,10 +144,10 @@
 			"status": "done",
 			"order": 8,
 			"claimedBy": "agent-25ASK3",
-			"evidence": "Fixed compiler blocker in lua/moonlift/tree_control_to_back.lua by lowering control-region view params as data/len/stride block params and added regression tests/test_control_region_view_params.lua. Replaced R.apply_host_events in examples/synth/zyn_moonlift_synth_impl.mlua with a view-order event loop that compiles with view(HostEvent), handles program-change and panic exits, transport updates, parameter macro updates, MIDI CC/bend/pressure/note-off release, all-notes-off, and negative-frame ignore. Verified all T008 wrapper probes compile under `(ulimit -v 1500000; timeout 180 luajit /tmp/check_t008.lua)`, including classify_host_event, classify_midi_event, update_control, resolve_parameter, apply_parameter_event, apply_transport_event, apply_midi_event, and apply_host_events. Regression `tests/test_control_region_view_params.lua` passes under protected run.",
+			"evidence": "Fixed compiler blocker in lua/lalin/tree_control_to_back.lua by lowering control-region view params as data/len/stride block params and added regression tests/test_control_region_view_params.lua. Replaced R.apply_host_events in examples/synth/zyn_lalin_synth_impl.mlua with a view-order event loop that compiles with view(HostEvent), handles program-change and panic exits, transport updates, parameter macro updates, MIDI CC/bend/pressure/note-off release, all-notes-off, and negative-frame ignore. Verified all T008 wrapper probes compile under `(ulimit -v 1500000; timeout 180 luajit /tmp/check_t008.lua)`, including classify_host_event, classify_midi_event, update_control, resolve_parameter, apply_parameter_event, apply_transport_event, apply_midi_event, and apply_host_events. Regression `tests/test_control_region_view_params.lua` passes under protected run.",
 			"notes": [
 				"Verification command used before block: `(ulimit -v 1500000; timeout 180 luajit /tmp/check_t008_t009.lua)`. All listed T008 regions compile except apply_host_events; failure is a backend lowering limitation for view-valued control-region runtime params.",
-				"Unblocked for implementation by compiler fix in lua/moonlift/tree_control_to_back.lua: control-region view params now lower as data/len/stride block params. Regression test tests/test_control_region_view_params.lua added.",
+				"Unblocked for implementation by compiler fix in lua/lalin/tree_control_to_back.lua: control-region view params now lower as data/len/stride block params. Regression test tests/test_control_region_view_params.lua added.",
 				"Limitations to carry forward: apply_host_events signature has no RenderCtx, so it can ignore negative frames but cannot itself compare frame <= ctx.shape.frame_count; render_block must provide/pre-filter the event view. Also note-on voice creation remains tied to T009/T013 orchestration; current apply_host_events consumes note-on as changed while R.apply_midi_event remains the detailed voice-start path."
 			],
 			"createdAt": "2026-06-13T09:02:42.028Z",
@@ -157,7 +157,7 @@
 			"id": "T009",
 			"title": "Implement voice allocation lifecycle",
 			"detail": "Implement R.next_note_layer through R.retire_voice from header lines 984-1029. Transcribe key mapping/tuning, dense active list, free-list pop/push, generation checks, stealing score/tie rules, start state initialization, release/all-notes/panic, lifecycle stage transitions, and retire swap-remove.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T004",
 				"T007"
@@ -165,9 +165,9 @@
 			"status": "done",
 			"order": 9,
 			"claimedBy": "agent-25ASK3",
-			"evidence": "Tightened examples/synth/zyn_moonlift_synth_impl.mlua voice lifecycle semantics: R.next_note_layer now derives base_frequency_hz from prepared tuning ratios plus layer transpose/root facts instead of always root Hz; R.allocate_voice stealing refreshes the dense active-list VoiceRef generation for the stolen index before returning stolen. Existing lifecycle regions preserve free-list pop/push, generation checks, release/all-notes/panic, lifecycle, and retire swap-remove. Verified protected wrapper compilation for next_note_layer, choose_voice_to_steal, allocate_voice, start_voice, release_matching_voices, release_sustained_voices, all_notes_off, panic_voices, advance_voice_lifecycle, and retire_voice with `(ulimit -v 1500000; timeout 180 luajit /tmp/check_t009.lua)`.",
+			"evidence": "Tightened examples/synth/zyn_lalin_synth_impl.mlua voice lifecycle semantics: R.next_note_layer now derives base_frequency_hz from prepared tuning ratios plus layer transpose/root facts instead of always root Hz; R.allocate_voice stealing refreshes the dense active-list VoiceRef generation for the stolen index before returning stolen. Existing lifecycle regions preserve free-list pop/push, generation checks, release/all-notes/panic, lifecycle, and retire swap-remove. Verified protected wrapper compilation for next_note_layer, choose_voice_to_steal, allocate_voice, start_voice, release_matching_voices, release_sustained_voices, all_notes_off, panic_voices, advance_voice_lifecycle, and retire_voice with `(ulimit -v 1500000; timeout 180 luajit /tmp/check_t009.lua)`.",
 			"notes": [
-				"Draft implementation is in examples/synth/zyn_moonlift_synth_impl.mlua under Event/control and voice lifecycle protocols. It compiles individually but needs semantic tightening before completion evidence.",
+				"Draft implementation is in examples/synth/zyn_lalin_synth_impl.mlua under Event/control and voice lifecycle protocols. It compiles individually but needs semantic tightening before completion evidence.",
 				"Unblocked for semantic tightening after T008 compiler blocker was resolved and apply_host_events compiles.",
 				"Remaining orchestration caveat belongs to later event/render tasks: helper HLP.start_note_voices still starts at most one layer per call because existing protocols do not carry loop state through apply_midi_event continuations. Header T009 lifecycle regions compile and have been semantically tightened."
 			],
@@ -178,7 +178,7 @@
 			"id": "T010",
 			"title": "Implement modulation envelopes LFO filters",
 			"detail": "Implement R.eval_envelope_sample through R.apply_filter_model from header lines 1036-1061. Handle all declared curve/shape/model tags in their owner regions, deterministic RNG, denormal clamp, route source/destination mapping, and invalid tag exits.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T008",
 				"T009"
@@ -186,7 +186,7 @@
 			"status": "done",
 			"order": 10,
 			"claimedBy": "agent-25ASK3",
-			"evidence": "Completed T010 by replacing render_voice_modulation stub with explicit state-carrying route iteration. Added HLP.apply_one_modulation_route helper in examples/synth/zyn_moonlift_synth_impl.mlua; render_voice_modulation now loops over layer.mods.routes, calls R.apply_modulation_route for each route through explicit done(next, frame)/invalid/stale continuations, stores final last_mod, and returns ready(frame). Verified all T010 wrapper probes under protected limits: `(ulimit -v 1500000; timeout 180 luajit /tmp/check_t010.lua)` => eval_envelope_sample, eval_lfo_sample, apply_modulation_route, render_voice_modulation, apply_filter_model all ok. Also reran `(ulimit -v 1000000; timeout 60 luajit tests/test_control_region_view_params.lua)`, `/tmp/check_t008.lua`, and `/tmp/check_t009.lua` successfully.",
+			"evidence": "Completed T010 by replacing render_voice_modulation stub with explicit state-carrying route iteration. Added HLP.apply_one_modulation_route helper in examples/synth/zyn_lalin_synth_impl.mlua; render_voice_modulation now loops over layer.mods.routes, calls R.apply_modulation_route for each route through explicit done(next, frame)/invalid/stale continuations, stores final last_mod, and returns ready(frame). Verified all T010 wrapper probes under protected limits: `(ulimit -v 1500000; timeout 180 luajit /tmp/check_t010.lua)` => eval_envelope_sample, eval_lfo_sample, apply_modulation_route, render_voice_modulation, apply_filter_model all ok. Also reran `(ulimit -v 1000000; timeout 60 luajit tests/test_control_region_view_params.lua)`, `/tmp/check_t008.lua`, and `/tmp/check_t009.lua` successfully.",
 			"notes": [],
 			"createdAt": "2026-06-13T09:02:42.028Z",
 			"updatedAt": "2026-06-13T18:16:39.656Z"
@@ -195,14 +195,14 @@
 			"id": "T011",
 			"title": "Implement tone field renderers",
 			"detail": "Implement R.render_additive_field, render_subtractive_field, render_pad_field, and route_layer_tone_generators from header lines 1069-1091. Render exactly ctx.shape.frame_count samples, honor ToneMask bits only in the owner route region, return silent for no matching energy, and propagate stale/missing/bad-buffer exits.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T010"
 			],
 			"status": "done",
 			"order": 11,
 			"claimedBy": "agent-C2F93S",
-			"evidence": "Fixed T011 blending issue in examples/synth/zyn_moonlift_synth_impl.mlua. Tone renderers now add their generated field into the existing output samples, and route_layer_tone_generators zeroes the destination once before sequentially routing selected ToneMask bits, so multi-bit additive/subtractive/pad layers blend instead of later tones overwriting earlier ones. Verified under protected limits with `(ulimit -v 1500000; timeout 180 luajit /tmp/check_t011.lua)`: render_additive_field, render_subtractive_field, render_pad_field, and route_layer_tone_generators all compile ok.",
+			"evidence": "Fixed T011 blending issue in examples/synth/zyn_lalin_synth_impl.mlua. Tone renderers now add their generated field into the existing output samples, and route_layer_tone_generators zeroes the destination once before sequentially routing selected ToneMask bits, so multi-bit additive/subtractive/pad layers blend instead of later tones overwriting earlier ones. Verified under protected limits with `(ulimit -v 1500000; timeout 180 luajit /tmp/check_t011.lua)`: render_additive_field, render_subtractive_field, render_pad_field, and route_layer_tone_generators all compile ok.",
 			"notes": [],
 			"createdAt": "2026-06-13T09:02:42.028Z",
 			"updatedAt": "2026-06-13T21:16:45.741Z"
@@ -211,14 +211,14 @@
 			"id": "T012",
 			"title": "Implement audio mixing effects metering",
 			"detail": "Implement R.clear_audio_block through R.finalize_audio_block from header lines 1099-1144. Zero/mix/pan with buffer validation, process effect slots/buses in slot order, copy on bypass, clip and compute peak/RMS in finalize, update MeterFrame exactly once.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T010"
 			],
 			"status": "done",
 			"order": 12,
 			"claimedBy": "agent-C2F93S",
-			"evidence": "Fixed T012 compiler/backend and state-carrying issues. In lua/moonlift/tree_to_back.lua, memory access ids generated by memory_info are now unique per command while preserving readable tags, resolving duplicate access validation from repeated view descriptor loads. In examples/synth/zyn_moonlift_synth_impl.mlua, added HLP.apply_one_effect_slot and HLP.apply_one_send_effect helpers so effect slot/send loops carry i/peak/any state explicitly through continuations; replaced unsupported sqrt call in finalize_audio_block with deterministic Newton sqrt approximation for RMS. Verified under protected limits with `(ulimit -v 1500000; timeout 240 luajit /tmp/check_t012.lua)`: clear_audio_block, clear_scratch, mix_stereo, apply_pan_gain, apply_effect_slot, apply_effect_bus, apply_insert_effects, apply_send_effects, and finalize_audio_block all compile ok.",
+			"evidence": "Fixed T012 compiler/backend and state-carrying issues. In lua/lalin/tree_to_back.lua, memory access ids generated by memory_info are now unique per command while preserving readable tags, resolving duplicate access validation from repeated view descriptor loads. In examples/synth/zyn_lalin_synth_impl.mlua, added HLP.apply_one_effect_slot and HLP.apply_one_send_effect helpers so effect slot/send loops carry i/peak/any state explicitly through continuations; replaced unsupported sqrt call in finalize_audio_block with deterministic Newton sqrt approximation for RMS. Verified under protected limits with `(ulimit -v 1500000; timeout 240 luajit /tmp/check_t012.lua)`: clear_audio_block, clear_scratch, mix_stereo, apply_pan_gain, apply_effect_slot, apply_effect_bus, apply_insert_effects, apply_send_effects, and finalize_audio_block all compile ok.",
 			"notes": [],
 			"createdAt": "2026-06-13T09:02:42.028Z",
 			"updatedAt": "2026-06-13T21:16:45.741Z"
@@ -227,7 +227,7 @@
 			"id": "T013",
 			"title": "Implement render orchestration",
 			"detail": "Implement R.render_voice, render_part_voices, render_all_parts, and render_block from header lines 1151-1179. Follow spec Render Order lines 408-421 exactly: enter memory, clear out, clear scratch, apply events, render parts, send effects, finalize, then optionally retire dead voices.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T008",
 				"T009",
@@ -237,7 +237,7 @@
 			"status": "done",
 			"order": 13,
 			"claimedBy": "agent-9FXPTG",
-			"evidence": "Implemented R.render_voice, R.render_part_voices, R.render_all_parts, and R.render_block in examples/synth/zyn_moonlift_synth_impl.mlua, plus state-explicit helpers for one-voice/one-part/root-ready rendering and dead-voice retirement. Verification: module load succeeds; /tmp/check_t013.lua wrapper compiled render_voice, render_part_voices, render_all_parts, and render_block under `(ulimit -v 4000000; timeout 240 luajit /tmp/check_t013.lua)`.",
+			"evidence": "Implemented R.render_voice, R.render_part_voices, R.render_all_parts, and R.render_block in examples/synth/zyn_lalin_synth_impl.mlua, plus state-explicit helpers for one-voice/one-part/root-ready rendering and dead-voice retirement. Verification: module load succeeds; /tmp/check_t013.lua wrapper compiled render_voice, render_part_voices, render_all_parts, and render_block under `(ulimit -v 4000000; timeout 240 luajit /tmp/check_t013.lua)`.",
 			"notes": [],
 			"createdAt": "2026-06-13T09:02:42.028Z",
 			"updatedAt": "2026-06-13T21:38:28.861Z"
@@ -246,7 +246,7 @@
 			"id": "T014",
 			"title": "Implement remaining ABI seals",
 			"detail": "Implement F.synth_prepare_program, F.synth_render_block, F.synth_set_parameter, F.synth_note_on, F.synth_note_off, F.synth_all_notes_off, and F.synth_panic from header lines 1185-1203. These functions are the only locations that map internal protocol exits to E.AbiStatus values from spec lines 20-46.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T007",
 				"T008",
@@ -256,7 +256,7 @@
 			"status": "done",
 			"order": 14,
 			"claimedBy": "agent-9FXPTG",
-			"evidence": "Implemented remaining ABI seals in examples/synth/zyn_moonlift_synth_impl.mlua: synth_prepare_program, synth_render_block, synth_set_parameter, synth_note_on, synth_note_off, synth_all_notes_off, synth_panic. Added state-explicit all-layer note-on helpers. Fixed lua/moonlift/host.lua so func header body closures route bound bodies through moon.func binding expansion; added tests/test_func_header_body_region_splices.lua. Verification: `(ulimit -v 4000000; timeout 300 luajit /tmp/check_t014.lua)` compiled all seven ABI functions; T013 wrappers still compile; regression tests test_func_header_body_region_splices.lua and test_control_region_view_params.lua pass.",
+			"evidence": "Implemented remaining ABI seals in examples/synth/zyn_lalin_synth_impl.mlua: synth_prepare_program, synth_render_block, synth_set_parameter, synth_note_on, synth_note_off, synth_all_notes_off, synth_panic. Added state-explicit all-layer note-on helpers. Fixed lua/lalin/host.lua so func header body closures route bound bodies through lalin.func binding expansion; added tests/test_func_header_body_region_splices.lua. Verification: `(ulimit -v 4000000; timeout 300 luajit /tmp/check_t014.lua)` compiled all seven ABI functions; T013 wrappers still compile; regression tests test_func_header_body_region_splices.lua and test_control_region_view_params.lua pass.",
 			"notes": [],
 			"createdAt": "2026-06-13T09:02:42.028Z",
 			"updatedAt": "2026-06-13T21:45:35.902Z"
@@ -265,14 +265,14 @@
 			"id": "T015",
 			"title": "Add implementation compile tests",
 			"detail": "Add a standalone Lua test that loads the implementation, asserts every header R/F entry has been replaced by a body-bearing value, bundles/compiles all implemented F functions and internal R dependencies, and fails on any unimplemented signature closure. Keep fixtures factual to the spec; do not invent alternate behavior.",
-			"file": "tests/test_zyn_moonlift_synth_impl.lua",
+			"file": "tests/test_zyn_lalin_synth_impl.lua",
 			"after": [
 				"T014"
 			],
 			"status": "done",
 			"order": 15,
 			"claimedBy": "agent-9FXPTG",
-			"evidence": "Added tests/test_zyn_moonlift_synth_impl.lua. It loads the implementation, asserts no R/F values remain header closures, compiles all F.* ABI seals, and compiles wrappers for render_voice/render_part_voices/render_all_parts internal render dependencies. Verification: `(ulimit -v 4000000; timeout 600 luajit tests/test_zyn_moonlift_synth_impl.lua)` passes.",
+			"evidence": "Added tests/test_zyn_lalin_synth_impl.lua. It loads the implementation, asserts no R/F values remain header closures, compiles all F.* ABI seals, and compiles wrappers for render_voice/render_part_voices/render_all_parts internal render dependencies. Verification: `(ulimit -v 4000000; timeout 600 luajit tests/test_zyn_lalin_synth_impl.lua)` passes.",
 			"notes": [],
 			"createdAt": "2026-06-13T09:02:42.028Z",
 			"updatedAt": "2026-06-13T21:48:02.837Z"
@@ -281,14 +281,14 @@
 			"id": "T016",
 			"title": "Add behavioral smoke tests",
 			"detail": "Extend the test with minimal FFI-backed checks for storage sizing/init, invalid config/status mapping, host/midi event classification paths, voice pool allocate/start/release/retire, malformed patch rejection, and silent render success. Use only spec-defined cases and ABI statuses.",
-			"file": "tests/test_zyn_moonlift_synth_impl.lua",
+			"file": "tests/test_zyn_lalin_synth_impl.lua",
 			"after": [
 				"T015"
 			],
 			"status": "done",
 			"order": 16,
 			"claimedBy": "agent-Z37JAZ",
-			"evidence": "Extended tests/test_zyn_moonlift_synth_impl.lua with FFI-backed behavioral smoke coverage: direct ABI calls for synth_required_storage/synth_init valid config and invalid config mapping, synth_prepare_program malformed short ZYNM v1 patch -> bad_patch, plus compiled wrapper exercising host/midi classification, voice allocate/start/release/retire, and silent render protocol clearing output. Verified with (ulimit -v 4000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua), which passed.",
+			"evidence": "Extended tests/test_zyn_lalin_synth_impl.lua with FFI-backed behavioral smoke coverage: direct ABI calls for synth_required_storage/synth_init valid config and invalid config mapping, synth_prepare_program malformed short ZYNM v1 patch -> bad_patch, plus compiled wrapper exercising host/midi classification, voice allocate/start/release/retire, and silent render protocol clearing output. Verified with (ulimit -v 4000000; timeout 700 luajit tests/test_zyn_lalin_synth_impl.lua), which passed.",
 			"notes": [],
 			"createdAt": "2026-06-13T09:02:42.028Z",
 			"updatedAt": "2026-06-13T22:19:38.699Z"
@@ -296,15 +296,15 @@
 		{
 			"id": "T017",
 			"title": "Run verification commands",
-			"detail": "Run cargo build --release if needed, luajit tests/test_zyn_moonlift_synth_impl.lua, and a compile/load check for examples/synth/zyn_moonlift_synth_impl.mlua. Evidence should list commands and whether failures are implementation or compiler limitations.",
-			"file": "tests/test_zyn_moonlift_synth_impl.lua",
+			"detail": "Run cargo build --release if needed, luajit tests/test_zyn_lalin_synth_impl.lua, and a compile/load check for examples/synth/zyn_lalin_synth_impl.mlua. Evidence should list commands and whether failures are implementation or compiler limitations.",
+			"file": "tests/test_zyn_lalin_synth_impl.lua",
 			"after": [
 				"T016"
 			],
 			"status": "done",
 			"order": 17,
 			"claimedBy": "agent-Z37JAZ",
-			"evidence": "Ran required verification. `cargo build --release` passed (release profile finished; existing warnings only). `luajit tests/test_zyn_moonlift_synth_impl.lua` under 4GB ulimit aborted during behavioral wrapper compilation with Rust allocator 4MB allocation failure after all prior compile checks passed; reran with protected 8GB ulimit and it passed fully: compile coverage, FFI storage/init invalid-config, malformed patch, event/voice/render smoke. Explicit load check passed: `(ulimit -v 1500000; timeout 60 luajit -e '... moon.dofile(\"examples/synth/zyn_moonlift_synth_impl.mlua\") ...')` printed `zyn synth impl load ok func region_frag`. No C backend was used as a blocker.",
+			"evidence": "Ran required verification. `cargo build --release` passed (release profile finished; existing warnings only). `luajit tests/test_zyn_lalin_synth_impl.lua` under 4GB ulimit aborted during behavioral wrapper compilation with Rust allocator 4MB allocation failure after all prior compile checks passed; reran with protected 8GB ulimit and it passed fully: compile coverage, FFI storage/init invalid-config, malformed patch, event/voice/render smoke. Explicit load check passed: `(ulimit -v 1500000; timeout 60 luajit -e '... lalin.dofile(\"examples/synth/zyn_lalin_synth_impl.mlua\") ...')` printed `zyn synth impl load ok func region_frag`. No C backend was used as a blocker.",
 			"notes": [],
 			"createdAt": "2026-06-13T09:02:42.028Z",
 			"updatedAt": "2026-06-13T22:24:29.921Z"
@@ -312,13 +312,13 @@
 		{
 			"id": "T018",
 			"title": "Audit synth implementation for spec fidelity gaps",
-			"detail": "Re-audit examples/synth/zyn_moonlift_synth_impl.mlua against examples/synth/zyn_moonlift_synth_spec.md and headers. Identify every simplified/stub/non-spec behavior, especially envelopes, LFOs, modulation, tuning/key mapping, AD/SUB/PAD tone generation, filters, effects, event frame handling, render order, and ABI mappings. Produce concrete notes before implementing fixes.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"detail": "Re-audit examples/synth/zyn_lalin_synth_impl.mlua against examples/synth/zyn_lalin_synth_spec.md and headers. Identify every simplified/stub/non-spec behavior, especially envelopes, LFOs, modulation, tuning/key mapping, AD/SUB/PAD tone generation, filters, effects, event frame handling, render order, and ABI mappings. Produce concrete notes before implementing fixes.",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [],
 			"status": "done",
 			"order": 18,
 			"claimedBy": "agent-018MMP",
-			"evidence": "Audit-only pass completed by agent-018MMP; implementation file was not edited. Read structured edit plan r61/r62, zyn_moonlift_synth_spec.md, headers, implementation, and THE_MOONLIFT_DESIGN_BIBLE excerpts. Concrete findings include non-spec simplifications/stubs in program prep/count validation and layer record offsets; event frame handling and tag-owner duplication; note-on in render events; tuning octave mapping; voice steal/lifecycle/envelope coupling; envelopes/LFO/modulation/filter implementations; AD/SUB/PAD tone generation; pad cache rebuild; insert/send/master effects, equal-power pan, effect bus chaining, clip ceiling/RMS/finalize; render orchestration omissions; ABI mappings for note-on exhaustion/requested program/panic effects; and 75 [[...]] body strings with large monolithic sections. See T018 audit final output for exact line ranges and spec references.",
+			"evidence": "Audit-only pass completed by agent-018MMP; implementation file was not edited. Read structured edit plan r61/r62, zyn_lalin_synth_spec.md, headers, implementation, and THE_LALIN_DESIGN_BIBLE excerpts. Concrete findings include non-spec simplifications/stubs in program prep/count validation and layer record offsets; event frame handling and tag-owner duplication; note-on in render events; tuning octave mapping; voice steal/lifecycle/envelope coupling; envelopes/LFO/modulation/filter implementations; AD/SUB/PAD tone generation; pad cache rebuild; insert/send/master effects, equal-power pan, effect bus chaining, clip ceiling/RMS/finalize; render orchestration omissions; ABI mappings for note-on exhaustion/requested program/panic effects; and 75 [[...]] body strings with large monolithic sections. See T018 audit final output for exact line ranges and spec references.",
 			"notes": [
 				"User clarified that simplified DSP/behavior was never acceptable; previous 17/17 plan completion only meant compile/smoke coverage, not spec fidelity. Reopened work as additional tasks.",
 				"Audit claimed by agent-018MMP; implementation is read-only for this task.",
@@ -330,15 +330,15 @@
 		{
 			"id": "T019",
 			"title": "Refactor implementation syntax and minimal module split",
-			"detail": "Reduce body-string [[...]] usage by converting header bodies to .mlua header implementation sugar where practical (`R.foo = region R.foo ... end`, `F.foo = func F.foo ... end`). Keep [[...]] only where the current parser/bindings truly require it. Apply minimal splitting only if it reduces file size/ownership without changing public API: keep examples/synth/zyn_moonlift_synth_impl.mlua as the facade returning M, and move coherent private helper groups into at most a few required .mlua modules.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"detail": "Reduce body-string [[...]] usage by converting header bodies to .mlua header implementation sugar where practical (`R.foo = region R.foo ... end`, `F.foo = func F.foo ... end`). Keep [[...]] only where the current parser/bindings truly require it. Apply minimal splitting only if it reduces file size/ownership without changing public API: keep examples/synth/zyn_lalin_synth_impl.mlua as the facade returning M, and move coherent private helper groups into at most a few required .mlua modules.",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T018"
 			],
 			"status": "done",
 			"order": 19,
 			"claimedBy": "agent-TGNBZ5",
-			"evidence": "Refactored examples/synth/zyn_moonlift_synth_impl.mlua to use .mlua header-implementation sugar for storage ABI bodies and simple lifetime/memory regions (11 header implementations total), reducing explicit body-string [[...]] occurrences from 75 to 64 while keeping broad BODY/ABI_BODY closures for dependency-heavy families. Kept facade module returning M; no module split because it did not clearly improve ownership for this syntax-only pass. Verified protected module load and full synth compile/behavior test: (ulimit -v 1500000; timeout 60 luajit -e '... moon.dofile(\"examples/synth/zyn_moonlift_synth_impl.mlua\") ...') and (ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua) both passed.",
+			"evidence": "Refactored examples/synth/zyn_lalin_synth_impl.mlua to use .mlua header-implementation sugar for storage ABI bodies and simple lifetime/memory regions (11 header implementations total), reducing explicit body-string [[...]] occurrences from 75 to 64 while keeping broad BODY/ABI_BODY closures for dependency-heavy families. Kept facade module returning M; no module split because it did not clearly improve ownership for this syntax-only pass. Verified protected module load and full synth compile/behavior test: (ulimit -v 1500000; timeout 60 luajit -e '... lalin.dofile(\"examples/synth/zyn_lalin_synth_impl.mlua\") ...') and (ulimit -v 8000000; timeout 700 luajit tests/test_zyn_lalin_synth_impl.lua) both passed.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:13:48.980Z",
 			"updatedAt": "2026-06-13T23:32:15.432Z"
@@ -347,14 +347,14 @@
 			"id": "T020",
 			"title": "Implement spec-faithful modulation envelope LFO and filters",
 			"detail": "Replace simplified T010 behavior with spec-faithful DSP: all envelope curves (linear/exponential/logarithmic/analog/stepped) with delay/attack/hold/decay/release seconds, all LFO shapes including deterministic random/sample-hold, all modulation route source/destination semantics, and filter models including one-pole LP/HP, SVF LP/HP/BP/notch, and formant. Preserve explicit state-passing and compile checks.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T018"
 			],
 			"status": "done",
 			"order": 20,
 			"claimedBy": "agent-RYC169",
-			"evidence": "Updated examples/synth/zyn_moonlift_synth_impl.mlua: eval_envelope_sample now handles delay/attack/hold/decay/sustain/release in samples and all curve tags; eval_lfo_sample now handles all LFO shapes, phase_offset, tempo_sync rate, deterministic RNG/sample-hold, and looped phase wrapping; render_voice_modulation evaluates amp/pitch/filter envelopes and both LFO states before route iteration; apply_modulation_route sources control bank/voice state and cached env/LFO source values; apply_filter_model implements bypass, one-pole LP/HP, SVF LP/HP/BP/notch, and formant bandpass approximation with drive/resonance/keytrack inputs. Also changed MIDI CC storage to preserve raw 0..127 values for modulation. Verification passed: module load; protected T020 wrapper compile `(ulimit -v 4000000; timeout 240 luajit /tmp/check_t020.lua)`; full protected synth compile/behavior suite `(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua)`.",
+			"evidence": "Updated examples/synth/zyn_lalin_synth_impl.mlua: eval_envelope_sample now handles delay/attack/hold/decay/sustain/release in samples and all curve tags; eval_lfo_sample now handles all LFO shapes, phase_offset, tempo_sync rate, deterministic RNG/sample-hold, and looped phase wrapping; render_voice_modulation evaluates amp/pitch/filter envelopes and both LFO states before route iteration; apply_modulation_route sources control bank/voice state and cached env/LFO source values; apply_filter_model implements bypass, one-pole LP/HP, SVF LP/HP/BP/notch, and formant bandpass approximation with drive/resonance/keytrack inputs. Also changed MIDI CC storage to preserve raw 0..127 values for modulation. Verification passed: module load; protected T020 wrapper compile `(ulimit -v 4000000; timeout 240 luajit /tmp/check_t020.lua)`; full protected synth compile/behavior suite `(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_lalin_synth_impl.lua)`.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:13:48.980Z",
 			"updatedAt": "2026-06-13T23:41:14.536Z"
@@ -363,14 +363,14 @@
 			"id": "T021",
 			"title": "Implement spec-faithful tone fields",
 			"detail": "Replace simplified T011 tone rendering with spec-faithful AD/SUB/PAD behavior: additive partial sine phases/phase offsets/gains/pan, deterministic SUB noise shaped by band facts, PAD cache table interpolation, exact ctx.shape.frame_count writes, correct ToneMask blending, stale/missing/bad-buffer propagation.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T020"
 			],
 			"status": "done",
 			"order": 21,
 			"claimedBy": "agent-3XZNGX",
-			"evidence": "Implemented tone-field fidelity updates in examples/synth/zyn_moonlift_synth_impl.mlua: additive now uses unit-phase sine polynomial with phase_offsets/gains/pan plus detune_cents/stereo_spread/phase_random and pitch modulation; subtractive now advances deterministic per-band noise using center_hz/bandwidth_hz/gains/pan/source_color/stereo_width; PAD now validates table_length*table_count and linearly interpolates both sample position and morph table selection; ToneMask routing rejects unknown bits, blends selected AD/SUB/PAD outputs in one zeroed block, and carries max peak across generators. Verified module load and protected compiles: (ulimit -v 4000000; timeout 240 env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_moonlift_synth_impl.lua), (ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_wrappers luajit tests/test_zyn_moonlift_synth_impl.lua), and full smoke (ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua) all passed.",
+			"evidence": "Implemented tone-field fidelity updates in examples/synth/zyn_lalin_synth_impl.mlua: additive now uses unit-phase sine polynomial with phase_offsets/gains/pan plus detune_cents/stereo_spread/phase_random and pitch modulation; subtractive now advances deterministic per-band noise using center_hz/bandwidth_hz/gains/pan/source_color/stereo_width; PAD now validates table_length*table_count and linearly interpolates both sample position and morph table selection; ToneMask routing rejects unknown bits, blends selected AD/SUB/PAD outputs in one zeroed block, and carries max peak across generators. Verified module load and protected compiles: (ulimit -v 4000000; timeout 240 env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_lalin_synth_impl.lua), (ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_wrappers luajit tests/test_zyn_lalin_synth_impl.lua), and full smoke (ulimit -v 8000000; timeout 700 luajit tests/test_zyn_lalin_synth_impl.lua) all passed.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:13:48.980Z",
 			"updatedAt": "2026-06-13T23:49:35.270Z"
@@ -379,14 +379,14 @@
 			"id": "T022",
 			"title": "Implement spec-faithful effects mixing metering",
 			"detail": "Replace simplified T012 behavior with spec-faithful mixing/effects/metering: equal-power pan, effect slots in order with declared effect kind semantics, bypass copy, send/insert/master behavior, nominal gain, clipping to policy clip_ceiling, peak/RMS MeterFrame updated exactly once.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T020"
 			],
 			"status": "done",
 			"order": 22,
 			"claimedBy": "agent-HV5JG5",
-			"evidence": "Implemented effects/mixing/metering fidelity in examples/synth/zyn_moonlift_synth_impl.mlua: equal-power pan helper, deterministic effect-kind processing in R.apply_effect_slot, alternating effect-bus slot chaining with final copy, insert/send/master wiring in render path, send accumulation from voice modulation, policy clip ceiling via HLP.finalize_audio_block_with_policy, and single MeterFrame write in finalization. Verified with module load plus protected compile/smoke commands: (ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_moonlift_synth_impl.lua), (ulimit -v 4000000; timeout 240 env ZYN_SYNTH_TEST_MODE=compile_wrappers luajit tests/test_zyn_moonlift_synth_impl.lua), and (ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua), all passed.",
+			"evidence": "Implemented effects/mixing/metering fidelity in examples/synth/zyn_lalin_synth_impl.mlua: equal-power pan helper, deterministic effect-kind processing in R.apply_effect_slot, alternating effect-bus slot chaining with final copy, insert/send/master wiring in render path, send accumulation from voice modulation, policy clip ceiling via HLP.finalize_audio_block_with_policy, and single MeterFrame write in finalization. Verified with module load plus protected compile/smoke commands: (ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_lalin_synth_impl.lua), (ulimit -v 4000000; timeout 240 env ZYN_SYNTH_TEST_MODE=compile_wrappers luajit tests/test_zyn_lalin_synth_impl.lua), and (ulimit -v 8000000; timeout 700 luajit tests/test_zyn_lalin_synth_impl.lua), all passed.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:13:48.980Z",
 			"updatedAt": "2026-06-14T00:05:29.101Z"
@@ -395,7 +395,7 @@
 			"id": "T023",
 			"title": "Tighten event render and voice behavioral fidelity",
 			"detail": "Fix remaining non-DSP simplifications: event frame handling within render context, note-on voice creation paths, tuning/transpose base frequency, sustain/all-notes/panic behavior, voice lifecycle stage transitions, render order and dead-voice retirement exactly as spec.",
-			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"file": "examples/synth/zyn_lalin_synth_impl.mlua",
 			"after": [
 				"T020",
 				"T021",
@@ -404,7 +404,7 @@
 			"status": "done",
 			"order": 23,
 			"claimedBy": "agent-YR5K4M",
-			"evidence": "Updated examples/synth/zyn_moonlift_synth_impl.mlua for event/render/voice fidelity: render-path host event helper now filters negative/out-of-block frames using RenderCtx and dispatches through classifiers/apply_midi_event; MIDI note-on event path iterates all matching layers through voice allocation/start lifecycle; note frequency now applies tuning degree plus octave scaling; voice steal scoring uses normalized age without non-spec mode bonus and marks previous voice retiring before replacement; release/all-notes paths set release_frame and release all active matching voices; sustain CC path defers note-off while held and releases channel voices on pedal-up; panic paths reset effect rack state as well as voices; synth_note_on maps full allocation to exhausted_storage. Verified with protected checks: (ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_moonlift_synth_impl.lua) passed; (ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_wrappers luajit tests/test_zyn_moonlift_synth_impl.lua) passed; (ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua) passed.",
+			"evidence": "Updated examples/synth/zyn_lalin_synth_impl.mlua for event/render/voice fidelity: render-path host event helper now filters negative/out-of-block frames using RenderCtx and dispatches through classifiers/apply_midi_event; MIDI note-on event path iterates all matching layers through voice allocation/start lifecycle; note frequency now applies tuning degree plus octave scaling; voice steal scoring uses normalized age without non-spec mode bonus and marks previous voice retiring before replacement; release/all-notes paths set release_frame and release all active matching voices; sustain CC path defers note-off while held and releases channel voices on pedal-up; panic paths reset effect rack state as well as voices; synth_note_on maps full allocation to exhausted_storage. Verified with protected checks: (ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_lalin_synth_impl.lua) passed; (ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_wrappers luajit tests/test_zyn_lalin_synth_impl.lua) passed; (ulimit -v 8000000; timeout 700 luajit tests/test_zyn_lalin_synth_impl.lua) passed.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:13:48.980Z",
 			"updatedAt": "2026-06-14T00:20:12.730Z"
@@ -413,7 +413,7 @@
 			"id": "T024",
 			"title": "Add fidelity tests and final verification",
 			"detail": "Extend tests with spec-defined behavioral checks that catch the prior simplified behavior: envelope curves, LFO shapes/determinism, modulation routes, tone mask blending, filter/effect paths, clipping/RMS, render/event order. Run cargo build --release if needed and protected Lua verification. Do not rely on C backend.",
-			"file": "tests/test_zyn_moonlift_synth_impl.lua",
+			"file": "tests/test_zyn_lalin_synth_impl.lua",
 			"after": [
 				"T019",
 				"T020",
@@ -424,9 +424,9 @@
 			"status": "done",
 			"order": 24,
 			"claimedBy": "agent-W6G2EW",
-			"evidence": "Completed fidelity tests and final verification. tests/test_zyn_moonlift_synth_impl.lua now includes focused behavioral wrappers for envelope timing/curve activity, LFO phase/shape and deterministic RNG, filter bypass/effect processing, tone-mask blending, plus existing storage/init/malformed patch/event/voice/render smoke. Reworked the large fidelity probe into smaller wrappers to avoid brittle large-function aggregate issues and keep memory bounded. Final verification passed: `cargo build --release` (warnings only), `(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua)`, implementation load check `(ulimit -v 1500000; timeout 60 luajit -e '... moon.dofile(\"examples/synth/zyn_moonlift_synth_impl.mlua\") ...')`, `(ulimit -v 1500000; timeout 60 luajit tests/test_control_region_view_params.lua)`, and `(ulimit -v 1500000; timeout 60 luajit tests/test_func_header_body_region_splices.lua)`. No C backend used as blocker.",
+			"evidence": "Completed fidelity tests and final verification. tests/test_zyn_lalin_synth_impl.lua now includes focused behavioral wrappers for envelope timing/curve activity, LFO phase/shape and deterministic RNG, filter bypass/effect processing, tone-mask blending, plus existing storage/init/malformed patch/event/voice/render smoke. Reworked the large fidelity probe into smaller wrappers to avoid brittle large-function aggregate issues and keep memory bounded. Final verification passed: `cargo build --release` (warnings only), `(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_lalin_synth_impl.lua)`, implementation load check `(ulimit -v 1500000; timeout 60 luajit -e '... lalin.dofile(\"examples/synth/zyn_lalin_synth_impl.mlua\") ...')`, `(ulimit -v 1500000; timeout 60 luajit tests/test_control_region_view_params.lua)`, and `(ulimit -v 1500000; timeout 60 luajit tests/test_func_header_body_region_splices.lua)`. No C backend used as blocker.",
 			"notes": [
-				"Follow-up cleanup after completion: removed the unused large DSP fidelity wrapper from tests/test_zyn_moonlift_synth_impl.lua and replaced its remaining responsibilities with focused compiled/called wrappers for modulation-route semantics and finalize_audio_block clipping/RMS/peak metering. Also tightened envelope wrapper to assert linear/exponential/logarithmic attack curves. Re-ran `(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua)` successfully."
+				"Follow-up cleanup after completion: removed the unused large DSP fidelity wrapper from tests/test_zyn_lalin_synth_impl.lua and replaced its remaining responsibilities with focused compiled/called wrappers for modulation-route semantics and finalize_audio_block clipping/RMS/peak metering. Also tightened envelope wrapper to assert linear/exponential/logarithmic attack curves. Re-ran `(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_lalin_synth_impl.lua)` successfully."
 			],
 			"createdAt": "2026-06-13T23:13:48.980Z",
 			"updatedAt": "2026-06-14T04:28:48.243Z"

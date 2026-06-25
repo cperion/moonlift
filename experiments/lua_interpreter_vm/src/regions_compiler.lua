@@ -1,7 +1,7 @@
 -- Lua Interpreter VM — Public source-byte compiler entry regions
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local pconst = require("experiments.lua_interpreter_vm.src.parser_constants")
 local parser = require("experiments.lua_interpreter_vm.src.regions_parser")
 local semantic = require("experiments.lua_interpreter_vm.src.regions_semantic")
@@ -66,9 +66,9 @@ local V = {
     verify_hir = semantic.verify_hir,
     lower_hir_to_proto = lower.lower_hir_to_proto,
 }
-for k, v in pairs(pconst.SourcePhase) do V["SOURCE_" .. k] = moon.int(v) end
-for k, v in pairs(OFF) do V["OFF_" .. k] = moon.int(v) end
-for k, v in pairs(CAP) do V["CAP_" .. k] = moon.int(v) end
+for k, v in pairs(pconst.SourcePhase) do V["SOURCE_" .. k] = lalin.int(v) end
+for k, v in pairs(OFF) do V["OFF_" .. k] = lalin.int(v) end
+for k, v in pairs(CAP) do V["CAP_" .. k] = lalin.int(v) end
 
 local compile_lua_source_into = host.region(V) [[
 region compile_lua_source_into(

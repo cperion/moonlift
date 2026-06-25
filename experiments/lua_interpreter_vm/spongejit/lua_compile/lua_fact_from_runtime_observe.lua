@@ -9,7 +9,7 @@ local B = require("lua_compile.builders")
 local T = B.T
 local Fact = T.LuaFact
 local Compile = T.LuaCompile
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local Closure = require("lua_compile.lua_fact_closure")
 
 local M = {}

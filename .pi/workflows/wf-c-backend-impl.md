@@ -1,5 +1,5 @@
 # C backend implementation plan 
-Implementation planning for the Moonlift C backend side projection described in C_BACKEND_DESIGN.md and represented by MoonC.CBackend* ASDL nodes.
+Implementation planning for the Lalin C backend side projection described in C_BACKEND_DESIGN.md and represented by LalinC.CBackend* ASDL nodes.
 **Workflow ID**: wf-c-backend-impl
 **Started**: 2026-06-08 08:14:05
 ---
@@ -8,17 +8,17 @@ Implementation planning for the Moonlift C backend side projection described in 
 
 ### Precondition Checks
 
-- Confirm `lua/moonlift/c/c_type.lua` still defines `MoonC.CBackendUnit` at lines 513-523 and no validation/report ASDL nodes exist yet.
-- Confirm `lua/moonlift/schema/init.lua` already requires `moonlift.c.c_type` at line 14; do not add a second schema include.
-- Confirm `lua/moonlift/frontend_pipeline.lua` still lowers only to MoonBack at lines 31-76 and returns only `lower_module`, `parse_and_lower`, `assert_no_cmd_trap` at lines 198-202.
-- Confirm `lua/moonlift/init.lua` public facade still has `emit_object`/`emit_shared` only; add C emission without changing existing APIs.
+- Confirm `lua/lalin/c/c_type.lua` still defines `LalinC.CBackendUnit` at lines 513-523 and no validation/report ASDL nodes exist yet.
+- Confirm `lua/lalin/schema/init.lua` already requires `lalin.c.c_type` at line 14; do not add a second schema include.
+- Confirm `lua/lalin/frontend_pipeline.lua` still lowers only to LalinBack at lines 31-76 and returns only `lower_module`, `parse_and_lower`, `assert_no_cmd_trap` at lines 198-202.
+- Confirm `lua/lalin/init.lua` public facade still has `emit_object`/`emit_shared` only; add C emission without changing existing APIs.
 - Confirm Cranelift path tests still pass before large integration: `luajit tests/test_schema_compile_pipeline.lua`.
 
 ---
 
 ### Files to Modify
 
-#### `lua/moonlift/c/c_type.lua`
+#### `lua/lalin/c/c_type.lua`
 
 **Goal**: Add ASDL validation report nodes for the C backend projection.
 
@@ -57,7 +57,7 @@ Implementation planning for the Moonlift C backend side projection described in 
      }
 
      A.product "CBackendValidationReport" {
-         A.field "issues" (A.many "MoonC.CBackendValidationIssue"),
+         A.field "issues" (A.many "LalinC.CBackendValidationIssue"),
          A.unique,
      },
      ```
@@ -69,15 +69,15 @@ Implementation planning for the Moonlift C backend side projection described in 
 
 ---
 
-#### `lua/moonlift/frontend_pipeline.lua`
+#### `lua/lalin/frontend_pipeline.lua`
 
-**Goal**: Add a sibling C pipeline without altering the existing MoonBack path.
+**Goal**: Add a sibling C pipeline without altering the existing LalinBack path.
 
 **Edit blocks**:
 1. **Lines 31-35**: Add requires inside `M.Define(T)`.
    ```lua
-   local TreeToC = require("moonlift.tree_to_c").Define(T)
-   local CValidate = require("moonlift.c_validate").Define(T)
+   local TreeToC = require("lalin.tree_to_c").Define(T)
+   local CValidate = require("lalin.c_validate").Define(T)
    ```
 
 2. **After existing `lower_module` function, before `parse_and_lower`**: Add `lower_module_to_c(module, opts)`.
@@ -109,18 +109,18 @@ Implementation planning for the Moonlift C backend side projection described in 
 
 ---
 
-#### `lua/moonlift/init.lua`
+#### `lua/lalin/init.lua`
 
 **Goal**: Expose public source-to-C emission.
 
 **Edit blocks**:
 1. **Near lines 39-43**: Add module exports:
    ```lua
-   M.type_to_c = require("moonlift.type_to_c")
-   M.tree_to_c = require("moonlift.tree_to_c")
-   M.c_validate = require("moonlift.c_validate")
-   M.c_emit = require("moonlift.c_emit")
-   M.c_helpers = require("moonlift.c_helpers")
+   M.type_to_c = require("lalin.type_to_c")
+   M.tree_to_c = require("lalin.tree_to_c")
+   M.c_validate = require("lalin.c_validate")
+   M.c_emit = require("lalin.c_emit")
+   M.c_helpers = require("lalin.c_helpers")
    ```
 
 2. **After `emit_shared`, before CLI section**: Add:
@@ -132,7 +132,7 @@ Implementation planning for the Moonlift C backend side projection described in 
    - Build fresh ASDL context.
    - Call `Pipeline.Define(T).parse_and_lower_c(src, { site = "emit_c", c_opts = opts })`.
    - Error if `#result.c_report.issues ~= 0`.
-   - Emit via `require("moonlift.c_emit").Define(T).emit(result.c_unit, opts)`.
+   - Emit via `require("lalin.c_emit").Define(T).emit(result.c_unit, opts)`.
    - Write text if `path` supplied.
    - Return source string.
 
@@ -142,7 +142,7 @@ Implementation planning for the Moonlift C backend side projection described in 
 
 ---
 
-#### `lua/moonlift/host_module_values.lua`
+#### `lua/lalin/host_module_values.lua`
 
 **Goal**: Add builder/bundle C emission methods.
 
@@ -167,19 +167,19 @@ Implementation planning for the Moonlift C backend side projection described in 
    - Return source string.
 
 **Danger zones**:
-- `_lower_program` returns MoonBack; do not reuse it for C.
+- `_lower_program` returns LalinBack; do not reuse it for C.
 - Preserve existing `compile`, `object`, and `library` behavior.
 
 ---
 
 ### New Files
 
-#### `lua/moonlift/type_to_c.lua`
+#### `lua/lalin/type_to_c.lua`
 
-- **Purpose**: Project Moonlift semantic types to `MoonC.CBackendType`.
+- **Purpose**: Project Lalin semantic types to `LalinC.CBackendType`.
 - **Contents sketch**:
-  - `local pvm = require("moonlift.pvm")`
-  - `function M.Define(T)` with `T._moonlift_api_cache.type_to_c`.
+  - `local pvm = require("lalin.pvm")`
+  - `function M.Define(T)` with `T._lalin_api_cache.type_to_c`.
   - API:
     - `scalar_to_c(scalar)`
     - `type_to_c(ty, ctx)`
@@ -197,11 +197,11 @@ Implementation planning for the Moonlift C backend side projection described in 
     - `TCFuncPtr(sig) -> CBackendCodePtr(converted sig id)`
     - `TCType(id) -> CBackendNamed(id)`
     - `TNamed(TypeRefGlobal)` -> `CBackendNamed(CTypeId(module, name))`
-- **Imports required**: `pvm`, `MoonCore`, `MoonType`, `MoonC`.
+- **Imports required**: `pvm`, `LalinCore`, `LalinType`, `LalinC`.
 
 ---
 
-#### `lua/moonlift/c_helpers.lua`
+#### `lua/lalin/c_helpers.lua`
 
 - **Purpose**: Helper registry and helper C body generation.
 - **Contents sketch**:
@@ -221,9 +221,9 @@ Implementation planning for the Moonlift C backend side projection described in 
 
 ---
 
-#### `lua/moonlift/tree_control_to_c.lua`
+#### `lua/lalin/tree_control_to_c.lua`
 
-- **Purpose**: Lower explicit Moonlift control regions to C backend label/goto blocks.
+- **Purpose**: Lower explicit Lalin control regions to C backend label/goto blocks.
 - **Contents sketch**:
   - `Define(T, base)`
   - `stmt_region_to_c`
@@ -237,9 +237,9 @@ Implementation planning for the Moonlift C backend side projection described in 
 
 ---
 
-#### `lua/moonlift/tree_to_c.lua`
+#### `lua/lalin/tree_to_c.lua`
 
-- **Purpose**: Project resolved `MoonTree.Module` to `MoonC.CBackendUnit`.
+- **Purpose**: Project resolved `LalinTree.Module` to `LalinC.CBackendUnit`.
 - **Contents sketch**:
   - `Define(T)`
   - context:
@@ -274,7 +274,7 @@ Implementation planning for the Moonlift C backend side projection described in 
 
 ---
 
-#### `lua/moonlift/c_validate.lua`
+#### `lua/lalin/c_validate.lua`
 
 - **Purpose**: Validate `CBackendUnit`.
 - **Contents sketch**:
@@ -295,11 +295,11 @@ Implementation planning for the Moonlift C backend side projection described in 
     - globals initializer bounds.
     - helper kind/id consistency.
     - no data/code pointer confusion.
-- **Return**: `MoonC.CBackendValidationReport(issues)`.
+- **Return**: `LalinC.CBackendValidationReport(issues)`.
 
 ---
 
-#### `lua/moonlift/c_emit.lua`
+#### `lua/lalin/c_emit.lua`
 
 - **Purpose**: Deterministic C printer.
 - **Contents sketch**:
@@ -346,8 +346,8 @@ Optionally modify:
 
 - Add assertions for:
   ```lua
-  assert(blob:match("type MoonC_CBackendUnit ="), ...)
-  assert(ty.MoonC.CBackendUnit ~= nil, ...)
+  assert(blob:match("type LalinC_CBackendUnit ="), ...)
+  assert(ty.LalinC.CBackendUnit ~= nil, ...)
   ```
 
 ---
@@ -413,7 +413,7 @@ Updated workflow sidecar `wf-c-backend-impl` revision `r1` with 14 tasks:
 ### Pattern Memo
 
 - Use `pvm.classof(x)` for ASDL dispatch; do not inspect `_variant`.
-- Every module exposes `M.Define(T)` and caches API in `T._moonlift_api_cache` where reusable.
+- Every module exposes `M.Define(T)` and caches API in `T._lalin_api_cache` where reusable.
 - C backend names must be sanitized once and validated for uniqueness.
 - C emission is deterministic and label/goto based; no loop reconstruction.
 - Unsafe C behavior is contained in helpers; do not open-code overflowing arithmetic or unaligned loads/stores.
@@ -431,12 +431,12 @@ Updated workflow sidecar `wf-c-backend-impl` revision `r1` with 14 tasks:
 
 ## Files Changed
 - `tests/test_tree_to_c_smoke.lua` - new parse/lower/emit smoke test for add, if, switch, block loop, extern call.
-- `tests/test_emit_c_api.lua` - new `moon.emit_c` and `BundleValue:c_source` API test.
-- `lua/moonlift/tree_to_c.lua` - expression-control return lowering and void detection fix.
-- `lua/moonlift/tree_control_to_c.lua` - block-param env bindings and switch arm literal lowering.
-- `lua/moonlift/c_emit.lua` - fixed zero-field C backend type emission.
-- `lua/moonlift/c_helpers.lua` - fixed zero-field C backend type suffix/emission fallback.
-- `lua/moonlift/c_validate.lua` - fixed void result validation check.
+- `tests/test_emit_c_api.lua` - new `lalin.emit_c` and `BundleValue:c_source` API test.
+- `lua/lalin/tree_to_c.lua` - expression-control return lowering and void detection fix.
+- `lua/lalin/tree_control_to_c.lua` - block-param env bindings and switch arm literal lowering.
+- `lua/lalin/c_emit.lua` - fixed zero-field C backend type emission.
+- `lua/lalin/c_helpers.lua` - fixed zero-field C backend type suffix/emission fallback.
+- `lua/lalin/c_validate.lua` - fixed void result validation check.
 
 ## Notes
 Checks run:

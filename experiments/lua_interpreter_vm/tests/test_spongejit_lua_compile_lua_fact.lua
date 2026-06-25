@@ -8,7 +8,7 @@ local Contradiction = require("lua_compile.lua_fact_contradiction")
 local Payload = require("lua_compile.lua_fact_payload_lease")
 local B = require("lua_compile.builders")
 local T = B.T
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 
 local function alts(sum)
   local out = {}

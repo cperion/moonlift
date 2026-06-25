@@ -1,7 +1,7 @@
 -- lua_src_from_puc_decode.lua -- PUC instruction table -> LuaSrc.Op.
 
 local B = require("lua_compile.builders")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local Src = B.LuaSrc
 local Compile = B.T.LuaCompile
 

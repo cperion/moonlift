@@ -1,7 +1,7 @@
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ll = require("llpvm")
-local moon = require("moonlift")
+local lalin = require("lalin")
 
 assert(ll.T and ll.B, "llpvm exposes ASDL context and FastBuilders")
 assert(ll.vm == nil, "legacy mutation VM API is not public")
@@ -12,13 +12,13 @@ local ok_dep, dep_err = pcall(function()
     local env = {}
     ll.use { scope = "env", target = env }
 end)
-assert(not ok_dep and tostring(dep_err):match("moonlift%.types"), "llpvm.use reports missing moonlift.types scope")
+assert(not ok_dep and tostring(dep_err):match("lalin%.types"), "llpvm.use reports missing lalin.types scope")
 
 local env = {}
-local moon_session = moon.use { scope = "env", target = env, global = false, searcher = false }
+local lalin_session = lalin.use { scope = "env", target = env, global = false, searcher = false }
 local ll_session = ll.use { scope = "env", target = env, global = false }
 assert(ll_session:describe().provides[1] == "llpvm.dsl", "llpvm session reports provided capability")
-assert(moon_session:describe().provides[1] == "moonlift.types", "moonlift session reports type capability")
+assert(lalin_session:describe().provides[1] == "lalin.types", "lalin session reports type capability")
 
 local src = [[
 return pvm. Demo {

@@ -7,8 +7,8 @@ package.path = table.concat({
 }, ';')
 
 local ffi = require('ffi')
-local pvm = require('moonlift.pvm')
-local moon = require('moonlift')
+local pvm = require('lalin.pvm')
+local lalin = require('lalin')
 
 local source = [=[
 return unit. SoARegression {
@@ -74,9 +74,9 @@ return unit. SoARegression {
 }
 ]=]
 
-local session = moon.use { scope = 'env' }
+local session = lalin.use { scope = 'env' }
 local decl = assert(session:loadstring(source, 'test_luajit_artifact_soa_from_dsl.lua'))()
-local artifact = moon.emit_luajit_artifact(decl, {
+local artifact = lalin.emit_luajit_artifact(decl, {
     path = 'target/test_artifacts/test_luajit_artifact_soa_from_dsl.lua',
     name = 'SoARegression',
     stem = 'test_luajit_artifact_soa_from_dsl',
@@ -95,7 +95,7 @@ end
 
 local function assert_soa(access, field_name, component_index)
     local top = access.topology
-    assert(tostring(pvm.classof(top)) == 'Class(MoonStencil.StencilTopologySoAComponent)', access.name .. ' should use SoA topology')
+    assert(tostring(pvm.classof(top)) == 'Class(LalinStencil.StencilTopologySoAComponent)', access.name .. ' should use SoA topology')
     assert(top.field_name == field_name, access.name .. ' should keep SoA field')
     assert(top.component_index == component_index, access.name .. ' should keep SoA component index')
     assert(tostring(top.record_ty):match('PairSoA'), access.name .. ' should keep logical record type')
@@ -104,11 +104,11 @@ end
 for _, selected in ipairs(artifact.artifacts) do
     local desc = selected.instance.descriptor
     local vocab = tostring(desc.vocab)
-    if vocab == 'MoonStencil.StencilZipMap' then
+    if vocab == 'LalinStencil.StencilZipMap' then
         assert_soa(access_named(desc, 'dst'), 'total', 2)
         assert_soa(access_named(desc, 'lhs'), 'left', 0)
         assert_soa(access_named(desc, 'rhs'), 'right', 1)
-    elseif vocab == 'MoonStencil.StencilZipReduce' then
+    elseif vocab == 'LalinStencil.StencilZipReduce' then
         assert_soa(access_named(desc, 'lhs'), 'left', 0)
         assert_soa(access_named(desc, 'rhs'), 'right', 1)
     else

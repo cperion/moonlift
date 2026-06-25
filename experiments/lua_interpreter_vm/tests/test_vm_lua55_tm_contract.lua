@@ -1,6 +1,6 @@
--- Lua 5.5 tag-method order contract for the Moonlift VM.
+-- Lua 5.5 tag-method order contract for the Lalin VM.
 -- PUC Lua is used as semantic/oracle documentation only; these constants are
--- Moonlift VM ABI discriminants consumed by bytecode and metamethod lookup.
+-- Lalin VM ABI discriminants consumed by bytecode and metamethod lookup.
 
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 

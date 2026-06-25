@@ -6,7 +6,7 @@
 
 local encode = require("back.dasm.encode_x64")
 local abi    = require("back.dasm.abi_sysv")
-local LisleCompile = require("moonlift.lisle.compile")
+local LisleCompile = require("lalin.lisle.compile")
 
 local isel = {}
 isel.value_scalars = {}
@@ -65,7 +65,7 @@ isel._rules_x64_loaded_mtime = nil
 isel._lower_cmd_lisle = nil
 isel._lower_cmd_lisle_err = nil
 isel._lower_cmd_lisle_ctx = {}
-isel._lisle_autoreload = (os.getenv("MOONLIFT_DASM_WATCH_RULES") == "1")
+isel._lisle_autoreload = (os.getenv("LALIN_DASM_WATCH_RULES") == "1")
 
 function isel.set_lisle_autoreload(enabled)
     isel._lisle_autoreload = enabled and true or false

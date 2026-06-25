@@ -3,7 +3,7 @@
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
@@ -67,7 +67,7 @@ local function set_AsBx(i, op, a, sbx)
     set_ABx(i, op, a, (sbx or 0) + 65535)
 end
 
-local runner = moon.func {
+local runner = lalin.func {
     vm_resume = vm.vm_loop.vm_resume,
     sys_realloc = vm.regions_allocator.sys_realloc,
 } [[

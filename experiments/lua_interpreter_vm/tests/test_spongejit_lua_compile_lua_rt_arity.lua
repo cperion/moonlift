@@ -2,16 +2,16 @@
 package.path = "./experiments/lua_interpreter_vm/spongejit/?.lua;./experiments/lua_interpreter_vm/spongejit/?/init.lua;./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local moon = require("moonlift")
+local lalin = require("lalin")
 local C = require("lua_compile")
 local Schema = require("lua_compile.schema")
-local Emit = require("lua_compile.moon_cfg_emit")
-local Validate = require("lua_compile.moon_cfg_validate")
+local Emit = require("lua_compile.lalin_cfg_emit")
+local Validate = require("lua_compile.lalin_cfg_validate")
 local ExecLower = require("lua_compile.lua_src_to_lua_exec_lower")
-local ExecToMoon = require("lua_compile.lua_exec_to_moon_cfg_lower")
+local ExecToLalin = require("lua_compile.lua_exec_to_lalin_cfg_lower")
 local ValueModel = require("lua_compile.lua_rt_value_model")
 local T = Schema.get()
-local RT, CFG, CC = T.LuaRT, T.MoonCFG, T.CompileContract
+local RT, CFG, CC = T.LuaRT, T.LalinCFG, T.CompileContract
 
 pcall(function()
   ffi.cdef[[
@@ -39,7 +39,7 @@ local function run(k, fname, ...)
   assert(ok, table.concat(errs, "\n"))
   local src = Emit.emit(k, { name = fname })
   assert(not src:match("out_tag") and not src:match("out_event_kind") and not src:match("generic_for"), "must not emit protocol/fallback strings")
-  local fn = assert(moon.loadstring(src, "=(" .. fname .. ")"))()
+  local fn = assert(lalin.loadstring(src, "=(" .. fname .. ")"))()
   local native = assert(fn:compile())
   local out = native(...)
   if type(out) == "cdata" then out = tonumber(out) or tonumber(tostring(out):match("^-?%d+")) or out end
@@ -131,8 +131,8 @@ local function lower_outcome(events, projection)
   local unit = C.unit_from_events(events, {})
   local exec_kernel, exec_errors = ExecLower.lower(unit.source, unit.evidence)
   assert(exec_kernel, "LuaExec lower rejected fixture: " .. table.concat(exec_errors or {}, "; "))
-  local cfg, cfg_errors = ExecToMoon.lower_outcome(exec_kernel, projection)
-  assert(cfg, "LuaExec->MoonCFG rejected fixture: " .. table.concat(cfg_errors or {}, "; "))
+  local cfg, cfg_errors = ExecToLalin.lower_outcome(exec_kernel, projection)
+  assert(cfg, "LuaExec->LalinCFG rejected fixture: " .. table.concat(cfg_errors or {}, "; "))
   return cfg
 end
 

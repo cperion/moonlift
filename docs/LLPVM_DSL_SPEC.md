@@ -32,10 +32,10 @@ The language definition object is the generated DSL.
 ## Canonical surface
 
 ```lua
-local moon = require("moonlift")
+local lalin = require("lalin")
 local ll = require("llpvm")
 
-moon.use()
+lalin.use()
 ll.use()
 
 return language. Expr {
@@ -332,7 +332,7 @@ LLPVM is not:
 a parser
 a bytecode assembly language
 a mutation proxy API
-a second Moonlift type language
+a second Lalin type language
 a source-to-source Lua transformer
 ```
 

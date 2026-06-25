@@ -1,34 +1,34 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local schema = require("moonlift.schema_projection")
+local pvm = require("lalin.pvm")
+local schema = require("lalin.schema_projection")
 
 local T = pvm.context()
 schema(T)
 
-local S = T.MoonSource
-local E = T.MoonEditor
-local Mlua = T.MoonMlua
+local S = T.LalinSource
+local E = T.LalinEditor
+local Mlua = T.LalinMlua
 
-local Analysis = require("moonlift.mlua_document_analysis")(T)
-local Symbols = require("moonlift.editor_symbol_facts")(T)
-local Diagnostics = require("moonlift.editor_diagnostic_facts")(T)
+local Analysis = require("lalin.mlua_document_analysis")(T)
+local Symbols = require("lalin.editor_symbol_facts")(T)
+local Diagnostics = require("lalin.editor_diagnostic_facts")(T)
 
 local uri = S.DocUri("file:///editor_lua_dsl_test.lua")
 
 local good_doc = S.DocumentSnapshot(uri, S.DocVersion(1), S.LangLua, [[
-require("moonlift").family.use { scope = "env", target = getfenv(1), global = false, override = true }
+require("lalin").family.use { scope = "env", target = getfenv(1), global = false, override = true }
 
-return moonlift.unit. EditorSmoke {
-  moonlift.struct. Pair { a [moonlift.i32], b [moonlift.i32] },
-  moonlift.fn. add { a [moonlift.i32], b [moonlift.i32] } [moonlift.i32] {
-    moonlift.ret (a + b),
+return lalin.unit. EditorSmoke {
+  lalin.struct. Pair { a [lalin.i32], b [lalin.i32] },
+  lalin.fn. add { a [lalin.i32], b [lalin.i32] } [lalin.i32] {
+    lalin.ret (a + b),
   },
 }
 ]])
 
 local analysis = Analysis.analyze_document_full(good_doc)
-assert(pvm.classof(analysis) == Mlua.DocumentAnalysis, "analysis should be MoonMlua.DocumentAnalysis")
+assert(pvm.classof(analysis) == Mlua.DocumentAnalysis, "analysis should be LalinMlua.DocumentAnalysis")
 assert(#analysis.parse.combined.module.items == 2, "analysis should produce tree items")
 assert(#analysis.parse.combined.issues == 0, "good Lua DSL document should not have parse issues")
 
@@ -44,13 +44,13 @@ assert(saw_struct, "document symbols should include struct")
 assert(saw_func, "document symbols should include function")
 
 local bad_doc = S.DocumentSnapshot(S.DocUri("file:///editor_lua_dsl_bad.lua"), S.DocVersion(1), S.LangLua, [[
-require("moonlift").family.use { scope = "env", target = getfenv(1), global = false, override = true }
+require("lalin").family.use { scope = "env", target = getfenv(1), global = false, override = true }
 
 -- Outer unit diagnostic context.
-return moonlift.unit. Bad {
+return lalin.unit. Bad {
   -- Returns an i32 from a deliberately invalid body.
-  moonlift.fn. bad {} [moonlift.i32] {
-    moonlift.ret true,
+  lalin.fn. bad {} [lalin.i32] {
+    lalin.ret true,
   },
 }
 ]])
@@ -71,4 +71,4 @@ end
 assert(saw_context, "editor diagnostics should include nearest declaration comment context")
 assert(saw_outer_context, "editor diagnostics should include outer declaration comment context")
 
-print("moonlift editor lua dsl analysis ok")
+print("lalin editor lua dsl analysis ok")

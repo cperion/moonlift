@@ -4,34 +4,34 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 
 local ffi = require("ffi")
 local bit = require("bit")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
-local Measure = require("moonlift.luajit_measure")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
+local Measure = require("lalin.luajit_measure")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local Flow = T.MoonFlow
-local Schedule = T.MoonSchedule
-local Stencil = T.MoonStencil
-local Ty = T.MoonType
-local Value = T.MoonValue
-local StencilArtifactPlan = require("moonlift.stencil_artifact_plan")(T)
-local StencilBank = require("moonlift.stencil_bank")(T)
-local StencilLuaJIT = require("moonlift.stencil_luajit")(T)
+local Core = T.LalinCore
+local Code = T.LalinCode
+local Flow = T.LalinFlow
+local Schedule = T.LalinSchedule
+local Stencil = T.LalinStencil
+local Ty = T.LalinType
+local Value = T.LalinValue
+local StencilArtifactPlan = require("lalin.stencil_artifact_plan")(T)
+local StencilBank = require("lalin.stencil_bank")(T)
+local StencilLuaJIT = require("lalin.stencil_luajit")(T)
 
 local mode = arg and arg[1] or "quick"
 local full = mode == "full"
-local n = tonumber(os.getenv("MOONLIFT_LJ_MAT_BENCH_N") or (full and "2000000" or "200000"))
-local samples = tonumber(os.getenv("MOONLIFT_LJ_MAT_BENCH_SAMPLES") or (full and "7" or "4"))
-local rounds = tonumber(os.getenv("MOONLIFT_LJ_MAT_BENCH_ROUNDS") or (full and "3" or "1"))
-local warmup = tonumber(os.getenv("MOONLIFT_LJ_MAT_BENCH_WARMUP") or (full and "3" or "2"))
-local materialize_samples = tonumber(os.getenv("MOONLIFT_LJ_MAT_BUILD_SAMPLES") or (full and "5" or "3"))
-local cc = os.getenv("MOONLIFT_LJ_MAT_BENCH_CC") or os.getenv("CC") or "gcc"
-local cflags = os.getenv("MOONLIFT_LJ_MAT_BENCH_CFLAGS") or "-std=c99 -O3 -march=native"
-local debug_log = os.getenv("MOONLIFT_LJ_MAT_DEBUG") == "1"
+local n = tonumber(os.getenv("LALIN_LJ_MAT_BENCH_N") or (full and "2000000" or "200000"))
+local samples = tonumber(os.getenv("LALIN_LJ_MAT_BENCH_SAMPLES") or (full and "7" or "4"))
+local rounds = tonumber(os.getenv("LALIN_LJ_MAT_BENCH_ROUNDS") or (full and "3" or "1"))
+local warmup = tonumber(os.getenv("LALIN_LJ_MAT_BENCH_WARMUP") or (full and "3" or "2"))
+local materialize_samples = tonumber(os.getenv("LALIN_LJ_MAT_BUILD_SAMPLES") or (full and "5" or "3"))
+local cc = os.getenv("LALIN_LJ_MAT_BENCH_CC") or os.getenv("CC") or "gcc"
+local cflags = os.getenv("LALIN_LJ_MAT_BENCH_CFLAGS") or "-std=c99 -O3 -march=native"
+local debug_log = os.getenv("LALIN_LJ_MAT_DEBUG") == "1"
 
 local function debugf(msg)
     if debug_log then
@@ -515,7 +515,7 @@ debugf("make data")
 local data = make_data(n)
 
 print(string.format(
-    "MoonLuaJIT materialization matrix mode=%s n=%d artifacts=%d runtime_samples=%d rounds=%d warmup=%d materialize_samples=%d",
+    "LalinLuaJIT materialization matrix mode=%s n=%d artifacts=%d runtime_samples=%d rounds=%d warmup=%d materialize_samples=%d",
     mode,
     n,
     #cases,

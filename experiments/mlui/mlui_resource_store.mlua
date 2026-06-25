@@ -8,12 +8,12 @@
 -- This keeps the first live handle readable as 1 while preserving 0 as invalid.
 -- The unpacking is store-private.
 
-local H = moon.require("mlui_types")
+local H = lalin.require("mlui_types")
 local T = H.T
 local R = H.R
 local F = H.F
 
-local Mem = moon.require("mlui_memory")
+local Mem = lalin.require("mlui_memory")
 
 local MLUI_GEN_MASK = 0x000000FF
 local MLUI_SLOT_SHIFT = 8

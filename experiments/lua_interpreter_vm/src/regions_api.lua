@@ -1,11 +1,11 @@
 -- Lua Interpreter VM — API sealing region (internal)
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 
 local I = {}
-for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
+for k, v in pairs(const.Err) do I["ERR_" .. k] = lalin.int(v) end
 
 -- api_index_to_addr: decode Lua C API index conventions
 local api_index_to_addr = host.region { ERR_API = I.ERR_API } [[

@@ -1,7 +1,7 @@
--- mlui_types.mlua -- Moonlift-native UI kernel product/protocol header.
+-- mlui_types.mlua -- Lalin-native UI kernel product/protocol header.
 --
 -- This translates the proven `lua/ui` compiler-shaped architecture into
--- Moonlift products and region boundaries without throwing away the richness
+-- Lalin products and region boundaries without throwing away the richness
 -- of the existing UI ASDL. Lua remains the authoring layer; this file names
 -- the typed kernel that can later be implemented as C, Cranelift, or WASM
 -- artifacts.

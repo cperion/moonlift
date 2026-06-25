@@ -279,7 +279,7 @@ Current implementation:
 
 Next hard-yank target:
 
-- Compile family zone/bundle projectors for the default Moonlift family.
+- Compile family zone/bundle projectors for the default Lalin family.
 
 ## Diagnostics
 
@@ -334,7 +334,7 @@ capabilities, and unknown-name behavior.
 For a stable family, this can become a generated installer:
 
 ```lua
-install_moon_family(env, opts)
+install_lalin_family(env, opts)
 ```
 
 The installer should use direct assignments for known exports and explicit

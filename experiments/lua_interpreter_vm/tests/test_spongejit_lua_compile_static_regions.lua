@@ -3,12 +3,12 @@ package.path = "./experiments/lua_interpreter_vm/spongejit/?.lua;./experiments/l
 
 local C = require("lua_compile")
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local ExecLower = require("lua_compile.lua_src_to_lua_exec_lower")
-local ExecToMoon = require("lua_compile.lua_exec_to_moon_cfg_lower")
+local ExecToLalin = require("lua_compile.lua_exec_to_lalin_cfg_lower")
 local ExecValidate = require("lua_compile.lua_exec_validate")
-local CFGValidate = require("lua_compile.moon_cfg_validate")
+local CFGValidate = require("lua_compile.lalin_cfg_validate")
 local RegionModel = require("lua_compile.lua_exec_region_model")
 local ArityModel = require("lua_compile.lua_rt_arity_model")
 local RT, Exec = T.LuaRT, T.LuaExec
@@ -38,25 +38,25 @@ local function lower_exec(events)
   return exec_kernel
 end
 
-local function lower_moon(events)
+local function lower_lalin(events)
   local exec_kernel = lower_exec(events)
-  local cfg, cfg_errors = ExecToMoon.lower_outcome(exec_kernel, "kind")
-  if not cfg then cfg, cfg_errors = ExecToMoon.lower(exec_kernel) end
+  local cfg, cfg_errors = ExecToLalin.lower_outcome(exec_kernel, "kind")
+  if not cfg then cfg, cfg_errors = ExecToLalin.lower(exec_kernel) end
   assert(cfg, table.concat(cfg_errors or {}, "; "))
   local ok, errors = CFGValidate.validate(cfg)
   assert(ok, table.concat(errors or {}, "\n"))
   return exec_kernel, cfg
 end
 
-local exec_load_return = select(1, lower_moon({ {op="LOADI", pc=1, a=1, sbx=7}, {op="RETURN1", pc=2, a=1} }))
+local exec_load_return = select(1, lower_lalin({ {op="LOADI", pc=1, a=1, sbx=7}, {op="RETURN1", pc=2, a=1} }))
 assert(contains_class(exec_load_return.contract, function(cls) return cls == Exec.RequiresArityShape end), "Exec contract must carry arity-shape obligation")
 assert(contains_class(exec_load_return.contract, function(cls) return cls == Exec.RequiresResultChannel end), "Exec contract must carry result-channel obligation")
 assert(contains_class(exec_load_return.contract, function(cls) return cls == Exec.NormalizesArity end), "Exec contract must carry arity-normalization guarantee")
 assert(contains_class(exec_load_return.contract, function(cls) return cls == Exec.ProducesResultChannel end), "Exec contract must carry result-channel guarantee")
-lower_moon({ {op="VARARG", pc=1, a=1, b=0, c=3, k=false}, {op="RETURN", pc=2, a=1, b=3, c=0, k=false} })
-lower_moon({ {op="ADDI", pc=1, a=1, b=1, c=128, sc=1}, {op="MMBINI", pc=2, a=1, b=128, sb=1, c="ADD"}, {op="RETURN1", pc=3, a=1} })
-lower_moon({ {op="GETTABLE", pc=1, a=1, b=2, c=3}, {op="RETURN1", pc=2, a=1} })
-lower_moon({ {op="SETTABLE", pc=1, a=2, b=3, c=1, k=false} })
+lower_lalin({ {op="VARARG", pc=1, a=1, b=0, c=3, k=false}, {op="RETURN", pc=2, a=1, b=3, c=0, k=false} })
+lower_lalin({ {op="ADDI", pc=1, a=1, b=1, c=128, sc=1}, {op="MMBINI", pc=2, a=1, b=128, sb=1, c="ADD"}, {op="RETURN1", pc=3, a=1} })
+lower_lalin({ {op="GETTABLE", pc=1, a=1, b=2, c=3}, {op="RETURN1", pc=2, a=1} })
+lower_lalin({ {op="SETTABLE", pc=1, a=2, b=3, c=1, k=false} })
 
 local function frame0()
   local fr = RT.FrameRef(RT.Name("frame0"))
@@ -75,8 +75,8 @@ local function manual_unsupported_region(kind)
   local kernel = Exec.Kernel(Exec.Name("manual_unsupported_kernel"), frame0(), region, Exec.Contract({}, {}))
   local ok, errors = ExecValidate.kernel(kernel)
   assert(ok, table.concat(errors or {}, "\n"))
-  local cfg, cfg_errors = ExecToMoon.lower(kernel)
-  assert(not cfg, "unsupported semantic region must not lower to MoonCFG")
+  local cfg, cfg_errors = ExecToLalin.lower(kernel)
+  assert(not cfg, "unsupported semantic region must not lower to LalinCFG")
   assert(table.concat(cfg_errors or {}, "; "):match("unsupported_semantic_region"), "expected unsupported semantic region diagnostic")
 end
 
@@ -102,8 +102,8 @@ local function contracted_call_region()
   local ret_seq = RT.ValueSeq(RT.FixedSeq, {}, RT.FixedCount(1), RT.FromStackWindow(RT.StackWindow(RT.ReturnWindow, caller, RT.Slot(2), RT.FixedCount(1))))
   local bid = Exec.BlockId(Exec.Name("entry"))
   local params = {
-    Exec.Param(Exec.Name("caller_stack"), Exec.MoonType("ptr(LuaRTValue)")),
-    Exec.Param(Exec.Name("callee_stack"), Exec.MoonType("ptr(LuaRTValue)")),
+    Exec.Param(Exec.Name("caller_stack"), Exec.LalinType("ptr(LuaRTValue)")),
+    Exec.Param(Exec.Name("callee_stack"), Exec.LalinType("ptr(LuaRTValue)")),
   }
   local block = Exec.Block(bid, {}, { Exec.PrepareCallFrame(frame_state), Exec.ReceiveCallResults(frame_state) }, Exec.Return(ret_seq))
   local region = Exec.Region(Exec.Name("manual_call"), Exec.CallRegion, params, {}, bid, { block })
@@ -114,13 +114,13 @@ end
 local call_kernel = contracted_call_region()
 local call_ok, call_errors = ExecValidate.kernel(call_kernel)
 assert(call_ok, table.concat(call_errors or {}, "\n"))
-local call_cfg, call_cfg_errors = ExecToMoon.lower_outcome(call_kernel, "value0_tag")
+local call_cfg, call_cfg_errors = ExecToLalin.lower_outcome(call_kernel, "value0_tag")
 assert(call_cfg, "properly contracted manual CallRegion must lower: " .. table.concat(call_cfg_errors or {}, ";"))
 local call_cfg_ok, call_cfg_validate_errors = CFGValidate.validate(call_cfg)
 assert(call_cfg_ok, table.concat(call_cfg_validate_errors or {}, "\n"))
 
 local function assert_source_reject(events, needle)
-  local result = C.compile_to_moon_kernel(C.unit_from_events(events, {}))
+  local result = C.compile_to_lalin_kernel(C.unit_from_events(events, {}))
   assert(result.kind == "Reject", "unsupported source must reject, not compile")
   local msg = result.diagnostic and result.diagnostic.message or ""
   assert(msg:match(needle), "expected reject diagnostic containing " .. needle .. ", got: " .. msg)

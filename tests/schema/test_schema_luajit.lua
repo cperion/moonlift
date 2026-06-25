@@ -1,20 +1,20 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local Back = T.MoonBack
-local Value = T.MoonValue
-local Kernel = T.MoonKernel
-local Stencil = T.MoonStencil
-local LJ = T.MoonLuaJIT
+local Core = T.LalinCore
+local Code = T.LalinCode
+local Back = T.LalinBack
+local Value = T.LalinValue
+local Kernel = T.LalinKernel
+local Stencil = T.LalinStencil
+local LJ = T.LalinLuaJIT
 
-assert(LJ ~= nil, "MoonLuaJIT namespace should be installed")
+assert(LJ ~= nil, "LalinLuaJIT namespace should be installed")
 
 local i32_c = LJ.LJCTypeScalar(Back.BackI32, "int32_t")
 local void_c = LJ.LJCTypeVoid
@@ -159,4 +159,4 @@ assert(local_abs.kind == LJ.LJPatchLocalAbs32, "binary patch records should repr
 local local_abs64 = LJ.LJBinaryPatchRecord(8, LJ.LJPatchLocalAbs64, "R_X86_64_64", nil, nil, 24)
 assert(local_abs64.kind == LJ.LJPatchLocalAbs64, "binary patch records should represent local absolute64 relocations")
 
-io.write("moonlift schema_luajit ok\n")
+io.write("lalin schema_luajit ok\n")

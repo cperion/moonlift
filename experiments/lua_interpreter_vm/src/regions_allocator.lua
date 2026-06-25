@@ -2,31 +2,31 @@
 -- Allocation crosses the VM boundary only through Allocator.realloc/free
 -- function pointers. There is no hidden libc/malloc or PUC allocator shape here.
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 
 local I = {}
-I.MAX_STACK_SIZE = moon.int(const.MAX_STACK_SIZE)
-I.MAX_FRAMES = moon.int(const.MAX_FRAMES)
+I.MAX_STACK_SIZE = lalin.int(const.MAX_STACK_SIZE)
+I.MAX_FRAMES = lalin.int(const.MAX_FRAMES)
 
 -- Product sizes used by allocator/growth regions. These are sizes of the
--- Moonlift-native products in products.lua under the C-compatible natural ABI.
+-- Lalin-native products in products.lua under the C-compatible natural ABI.
 -- They are VM product facts, not imported PUC layout facts.
-I.SIZE_VALUE = moon.int(16)
-I.ALIGN_VALUE = moon.int(8)
-I.SIZE_FRAME = moon.int(144)
-I.ALIGN_FRAME = moon.int(8)
-I.SIZE_NODE = moon.int(40)
-I.ALIGN_NODE = moon.int(8)
-I.SIZE_TABLE = moon.int(104)
-I.ALIGN_TABLE = moon.int(8)
-I.SIZE_STRING = moon.int(40)
-I.ALIGN_STRING = moon.int(8)
-I.SIZE_UPVAL = moon.int(56)
-I.ALIGN_UPVAL = moon.int(8)
-I.SIZE_LCLOSURE = moon.int(48)
-I.ALIGN_LCLOSURE = moon.int(8)
+I.SIZE_VALUE = lalin.int(16)
+I.ALIGN_VALUE = lalin.int(8)
+I.SIZE_FRAME = lalin.int(144)
+I.ALIGN_FRAME = lalin.int(8)
+I.SIZE_NODE = lalin.int(40)
+I.ALIGN_NODE = lalin.int(8)
+I.SIZE_TABLE = lalin.int(104)
+I.ALIGN_TABLE = lalin.int(8)
+I.SIZE_STRING = lalin.int(40)
+I.ALIGN_STRING = lalin.int(8)
+I.SIZE_UPVAL = lalin.int(56)
+I.ALIGN_UPVAL = lalin.int(8)
+I.SIZE_LCLOSURE = lalin.int(48)
+I.ALIGN_LCLOSURE = lalin.int(8)
 
 local realloc_bytes = host.region({
     MAX_STACK_SIZE = I.MAX_STACK_SIZE,

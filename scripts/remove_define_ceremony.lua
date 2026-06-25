@@ -8,7 +8,7 @@
 --   * modules with namespace exports return `setmetatable(M, { __call = ... })`.
 --   * call sites use `module(T)` instead of a named binder field.
 
-local roots = { "lua/moonlift", "tests" }
+local roots = { "lua/lalin", "tests" }
 
 local function read_file(path)
     local f, err = io.open(path, "rb")

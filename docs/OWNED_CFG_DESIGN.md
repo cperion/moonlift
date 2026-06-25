@@ -1,6 +1,6 @@
 # Owned CFG Design
 
-`owned` is Moonlift's explicit resource-obligation mechanism.  It is not RAII,
+`owned` is Lalin's explicit resource-obligation mechanism.  It is not RAII,
 not `Drop`, not lifetime inference, and not a second hidden control-flow system.
 It is a linear fact carried by the typed CFG.
 
@@ -71,7 +71,7 @@ owned [StoreRef]            -- ownership obligation
 
 `owned ptr(T)` and access-qualified owned pointers are rejected.  Raw pointer
 ownership requires allocator provenance, deallocator identity, and alias rules;
-Moonlift represents that as a named resource handle plus protocols, not as a
+Lalin represents that as a named resource handle plus protocols, not as a
 bare address with an ownership wrapper.
 
 ## Type Shape
@@ -105,7 +105,7 @@ Other `SessionRef` values may exist.  After the owned authority is closed, those
 plain handles become stale at resolver boundaries.  The owned value proves
 cleanup responsibility, not global alias exclusion.
 
-This keeps `owned` aligned with Moonlift handles: stale use is a named runtime
+This keeps `owned` aligned with Lalin handles: stale use is a named runtime
 outcome, while forgetting to discharge the authority is a compile-time CFG
 error.
 
@@ -272,7 +272,7 @@ closed      consumes the session
 missing     returns ownership to the caller
 ```
 
-This is the central Moonlift design point: ownership effects are
+This is the central Lalin design point: ownership effects are
 per-continuation, not hidden effects.
 
 Preserving operations must return the owner:
@@ -334,7 +334,7 @@ owned payload by filling it to a block that lacks the parameter.
 
 ## Region Calls
 
-Moonlift has a distinction between zero-cost `emit` and expression-style region
+Lalin has a distinction between zero-cost `emit` and expression-style region
 calls.  Region calls package continuations into generated product data, and
 product data is not allowed to contain linear authority.
 
@@ -476,7 +476,7 @@ Durable fields of type `owned T` are rejected.
 struct. Bad { f [owned [FileRef]] }
 ```
 
-Reason: Moonlift does not make products secretly linear.  If a product owns a
+Reason: Lalin does not make products secretly linear.  If a product owns a
 resource, store a durable handle in the product and carry the discharge
 authority separately as `owned HandleRef` through the protocol that closes or
 transfers it.
@@ -659,12 +659,12 @@ No implicit dereference of owned handles.
 
 ## Design Consequence
 
-Moonlift gets explicit destruction without destructors:
+Lalin gets explicit destruction without destructors:
 
 ```text
 The developer authors the cleanup machine.
 The CFG typechecker proves every path uses it or transfers ownership.
 ```
 
-This preserves Moonlift's core taste: mechanisms are explicit, protocols are
+This preserves Lalin's core taste: mechanisms are explicit, protocols are
 typed, and control edges carry the facts that become true on that edge.

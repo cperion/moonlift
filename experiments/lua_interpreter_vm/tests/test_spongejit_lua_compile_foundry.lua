@@ -26,21 +26,21 @@ assert(result.schema == "sponjit.lua_compile_foundry.v3")
 assert(result.stats.windows == 2)
 assert(result.stats.compiles == 2)
 assert(result.stats.ok == 2)
-assert(result.stats.unique_representatives == 1, "ADDI and ADDK should dedupe by MoonCFG + CompileContract + Stencil.VariantKey, not source opcode chain")
+assert(result.stats.unique_representatives == 1, "ADDI and ADDK should dedupe by LalinCFG + CompileContract + Stencil.VariantKey, not source opcode chain")
 
 local rep = result.representatives[1]
-assert(rep.moon_cfg_key and #rep.moon_cfg_key > 20, "MoonCFG key missing")
+assert(rep.lalin_cfg_key and #rep.lalin_cfg_key > 20, "LalinCFG key missing")
 assert(rep.contract_key and #rep.contract_key > 20, "contract key missing")
 assert(rep.stencil_variant_key and rep.stencil_variant_key:find("Stencil", 1, true), "Stencil variant key missing")
-assert(rep.representative_key:find("MoonCFG", 1, true), "representative must include MoonCFG identity")
-assert(rep.representative_key:find("CompileContract", 1, true), "representative must pair MoonCFG with CompileContract")
+assert(rep.representative_key:find("LalinCFG", 1, true), "representative must include LalinCFG identity")
+assert(rep.representative_key:find("CompileContract", 1, true), "representative must pair LalinCFG with CompileContract")
 assert(rep.representative_key:find("Stencil.VariantKey", 1, true), "representative must include Stencil.VariantKey identity")
 assert(not rep.representative_key:find("OP_", 1, true), "representative key must not be opcode-shaped")
 assert(not rep.representative_key:find("spon" .. "bank", 1, true), "representative key must not use old bank ABI")
 assert(not rep["normal" .. "_form_key"], "foundry representative must not carry retired product key")
-assert(rep.moonlift_source and rep.moonlift_source:match("local lua_compile_foundry_kernel = func"), "Moonlift source missing")
-assert(not rep.moonlift_source:match("out_tag"), "MoonCFG emitted source must not use out_tag")
-assert(rep.moon_cfg_kernel and rep.moon_cfg_kernel.kind == "InlineSpan", "MoonCFG kernel summary missing")
+assert(rep.lalin_source and rep.lalin_source:match("local lua_compile_foundry_kernel = func"), "Lalin source missing")
+assert(not rep.lalin_source:match("out_tag"), "LalinCFG emitted source must not use out_tag")
+assert(rep.lalin_cfg_kernel and rep.lalin_cfg_kernel.kind == "InlineSpan", "LalinCFG kernel summary missing")
 assert(#rep.aliases == 2, "source opcode windows must survive as aliases")
 local saw_addi, saw_addk = false, false
 for _, a in ipairs(rep.aliases) do
@@ -59,8 +59,8 @@ Foundry.write_artifacts(result, tmp)
 local f = assert(io.open(tmp .. "/lua_compile_representatives.json", "rb"))
 local text = f:read("*a"); f:close()
 assert(text:match("lua_compile_foundry%.v3"), "artifact schema missing")
-assert(text:match("moonlift_source"), "artifact must include emitted source")
-assert(text:match("moon_cfg_key") and text:match("contract_key") and text:match("stencil_variant_key"), "artifact must include MoonCFG, contract, and stencil variant keys")
+assert(text:match("lalin_source"), "artifact must include emitted source")
+assert(text:match("lalin_cfg_key") and text:match("contract_key") and text:match("stencil_variant_key"), "artifact must include LalinCFG, contract, and stencil variant keys")
 
 -- Maintained worker entrypoint writes LuaCompile vocabulary artifacts.
 local chunk = { schema = "sponjit.lua_compile_foundry.chunk.v1", chunk = 1, windows = windows }
@@ -71,7 +71,7 @@ assert(ok == true or ok == 0, "worker_compile.lua LuaCompile worker failed; see 
 local wf = assert(io.open(tmp .. "/lua_compile_worker_1.json", "rb"))
 local worker_text = wf:read("*a"); wf:close()
 assert(worker_text:match("lua_compile_foundry%.v3"), "worker artifact schema missing")
-assert(worker_text:match("moonlift_source") and worker_text:match("stencil_variant_key"), "worker artifact must include MoonCFG emission and stencil identity")
+assert(worker_text:match("lalin_source") and worker_text:match("stencil_variant_key"), "worker artifact must include LalinCFG emission and stencil identity")
 assert(not package.loaded["src.ssa"], "worker test must not load old src.ssa in this process")
 
 os.execute("rm -rf " .. string.format("%q", tmp))

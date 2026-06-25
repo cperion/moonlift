@@ -1,0 +1,948 @@
+-- =============================================================================
+-- LalinDB — design header (the complete engine, one file)
+--
+-- This file IS the design: the product graph (structs) and the protocol graph
+-- (region / func signatures). Bodies are omitted — they are transcription.
+--
+-- ONE ENGINE   a register bytecode VM (pure Lalin). SQL text is compiled to
+--              bytecode DATA (Program); one region (vdbe_exec) interprets it.
+-- ONE HEADER   this file: storage → records → VM → SQL frontend → public API.
+-- ONE API      the lalindb_* funcs at the bottom are the entire public surface.
+-- Lua runs only at build time: stamp the monomorphic kernel families + the opcode
+--              switch, then project to C and link. No JIT, no runtime Lua.
+--
+-- Memory semantics are carried IN the declarations:
+--   readonly p     observes; grants no escaping lease, no invalidation
+--   invalidate p   mutates the store; kills leases derived from it (L2)
+--   lease view(T)  borrowed window; MAY NOT ESCAPE its granting extent (L1)
+--   ptr(T)         raw; boundary tool / owned-buffer spine only
+-- Comment tags:  OWNS · borrowed · HANDLE (durable id) · PAGE/OWNED/STATIC (prov)
+-- Laws: L1 no-escape · L2 invalidation · L3 discharge · L4 handle-resolve
+--       L5 provenance · L6 one-owner · L7 no-destructors · L8 kernels-seal
+-- =============================================================================
+
+
+-- ---------------------------------------------------------------------------
+-- CONSTANTS  (build-time Lua; the source of truth for the u8 discriminants)
+-- ---------------------------------------------------------------------------
+-- value.kind   VAL_NULL=0 VAL_INT=1 VAL_REAL=2 VAL_TEXT=3 VAL_BLOB=4
+-- value.prov   PROV_INLINE=0 PROV_STATIC=1 PROV_OWNED=2 PROV_PAGE=3
+-- value.enc    ENC_UTF8=1 ENC_UTF16LE=2 ENC_UTF16BE=3
+-- affinity     AFF_BLOB=0 AFF_TEXT=1 AFF_NUMERIC=2 AFF_INT=3 AFF_REAL=4
+-- btree.kind   BT_TABLE=0 BT_INDEX=1
+-- cursor.state CUR_INVALID=0 CUR_VALID=1 CUR_SKIP_NEXT=2 CUR_REQUIRE_SEEK=3
+-- pager.txn    TXN_NONE=0 TXN_READ=1 TXN_WRITE=2
+-- journal.mode JM_ROLLBACK=0 JM_WAL=1
+-- file.lock    LK_NONE=0 LK_SHARED=1 LK_RESERVED=2 LK_PENDING=3 LK_EXCLUSIVE=4
+-- inst.p4type  P4_NONE=0 P4_INT64=1 P4_REAL=2 P4_STATIC=3 P4_KEYINFO=4
+--              P4_COLLSEQ=5 P4_FUNCDEF=6 P4_VALUE=7
+-- result       OK=0 ERROR=1 BUSY=5 NOMEM=7 READONLY=8 CONSTRAINT=19
+--              CORRUPT=11 FULL=13 ROW=100 DONE=101
+--
+-- token.kind   TK_EOF=0 TK_IDENT=1 TK_INT=2 TK_REAL=3 TK_STR=4 TK_PARAM=5
+--   keywords   TK_SELECT TK_DISTINCT TK_FROM TK_WHERE TK_GROUP TK_BY TK_HAVING
+--              TK_ORDER TK_ASC TK_DESC TK_LIMIT TK_OFFSET TK_INSERT TK_INTO
+--              TK_VALUES TK_CREATE TK_TABLE TK_INDEX TK_UNIQUE TK_IF TK_NOT
+--              TK_EXISTS TK_ON TK_DELETE TK_UPDATE TK_SET TK_AS TK_JOIN TK_INNER
+--              TK_LEFT TK_AND TK_OR TK_IS TK_IN TK_LIKE TK_NULL TK_TRUE TK_FALSE
+--              TK_PRIMARY TK_KEY TK_DEFAULT
+--   punct/op   TK_STAR TK_COMMA TK_DOT TK_LPAREN TK_RPAREN TK_SEMI
+--              TK_EQ TK_NE TK_LT TK_LE TK_GT TK_GE TK_PLUS TK_MINUS TK_SLASH TK_PCT
+--
+-- expr.op      EX_LIT=0 EX_COL=1 EX_BINOP=2 EX_UNOP=3 EX_CALL=4 EX_IN=5
+--              EX_PARAM=6 EX_STAR=7
+-- binop sub    OP_OR OP_AND OP_EQ OP_NE OP_LT OP_LE OP_GT OP_GE OP_IS OP_ISNOT
+--              OP_LIKE OP_ADD OP_SUB OP_MUL OP_DIV OP_MOD OP_CONCAT
+-- unop sub     OP_NEG OP_POS OP_NOT
+-- lit.kind     LIT_INT LIT_REAL LIT_STR LIT_NULL LIT_TRUE LIT_FALSE
+-- stmt.kind    ST_SELECT=0 ST_INSERT=1 ST_CREATE_TABLE=2 ST_CREATE_INDEX=3
+--              ST_DELETE=4 ST_UPDATE=5
+-- join.kind    JOIN_INNER=0 JOIN_LEFT=1
+-- coltype      CT_INTEGER CT_TEXT CT_REAL CT_BLOB     (→ affinity)
+-- agg.fn       AGG_COUNT AGG_SUM AGG_AVG AGG_MIN AGG_MAX
+-- phys.op      PHYS_SCAN PHYS_SEEKEQ PHYS_RANGE PHYS_FILTER PHYS_PROJECT
+--              PHYS_NLJOIN PHYS_HASHJOIN PHYS_AGG PHYS_SORT PHYS_LIMIT PHYS_RESULT
+--              PHYS_INSERT PHYS_DELETE PHYS_UPDATE PHYS_CREATE_TABLE PHYS_CREATE_INDEX
+
+
+-- ---------------------------------------------------------------------------
+-- ACCEPTED GRAMMAR  (the contract; anything outside ⇒ unsupported(at) exit)
+-- ---------------------------------------------------------------------------
+-- statement    ::= ( select | insert | create_table | create_index | delete | update ) [";"]
+-- select       ::= "SELECT" ["DISTINCT"] result_cols
+--                  "FROM" table_ref { join }
+--                  [ "WHERE" expr ]
+--                  [ "GROUP" "BY" expr_list [ "HAVING" expr ] ]
+--                  [ "ORDER" "BY" order_term { "," order_term } ]
+--                  [ "LIMIT" expr [ "OFFSET" expr ] ]
+-- result_cols  ::= "*" | result_col { "," result_col }
+-- result_col   ::= expr [ "AS" ident ] | ident "." "*"
+-- table_ref    ::= ident [ "AS" ident ]
+-- join         ::= [ "INNER" | "LEFT" ] "JOIN" table_ref "ON" expr
+-- order_term   ::= expr [ "ASC" | "DESC" ]
+-- insert       ::= "INSERT" "INTO" ident [ "(" ident_list ")" ]
+--                  "VALUES" value_row { "," value_row }
+-- value_row    ::= "(" expr_list ")"
+-- create_table ::= "CREATE" "TABLE" [ "IF" "NOT" "EXISTS" ] ident
+--                  "(" column_def { "," column_def } ")"
+-- column_def   ::= ident type_name { "PRIMARY" "KEY" | "NOT" "NULL" | "UNIQUE"
+--                                   | "DEFAULT" expr }
+-- create_index ::= "CREATE" [ "UNIQUE" ] "INDEX" ident "ON" ident
+--                  "(" indexed_col { "," indexed_col } ")"
+-- delete       ::= "DELETE" "FROM" ident [ "WHERE" expr ]
+-- update       ::= "UPDATE" ident "SET" assignment { "," assignment } [ "WHERE" expr ]
+-- assignment   ::= ident "=" expr
+-- expr         ::= or_expr                               (precedence climbing)
+--   or_expr    ::= and_expr { "OR" and_expr }
+--   and_expr   ::= not_expr { "AND" not_expr }
+--   not_expr   ::= "NOT" not_expr | compare
+--   compare    ::= add { ("="|"=="|"!="|"<>"|"<"|"<="|">"|">="
+--                         |"IS"|"IS NOT"|"IN"|"LIKE") add }
+--   add        ::= mul { ("+"|"-") mul }
+--   mul        ::= unary { ("*"|"/"|"%") unary }
+--   unary      ::= ("-"|"+") unary | primary
+--   primary    ::= literal | column_ref | "(" expr ")" | func_call | bind_param
+-- column_ref   ::= [ ident "." ] ident
+-- func_call    ::= ident "(" ( "*" | [ "DISTINCT" ] expr_list | ε ) ")"
+-- bind_param   ::= "?" | ":" ident
+-- literal      ::= int | real | string | "NULL" | "TRUE" | "FALSE"
+
+
+
+-- ###########################################################################
+-- #  THE TYPE TREE  (products — every object names its one owner)
+-- ###########################################################################
+
+-- === storage ===============================================================
+
+struct Vfs                              -- owned by Database
+    sector_size: index
+    max_path:    index
+end
+
+struct File                             -- OWNS one OS fd
+    fd:    i32
+    flags: u16
+    lock:  u8                           -- LK_*
+end
+
+struct PageRef                          -- HANDLE: durable page identity
+    pgno: u32
+    gen:  u32                           -- bumped on eviction; mismatch ⇒ stale (L4)
+end
+
+struct Frame                            -- one cache slot; owned by PageCache
+    pgno:  u32
+    gen:   u32
+    data:  ptr(u8)                      -- OWNS page_size bytes
+    pin:   i32                          -- private
+    dirty: bool
+end
+
+struct PageCache                        -- THE page byte store; owned by Pager
+    frames:    ptr(Frame)               -- OWNS all frames + all page bytes
+    n_frame:   index
+    page_size: index
+    index:     ptr(u8)                  -- pgno→frame hash (private)
+    clock:     index                    -- eviction hand (private)
+end
+
+struct Journal                          -- owned by Pager
+    file:       File                    -- OWNS journal/WAL file
+    mode:       u8                      -- JM_*
+    n_rec:      index
+    hdr_synced: bool
+end
+
+struct Pager                            -- owned by Database
+    file:      File                     -- OWNS db file
+    cache:     PageCache                -- OWNS page bytes
+    journal:   Journal                  -- OWNS journal pages
+    page_size: index
+    n_page:    u32
+    txn:       u8                       -- TXN_* (private)
+end
+
+struct Collation                        -- owned by Schema
+    id:  u32
+    cmp: ptr(u8)                        -- comparator fn ptr (boundary)
+end
+
+struct KeyInfo                          -- borrowed from Schema (read-only)
+    n_field: index
+    coll:    ptr(ptr(Collation))
+    desc:    ptr(bool)
+end
+
+struct Btree                            -- references the pager (not owner)
+    pager: ptr(Pager)                   -- borrowed
+    root:  u32
+    kind:  u8                           -- BT_*
+end
+
+struct BtCursor                         -- HANDLE to a durable position; owned by VdbeCursor
+    bt:        ptr(Btree)               -- borrowed
+    path:      ptr(PageRef)             -- OWNS root→leaf handle path (eviction-safe)
+    cell:      ptr(index)
+    depth:     index
+    state:     u8                       -- CUR_* ; while VALID, leaf is leased
+    saved_key: i64                      -- retained for restore after invalidation
+    saved_idx: view(u8)                 -- retained index key (OWNED scratch)
+end
+
+-- === values / records ======================================================
+
+struct Value                            -- a cell; copied freely; does NOT own its bytes
+    kind: u8                            -- VAL_* (meaning via value_classify)
+    prov: u8                            -- PROV_* — states who owns z (L5)
+    enc:  u8                            -- ENC_*
+    aff:  u8                            -- private
+    n:    i64                           -- INT; also byte length for TEXT/BLOB
+    r:    f64                           -- REAL
+    z:    ptr(u8)                       -- TEXT/BLOB bytes; lifetime per `prov`
+end
+
+struct ValueArena                       -- OWNS all PROV_OWNED bytes; reset retires them
+    base:   ptr(u8)
+    used:   index
+    cap:    index
+    chunks: ptr(u8)                     -- private
+end
+
+struct RecordHdr                        -- transient
+    n_col:    index
+    body_at:  index
+    hdr_size: index
+end
+
+struct RecordBuf                        -- OWNS an encoding buffer
+    data:  ptr(u8)
+    len:   index
+    cap:   index
+    arena: ptr(ValueArena)              -- borrowed allocator
+end
+
+-- === bytecode / VM =========================================================
+
+struct Inst                             -- one instruction; owned by Program
+    op:     u8
+    p1:     i32
+    p2:     i32
+    p3:     i32
+    p4:     ptr(u8)                     -- typed aux per p4type
+    p4type: u8                          -- P4_*
+    p5:     u16
+end
+
+struct CursorDef                        -- owned by Program
+    root:     u32
+    n_field:  index
+    is_table: bool
+    ki:       ptr(KeyInfo)              -- borrowed
+end
+
+struct Program                          -- self-contained; owned by Stmt
+    code:        ptr(Inst)              -- OWNS instruction array
+    n_inst:      index
+    consts:      ptr(Value)             -- OWNS constant pool (PROV_STATIC)
+    n_const:     index
+    n_reg:       index
+    n_cursor:    index
+    n_sorter:    index
+    cursor_defs: ptr(CursorDef)
+end
+
+struct VdbeCursor                       -- owned by Vm
+    cur:       BtCursor                 -- OWNS the btree cursor
+    n_field:   index
+    is_table:  bool
+    hdr:       RecordHdr                -- cached header of current row
+    hdr_valid: bool
+end
+
+struct Sorter                           -- ★breaker; owned by Vm
+    rows:    ptr(u8)                    -- OWNS materialized rows
+    n_row:   index
+    cap:     index
+    ki:      KeyInfo
+    arena:   ValueArena                 -- OWNS row bytes (PROV_OWNED)
+    read_at: index
+    sorted:  bool
+end
+
+struct HashIndex                        -- ★breaker; owned by Vm
+    slots:   ptr(u32)
+    n_slot:  index
+    entries: ptr(u8)                    -- OWNS build rows
+    n_entry: index
+    arena:   ValueArena                 -- OWNS key/row bytes (PROV_OWNED)
+end
+
+struct AggCtx                           -- ★breaker; owned by Vm
+    acc:   ptr(Value)                   -- OWNS accumulators
+    n_acc: index
+    arena: ValueArena                   -- OWNS accumulator bytes (PROV_OWNED)
+end
+
+struct Vm                               -- owned by Stmt
+    prog:     ptr(Program)              -- borrowed bytecode
+    pc:       index                     -- program counter / resume point
+    regs:     ptr(Value)                -- OWNS the register file
+    n_reg:    index
+    cursors:  ptr(VdbeCursor)           -- OWNS cursors
+    n_cursor: index
+    sorters:  ptr(Sorter)               -- OWNS sorters
+    n_sorter: index
+    aggs:     ptr(AggCtx)               -- OWNS aggregate contexts
+    arena:    ValueArena                -- OWNS scratch materialized values
+    db:       ptr(Database)             -- borrowed
+    rows:     i64
+    rc:       i32
+    state:    u8                        -- VM_* (private)
+end
+
+-- === AST  (frontend products; ALL compile-scope: freed after codegen) ======
+--   An expression is ONE encoded-fact struct (op byte + payload), consumed by
+--   visit_expr. Statements are per-kind structs, reached via StmtRef (kind+idx).
+--   Lists are (start,count) runs in the Ast pools.
+
+struct ExprRef                          -- encoded handle: kind + offset into Ast.nodes
+    kind: u8                            -- EX_*
+    idx:  u32
+end
+
+struct StmtRef                          -- encoded handle: kind + offset into Ast.nodes
+    kind: u8                            -- ST_*
+    idx:  u32
+end
+
+struct ExprNode                         -- the ONE expression product (encoded fact)
+    op:   u8                            -- EX_*  (LIT|COL|BINOP|UNOP|CALL|IN|PARAM|STAR)
+    sub:  u8                            -- BINOP/UNOP: OP_* ; LIT: lit.kind ; CALL: AGG_*/scalar
+    lhs:  ExprRef                       -- child (BINOP/UNOP/IN/CALL-first)
+    rhs:  ExprRef                       -- child (BINOP)
+    aux:  u32                           -- LIT: const idx ; COL/CALL/PARAM: name off ; list start
+    aux2: u32                           -- COL: table-name off ; CALL/IN: n_item / list start
+end
+
+struct ResultCol                        -- list element
+    expr:     ExprRef
+    alias:    u32                       -- name off (0 = none)
+    is_star:  bool
+    star_tbl: u32                       -- name off for `tbl.*` (0 = bare `*`)
+end
+
+struct FromItem                         -- list element
+    tbl_name: u32                       -- name off
+    alias:    u32                       -- name off (0 = none)
+end
+
+struct JoinClause                       -- list element
+    kind: u8                            -- JOIN_*
+    tbl:  FromItem
+    on:   ExprRef
+end
+
+struct OrderTerm                         -- list element
+    expr: ExprRef
+    desc: bool
+end
+
+struct ColumnSpec                       -- list element (CREATE TABLE)
+    name:     u32                       -- name off
+    type_kind:u8                        -- CT_*
+    aff:      u8                        -- AFF_*
+    not_null: bool
+    is_pk:    bool
+    uniq:     bool
+    default_: ExprRef                   -- (kind=EX_LIT, idx=0 ⇒ none)
+end
+
+struct IndexedCol                       -- list element (CREATE INDEX)
+    col_name: u32
+    desc:     bool
+end
+
+struct Assignment                       -- list element (UPDATE SET)
+    col_name: u32
+    expr:     ExprRef
+end
+
+struct SelectNode                       -- ST_SELECT
+    distinct: bool
+    cols:     u32   n_col:   index      -- ResultCol run
+    from:     FromItem
+    joins:    u32   n_join:  index      -- JoinClause run
+    where_:   ExprRef
+    group:    u32   n_group: index      -- ExprRef run (in Ast.refs)
+    having:   ExprRef
+    order:    u32   n_order: index      -- OrderTerm run
+    limit:    ExprRef
+    offset:   ExprRef
+end
+
+struct InsertNode                       -- ST_INSERT
+    tbl_name: u32
+    cols:     u32   n_col:  index       -- name-off run (explicit column list; 0 ⇒ all)
+    rows:     u32   n_row:  index       -- ValueRow run
+end
+
+struct ValueRow                         -- list element (INSERT VALUES)
+    exprs: u32   n_expr: index          -- ExprRef run (in Ast.refs)
+end
+
+struct CreateTableNode                  -- ST_CREATE_TABLE
+    tbl_name:      u32
+    if_not_exists: bool
+    cols:          u32   n_col: index   -- ColumnSpec run
+    pk_col:        i32                  -- resolved PK column index (-1 ⇒ rowid)
+end
+
+struct CreateIndexNode                  -- ST_CREATE_INDEX
+    idx_name: u32
+    tbl_name: u32
+    uniq:     bool
+    cols:     u32   n_col: index        -- IndexedCol run
+end
+
+struct DeleteNode                       -- ST_DELETE
+    tbl_name: u32
+    where_:   ExprRef
+end
+
+struct UpdateNode                       -- ST_UPDATE
+    tbl_name: u32
+    sets:     u32   n_set: index        -- Assignment run
+    where_:   ExprRef
+end
+
+struct Ast                              -- OWNS all parse storage; freed after program_finalize
+    nodes:   ptr(u8)                    -- OWNS bump arena (Expr/Stmt/list-element structs)
+    n_used:  index
+    n_cap:   index
+    refs:    ptr(ExprRef)               -- OWNS flat pool for list contents (group/values/args)
+    n_ref:   index
+    consts:  ptr(Value)                 -- OWNS literal pool (PROV_OWNED)
+    n_const: index
+    strs:    ptr(u8)                    -- OWNS identifier/string bytes (name offsets index here)
+    n_str:   index
+    arena:   ValueArena
+end
+
+struct Token                            -- transient lexical token
+    kind:  u8                           -- TK_*
+    start: index
+    len:   index
+end
+
+struct Parser                           -- compile-scope; borrows ast + db
+    src:     view(u8)
+    pos:     index                      -- byte position after current token
+    tok:     Token                      -- one-token lookahead
+    ast:     ptr(Ast)                   -- borrowed; the parser fills it
+    db:      ptr(Database)              -- borrowed; for schema resolution
+    n_param: index                      -- bind-parameter counter
+end
+
+struct ScopeEntry                       -- one resolved table in the FROM scope
+    alias_off: u32                      -- name off (alias or table name)
+    tbl:       ptr(TableDef)            -- borrowed from Schema
+    cursor:    index                    -- assigned VM cursor slot
+end
+
+struct Resolver                         -- compile-scope; the FROM scope for name binding
+    ast:     ptr(Ast)                   -- borrowed
+    schema:  ptr(Schema)                -- borrowed
+    scope:   ptr(ScopeEntry)            -- OWNS the scope array
+    n_scope: index
+end
+
+-- === planner IR  (operators live ONLY here, as data; lowered to opcodes) ====
+
+struct ExprPlan                         -- one flattened expression node; owned by Plan
+    kind: u8                            -- EXPR_COL|LIT|BINOP|UNOP|CALL
+    a:    i32                           -- col slot / const idx / op / child
+    b:    i32                           -- child
+    c:    i32                           -- child / aux
+end
+
+struct Pred                             -- a predicate as an expr tree; owned by Plan
+    root:  u32
+    exprs: ptr(ExprPlan)
+end
+
+struct AggDef                           -- one aggregate; owned by Plan
+    fn:  u8                             -- AGG_*
+    col: i32                            -- source column slot (-1 ⇒ COUNT(*))
+end
+
+struct PhysNode                         -- physical algebra node; owned by Plan
+    op:     u8                          -- PHYS_*
+    a:      u32                         -- child node index
+    b:      u32                         -- child node index
+    detail: u32                         -- index into detail pools (preds/exprs/aggs/cursor)
+end
+
+struct Plan                             -- compile-scope; consumed by cg_lower
+    nodes:    ptr(PhysNode)             -- OWNS the operator tree
+    n_node:   index
+    root:     u32
+    exprs:    ptr(ExprPlan)             -- OWNS expr pool
+    n_expr:   index
+    preds:    ptr(Pred)                 -- OWNS predicate pool
+    aggs:     ptr(AggDef)               -- OWNS aggregate pool
+    n_cursor: index
+    n_sorter: index
+end
+
+struct Builder                          -- compile-scope code generator state
+    code:     ptr(Inst)                 -- OWNS the growing program
+    n:        index
+    cap:      index
+    consts:   ptr(Value)                -- OWNS the growing const pool
+    nc:       index
+    capc:     index
+    n_reg:    index                     -- register high-water
+    n_cursor: index
+    n_sorter: index
+    labels:   ptr(index)                -- forward-ref fixups (private)
+    n_label:  index
+end
+
+-- === schema / connection / statement =======================================
+
+struct ColumnDef                        -- owned by Schema
+    name_off: u32
+    kind:     u8                        -- CT_*
+    aff:      u8                        -- AFF_*
+    coll:     u32
+    flags:    u16                       -- NOTNULL|PK|UNIQUE
+end
+
+struct TableDef                         -- owned by Schema
+    name_off: u32
+    root:     u32
+    n_col:    index
+    cols:     ptr(ColumnDef)            -- OWNS column defs
+    pk_col:   i32                       -- -1 ⇒ implicit rowid
+end
+
+struct IndexDef                         -- owned by Schema
+    name_off: u32
+    root:     u32
+    table:    u32
+    n_key:    index
+    key_cols: ptr(u16)                  -- OWNS key column list
+    uniq:     bool
+end
+
+struct Schema                           -- owned by Database
+    strtab:  ptr(u8)                    -- OWNS interned names
+    tables:  ptr(TableDef)              -- OWNS table defs
+    n_table: index
+    indexes: ptr(IndexDef)              -- OWNS index defs
+    n_index: index
+    cookie:  u32                        -- schema version; bump ⇒ prepared stmts stale
+end
+
+struct Database                         -- connection root; owned by the host
+    pager:      Pager                   -- OWNED
+    schema:     Schema                  -- OWNED
+    vfs:        Vfs                     -- OWNED
+    autocommit: bool
+    last_err:   i32
+    err_msg:    ptr(u8)                 -- OWNED
+end
+
+struct Stmt                             -- prepared statement; owned by the host
+    vm:     Vm                          -- OWNED machine + scratch
+    prog:   Program                     -- OWNED bytecode
+    n_var:  index
+    vars:   ptr(Value)                  -- OWNS bound-parameter copies
+    cookie: u32                         -- schema cookie at prepare time
+end
+
+
+
+-- ###########################################################################
+-- #  THE REGION TREE  (protocols — input product ; sum of named typed exits)
+-- ###########################################################################
+
+-- === VFS  (the only raw-pointer zone; one protocol per syscall) =============
+
+region vfs_open(vfs: ptr(Vfs), path: ptr(u8), flags: i32;
+    opened(file: File)                  -- file now OWNS a fresh fd
+  | not_found | no_perm | io_error(errno: i32))
+
+region vfs_read(readonly file: ptr(File), off: i64, into: view(u8);   -- into: caller-owned dst
+    ok | short_read(got: index) | io_error(errno: i32))
+region vfs_write(invalidate file: ptr(File), off: i64, from: view(u8);
+    ok | io_error(errno: i32) | disk_full)
+region vfs_sync(invalidate file: ptr(File);     synced  | io_error(errno: i32))
+region vfs_truncate(invalidate file: ptr(File), len: i64;  ok | io_error(errno: i32))
+region vfs_size(readonly file: ptr(File);       size(bytes: i64) | io_error(errno: i32))
+region vfs_lock(invalidate file: ptr(File), level: u8;   locked   | busy | io_error(errno: i32))
+region vfs_unlock(invalidate file: ptr(File), level: u8; unlocked | io_error(errno: i32))
+region vfs_close(invalidate file: ptr(File);    closed  | io_error(errno: i32))
+
+-- === Pager  (byte-movers are `invalidate pager`; reads grant a lease) =======
+
+region pager_open(vfs: ptr(Vfs), path: ptr(u8), page_size: index;
+    opened(pager: Pager) | cant_open | not_a_db | wrong_page_size | io_error(errno: i32))
+
+region pager_get(pager: ptr(Pager), pgno: u32;
+    page(ref: PageRef, bytes: lease view(u8))   -- ref: HANDLE (escapes); bytes: lease (no escape)
+  | io_error(errno: i32) | corrupt(pgno: u32) | oom)
+region pager_reget(pager: ptr(Pager), ref: PageRef;
+    page(bytes: lease view(u8))                 -- gen verified, re-leased
+  | evicted                                     -- gen bumped ⇒ caller must pager_get again (L4)
+  | io_error(errno: i32) | corrupt(pgno: u32))
+region pager_get_writable(invalidate pager: ptr(Pager), pgno: u32;
+    page(ref: PageRef, bytes: lease view(u8))   -- mutable borrow; kills read leases
+  | readonly_txn | io_error(errno: i32) | disk_full | oom)
+region pager_allocate(invalidate pager: ptr(Pager);
+    allocated(ref: PageRef, bytes: lease view(u8)) | io_error(errno: i32) | disk_full | oom)
+region pager_free(invalidate pager: ptr(Pager), pgno: u32;  freed | io_error(errno: i32))
+
+region pager_begin(invalidate pager: ptr(Pager), writable: bool;
+    began | busy | readonly | io_error(errno: i32))
+region pager_commit(invalidate pager: ptr(Pager);          -- kills ALL outstanding leases
+    committed | io_error(errno: i32) | disk_full)
+region pager_rollback(invalidate pager: ptr(Pager);        rolled_back | io_error(errno: i32))
+region pager_checkpoint(invalidate pager: ptr(Pager);      done(frames: index) | busy | io_error(errno: i32))
+region pager_close(invalidate pager: ptr(Pager);           closed | io_error(errno: i32))
+
+func pager_pagecount(readonly pager: ptr(Pager)): u32
+func pager_mark_dirty(invalidate pager: ptr(Pager), ref: PageRef): i32
+
+-- === B-tree  (payloads lease the leaf; movement/writes are `invalidate cur`) =
+
+region btree_cursor_open(bt: ptr(Btree); opened(cur: BtCursor) | io_error(errno: i32) | corrupt)
+func   btree_cursor_close(cur: ptr(BtCursor))
+
+region btree_first(invalidate cur: ptr(BtCursor);
+    row(payload: lease view(u8)) | empty | io_error(errno: i32) | corrupt)
+region btree_last(invalidate cur: ptr(BtCursor);
+    row(payload: lease view(u8)) | empty | io_error(errno: i32) | corrupt)
+region btree_next(invalidate cur: ptr(BtCursor);
+    row(payload: lease view(u8)) | end_of_tree | io_error(errno: i32) | corrupt)
+region btree_prev(invalidate cur: ptr(BtCursor);
+    row(payload: lease view(u8)) | begin_of_tree | io_error(errno: i32) | corrupt)
+
+region btree_seek_rowid(invalidate cur: ptr(BtCursor), rowid: i64;
+    found(payload: lease view(u8)) | not_found(would_be: index) | empty
+  | io_error(errno: i32) | corrupt)
+region btree_seek_key(invalidate cur: ptr(BtCursor), key: view(u8), readonly ki: ptr(KeyInfo);
+    found(payload: lease view(u8)) | not_found(cmp: i32) | empty
+  | io_error(errno: i32) | corrupt)
+
+region btree_payload(readonly cur: ptr(BtCursor);          -- re-borrow current row, no move
+    bytes(payload: lease view(u8)) | invalid)
+region btree_payload_full(cur: ptr(BtCursor), scratch: ptr(ValueArena);
+    inline(payload: lease view(u8))                         -- fits on leaf: a borrow
+  | assembled(payload: view(u8))                            -- spilled: OWNED in scratch
+  | io_error(errno: i32) | corrupt)
+
+region btree_insert(invalidate cur: ptr(BtCursor), key: i64, payload: view(u8);
+    inserted | io_error(errno: i32) | disk_full | corrupt)
+region btree_delete(invalidate cur: ptr(BtCursor); deleted | io_error(errno: i32) | corrupt)
+region btree_balance(invalidate cur: ptr(BtCursor);        -- internal
+    balanced | io_error(errno: i32) | disk_full | corrupt)
+
+func   btree_cursor_save(invalidate cur: ptr(BtCursor))    -- drop leaf lease, keep position key
+region btree_cursor_restore(invalidate cur: ptr(BtCursor);
+    restored | moved(now_at: index) | not_found | io_error(errno: i32) | corrupt)
+func   btree_rowid(readonly cur: ptr(BtCursor)): i64
+
+-- === Values / borrow  (classify is the ONE consumer of `kind`) ==============
+
+region value_classify(readonly v: ptr(Value);
+    null | int(x: i64) | real(x: f64)
+  | text(z: ptr(u8), len: index, enc: u8)        -- z borrows v for the consuming extent
+  | blob(z: ptr(u8), len: index))
+
+region value_materialize(arena: ptr(ValueArena), v: ptr(Value); done | oom)   -- PAGE → OWNED (L3)
+region value_dup(arena: ptr(ValueArena), readonly src: ptr(Value), dst: ptr(Value); done | oom)
+func   value_move(dst: ptr(Value), src: ptr(Value))         -- ownership transfer, no copy
+func   value_release(arena: ptr(ValueArena), v: ptr(Value)) -- return OWNED bytes
+region value_compare(readonly a: ptr(Value), readonly b: ptr(Value), coll: ptr(Collation); lt | eq | gt)
+region value_apply_affinity(v: ptr(Value), aff: u8; ok | cannot_coerce)
+region value_to_int(readonly v: ptr(Value);  int(x: i64)  | not_numeric)
+region value_to_real(readonly v: ptr(Value); real(x: f64) | not_numeric)
+
+-- === Records / arena ========================================================
+
+region record_header(rec: lease view(u8); ok(hdr: RecordHdr) | corrupt)
+region record_column(rec: lease view(u8), readonly hdr: ptr(RecordHdr), col: index, dst: ptr(Value);
+    ok | null_col | corrupt)                     -- on ok, dst BORROWS rec ⇒ dst.prov = PROV_PAGE
+region record_put(buf: ptr(RecordBuf), readonly v: ptr(Value); ok | oom)
+region arena_alloc(arena: ptr(ValueArena), nbytes: index; block(p: ptr(u8)) | oom)
+region arena_reset(invalidate arena: ptr(ValueArena); reset)
+
+-- === VM core  (the one engine: step drives exec; exec is one switch) ========
+
+region vdbe_step(invalidate vm: ptr(Vm);
+    row(out: lease view(Value))                  -- leases vm.regs; valid until next step
+  | done(rows: i64)
+  | error(code: i32, at: index))
+
+region vdbe_exec(invalidate vm: ptr(Vm), pc: index;
+    advance(next: index)
+  | branch(target: index)
+  | produce(out: lease view(Value), next: index) -- ResultRow
+  | stop(rows: i64)                              -- Halt
+  | fault(code: i32, ctx: i32))                  -- body: switch op (generated, §opcodes)
+
+-- === Kernels  (Lua-stamped monomorphic fragments the opcode handlers emit) ==
+
+region bind_row(cur: ptr(VdbeCursor), payload: lease view(u8); ok | corrupt)
+region eval_expr(e: ptr(ExprPlan), regs: lease view(Value), into: ptr(Value); ok | error(code: i32))
+region hash_key(keys: ptr(ExprPlan), regs: lease view(Value); h(value: u64) | error(code: i32))
+region sorter_insert(srt: ptr(Sorter), row: lease view(Value); ok | oom)          -- ★ materializes
+region agg_step(def: ptr(AggDef), acc: ptr(Value), v: lease view(Value); ok | error(code: i32))  -- ★
+region hash_insert(idx: ptr(HashIndex), key: lease view(Value), row: lease view(Value); ok | oom) -- ★
+-- per-type / per-schema FAMILIES (stamped by Lua factories at build time):
+--   cmp_<T>(a: <T>, b: <T>; lt | eq | gt)
+--   decode_<table>(rec: lease view(u8); ok(/* typed cols */) | corrupt)
+
+-- ===========================================================================
+-- ===  SQL FRONTEND  (text → tokens → AST → plan → bytecode; all native) ====
+-- ===========================================================================
+
+-- --- tokenizer --------------------------------------------------------------
+region sql_next_token(src: view(u8), pos: index;
+    tok(t: Token, next: index) | eof(at: index) | bad(at: index, code: i32))
+
+-- --- parser primitives ------------------------------------------------------
+region p_advance(p: ptr(Parser); ok | bad(at: index, code: i32))   -- load next token into p.tok
+region p_expect(p: ptr(Parser), kind: u8; ok | mismatch(at: index, want: u8))
+func   p_at(readonly p: ptr(Parser), kind: u8): bool               -- lookahead test (no consume)
+region p_ident(p: ptr(Parser); ok(name_off: u32) | mismatch(at: index)) -- consume IDENT → interned off
+
+-- AST allocation (append a node/list element into the Ast arena, return its ref)
+region ast_expr(ast: ptr(Ast), node: ExprNode; ok(e: ExprRef) | oom)
+region ast_stmt(ast: ptr(Ast), kind: u8, node_bytes: view(u8); ok(s: StmtRef) | oom)
+region ast_push_ref(ast: ptr(Ast), e: ExprRef; ok(slot: u32) | oom)   -- into Ast.refs (lists)
+region ast_intern(ast: ptr(Ast), text: view(u8); ok(off: u32) | oom)  -- into Ast.strs
+region ast_const(ast: ptr(Ast), v: Value; ok(idx: u32) | oom)         -- into Ast.consts (OWNED)
+
+-- --- statement parsers ------------------------------------------------------
+region parse_statement(p: ptr(Parser);
+    ok(s: StmtRef) | syntax(at: index, code: i32) | unsupported(at: index) | oom)
+region parse_select(p: ptr(Parser);
+    ok(s: StmtRef) | syntax(at: index, code: i32) | unsupported(at: index) | oom)
+region parse_insert(p: ptr(Parser);
+    ok(s: StmtRef) | syntax(at: index, code: i32) | oom)
+region parse_create_table(p: ptr(Parser);
+    ok(s: StmtRef) | syntax(at: index, code: i32) | oom)
+region parse_create_index(p: ptr(Parser);
+    ok(s: StmtRef) | syntax(at: index, code: i32) | oom)
+region parse_delete(p: ptr(Parser);
+    ok(s: StmtRef) | syntax(at: index, code: i32) | oom)
+region parse_update(p: ptr(Parser);
+    ok(s: StmtRef) | syntax(at: index, code: i32) | oom)
+
+-- --- clause parsers (sub-regions of the statement parsers) ------------------
+region parse_result_cols(p: ptr(Parser);
+    ok(cols: u32, n: index) | syntax(at: index, code: i32) | oom)
+region parse_from(p: ptr(Parser);
+    ok(from: FromItem, joins: u32, n_join: index) | syntax(at: index, code: i32) | oom)
+region parse_table_ref(p: ptr(Parser); ok(it: FromItem) | syntax(at: index, code: i32) | oom)
+region parse_order_by(p: ptr(Parser);
+    ok(order: u32, n: index) | syntax(at: index, code: i32) | oom)
+region parse_expr_list(p: ptr(Parser);              -- "(" expr {"," expr} ")" contents
+    ok(start: u32, n: index) | syntax(at: index, code: i32) | oom)
+region parse_column_def(p: ptr(Parser);
+    ok(spec: ColumnSpec) | syntax(at: index, code: i32) | oom)
+region parse_value_row(p: ptr(Parser);
+    ok(row: ValueRow) | syntax(at: index, code: i32) | oom)
+region parse_assignment(p: ptr(Parser);
+    ok(a: Assignment) | syntax(at: index, code: i32) | oom)
+
+-- --- expression parser (precedence climbing) --------------------------------
+region parse_expr(p: ptr(Parser);
+    ok(e: ExprRef) | syntax(at: index, code: i32) | oom)
+region parse_expr_bp(p: ptr(Parser), min_bp: u8;    -- climb while op binding power ≥ min_bp
+    ok(e: ExprRef) | syntax(at: index, code: i32) | oom)
+region parse_primary(p: ptr(Parser);                -- literal | col | (expr) | call | param
+    ok(e: ExprRef) | syntax(at: index, code: i32) | oom)
+
+-- --- AST consumers (the ONE consumer of each encoded fact) ------------------
+region visit_expr(readonly ast: ptr(Ast), e: ExprRef;
+    lit(x: ptr(ExprNode)) | col(x: ptr(ExprNode)) | binop(x: ptr(ExprNode))
+  | unop(x: ptr(ExprNode)) | call(x: ptr(ExprNode)) | in_(x: ptr(ExprNode))
+  | param(x: ptr(ExprNode)) | star | invalid(code: i32))
+region visit_stmt(readonly ast: ptr(Ast), s: StmtRef;
+    select(x: ptr(SelectNode)) | insert(x: ptr(InsertNode))
+  | create_table(x: ptr(CreateTableNode)) | create_index(x: ptr(CreateIndexNode))
+  | delete(x: ptr(DeleteNode)) | update(x: ptr(UpdateNode)) | invalid(code: i32))
+
+-- --- name resolution (bind table/column names against the schema) -----------
+region resolve_table(readonly schema: ptr(Schema), name: view(u8);
+    found(t: ptr(TableDef)) | not_found)
+region resolve_column(readonly t: ptr(TableDef), name: view(u8);
+    found(col: index, def: ptr(ColumnDef)) | not_found)
+region scope_open(r: ptr(Resolver), ast: ptr(Ast), schema: ptr(Schema);
+    ok | oom)                                       -- start a FROM scope
+region scope_add(r: ptr(Resolver), it: FromItem, cursor: index;
+    ok | no_such_table(at: index) | oom)            -- bind one table+alias to a cursor slot
+region resolve_expr(r: ptr(Resolver), e: ExprRef;   -- bind every EX_COL in the tree
+    ok | no_such_column(at: index) | ambiguous(at: index))
+
+-- --- planner (resolved AST → physical operator tree) ------------------------
+region plan_select(readonly ast: ptr(Ast), s: ptr(SelectNode), readonly schema: ptr(Schema),
+                   out: ptr(Plan);
+    ok | no_such_table(at: index) | no_such_column(at: index) | unsupported(at: index) | oom)
+region plan_insert(readonly ast: ptr(Ast), s: ptr(InsertNode), readonly schema: ptr(Schema),
+                   out: ptr(Plan);  ok | no_such_table(at: index) | unsupported(at: index) | oom)
+region plan_delete(readonly ast: ptr(Ast), s: ptr(DeleteNode), readonly schema: ptr(Schema),
+                   out: ptr(Plan);  ok | no_such_table(at: index) | unsupported(at: index) | oom)
+region plan_update(readonly ast: ptr(Ast), s: ptr(UpdateNode), readonly schema: ptr(Schema),
+                   out: ptr(Plan);  ok | no_such_table(at: index) | no_such_column(at: index) | oom)
+region plan_ddl(readonly ast: ptr(Ast), s: StmtRef, readonly schema: ptr(Schema), out: ptr(Plan);
+    ok | already_exists | unsupported(at: index) | oom)
+-- access-method choice: full scan vs index seek/range given the WHERE predicate
+region plan_access(readonly schema: ptr(Schema), t: ptr(TableDef), where_: ExprRef, ast: ptr(Ast);
+    full_scan(root: u32)
+  | index_seek(idx_root: u32, key: ExprRef)
+  | index_range(idx_root: u32, lo: ExprRef, hi: ExprRef))
+-- lower one AST expression into the plan's flat ExprPlan pool
+region lower_expr(readonly ast: ptr(Ast), e: ExprRef, out: ptr(Plan);
+    ok(pe: u32) | unsupported(at: index) | oom)
+
+-- --- code generator (physical plan → bytecode) ------------------------------
+region cg_lower(readonly plan: ptr(Plan), b: ptr(Builder);   -- dispatch on root PHYS_*
+    program(prog: Program) | unsupported(at: u32) | oom)
+region cg_node(readonly plan: ptr(Plan), node: u32, b: ptr(Builder), sink: index;
+    ok | unsupported(at: u32) | oom)                -- emit a subtree; rows flow to `sink`
+region cg_expr(readonly plan: ptr(Plan), pe: u32, b: ptr(Builder), into: index;
+    ok | unsupported(at: u32) | oom)                -- emit eval of one expr → reg `into`
+func   cg_emit(b: ptr(Builder), op: u8, p1: i32, p2: i32, p3: i32): index   -- append; returns addr
+func   cg_alloc_reg(b: ptr(Builder)): index
+func   cg_open_cursor(b: ptr(Builder), root: u32, is_table: bool): index
+func   cg_label(b: ptr(Builder)): index
+func   cg_resolve(b: ptr(Builder), label: index)            -- patch forward refs to here
+region program_finalize(b: ptr(Builder), readonly ast: ptr(Ast);
+    ok(prog: Program)                               -- copies AST literals into Program (OWN handoff)
+  | oom)
+
+-- --- the whole pipeline (what lalindb_prepare calls) -------------------------
+region sql_compile(db: ptr(Database), src: view(u8), out: ptr(Stmt);
+    ok                                              -- tokenize→parse→resolve→plan→codegen→Program
+  | syntax(at: index, code: i32)
+  | no_such_table(at: index)
+  | no_such_column(at: index)
+  | unsupported(at: index)
+  | oom)
+
+
+
+-- ###########################################################################
+-- #  THE OPCODE SET  (build-time Lua table → the switch inside vdbe_exec)
+-- #  Each row: { name, operands, kernel/effect }.  ★ = breaker (materializes).
+-- ###########################################################################
+-- OPS = {
+--  -- control
+--   {"Init","p2"} {"Goto","p2"} {"Gosub","p1 p2"} {"Return","p1"} {"Halt","p1 p4"}
+--   {"If","IfNot","IsNull","NotNull","p1 p2"}
+--  -- constants / register movement
+--   {"Integer","Int64","Real","p1|p4 p2 — INLINE"} {"String8","p4 p2 — STATIC"}
+--   {"Null","p2 p3"} {"Copy","p1 p2 p3 — OWNED"} {"SCopy","p1 p2 — may be PAGE"}
+--   {"Move","p1 p2 p3 — transfer"}
+--  -- cursor read
+--   {"OpenRead","OpenWrite","p1 p2 p3 p4"} {"Close","p1"}
+--   {"Rewind","p1 p2 — invalidates page regs"} {"Next","p1 p2 — materialize; INVALIDATING"}
+--   {"SeekRowid","p1 p2 p3"} {"SeekGE","SeekGT","SeekLE","SeekLT","p1 p2 p3 p4"}
+--   {"Column","p1 p2 p3 — BORROWS leaf ⇒ PAGE"} {"Rowid","p1 p2 — INLINE"}
+--  -- compare / logic / arithmetic
+--   {"Eq","Ne","Lt","Le","Gt","Ge","p1 p2 p3 p4 — value_compare; branch p2"}
+--   {"Compare","p1 p2 p3 p4"} {"And","Or","Not"} {"Add","Subtract","Multiply",
+--   "Divide","Remainder","p1 p2 p3"} {"Concat","p1 p2 p3 — OWNED"}
+--  -- ★ breakers (materialize)
+--   {"SorterOpen","p1"} {"SorterInsert","p1 p2 — ★ OWNED"} {"SorterSort","p1 — ★"}
+--   {"SorterNext","SorterData","p1 p2"} {"AggStep","p1 p4 p2 p3 — ★ OWNED"}
+--   {"AggFinal","p1 p2 — ★ OWNED"} {"IdxInsert","p1 p2 — ★ OWNED"}
+--   {"IdxGE","IdxGT","IdxLT","IdxRowid","p1 p2 p3"}
+--  -- write (INVALIDATE db)
+--   {"NewRowid","p1 p2"} {"Insert","p1 p2 p3 p5"} {"Delete","p1"}
+--  -- result / transaction
+--   {"ResultRow","p1 p2 — LEASE on regs → produce"}
+--   {"Transaction","Commit","Savepoint","... — INVALIDATE db"}
+-- }
+
+
+
+-- ###########################################################################
+-- #  THE PUBLIC API  (the entire surface — sealed funcs; protocol → rc here)
+-- ###########################################################################
+
+func lalindb_open(path: ptr(u8), out_db: ptr(ptr(Database))): i32
+func lalindb_close(db: ptr(Database)): i32
+
+func lalindb_prepare(db: ptr(Database), sql: ptr(u8), n: index, out_stmt: ptr(ptr(Stmt))): i32
+                                                 -- runs sql_compile → Stmt owns the Program
+func lalindb_step(stmt: ptr(Stmt)): i32           -- ROW | DONE | ERROR ; internally invalidate stmt
+func lalindb_reset(stmt: ptr(Stmt)): i32
+func lalindb_finalize(stmt: ptr(Stmt)): i32
+func lalindb_exec(db: ptr(Database), sql: ptr(u8)): i32   -- prepare+step+finalize convenience
+
+func lalindb_column_count(readonly stmt: ptr(Stmt)): i32
+func lalindb_column_type(readonly stmt: ptr(Stmt), i: index): i32
+func lalindb_column_int(stmt: ptr(Stmt), i: index): i64
+func lalindb_column_double(stmt: ptr(Stmt), i: index): f64
+func lalindb_column_text(stmt: ptr(Stmt), i: index): ptr(u8)   -- lease on stmt: valid until next step
+func lalindb_column_bytes(readonly stmt: ptr(Stmt), i: index): index
+
+func lalindb_bind_int(stmt: ptr(Stmt), i: index, v: i64): i32
+func lalindb_bind_double(stmt: ptr(Stmt), i: index, v: f64): i32
+func lalindb_bind_text(stmt: ptr(Stmt), i: index, z: ptr(u8), n: index, copy: bool): i32  -- copy⇒OWNED
+func lalindb_bind_null(stmt: ptr(Stmt), i: index): i32
+
+func lalindb_changes(readonly db: ptr(Database)): i64
+func lalindb_last_rowid(readonly db: ptr(Database)): i64
+func lalindb_errmsg(readonly db: ptr(Database)): ptr(u8)       -- valid until next call
+
+
+
+-- ###########################################################################
+-- #  MEMORY MODEL  (carried by the declarations above; summarized here)
+-- ###########################################################################
+--
+-- OWNERSHIP FOREST (one owner per object):
+--   Database ─ Vfs, Pager(File, PageCache=page bytes, Journal), Schema, Stmt
+--   Stmt ─ Program(code+consts STATIC), Vm, vars[]
+--   Vm ─ regs[], cursors[](own PageRef paths), sorters[]★, aggs[]★, HashIndex★, arena
+--   compile-scope (freed after prepare): Ast(nodes,refs,consts,strs), Parser, Resolver,
+--       Plan, Builder — none survive into the prepared Stmt; only the Program does.
+--   ★ breakers own all in-flight tuple bytes (PROV_OWNED). Streaming code owns nothing.
+--
+-- THE ONE BOUNDARY  (breaker = materialize = invalidation):
+--   Column/SCopy produce PROV_PAGE (borrow leaf). A PROV_PAGE register must be discharged
+--   (value_materialize) before EITHER (a) its cursor moves (Next/Seek/Rewind), OR
+--   (b) it enters a breaker (SorterInsert/AggStep/IdxInsert). (b) materializes by
+--   construction; (a) Next materializes the live window first. The lease type forces it.
+--
+-- INVALIDATION SURFACE (every tear-out point):
+--   pager: get_writable allocate free begin commit rollback checkpoint close
+--   file:  write sync truncate lock unlock close
+--   btree: first last next prev seek_* insert delete balance cursor_save cursor_restore
+--   arena: reset
+--   opcodes: Rewind Next Seek* Insert Delete Transaction Commit
+--   seal:  vdbe_step (invalidate vm) · lalindb_step (invalidate stmt)
+--
+-- BORROW DISCIPLINE:
+--   GRANT   pager_get/reget/get_writable · btree_first/next/prev/seek_* · record_* · Column
+--   FORWARD SCopy · ResultRow (→ the seal, valid until next step)
+--   DISCHARGE value_materialize · value_dup · sorter_insert★ · agg_step★ · hash_insert★
+--   RETIRE  value_release · arena_reset · btree_cursor_save · lalindb_reset/finalize
+--   RULE    a GRANTed lease may be FORWARDed, but must DISCHARGE before crossing the
+--           invalidation surface. Only breakers discharge — that is where the pipeline breaks.
+--
+-- COMPILE PIPELINE (all native, at runtime; produces bytecode DATA):
+--   sql_compile = sql_next_token* → parse_statement → scope_open/scope_add/resolve_expr
+--               → plan_* (plan_access chooses scan vs index) → cg_lower → program_finalize
+--   The only durable output is Program (owned by Stmt). The Ast/Plan/Builder are scratch.
+--
+-- BUILD: Lua stamps cmp_<T>/decode_<table>/the dispatch switch, then projects to C
+--        (lalindb.c amalgamation) and links. No JIT, no runtime Lua. The C is an object
+--        file — read to debug, never authored. These two trees are the source.

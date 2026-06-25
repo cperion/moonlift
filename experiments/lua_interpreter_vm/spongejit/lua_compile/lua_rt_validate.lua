@@ -4,7 +4,7 @@
 -- opcodes, invoke runtime helpers, or bless interpreter/protocol handoffs.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local RT = T.LuaRT
 local ArityModel = require("lua_compile.lua_rt_arity_model")

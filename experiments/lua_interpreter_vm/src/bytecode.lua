@@ -1,4 +1,4 @@
--- Lua 5.5 bytecode bit-layout oracle for the Moonlift VM.
+-- Lua 5.5 bytecode bit-layout oracle for the Lalin VM.
 -- This records encoding facts only. It does not import PUC runtime behavior.
 
 local bytecode = {}

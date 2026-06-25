@@ -3,8 +3,8 @@
 #
 # Maintained offline foundry pipeline:
 #   LuaCompile grammar/window plan -> parallel LuaCompile workers
-#   -> MoonCFG + CompileContract + Stencil.VariantKey representative dedupe
-#   -> MoonCFG/Moonlift source artifacts; binary StencilTemplate banks are separate object-extraction artifacts.
+#   -> LalinCFG + CompileContract + Stencil.VariantKey representative dedupe
+#   -> LalinCFG/Lalin source artifacts; binary StencilTemplate banks are separate object-extraction artifacts.
 #
 # This script builds LuaCompile representatives, indexes, alias maps, and coverage manifests.
 
@@ -134,11 +134,11 @@ for ci = 1, chunks do
       out = {
         representative_id = #reps + 1,
         representative_key = key,
-        moon_cfg_key = rep.moon_cfg_key,
+        lalin_cfg_key = rep.lalin_cfg_key,
         stencil_variant_key = rep.stencil_variant_key,
         contract_key = rep.contract_key,
-        moon_cfg_kernel = rep.moon_cfg_kernel,
-        moonlift_source = rep.moonlift_source,
+        lalin_cfg_kernel = rep.lalin_cfg_kernel,
+        lalin_source = rep.lalin_source,
         aliases = {},
         count = 0,
         alias_by_key = {},

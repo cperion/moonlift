@@ -1,10 +1,10 @@
--- bench_poc_utf8.lua — Benchmark Moonlift UTF-8 validator vs pure Lua
+-- bench_poc_utf8.lua — Benchmark Lalin UTF-8 validator vs pure Lua
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local Host = require("moonlift.mlua_run")
+local Host = require("lalin.mlua_run")
 local ffi = require("ffi")
 
--- Lua state-machine UTF-8 validator — same algorithm as Moonlift
+-- Lua state-machine UTF-8 validator — same algorithm as Lalin
 -- Uses string.byte (natural Lua); no goto (Lua 5.1)
 local function lua_string(s)
     local len = #s
@@ -54,7 +54,7 @@ local function lua_string(s)
     end
 end
 
--- Lua state-machine UTF-8 validator — same shape, same FFI data access as Moonlift
+-- Lua state-machine UTF-8 validator — same shape, same FFI data access as Lalin
 local function lua_ffi(buf, len)
     local pos, state = 0, 0
     while true do
@@ -125,17 +125,17 @@ local test_data = {
     "\xFF\x80\x80\x80\x80",
 }
 
--- Load Moonlift validator
+-- Load Lalin validator
 local validate = Host.dofile("poc_utf8.mlua")
 
 for _, s in ipairs(test_data) do
     local buf = ffi.new("uint8_t[?]", #s)
     ffi.copy(buf, s, #s)
-    local moon_result = validate(buf, #s) == 0
+    local lalin_result = validate(buf, #s) == 0
     local str_result = lua_string(s)
     local ffi_result = lua_ffi(buf, #s)
-    assert(moon_result == str_result, string.format("moon/str mismatch for %q", s))
-    assert(moon_result == ffi_result, string.format("moon/ffi mismatch for %q", s))
+    assert(lalin_result == str_result, string.format("lalin/str mismatch for %q", s))
+    assert(lalin_result == ffi_result, string.format("lalin/ffi mismatch for %q", s))
 end
 
 -- Generate a large valid UTF-8 string for benchmarking
@@ -182,7 +182,7 @@ validate(data_buf, #data)
 lua_string(data)
 lua_ffi(data_buf, #data)
 
-local moon_time = time_it(function()
+local lalin_time = time_it(function()
     validate(data_buf, #data)
 end, ITERS)
 
@@ -199,10 +199,10 @@ local data_size = #data * ITERS
 print()
 print(string.format("Data size: %d bytes × %d iterations = %d MB", #data, ITERS, data_size / 1e6))
 print()
-print(string.format("  Moonlift native (block/jump):   %6.3fs  (%5.1f ns/B  %5.1f MB/s)",
-    moon_time, moon_time * 1e9 / data_size, data_size / moon_time / 1e6))
+print(string.format("  Lalin native (block/jump):   %6.3fs  (%5.1f ns/B  %5.1f MB/s)",
+    lalin_time, lalin_time * 1e9 / data_size, data_size / lalin_time / 1e6))
 print(string.format("  Lua while-loop (string.byte):   %6.3fs  (%5.1f ns/B  %5.1f MB/s)  %5.2fx slower",
-    lua_str_time, lua_str_time * 1e9 / data_size, data_size / lua_str_time / 1e6, lua_str_time / moon_time))
+    lua_str_time, lua_str_time * 1e9 / data_size, data_size / lua_str_time / 1e6, lua_str_time / lalin_time))
 print(string.format("  Lua while-loop (FFI buf):       %6.3fs  (%5.1f ns/B  %5.1f MB/s)  %5.2fx slower",
-    lua_ffi_time, lua_ffi_time * 1e9 / data_size, data_size / lua_ffi_time / 1e6, lua_ffi_time / moon_time))
+    lua_ffi_time, lua_ffi_time * 1e9 / data_size, data_size / lua_ffi_time / 1e6, lua_ffi_time / lalin_time))
 print()

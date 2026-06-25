@@ -7,7 +7,7 @@ Fix and complete experiments/lua_interpreter_vm JIT stencil harness based on des
 
 ## Files Retrieved
 
-1. `experiments/lua_interpreter_vm/LUA_STENCIL_HARNESS_DESIGN.md` (lines 1-1835) — canonical design. Important mismatches: expected modules include `awfy.lua`, `compile.lua`, `profile_dynamic.lua`; CLI expects `moonlift-jit-harness ... --flags`; pipeline requires real bytecode compilation, static/dynamic profiles, L0-L4, object mining, verification, benchmarking, export.
+1. `experiments/lua_interpreter_vm/LUA_STENCIL_HARNESS_DESIGN.md` (lines 1-1835) — canonical design. Important mismatches: expected modules include `awfy.lua`, `compile.lua`, `profile_dynamic.lua`; CLI expects `lalin-jit-harness ... --flags`; pipeline requires real bytecode compilation, static/dynamic profiles, L0-L4, object mining, verification, benchmarking, export.
 2. `experiments/lua_interpreter_vm/tools/jit_harness/README.md` (lines 1-217) — current claimed status. Says all 16 modules implemented, but design lists 17 modules and 3 are missing. Admits compilation/object mining/benchmarking/binary generation are mock placeholders.
 3. `experiments/lua_interpreter_vm/tools/jit_harness/harness.lua` (lines 1-244) — top-level dispatcher. No direct script entrypoint; command set is incomplete vs design; pipeline continues despite compile/mining failures.
 4. `experiments/lua_interpreter_vm/tools/jit_harness/corpus.lua` (lines 1-201) — AWFY discovery/normalization. Uses LuaJIT `load()` syntax checking instead of VM compiler; static AWFY fallback omits `main.lua`; no general corpus config/enumeration/read DB.
@@ -15,8 +15,8 @@ Fix and complete experiments/lua_interpreter_vm JIT stencil harness based on des
 6. `experiments/lua_interpreter_vm/tools/jit_harness/fact_trace.lua` (lines 1-180) — Lua-value fact mock, not VM `TValue`/trace fact canonicalization.
 7. `experiments/lua_interpreter_vm/tools/jit_harness/seed_l0.lua` (lines 1-254) — 27 hardcoded manual seed names. Does not load YAML/manual file path and does not emit full `L0SeedSpec` contract/fact/product shape.
 8. `experiments/lua_interpreter_vm/tools/jit_harness/layer_closure.lua` (lines 1-319) — generates pair/triple/quad name combinations with simple budget gates. No contract composition, state/effect/fact validation, aliases, selected winners, or L2-L4 iteration.
-9. `experiments/lua_interpreter_vm/tools/jit_harness/candidate_emit.lua` (lines 1-119) — emits trivial Moonlift `return 0i64` functions; not semantic opcode kernels.
-10. `experiments/lua_interpreter_vm/tools/jit_harness/candidate_compile.lua` (lines 1-156) — invokes invalid `target/release/moonlift --emit-object` command; wrong cwd assumptions; ignores close status.
+9. `experiments/lua_interpreter_vm/tools/jit_harness/candidate_emit.lua` (lines 1-119) — emits trivial Lalin `return 0i64` functions; not semantic opcode kernels.
+10. `experiments/lua_interpreter_vm/tools/jit_harness/candidate_compile.lua` (lines 1-156) — invokes invalid `target/release/lalin --emit-object` command; wrong cwd assumptions; ignores close status.
 11. `experiments/lua_interpreter_vm/tools/jit_harness/object_mine.lua` (lines 1-184) — all mining data is randomized mock holes/relocs/clobbers.
 12. `experiments/lua_interpreter_vm/tools/jit_harness/verify.lua` (lines 1-241) — shallow shape checks only; candidates without contracts pass valid.
 13. `experiments/lua_interpreter_vm/tools/jit_harness/bench.lua` (lines 1-160) — randomized benchmark data; `#map` bug can produce `inf` average cycles.
@@ -26,7 +26,7 @@ Fix and complete experiments/lua_interpreter_vm JIT stencil harness based on des
 17. `experiments/lua_interpreter_vm/tests/test_jit_harness.lua` (lines 1-185) — weak tests; errors are printed but do not fail process; only module loading/basic helpers tested.
 18. `experiments/lua_interpreter_vm/src/products.lua` (lines 1-120) — actual VM `Proto`/`Instr` shape: `Instr` is packed `word: u32`, `Proto.code` is `ptr(Instr)`.
 19. `experiments/lua_interpreter_vm/src/constants.lua` (lines 1-180) — actual opcode numeric table, 0-84.
-20. `experiments/lua_interpreter_vm/src/regions_compiler.lua` (lines 1-85) — actual Moonlift VM compiler entry region: `compile_lua_source_into`.
+20. `experiments/lua_interpreter_vm/src/regions_compiler.lua` (lines 1-85) — actual Lalin VM compiler entry region: `compile_lua_source_into`.
 21. `experiments/lua_interpreter_vm/tests/test_parser_compile.lua` (lines 70-243) — concrete integration example for compiling source to `Proto`/`Instr` and running it through `vm_resume`.
 22. `experiments/lua_interpreter_vm/src/vm_loop.lua` (lines 1-154) — actual VM loop; no dynamic profiling/JIT instrumentation hooks.
 23. `emit_object.lua` (lines 1-56) — working hosted object-emission CLI: `luajit emit_object.lua input.mlua -o output.o`.
@@ -159,7 +159,7 @@ So current static profiling does not consume real VM `Proto.code`.
 
 ```lua
 local compile_region = vm.regions_compiler.compile_lua_source_into
-local wrapper = moon.func { compile_lua_source_into = compile_region } [[
+local wrapper = lalin.func { compile_lua_source_into = compile_region } [[
 compile_text(cu: ptr(CompileUnit), b: ptr(FuncBuilder), p: ptr(Proto),
              bytes: ptr(u8), n: index, code: ptr(Instr),
              locals: ptr(CompileLocal)) -> i32
@@ -176,8 +176,8 @@ This is the most concrete path for `tools/jit_harness/compile.lua`.
 `candidate_compile.lua`:
 
 ```lua
-local moonlift_cmd = string.format(
-    "target/release/moonlift --emit-object -o '%s' '%s' 2>&1",
+local lalin_cmd = string.format(
+    "target/release/lalin --emit-object -o '%s' '%s' 2>&1",
     obj_path, kernel_src
 )
 ```
@@ -192,7 +192,7 @@ unknown option: -o
 Observed from `experiments/lua_interpreter_vm` cwd:
 
 ```text
-target/release/moonlift: No such file or directory
+target/release/lalin: No such file or directory
 ```
 
 Working object CLI is root `emit_object.lua`:
@@ -288,7 +288,7 @@ corpus.lua
 - Opcode IDs: `src/constants.lua`.
 - Packed instruction decode: `bit.band(instr.word, 127)` in `tests/test_parser_compile.lua`.
 - Execution path for dynamic profiling: `src/vm_loop.lua` / `vm_resume`, but currently no profile counters or trace hooks.
-- Object emission: root `emit_object.lua` or `moon.emit_object`, not `target/release/moonlift --emit-object`.
+- Object emission: root `emit_object.lua` or `lalin.emit_object`, not `target/release/lalin --emit-object`.
 - Object parser/mining: missing under `experiments/lua_interpreter_vm/src/jit/`; stale tests expect it.
 
 ## Observations
@@ -299,7 +299,7 @@ corpus.lua
 2. No direct CLI entrypoint; advertised `luajit tools/jit_harness/harness.lua test` does nothing.
 3. CLI flags/design mismatch: no `--awfy-root`, `--out`, `--profile`, `--manual`, `--layer`, `iterate-layers`, `verify-layer`, `bench-layer`, `clean`.
 4. AWFY discovery fallback is stale and non-validating; reports 33 known files and omits `main.lua`.
-5. Corpus normalization rejects Lua 5.5 via LuaJIT parser instead of compiling through the Moonlift Lua VM compiler.
+5. Corpus normalization rejects Lua 5.5 via LuaJIT parser instead of compiling through the Lalin Lua VM compiler.
 6. Static profile does not accept real packed VM `Proto`/`Instr`.
 7. Dynamic profile is absent and VM has no trace/profile instrumentation.
 8. Candidate emission is semantically empty and currently object-emission-invalid due `0i64`.
@@ -318,7 +318,7 @@ corpus.lua
 3. **Replace `corpus.lua` LuaJIT `load()` validation** with VM compiler compilation/rejects; fix AWFY discovery and include `main.lua`.
 4. **Rewrite `profile_static.lua` to decode packed `Instr.word`** using opcode constants/reverse names and real operand fields.
 5. **Add minimal `profile_dynamic.lua` plus VM instrumentation point** in/around `vm_loop` or `dispatch_instruction` for instruction counts, opcode windows, branch outcomes, and value facts.
-6. **Fix candidate object path**: use `luajit emit_object.lua` or `moon.emit_object`, configurable repo root/tool path, and check process exit status/object freshness.
+6. **Fix candidate object path**: use `luajit emit_object.lua` or `lalin.emit_object`, configurable repo root/tool path, and check process exit status/object freshness.
 7. **Fix candidate emission to generate compilable source** before semantics work; remove `0i64`, then evolve from no-op to real VM-state stencil kernels.
 8. **Implement deterministic object mining or wire to an ELF/Mach-O parser**; stop random holes/relocs/clobbers.
 9. **Make verification consume mined candidates** and require contracts/expansions for candidates to pass.

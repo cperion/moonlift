@@ -3,8 +3,8 @@
   "workflowId": "wf-lua-vm-compiler-unfuck",
   "agent": "worker",
   "task": "Continue completing the Lua VM/compiler with a fresh worker instance from current tree and workflow context. Do not resume old runs. Preserve the repaired parse products -> semantic HIR -> lowering architecture and guardrails: no recursive parser emit; parser builds parse products only and never imports/touches codegen/FuncBuilder/bytecode; semantic resolves HIR; lowering alone emits bytecode. Make a substantial end-to-end push on the biggest remaining blocker: source function declarations/literals, closures/upvalues, callable function execution, and varargs if feasible. Implement real typed parse products/HIR/lowering for functions and calls; if runtime gaps block execution, fix them correctly. Also improve local multi-declarations/assignment lists if it falls naturally out of expression-list support. Use safe targeted capped checks only; no broad memory-heavy sweeps. Report concrete source programs now parsed/HIR/lowered/executed, files changed, checks run, and exact remaining gaps.",
-  "cwd": "/home/cedric/dev/moonlift",
-  "sessionFile": "/home/cedric/dev/moonlift/.pi/workflows/.sessions/run-d9f6de39.jsonl",
+  "cwd": "/home/cedric/dev/lalin",
+  "sessionFile": "/home/cedric/dev/lalin/.pi/workflows/.sessions/run-d9f6de39.jsonl",
   "status": "running",
   "created": "2026-05-30T20:08:38.148Z",
   "updated": "2026-05-30T20:08:38.148Z"

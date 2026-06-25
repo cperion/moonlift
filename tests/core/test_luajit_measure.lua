@@ -1,6 +1,6 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local Measure = require("moonlift.luajit_measure")
+local Measure = require("lalin.luajit_measure")
 
 local result = Measure.measure_case {
     name = "small counted loop",
@@ -25,4 +25,4 @@ assert(result.seconds.max >= result.seconds.min)
 assert(result.trace.start >= result.trace.stop)
 assert(type(Measure.format_result(result)) == "string")
 
-io.write("moonlift luajit_measure ok\n")
+io.write("lalin luajit_measure ok\n")

@@ -1,15 +1,15 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local Control = require("moonlift.tree_control_facts")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local Control = require("lalin.tree_control_facts")
 
 local T = pvm.context()
 A(T)
 local Ctl = Control(T)
-local C = T.MoonCore
-local Ty = T.MoonType
-local Tr = T.MoonTree
+local C = T.LalinCore
+local Ty = T.LalinType
+local Tr = T.LalinTree
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local function lit(raw) return Tr.ExprLit(Tr.ExprTyped(i32), C.LitInt(raw)) end
@@ -129,4 +129,4 @@ local unterminated = Tr.ControlStmtRegion(
 )
 assert(Ctl.decide(unterminated).reject == Tr.ControlRejectUnterminatedBlock("control.unterminated", loop))
 
-print("moonlift tree_control_facts ok")
+print("lalin tree_control_facts ok")

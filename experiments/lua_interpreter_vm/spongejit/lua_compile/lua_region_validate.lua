@@ -1,7 +1,7 @@
 -- lua_region_validate.lua -- LuaRegion topology invariants.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local Region = T.LuaRegion
 

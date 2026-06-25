@@ -3,7 +3,7 @@
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
@@ -28,13 +28,13 @@ typedef struct {
 } LuaThread;
 ]]
 
-local abi = moon.func {
+local abi = lalin.func {
     vm_abi = vm.api.lua_vm_abi_version_api,
     native_abi = vm.api.lua_native_abi_version_api,
     status_api = vm.api.lua_status_api,
     last_error_api = vm.api.lua_last_error_api,
-    ABI_VM_VERSION = moon.int(const.Abi.VM_VERSION),
-    ABI_NATIVE_VERSION = moon.int(const.Abi.NATIVE_VERSION),
+    ABI_VM_VERSION = lalin.int(const.Abi.VM_VERSION),
+    ABI_NATIVE_VERSION = lalin.int(const.Abi.NATIVE_VERSION),
 } [[
 abi_check(L: ptr(LuaThread)): i32
     let a: i32 = @{vm_abi}()

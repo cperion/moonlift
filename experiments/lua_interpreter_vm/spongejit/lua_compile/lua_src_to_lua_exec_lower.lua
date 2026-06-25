@@ -4,7 +4,7 @@
 -- The ASDL architecture can represent full Lua semantics, but this lowerer only
 -- accepts the current executable slice; unsupported source semantics reject.
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local B = require("lua_compile.builders")
 local RegionModel = require("lua_compile.lua_exec_region_model")
 local ArityModel = require("lua_compile.lua_rt_arity_model")
@@ -439,15 +439,15 @@ local function slot_ty_for_pc(builder, pc, sid)
   return slot_ty(builder, sid)
 end
 local function exec_type_for_external_scalar(ty)
-  if ty == "i64" then return Exec.MoonType("i64") end
-  if ty == "bool" then return Exec.MoonType("bool") end
-  if ty == "f64" then return Exec.MoonType("f64") end
+  if ty == "i64" then return Exec.LalinType("i64") end
+  if ty == "bool" then return Exec.LalinType("bool") end
+  if ty == "f64" then return Exec.LalinType("f64") end
   if ty == "lua_i64_value" then return Exec.LuaValueWithTagType(RT.IntegerTag) end
   if ty == "lua_value" then return Exec.LuaValueType end
-  if ty == "ptr_lua_value" then return Exec.MoonType("ptr(LuaRTValue)") end
-  if ty == "ptr_i64" then return Exec.MoonType("ptr(i64)") end
-  if ty == "ptr_lua_table" then return Exec.MoonType("ptr(LuaRTTable)") end
-  if ty == "ptr_lua_string" then return Exec.MoonType("ptr(LuaRTString)") end
+  if ty == "ptr_lua_value" then return Exec.LalinType("ptr(LuaRTValue)") end
+  if ty == "ptr_i64" then return Exec.LalinType("ptr(i64)") end
+  if ty == "ptr_lua_table" then return Exec.LalinType("ptr(LuaRTTable)") end
+  if ty == "ptr_lua_string" then return Exec.LalinType("ptr(LuaRTString)") end
   return Exec.LuaValueType
 end
 local function exec_value_type_for_slot_ty(ty)

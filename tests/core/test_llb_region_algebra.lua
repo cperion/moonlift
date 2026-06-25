@@ -60,18 +60,18 @@ assert(env.region == llb.region, "LLB family exports bare region head")
 local env_region = env.region. env_region { input = { "x" }, protocol = "pull" }
 assert(llb.describe(env_region).protocol == "pull", "bare region head works from family env")
 
-local moon = require("moonlift")
-local chunk = moon.dsl.loadstring([[
+local lalin = require("lalin")
+local chunk = lalin.dsl.loadstring([[
 return region. scan { x [i32] } { hit { pos [i32] }, miss } {
   entry. start {} {
     jump. hit { pos = x },
   },
 }
-]], "region_algebra_moonlift.lua")
+]], "region_algebra_lalin.lua")
 local generic_region = chunk()
 assert(llb.is(generic_region, "Region"), "bare region head creates a generic LLB region")
-local unit = moon.dsl.to_unit("RegionAlgebra", { generic_region })
-assert(unit.kind == "unit", "Moonlift projection wraps generic region declaration in a unit")
-assert(unit.body[1].kind == "region", "Moonlift consumes generic LLB regions")
+local unit = lalin.dsl.to_unit("RegionAlgebra", { generic_region })
+assert(unit.kind == "unit", "Lalin projection wraps generic region declaration in a unit")
+assert(unit.body[1].kind == "region", "Lalin consumes generic LLB regions")
 
 io.write("llb region_algebra ok\n")

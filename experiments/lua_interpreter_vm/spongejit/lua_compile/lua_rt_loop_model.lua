@@ -2,7 +2,7 @@
 -- Structural validation only; loop execution remains unsupported until lowered explicitly.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local RT = T.LuaRT
 

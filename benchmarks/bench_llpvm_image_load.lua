@@ -10,11 +10,11 @@
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/llpvm/native/?.lua;./lua/llpvm/native/?.mlua;" .. package.path
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 local ffi = require("ffi")
 local bit = require("bit")
 local ll = require("llpvm")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local Runtime = require("llpvm.runtime_ffi")
 
 ffi.cdef [[
@@ -49,7 +49,7 @@ local function make_program(op_count)
     local vm = ll.vm {}
     local Expr = vm.language "Expr"
     local Node = Expr "Node"
-    Node.Int = { value = moon.i64 }
+    Node.Int = { value = lalin.i64 }
     Node.Add = { left = Node, right = Node }
     local world = Expr:world()
     local ops = {}
@@ -82,8 +82,8 @@ end
 local mode = arg and arg[1] or "quick"
 local full = mode == "full"
 local cases = full and { 16, 128, 1024, 4096 } or { 16, 128, 1024 }
-local rounds = tonumber(os.getenv("MOONLIFT_BENCH_ROUNDS") or (full and "200" or "50"))
-local samples_n = tonumber(os.getenv("MOONLIFT_BENCH_SAMPLES") or (full and "9" or "5"))
+local rounds = tonumber(os.getenv("LALIN_BENCH_ROUNDS") or (full and "200" or "50"))
+local samples_n = tonumber(os.getenv("LALIN_BENCH_SAMPLES") or (full and "9" or "5"))
 
 io.write("building LLPVM runtime .so ... ")
 io.flush()

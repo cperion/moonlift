@@ -69,7 +69,7 @@ function M.find_repo_root(start)
         dir = M.dirname(dir)
     end
     for _ = 1, 12 do
-        if M.path_exists(dir .. "/Cargo.toml") and M.path_exists(dir .. "/lua/moonlift/init.lua") then
+        if M.path_exists(dir .. "/Cargo.toml") and M.path_exists(dir .. "/lua/lalin/init.lua") then
             return dir
         end
         local parent = M.dirname(dir)

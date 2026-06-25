@@ -16,13 +16,13 @@
 - Git status: 3 commits (2b47d7a, eccad80, 7b70f76)
 
 **✅ BLOCKER RESOLVED: Unified MOM assembly now emits object**
-- Fixed assembly registration for regular Moonlift `struct ... end` TypeValue declarations.
+- Fixed assembly registration for regular Lalin `struct ... end` TypeValue declarations.
 - Switched MOM assembly to assignment-style declarations: `M.Name = struct ... end`, `M.fn = func ... end`, `M.export.fn = ...`, `M.extern.fn = ...`.
 - Removed duplicate registered product definitions; the assembler now treats duplicate declarations as hard errors.
 - Product manifest keeps one typecheck implementation (`type_check.mlua`) until split modules fully replace it.
-- `target/libmom_precompiled.o` now generates successfully and exports `mom_compile_source_to_wire`, `mom_compile_source_to_object`, `mom_compile_source_to_artifact`, `mom_luaopen_moonlift`, and `mom_hello`.
+- `target/libmom_precompiled.o` now generates successfully and exports `mom_compile_source_to_wire`, `mom_compile_source_to_object`, `mom_compile_source_to_artifact`, `mom_luaopen_lalin`, and `mom_hello`.
 - `src/mom_main.rs` was rewritten as a native product CLI with no embedded hosted Lua.
-- `make test-mom` now builds `moonlift -> libmoonlift.so -> libmom_precompiled.o -> mom` and passes the status/symbol/no-hosted-embed checks.
+- `make test-mom` now builds `lalin -> liblalin.so -> libmom_precompiled.o -> mom` and passes the status/symbol/no-hosted-embed checks.
 - Fixed pointer-arithmetic lowering to avoid redundant index→index sign-extension; this unblocked real workspace slicing in the native driver.
 - `mom status` now probes the native source-to-wire pipeline on a tiny source and reports the emitted MLBT byte length.
 - `target/release/mom` can JIT-run native source-to-wire output by real source function name; `tests/test_mom_run_2plus2.lua` verifies `main(): 2 + 2 -> 4` and `add(i32, i32): 20 + 22 -> 42`.
@@ -44,17 +44,17 @@ This document tracks the implementation of the MOM Precompiled Binary Reorganiza
 ### Phase 1: Build Infrastructure ✅
 
 **Task #1: Create build directory structure and manifest** ✅
-- Created `lua/moonlift/mom/build/` directory
-- Created `lua/moonlift/mom/build/manifest.lua` with ordered source list
+- Created `lua/lalin/mom/build/` directory
+- Created `lua/lalin/mom/build/manifest.lua` with ordered source list
   - 12 schema sources
   - 44 compiler sources organized by phase (runtime, backend, typecheck, layout, driver, vec, parser)
 - Manifest verified to match actual source files in repository
 
 **Task #2: Create tags directory and generate mom_tags.lua** ✅
-- Created `lua/moonlift/mom/tags/` directory
-- Created `lua/moonlift/mom/build/tags_gen.lua` leveraging existing `back_tags.lua`
+- Created `lua/lalin/mom/tags/` directory
+- Created `lua/lalin/mom/build/tags_gen.lua` leveraging existing `back_tags.lua`
 - Created `scripts/generate_mom_tags.lua` entry point
-- Generated `lua/moonlift/mom/tags/mom_tags.lua` (462 lines, 252 constants)
+- Generated `lua/lalin/mom/tags/mom_tags.lua` (462 lines, 252 constants)
 - Tags include all schema union variants plus 12 explicit non-schema constants
 
 ### Phase 1a: Rust/Build Infrastructure ✅
@@ -66,13 +66,13 @@ This document tracks the implementation of the MOM Precompiled Binary Reorganiza
 
 **Task #20: Update build.rs for per-binary embedded Lua and MOM linking** ✅
 - Updated `link_mom_precompiled()` function to use `MOM_OBJ_PATH` environment variable
-- Changed error handling: warns if object missing (allows moonlift to build independently)
+- Changed error handling: warns if object missing (allows lalin to build independently)
 - Only links object when present, enabling phased builds
 - Updated `cargo::rerun-if-changed` tracking for object file
 
 **Task #21: Rewrite Makefile with clean build graph** ✅
 - Updated Makefile variables and added new targets
-- `all` target now builds: $(MOONLIFT) $(MOM)
+- `all` target now builds: $(LALIN) $(MOM)
 - New `mom-tags` target: generates tags before object compilation
 - Updated `mom-obj` target: depends on `mom-tags`, runs `scripts/emit_mom_precompiled.lua`
 - Updated `$(MOM)` target: depends on `$(MOM_OBJ)`, passes `MOM_OBJ_PATH` to cargo
@@ -81,17 +81,17 @@ This document tracks the implementation of the MOM Precompiled Binary Reorganiza
 
 **Task #22: Rewrite scripts/emit_mom_precompiled.lua** ✅
 - Replaced placeholder script with functional implementation
-- Uses `moonlift.mom.build.assemble` module to load and assemble MOM modules
+- Uses `lalin.mom.build.assemble` module to load and assemble MOM modules
 - Calls `Assemble.emit_object()` to generate precompiled object
 - Respects `MOM_OBJ_PATH` environment variable
 - Provides user-friendly output messages
 
 ## Build Verification
 
-**Moonlift Binary Build Status: ✅ SUCCESS**
+**Lalin Binary Build Status: ✅ SUCCESS**
 ```
-cargo build --release --bin moonlift
-   Compiling moonlift v0.1.0
+cargo build --release --bin lalin
+   Compiling lalin v0.1.0
     Finished `release` profile [optimized] target(s) in 8.31s
     Warning: libmom_precompiled.o not found (expected until mom-obj is built)
 ```
@@ -100,7 +100,7 @@ cargo build --release --bin moonlift
 
 ### Phase 2: Module Reorganization & Shape Conversion
 
-**Status: 32 modules require conversion from `moon.module()` to `function(M)` pattern**
+**Status: 32 modules require conversion from `lalin.module()` to `function(M)` pattern**
 
 The following tasks require converting modules from the old hosted-style pattern to the new product pattern:
 
@@ -130,11 +130,11 @@ The following tasks require converting modules from the old hosted-style pattern
 - Files already in correct location (6 files in back/)
 
 **Tasks #6-10: Convert modules to function(M) shape** (0% complete)
-- All 32 modules with `moon.module()` pattern need conversion
+- All 32 modules with `lalin.module()` pattern need conversion
 - Conversion pattern:
   ```lua
   -- OLD
-  local M = moon.module("name")
+  local M = lalin.module("name")
   M:add_func(func_name)
   return M
 
@@ -145,9 +145,9 @@ The following tasks require converting modules from the old hosted-style pattern
   end
   ```
 - Must replace all `M:add_func` with appropriate `M:local_func`, `M:export_func`, or `M:extern_func`
-- Must update all imports from `moonlift.mom.back.back_tags` to `moonlift.mom.tags.mom_tags`
+- Must update all imports from `lalin.mom.back.back_tags` to `lalin.mom.tags.mom_tags`
 
-**Task #24: Move verification-only files to lua/moonlift/mom/verify/** (0% complete)
+**Task #24: Move verification-only files to lua/lalin/mom/verify/** (0% complete)
 - Move `parser/native_ast.lua` → `verify/parser_native_ast.lua`
 - Any other hosted-only test helpers
 
@@ -164,14 +164,14 @@ The following tasks require converting modules from the old hosted-style pattern
 ### Phase 4: Rust Core Updates
 
 **Task #17: Update Rust src/ffi.rs** (0% complete)
-- Add `moonlift_object_compile_binary_into` for caller-owned buffer
+- Add `lalin_object_compile_binary_into` for caller-owned buffer
 - Ensure all product ABI symbols are exported
 
 **Task #18: Rewrite src/mom_main.rs as native product binary** (0% complete)
 - Declare native extern symbols
 - Implement CLI: `mom status`, `mom run`, `mom --emit-object`
 - LuaJIT initialization for metaprogramming only
-- Call `mom_luaopen_moonlift` to register native API
+- Call `mom_luaopen_lalin` to register native API
 - Remove all embedded hosted Lua usage
 
 ### Phase 5: Cleanup & Testing
@@ -183,18 +183,18 @@ The following tasks require converting modules from the old hosted-style pattern
 - Task #27: Create `tests/test_mom_no_hosted_embed.lua`
 - Task #28: Rewrite `tests/test_mom_cli.lua`
 - Task #29: Delete hosted-only files
-- Task #30: Update `lua/moonlift/init.lua` exports
-- Task #31: Replace `lua/moonlift/mom/init.lua` with error message
+- Task #30: Update `lua/lalin/init.lua` exports
+- Task #31: Replace `lua/lalin/mom/init.lua` with error message
 - Task #32: Run full build and acceptance tests
 - Task #33: Final grep/verification checks
 
 ## Key Files Modified
 
 ### Created Files
-- `lua/moonlift/mom/build/manifest.lua`
-- `lua/moonlift/mom/build/assemble.lua`
-- `lua/moonlift/mom/build/tags_gen.lua`
-- `lua/moonlift/mom/tags/mom_tags.lua` (generated)
+- `lua/lalin/mom/build/manifest.lua`
+- `lua/lalin/mom/build/assemble.lua`
+- `lua/lalin/mom/build/tags_gen.lua`
+- `lua/lalin/mom/tags/mom_tags.lua` (generated)
 - `scripts/generate_mom_tags.lua`
 
 ### Modified Files
@@ -202,7 +202,7 @@ The following tasks require converting modules from the old hosted-style pattern
 - `build.rs` - Updated embedded Lua generation and MOM object linking
 - `src/main.rs` - Updated module references
 - `scripts/emit_mom_precompiled.lua` - Functional implementation using new build system
-- `lua/moonlift/mom/PRECOMPILED_MOM_REORG_PLAN.md` - Progress tracking
+- `lua/lalin/mom/PRECOMPILED_MOM_REORG_PLAN.md` - Progress tracking
 
 ## Next Steps
 
@@ -242,10 +242,10 @@ Current implementation gap: native source-to-wire now emits MLBT bytes for the c
 - [x] All 32 modules converted to function(M) pattern
 - [x] Phase 3 core infrastructure modules created (diag, compile_source, native_entry, lua_api)
 - [x] `make mom-obj` generates precompiled object
-- [x] `cargo build --release --bin moonlift` and `cargo build --release --bin mom` succeed when `MOM_OBJ_PATH` is set
+- [x] `cargo build --release --bin lalin` and `cargo build --release --bin mom` succeed when `MOM_OBJ_PATH` is set
 - [x] `mom status` reports precompiled native MOM
 - [x] `nm -g target/release/mom | grep mom_compile_source_to_wire` shows symbol
-- [x] `strings target/release/mom | grep moonlift.tree_typecheck` returns empty
+- [x] `strings target/release/mom | grep lalin.tree_typecheck` returns empty
 - [x] `make test-mom` passes
 - [ ] Final grep checks pass (see plan section 17)
 - [ ] No broken imports in product path
@@ -264,6 +264,6 @@ Current implementation gap: native source-to-wire now emits MLBT bytes for the c
 - ✅ All modules compile successfully as standalone
 
 **Remaining:**
-- Extend name resolution beyond function parameters to locals, globals, and multi-function modules using the hosted compiler behavior in `lua/moonlift/` as source of truth.
+- Extend name resolution beyond function parameters to locals, globals, and multi-function modules using the hosted compiler behavior in `lua/lalin/` as source of truth.
 - Broaden lowering/wire coverage from the current command subset to the full command surface.
 - Wire native source-to-object/source-to-artifact to the Rust backend and return real object bytes/artifact handles.

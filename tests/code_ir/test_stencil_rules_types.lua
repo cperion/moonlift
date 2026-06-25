@@ -1,16 +1,16 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Code = T.MoonCode
-local Core = T.MoonCore
-local Value = T.MoonValue
-local Stencil = T.MoonStencil
-local Rules = require("moonlift.stencil_rules")(T)
+local Code = T.LalinCode
+local Core = T.LalinCore
+local Value = T.LalinValue
+local Stencil = T.LalinStencil
+local Rules = require("lalin.stencil_rules")(T)
 
 local function same_list(actual, expected)
     if #actual ~= #expected then return false end
@@ -551,4 +551,4 @@ do
     assert(rejected == nil, "reduce plan must reject non-positive counted loops")
 end
 
-io.write("moonlift stencil_rules_types ok\n")
+io.write("lalin stencil_rules_types ok\n")

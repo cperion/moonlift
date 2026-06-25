@@ -1,17 +1,17 @@
 # LuaJIT Copy-and-Patch Stencil Backend Specification
 
-This document specifies the Moonlift LuaJIT copy-and-patch backend as it exists architecturally: semantic stencil selection happens before this backend, and this backend realizes already-selected stencil artifacts into executable LuaJIT-callable native code.
+This document specifies the Lalin LuaJIT copy-and-patch backend as it exists architecturally: semantic stencil selection happens before this backend, and this backend realizes already-selected stencil artifacts into executable LuaJIT-callable native code.
 
 The backend is not a second lowering path and not a second selector.
 
 ```text
-Moonlift DSL / Lua metaprogramming
-  -> MoonSyntax / MoonTree
+Lalin DSL / Lua metaprogramming
+  -> LalinSyntax / LalinTree
   -> typecheck / ownership / region checks
-  -> MoonCode
+  -> LalinCode
   -> flow / value / memory / effect facts
-  -> MoonKernel semantic bodies
-  -> MoonStencil schedules and artifacts
+  -> LalinKernel semantic bodies
+  -> LalinStencil schedules and artifacts
   -> BinaryStencilBank extraction
   -> embedded LuaJIT source artifact
   -> copy + patch + executable FFI pointers
@@ -20,19 +20,19 @@ Moonlift DSL / Lua metaprogramming
 The design rule is strict:
 
 ```text
-MoonStencil decides what code shape is needed.
+LalinStencil decides what code shape is needed.
 LuaJIT copy-and-patch decides how that selected shape becomes executable.
 ```
 
-No LuaJIT copy-and-patch component may reinterpret MoonCode loops, rediscover vector reductions, duplicate Llisle rules, or silently fall back to another execution model.
+No LuaJIT copy-and-patch component may reinterpret LalinCode loops, rediscover vector reductions, duplicate Llisle rules, or silently fall back to another execution model.
 
 ## Public API
 
 The public user-facing artifact API is:
 
 ```lua
-local moon = require("moonlift")
-moon.use { scope = "env" }
+local lalin = require("lalin")
+lalin.use { scope = "env" }
 
 local decl = fn. sum_i32 { xs [ptr [i32]], n [i32] } [i32] {
   requires { bounds(xs, n), readonly(xs) },
@@ -56,22 +56,22 @@ local decl = fn. sum_i32 { xs [ptr [i32]], n [i32] } [i32] {
   },
 }
 
-local artifact = moon.emit_luajit_artifact(decl, {
+local artifact = lalin.emit_luajit_artifact(decl, {
   path = "target/artifacts/sum_i32.lua",
   name = "CopyPatchDemo",
   stem = "sum_i32",
 })
 ```
 
-`moon.emit_luajit_artifact` performs the full source artifact build:
+`lalin.emit_luajit_artifact` performs the full source artifact build:
 
 ```text
 DSL value
   -> module ASDL
   -> typecheck
-  -> MoonCode
+  -> LalinCode
   -> LuaJIT backend lowering
-  -> selected MoonStencil artifacts
+  -> selected LalinStencil artifacts
   -> binary bank extraction
   -> embedded Lua artifact source
 ```
@@ -88,9 +88,9 @@ The returned value is a `LuaJITSourceArtifact` table:
   code_result = codegen_result,
   lj_module = luajit_module_asdl,
   facts = lowering_facts,
-  stencil_plan = MoonStencil.StencilModulePlan,
-  luajit_stencil_machines = MoonLuaJIT.LJStencilMachineModulePlan,
-  exec_plan = MoonExec.ExecModulePlan,
+  stencil_plan = LalinStencil.StencilModulePlan,
+  luajit_stencil_machines = LalinLuaJIT.LJStencilMachineModulePlan,
+  exec_plan = LalinExec.ExecModulePlan,
   artifacts = selected_stencil_artifacts,
   rejects = stencil_rejects,
   bank = binary_stencil_bank,
@@ -106,7 +106,7 @@ artifact:write(path)
 The lower-level backend API remains available to compiler code:
 
 ```lua
-local Backend = require("moonlift.luajit_backend")(T)
+local Backend = require("lalin.luajit_backend")(T)
 
 local lj_module, facts, artifacts, rejects = Backend.lower_module(code_module, opts)
 local stencil_plan = facts.stencil_plan
@@ -131,7 +131,7 @@ local compiled = Backend.compile_module(code_module, {
 ```
 
 That path installs Lua functions in the same
-`__moonlift_luajit_stencil_symbols` table used by copy-patch FFI functions.
+`__lalin_luajit_stencil_symbols` table used by copy-patch FFI functions.
 The wrapper ASDL does not change; only the stencil provider changes.
 
 LuaTrace is also a standalone source artifact provider:
@@ -160,7 +160,7 @@ local function ml_stencil_reduce_array_i32_add_to_i32_s1(xs, start, stop, init)
   return acc
 end
 
-__moonlift_luajit_stencil_symbols["ml_stencil_reduce_array_i32_add_to_i32_s1"] =
+__lalin_luajit_stencil_symbols["ml_stencil_reduce_array_i32_add_to_i32_s1"] =
   ml_stencil_reduce_array_i32_add_to_i32_s1
 ```
 
@@ -169,31 +169,31 @@ __moonlift_luajit_stencil_symbols["ml_stencil_reduce_array_i32_add_to_i32_s1"] =
 The backend publishes inspectable plans before artifact realization:
 
 ```text
-MoonStencil.StencilModulePlan:
+LalinStencil.StencilModulePlan:
   module
   kernel
   selections = StencilPlanEntry[]
 
-MoonStencil.StencilPlanEntry:
+LalinStencil.StencilPlanEntry:
   kernel: KernelId
   selection: StencilSelection
 
-MoonExec.ExecModulePlan:
+LalinExec.ExecModulePlan:
   module
   stencil
   entries = ExecPlanEntry[]
   funcs = ExecFuncPlan[]
 
-MoonExec.ExecPlanEntry:
+LalinExec.ExecPlanEntry:
   kernel: KernelId
   decision: ExecMaterializeStencil | ExecSkipStencil
 
-MoonLuaJIT.LJStencilMachineModulePlan:
+LalinLuaJIT.LJStencilMachineModulePlan:
   module
   stencil
   machines = LJStencilMachinePlan[]
 
-MoonLuaJIT.LJStencilMachinePlan:
+LalinLuaJIT.LJStencilMachinePlan:
   func
   kernel
   machine
@@ -202,7 +202,7 @@ MoonLuaJIT.LJStencilMachinePlan:
 
 `StencilPlanEntry` is keyed by `KernelId`; selection order is not semantic. This is required because rejected kernels, function-level kernels, and loop kernels do not form a stable positional table.
 
-`MoonExec` is the target-neutral executable-fragment view. It records an
+`LalinExec` is the target-neutral executable-fragment view. It records an
 inspectable per-kernel exec decision for each stencil selection, then groups
 materialized stencil artifacts and scalar Code block fragments per function
 before any C, LuaJIT bytecode, native bank, or object-code projection. Skipped stencil
@@ -215,22 +215,22 @@ LuaJIT function lowering consumes those planned machines; it does not call
 artifact providers while walking Code blocks.
 
 ```text
-MoonCode
+LalinCode
   -> facts
-  -> MoonKernel
-  -> MoonStencil.StencilModulePlan
-  -> MoonExec.ExecModulePlan
-  -> MoonLuaJIT.LJStencilMachineModulePlan
+  -> LalinKernel
+  -> LalinStencil.StencilModulePlan
+  -> LalinExec.ExecModulePlan
+  -> LalinLuaJIT.LJStencilMachineModulePlan
   -> target projection
 ```
 
-The LuaJIT backend still emits `MoonLuaJIT` wrapper ASDL, but selected stencil,
+The LuaJIT backend still emits `LalinLuaJIT` wrapper ASDL, but selected stencil,
 scheduled artifact, and planned machine facts are no longer hidden as callback
 side effects.
 
-## MoonStencil contract
+## LalinStencil contract
 
-`MoonStencil` is the semantic stencil layer. It owns:
+`LalinStencil` is the semantic stencil layer. It owns:
 
 ```text
 compiler policy
@@ -270,7 +270,7 @@ StencilArtifact:
 
 The schedule belongs to the instance because scheduling is a concrete selected machine-facing choice. The descriptor stays semantic so equivalent operations can be reasoned about before a concrete schedule is chosen.
 
-Reduction is not a special LuaJIT machine anymore. Reductions are ordinary scheduled stencil artifacts. Vector reduction, scalar reduction, unrolled reduction, and mapped reduction all pass through the same `MoonStencil` artifact path.
+Reduction is not a special LuaJIT machine anymore. Reductions are ordinary scheduled stencil artifacts. Vector reduction, scalar reduction, unrolled reduction, and mapped reduction all pass through the same `LalinStencil` artifact path.
 
 Retired concepts:
 
@@ -288,7 +288,7 @@ Those names must not appear in the active compiler path.
 A `BinaryStencilBank` is the target-specific realization of selected stencil artifacts.
 
 ```lua
-MoonLuaJIT.LJBinaryStencilBank {
+LalinLuaJIT.LJBinaryStencilBank {
   id = LJBinaryBankId("ljbank:sum_i32"),
   target = LJBinaryTarget("x64", "Linux", "c", 64, "little"),
   entries = LJBinaryStencilEntry[],
@@ -314,7 +314,7 @@ If the runtime target does not match the bank target, the artifact fails before 
 A binary stencil entry is the executable unit copied into runtime memory.
 
 ```lua
-MoonLuaJIT.LJBinaryStencilEntry {
+LalinLuaJIT.LJBinaryStencilEntry {
   symbol = "ml_stencil_reduce_array_i32_add_s1",
   section = ".text.ml_stencil_reduce_array_i32_add_s1",
   binary = native_code_bytes,
@@ -329,7 +329,7 @@ The entry key is the artifact symbol. The semantic identity is still carried thr
 The bank carries an installation policy:
 
 ```lua
-MoonLuaJIT.LJBinaryInstallPolicy {
+LalinLuaJIT.LJBinaryInstallPolicy {
   address = LJInstallAnyAddress | LJInstallLow32Address,
   protection = LJInstallWriteThenExec | LJInstallReadWriteExec,
 }
@@ -342,7 +342,7 @@ MoonLuaJIT.LJBinaryInstallPolicy {
 Patch records describe holes in copied machine code.
 
 ```lua
-MoonLuaJIT.LJBinaryPatchRecord {
+LalinLuaJIT.LJBinaryPatchRecord {
   offset = byte_offset,
   kind = LJPatchAbs32 | LJPatchAbs64 | LJPatchSymbol32
        | LJPatchSymbol64 | LJPatchPc32 | LJPatchRel32
@@ -421,7 +421,7 @@ The extraction contract is intentionally narrow: compiler-generated stencil C is
 A generated artifact is a self-contained Lua source file.
 
 ```text
--- Generated Moonlift LuaJIT copy-and-patch artifact.
+-- Generated Lalin LuaJIT copy-and-patch artifact.
 -- Native stencil bytes are embedded below as data and installed before the runtime module loads.
 
 local ffi = require("ffi")
@@ -432,7 +432,7 @@ check_target_guard()
 install_embedded_binary_stencils()
 
 local function sum_i32(...)
-  return __moonlift_luajit_stencil_symbols.ml_stencil_reduce_array_i32_add_s1(...)
+  return __lalin_luajit_stencil_symbols.ml_stencil_reduce_array_i32_add_s1(...)
 end
 
 return {
@@ -455,15 +455,15 @@ for each entry:
   apply scalar patches
   mprotect read+execute
   ffi.cast c_signature to function pointer
-  store in __moonlift_luajit_stencil_symbols[symbol]
+  store in __lalin_luajit_stencil_symbols[symbol]
 ```
 
-The runtime does not select stencils, lower loops, inspect MoonCode, or run fallback code. All semantic decisions have already been made by Moonlift and MoonStencil.
+The runtime does not select stencils, lower loops, inspect LalinCode, or run fallback code. All semantic decisions have already been made by Lalin and LalinStencil.
 
 The installed pointer table is the only native-code dependency of the LuaJIT runtime module:
 
 ```lua
-__moonlift_luajit_stencil_symbols[artifact.symbol.text]
+__lalin_luajit_stencil_symbols[artifact.symbol.text]
 ```
 
 This keeps the generated Lua wrapper traceable: hot Lua code performs stable table/local accesses and calls fixed FFI function pointers.
@@ -473,9 +473,9 @@ This keeps the generated Lua wrapper traceable: hot Lua code performs stable tab
 The canonical real-DSL artifact generator is:
 
 ```sh
-luajit experiments/generate_luajit_artifact_from_moonlift.lua \
-  target/artifacts/sum_i32_from_moonlift.source.lua \
-  target/artifacts/sum_i32_from_moonlift.lua
+luajit experiments/generate_luajit_artifact_from_lalin.lua \
+  target/artifacts/sum_i32_from_lalin.source.lua \
+  target/artifacts/sum_i32_from_lalin.lua
 ```
 
 The regression test for the public facade is:
@@ -514,8 +514,8 @@ Target mismatch is a hard error.
 The final shape is:
 
 ```text
-Moonlift semantics
-  -> MoonStencil schedule/artifact
+Lalin semantics
+  -> LalinStencil schedule/artifact
   -> BinaryStencilBank
   -> embedded LuaJIT source artifact
   -> copy-and-patch executable pointers

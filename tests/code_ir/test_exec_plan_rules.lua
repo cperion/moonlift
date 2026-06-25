@@ -1,10 +1,10 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 local T = pvm.context()
 Schema(T)
-local Rules = require("moonlift.exec_plan_rules")(T)
+local Rules = require("lalin.exec_plan_rules")(T)
 
 local function input(fields)
     local out = {

@@ -1,231 +1,198 @@
-# Moonlift — Agent Guidance
+# Lalin - Agent Guidance
 
-Moonlift is a **typed, jump-first compiled language embedded in LuaJIT** that
-generates native code through Cranelift. Lua is the metaprogramming layer;
-Moonlift is the monomorphic native output.
+Lalin is a typed, jump-first compiled language embedded in LuaJIT. Lua is the
+metaprogramming layer; Lalin is the monomorphic program produced after Lua and
+LLB families have expanded syntax, fragments, schemas, and rules.
 
-The authoring surface is the **DSL** (`require("moonlift.dsl")`). You write
-Moonlift declarations as ordinary Lua table expressions — no parser, no
-antiquotes, no string quoting. The DSL normalizes Lua tables into typed ASDL
-and feeds the same compilation pipeline.
+The active runtime backend is LuaTrace materialized as LuaJIT bytecode
+copy-patch. The old native FFI bridge and object-emission backend have been
+removed.
 
 ## Build
 
 ```sh
-make                                    # produces target/release/libmoonlift.so
-cargo build --release                   # produces target/release/libmoonlift.so
+make
 ```
 
-`libmoonlift.so` is loaded by `lua/moonlift/back_jit.lua` via FFI. Build
-`--release` before running tests.
+`make` builds the repo-local LuaJIT archive if needed.
 
-## Setup
+Optional C backend and native stencil-bank work may need:
 
 ```sh
-git submodule update --init --recursive  # LuaJIT + TinyCC
-make libtcc                              # repo-local libtcc for C backend tests
-luajit -v                                # must have FFI support
+git submodule update --init --recursive
+make libtcc
 ```
 
-All scripts set `package.path` to include `./lua/?.lua`.
+GCC/TinyCC are bank-generation tools for C/native stencil work. They are not
+runtime dependencies of the LuaTrace bytecode backend.
 
-## Run DSL files (.lua)
+## Run DSL Files
 
-```sh
-# From Lua — with use() for global DSL names
-local moon = require("moonlift")
-moon.use()
-local add = fn. add { a [i32], b [i32] } [i32] { ret (a + b) }
-local compiled = add:compile()
-print(compiled(3, 4))  -- 7
+```lua
+local lalin = require("lalin")
+lalin.use()
 
-# Inline via loadstring (isolated env, no use() needed)
-local moon = require("moonlift")
-local add_val = moon.loadstring([[
-    local add = fn. add { a [i32], b [i32] } [i32] { ret (a + b) }
-    return add
+local add = fn. add { a [i32], b [i32] } [i32] {
+  ret (a + b),
+}
+
+local module = lalin.compile("demo", { add })
+print(module.add(3, 4)) -- 7
+```
+
+Inline evaluation:
+
+```lua
+local lalin = require("lalin")
+local module = lalin.loadstring([[
+  local add = fn. add { a [i32], b [i32] } [i32] {
+    ret (a + b),
+  }
+  return lalin.compile("demo", { add })
 ]], "demo.lua")()
-local compiled = add_val:compile()
-print(compiled(3, 4))  -- 7
 
-# Cross-file require — each .lua file calls moon.use() at the top
--- main.lua:
---   require("moonlift").use()
---   local header = require("math_header")
--- math_header.lua:
---   require("moonlift").use()
---   return { fn. add { a [i32], b [i32] } [i32] }
-
-# LSP
-luajit lsp.lua
+print(module.add(3, 4))
 ```
+
+Cross-file Lua modules should call `require("lalin").use()` at the top if
+they use global DSL names.
 
 ## Test
 
-Tests under `tests/`, grouped by compiler boundary. No test framework —
-each is a standalone script, with `tests/run.lua` for suites:
+Tests are standalone LuaJIT scripts:
 
 ```sh
-luajit tests/run.lua                              # stable default suite
+luajit tests/run.lua
 luajit tests/run.lua frontend
-luajit tests/run.lua backend
-luajit tests/backend/test_back_add_i32.lua             # Cranelift JIT path
-luajit tests/backend/test_back_object_emit.lua          # Object file emission
-luajit tests/frontend/test_dsl_lua_owned.lua            # DSL integration test
-luajit tests/lsp/test_lsp_integrated.lua                 # Full LSP integration
+luajit tests/run.lua code_ir
+luajit tests/run.lua schema
+luajit tests/run.lua pvm
 ```
 
-## Benchmarks
+Useful focused checks:
 
 ```sh
-luajit benchmarks/bench_llpvm_image_load.lua          # LLPVM image loading
+luajit tests/code_ir/test_luajit_bc_bank.lua
+luajit tests/code_ir/test_luajit_backend_luatrace.lua
+luajit tests/code_ir/test_stencil_luajit_provider.lua
+luajit tests/pvm/test_compiler_driver.lua
+luajit tests/pvm/test_compiler_package.lua
 ```
 
 ## Architecture
 
-- **`lua/moonlift/dsl/`** — DSL authoring surface: `fn`, `struct`, `region`, `emit`, `jump`,
-  etc. as Lua heads. Normalizes Lua tables → MoonSyntax ASDL → MoonTree ASDL.
-- **`lua/llb.lua`** — standard Moonlift Lua Language Builder substrate: staged heads,
-  fragments, formatting, managed use sessions, origin threading, and fragment algebra.
-- **`lua/moonlift/`** — compiler pipeline: PVM/ASDL framework (~80+ modules),
-  typechecker, lowering, validation, LSP, linker
-- **`lua/llpvm/`** — official Low-Level PVM API surface: no-parens Lua
-  authoring, direct borrowed bytecode images, runtime FFI wrapper, and native
-  Moonlift/C blob implementation under `lua/llpvm/native/`
-- **`src/`** — Rust Cranelift backend: JIT (`lib.rs`), object emission (`lib.rs`),
-  FFI surface (`ffi.rs`)
-- **`lua/moonlift/pvm.lua`** — recording phase boundary: ASDL context, phases,
-  triplets driving all compilation
-- **`lua/moonlift/back_jit.lua`** — Lua-side JIT bridge (loads libmoonlift.so)
-- **`lua/moonlift/ast.lua`** — low-level ASDL node constructor API
-- **`lib/`** — standard library (`region_compose.lua` PEG combinators)
-- **`build.rs`** — generates `src/embedded_hosted_lua.rs` (Lua modules
-  embedded as LuaJIT bytecode)
+- `lua/llb.lua` - LLB substrate: staged heads, fragments, formatting, origins,
+  diagnostics, streams, managed `use`, and family algebra.
+- `lua/llisle/` - LLB-native relation/rule language used by lowering passes.
+- `lua/lalin/dsl/` - Lalin authoring surface: `fn`, `region`, `entry`,
+  `jump`, `emit`, types, contracts, and fragments.
+- `lua/lalin/schema/` - schema family definitions for syntax, tree, code,
+  stencil, LuaJIT, compiler, host, and phase objects.
+- `lua/lalin/frontend_pipeline.lua` - DSL/tree/typecheck/code pipeline.
+- `lua/lalin/luajit_backend.lua` - LuaTrace backend facade.
+- `lua/lalin/stencil_luajit.lua` - LuaTrace stencil lowering and bytecode
+  bank materialization.
+- `lua/lalin/luajit_bc_bank.lua` - LuaJIT bytecode copy-patch bank builder
+  and loader.
+- `lua/lalin/stencil_bank.lua` - native binary copy-patch stencil bank.
+- `lua/lalin/c_backend.lua` - optional C emission path.
+- `lua/llpvm/` - LLPVM family member and bytecode/task substrate.
 
 Compilation pipeline:
-DSL tables → MoonSyntax ASDL (via `syntax_lower.lua`) → MoonTree ASDL →
-tree_typecheck → tree_to_code → code_* facts/kernel/schedule → lower_to_back →
-back_validate → back_jit / back_object / back_object + link_target
 
-## Key documentation
+```text
+DSL tables
+  -> LalinSyntax ASDL
+  -> LalinTree ASDL
+  -> tree_typecheck
+  -> tree_to_code
+  -> code facts / kernels / schedules
+  -> LuaTrace stencil artifacts
+  -> LuaJIT bytecode bank
+  -> loaded LuaJIT module
+```
+
+## Key Documentation
 
 | Doc | Description |
 |-----|-------------|
-| `README.md` | Full project README with examples, benchmarks, and repository layout |
-| `docs/LANGUAGE_REFERENCE.md` | Complete Lua-owned DSL reference — types, modules, functions, control regions, fragments, host decls, memory/resource model, view ABI, vectorization, builder API, metaprogramming guide |
-| `docs/THE_MOONLIFT_DESIGN_BIBLE.md` | Authoritative design bible — dual trees, products/sums, DSL integration, ASDL architecture |
-| `docs/LLB_GUIDE.md` | Standard LLB substrate guide — staged heads, fragments, formatting, use sessions, origins, fragment algebra |
-| `docs/LLPVM_GUIDE.md` | Complete LLPVM guide — bytecode-fed native VM substrate, direct borrowed images, streams, phases, recordings, C blob ABI |
-| `docs/PVM_GUIDE.md` | Complete PVM guide — ASDL contexts, structural update, triplets |
-| `docs/OWNED_CFG_DESIGN.md` | Final `owned T` CFG resource discipline — handles, leases, emit transfer, disallowed aggregates, diagnostics |
-| `docs/CONVENTIONS.md` | Naming, file organization, headers vs implementations, handles, generations, stores, protocol naming |
-| `docs/BACK_WIRE_FORMAT.md` | Flatline v4 binary wire format between Lua frontend and Rust Cranelift backend |
+| `README.md` | Project overview, build, tests, backend model |
+| `docs/LANGUAGE_REFERENCE.md` | Lalin DSL reference |
+| `docs/LLB_GUIDE.md` | LLB substrate and family guide |
+| `docs/LLB_GENERIC_REGION_ALGEBRA.md` | Shared region/control-machine model |
+| `docs/LUAJIT_BYTECODE_COPY_PATCH_BACKEND.md` | LuaTrace bytecode bank backend |
+| `docs/LUAJIT_LUATRACE_STENCIL_BACKEND.md` | LuaTrace stencil backend |
+| `docs/LUAJIT_COPY_PATCH_STENCIL_BACKEND.md` | Native copy-patch stencil bank |
+| `docs/LLPVM_GUIDE.md` | LLPVM guide |
+| `docs/CONVENTIONS.md` | Naming and file organization |
 
-## Language cheatsheet
+## Language Cheatsheet
 
-### Types (via DSL)
-
-```
-Scalars:  void  bool  i8 i16 i32 i64  u8 u16 u32 u64  f32 f64  index
-Pointers: ptr(T)
-Views:    view(T)
-Leases:   lease ptr(T)
-Owned:    owned(Handle)
-Handles:  handle(Name, u64, 0)
-Structs:  struct(Name, { a = T1, b = T2 })
-Unions:   union(Name, { ok = T, err = T })
-Func:     func_type({ i32, i32 }, i32)
-Closure:  closure_type({ i32 }, i32)
-```
-
-### Functions
+Types:
 
 ```lua
-local add = fn. add { a [i32], b [i32] } [i32] { ret (a + b) }
+void  bool
+i8 i16 i32 i64
+u8 u16 u32 u64
+f32 f64 index
+ptr(T)
+view(T)
+lease ptr(T)
+owned(Handle)
+handle(Name, u64, 0)
+struct(Name, { a = T1, b = T2 })
+union(Name, { ok = T, err = T })
+func_type({ i32, i32 }, i32)
+closure_type({ i32 }, i32)
 ```
 
-### Regions
+Function:
 
 ```lua
-local scan = region("scan",
-    { p = ptr(u8), n = i32, target = i32 },
-    { hit = { pos = i32 }, miss = { pos = i32 } }
-)
-entry("loop", { i = i32(0) })
-    if i >= n then jump. miss { pos = i } end
-    if as(i32, p[i]) == target then jump. hit { pos = i } end
-    jump. loop { i = i + 1 }
-end
-end
-```
-
-### Emit (zero-cost CFG splice)
-
-```lua
-emit scan(p, n, 65; hit = found, miss = not_found)
-```
-
-### Contracts
-
-```lua
-local add_checked = fn. add_checked { a [i32], b [i32] } [i32] {
-  requires {
-    noalias(a),
-    noalias(b),
-  },
+local add = fn. add { a [i32], b [i32] } [i32] {
   ret (a + b),
 }
 ```
 
-## Design philosophy
+Region:
 
-- **Co-author two typed structures**: data types (type forest) + control types
-  (continuation signatures). Both are checked.
-- **Regions bridge the two**: runtime params are data types; continuations are
-  control types.
-- **Compose with regions, seal with functions**: `emit` is zero-cost CFG splicing
-  (inline, no call overhead).
-- **Lua is metaprogramming**: generics, templates, codegen live in Lua. Moonlift
-  receives monomorphic result.
-- **ASDL is the architecture**: all meaningful compilation state is interned,
-  immutable ASDL values. No hidden state in strings, callbacks, or side tables.
-- **PVM phases are auto-cached memoization boundaries**: edit one subtree, only
-  that subtree recompiles.
-- **Flat backend commands**: compilation target is `BackCmd[]` — flat, verifiable,
-  no nested IR trees.
-- **Fail fast, fail loud**: assertions at boundaries, no silent fallbacks.
+```lua
+local scan = region. scan
+  { p [ptr(u8)], n [i32], target [i32] }
+  { hit { pos [i32] }, miss { pos [i32] } }
+{
+  entry. loop { i [i32] = i32(0) } {
+    if_ (i >= n) { jump. miss { pos = i } },
+    if_ (as(i32, p[i]) == target) { jump. hit { pos = i } },
+    jump. loop { i = i + 1 },
+  },
+}
+```
 
-## Non-negotiable rules
+## Design Philosophy
 
-1. No Moonlift source generics — Lua is where genericity lives
-2. No angle-bracket type arguments — only `as(T, value)` for conversions
-3. Explicit ASDL meaning — no hiding semantics in strings or callbacks
-4. Monomorphic object code — all types resolved before backend
-5. No for/while/break/continue — jump-first control only
-6. Every block path must terminate (jump/yield/return)
-7. No fallthrough in switch — every case is an independent branch
-8. Switch requires a default arm
-9. `owned T` must be discharged or transferred exactly once by typed CFG
-10. No owned aggregates, owned fields, `var owned T`, or `owned ptr(T)`
-11. Region calls cannot carry lease or owned continuation payloads; use `emit`
-12. Commas are for product-shaped lists; `|` is for semantic alternatives
+- Co-author data products and control protocols.
+- Regions are the shared control-machine algebra; streams, parsers, processes,
+  phases, and functions are protocols or lowerings of that algebra.
+- Compose with regions, seal with functions.
+- Lua owns genericity; Lalin receives concrete monomorphic programs.
+- Schema values carry meaning. Do not hide semantics in strings, callbacks, or
+  side tables.
+- LuaTrace bytecode is the default executable materialization.
+- Native C copy-patch banks are generated ahead of time and shipped as bank data.
+- Fail fast and loudly at unsupported backend boundaries.
 
-## Key files
+## Non-Negotiable Rules
 
-| File | Purpose |
-|------|---------|
-| `init.lua` | Package init — sets `package.path` and loads facade |
-| `lsp.lua` | LSP server entry point |
-| `lua/moonlift/dsl/init.lua` | DSL authoring surface — Lua heads → MoonSyntax ASDL |
-| `lua/moonlift/pvm.lua` | Phase Virtual Machine — recording triplet framework |
-| `lua/llpvm/init.lua` | Official LLPVM Lua API facade |
-| `lua/llpvm/native/llpvm_abi.mlua` | LLPVM native C ABI seals over typed regions |
-| `lua/llpvm/native/build_c.lua` | LLPVM C blob/header artifact builder |
-| `lua/moonlift/back_jit.lua` | Lua→Rust JIT FFI bridge |
-| `lua/moonlift/ast.lua` | Low-level ASDL node constructor API |
-| `lua/moonlift/syntax_lower.lua` | MoonSyntax → MoonTree lowering |
-| `lua/moonlift/frontend_pipeline.lua` | Full lowering pipeline (typecheck→codegen) |
-| `src/lib.rs` | Full Cranelift backend (JIT + object emission) |
-| `src/ffi.rs` | C FFI exports for LuaJIT interop (binary wire format) |
-| `lua/moonlift/back_command_binary.lua` | Flatline v4 binary wire format encoder |
-| `BACK_WIRE_FORMAT.md` | Binary wire format specification (Flatline v4) |
+1. No Lalin source generics.
+2. No angle-bracket type arguments.
+3. Explicit schema meaning.
+4. Monomorphic executable artifacts.
+5. Jump-first control.
+6. Every block path must terminate.
+7. No fallthrough in switch.
+8. Switch requires a default arm.
+9. `owned T` must be discharged or transferred exactly once by typed CFG.
+10. No owned aggregates, owned fields, `var owned T`, or `owned ptr(T)`.
+11. Region calls cannot carry lease or owned continuation payloads; use `emit`.
+12. Commas are for product-shaped lists; `|` is for semantic alternatives.

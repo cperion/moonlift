@@ -3,14 +3,14 @@
   "workflowId": "wf-lua-vm-compiler-unfuck",
   "agent": "documenter",
   "task": "Document the design decision faithfully. The user chose the real-VM direction: Typed parse products plus semantic HIR plus lowering (Design C) as the correct detailed design within the broader AST/IR architecture. Capture the decision as a self-sustaining markdown artifact: why recursive emit and direct-to-bytecode are rejected; why parse product -> semantic HIR -> lowering is chosen; typed products required; phase boundaries; allocation/lifetime; error/validation boundaries; testing implications; and constraints from explicit_programming.md and LANGUAGE_REFERENCE.md. No new analysis beyond compiling the prior context and user decision.",
-  "cwd": "/home/cedric/dev/moonlift",
-  "sessionFile": "/home/cedric/dev/moonlift/.pi/workflows/.sessions/run-ea654b2c.jsonl",
+  "cwd": "/home/cedric/dev/lalin",
+  "sessionFile": "/home/cedric/dev/lalin/.pi/workflows/.sessions/run-ea654b2c.jsonl",
   "status": "completed",
   "created": "2026-05-30T17:18:20.699Z",
   "updated": "2026-05-30T17:19:27.156Z",
   "exitCode": 0,
   "stopReason": "stop",
-  "lastOutputPreview": "# Architectural Decision: Lua VM Compiler Repair — Parse Products → Semantic HIR → Lowering\n\n## Goal\n\nEnable the Lua VM source compiler in `experiments/lua_interpreter_vm` to compile real nested Lua source without Moonlift compiler-wrapper graph explosion, by replacing recursive parser `emit` and direct-to-bytecode parsing with an explicit multi-phase compiler pipeline: typed parse products, semantic HIR, and bytecode lowering.\n\n## Incentives\n\nThe current source compiler uses Moonlift regions as",
+  "lastOutputPreview": "# Architectural Decision: Lua VM Compiler Repair — Parse Products → Semantic HIR → Lowering\n\n## Goal\n\nEnable the Lua VM source compiler in `experiments/lua_interpreter_vm` to compile real nested Lua source without Lalin compiler-wrapper graph explosion, by replacing recursive parser `emit` and direct-to-bytecode parsing with an explicit multi-phase compiler pipeline: typed parse products, semantic HIR, and bytecode lowering.\n\n## Incentives\n\nThe current source compiler uses Lalin regions as",
   "sessionEntriesBefore": 0,
   "sessionEntriesAfter": 5
 }

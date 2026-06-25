@@ -9,7 +9,7 @@ local Layout = T.Layout
 
 local function main()
     local host = sdl3.new_host {
-        title = "Moonlift SDL3 paint demo",
+        title = "Lalin SDL3 paint demo",
         width = 900,
         height = 560,
         vsync = true,

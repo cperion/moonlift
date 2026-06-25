@@ -11,17 +11,17 @@
 --   luajit experiments/lua_interpreter_vm/benchmarks/bench_vm_steady_state.lua
 --
 -- Knobs:
---   MOONLIFT_VM_STEPS=10000
---   MOONLIFT_VM_RUNS=1000
---   MOONLIFT_VM_RETURN_RUNS=100000
---   MOONLIFT_VM_COMPARE_REFS=1     -- set 0 to skip Lua reference processes
+--   LALIN_VM_STEPS=10000
+--   LALIN_VM_RUNS=1000
+--   LALIN_VM_RETURN_RUNS=100000
+--   LALIN_VM_COMPARE_REFS=1     -- set 0 to skip Lua reference processes
 
 local ffi = require("ffi")
 local bit = require("bit")
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
@@ -40,18 +40,18 @@ local function set_AsBx(i, op, a, sbx) i.word = pack_AsBx(op, a, sbx) end
 local function op_of(i) return bit.band(i.word, 127) end
 
 ffi.cdef [[
-    void* moonlift_scratch_raw(int slot, int elem_size, int count);
+    void* lalin_scratch_raw(int slot, int elem_size, int count);
 ]]
 
-local function load_moonlift_lib()
-    for _, name in ipairs({ "./target/release/libmoonlift.so", "./target/debug/libmoonlift.so", "libmoonlift" }) do
+local function load_lalin_lib()
+    for _, name in ipairs({ "./target/release/liblalin.so", "./target/debug/liblalin.so", "liblalin" }) do
         local ok, lib = pcall(ffi.load, name)
         if ok then return lib end
     end
-    error("could not load libmoonlift; build with: cargo build --release")
+    error("could not load liblalin; build with: cargo build --release")
 end
-local libmoon = load_moonlift_lib()
-local scratch_raw = libmoon.moonlift_scratch_raw
+local liblalin = load_lalin_lib()
+local scratch_raw = liblalin.lalin_scratch_raw
 
 -- Struct layouts matching products.lua (Lua 5.5)
 ffi.cdef [[
@@ -314,7 +314,7 @@ local function fill_add_with_mmbin(code, hot_ops)
 end
 
 print("Compiling vm_resume runner...")
-local runner = moon.func { vm_resume = vm.vm_loop.vm_resume } [[
+local runner = lalin.func { vm_resume = vm.vm_loop.vm_resume } [[
 run(L: ptr(LuaThread), nargs: i32): i32
     return region: i32
     entry start()
@@ -333,10 +333,10 @@ end
 ]]
 local run = runner:compile()
 
-local STEPS = tonumber(os.getenv("MOONLIFT_VM_STEPS")) or 10000
-local RUNS = tonumber(os.getenv("MOONLIFT_VM_RUNS")) or 1000
-local RETURN_RUNS = tonumber(os.getenv("MOONLIFT_VM_RETURN_RUNS")) or math.max(RUNS, 100000)
-local COMPARE_REFS = os.getenv("MOONLIFT_VM_COMPARE_REFS") ~= "0"
+local STEPS = tonumber(os.getenv("LALIN_VM_STEPS")) or 10000
+local RUNS = tonumber(os.getenv("LALIN_VM_RUNS")) or 1000
+local RETURN_RUNS = tonumber(os.getenv("LALIN_VM_RETURN_RUNS")) or math.max(RUNS, 100000)
+local COMPARE_REFS = os.getenv("LALIN_VM_COMPARE_REFS") ~= "0"
 
 local cases = {
     make_thread({ name = "RETURN", group = "overhead", hot_ops = 0, code_slots = 1, exec_dispatches = 1, fill = fill_return_only, maxstack = 2 }),
@@ -423,7 +423,7 @@ for i = 2, #cases do
     by_name[case.name] = row
 end
 
-print(string.format("\nMoonlift Lua VM steady-state benchmark"))
+print(string.format("\nLalin Lua VM steady-state benchmark"))
 print(string.format("Config: STEPS=%d  RUNS=%d  RETURN_RUNS=%d  compare_refs=%s", STEPS, RUNS, RETURN_RUNS, tostring(COMPARE_REFS)))
 print(string.format("RETURN-only overhead: %.2f ns/resume (%.4fs / %d runs)", return_ns_per_resume, return_elapsed, RETURN_RUNS))
 
@@ -453,7 +453,7 @@ if COMPARE_REFS then
         ADD = "local a,b,c=42,42,0; for i=1,N do c=a+b end",
     }
     local function write_ref(name, body)
-        local path = "/tmp/moonlift_vm_ref_" .. name .. ".lua"
+        local path = "/tmp/lalin_vm_ref_" .. name .. ".lua"
         local f = assert(io.open(path, "w"))
         f:write(string.format([[local N=%d
 local R=%d

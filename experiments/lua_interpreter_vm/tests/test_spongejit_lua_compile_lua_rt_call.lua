@@ -2,17 +2,17 @@
 package.path = "./experiments/lua_interpreter_vm/spongejit/?.lua;./experiments/lua_interpreter_vm/spongejit/?/init.lua;./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local moon = require("moonlift")
+local lalin = require("lalin")
 local Schema = require("lua_compile.schema")
-local Validate = require("lua_compile.moon_cfg_validate")
-local Emit = require("lua_compile.moon_cfg_emit")
+local Validate = require("lua_compile.lalin_cfg_validate")
+local Emit = require("lua_compile.lalin_cfg_emit")
 local ExecValidate = require("lua_compile.lua_exec_validate")
-local ExecToMoon = require("lua_compile.lua_exec_to_moon_cfg_lower")
+local ExecToLalin = require("lua_compile.lua_exec_to_lalin_cfg_lower")
 local CallModel = require("lua_compile.lua_rt_call_model")
 local ArityModel = require("lua_compile.lua_rt_arity_model")
 local ValueModel = require("lua_compile.lua_rt_value_model")
 local T = Schema.get()
-local RT, Exec, CFG, CC = T.LuaRT, T.LuaExec, T.MoonCFG, T.CompileContract
+local RT, Exec, CFG, CC = T.LuaRT, T.LuaExec, T.LalinCFG, T.CompileContract
 
 pcall(function()
   ffi.cdef[[
@@ -29,7 +29,7 @@ local function i64(n) return CFG.ConstValue(CFG.I64Const(n)) end
 local function cfg_param(s, ty) return CFG.Param(cname(s), cty(ty), CFG.ValueParam) end
 local function empty_contract() return CC.Contract(CC.Transfer({}, {}), {}, {}, {}) end
 
-local function moon_kernel(id, params, ops, ret_ty)
+local function lalin_kernel(id, params, ops, ret_ty)
   local block = CFG.Block(CFG.BlockId(cname("entry")), {}, ops, CFG.Return({ place("out") }))
   local region = CFG.Region(CFG.RegionId(cname(id .. "_body")), params or {}, {}, CFG.BlockId(cname("entry")), { block })
   return CFG.Kernel(CFG.KernelId(cname(id)), CFG.InlineSpan, params or {}, { cty(ret_ty or "i64") }, region, empty_contract())
@@ -41,7 +41,7 @@ local function run(k, fname, ...)
   local src = Emit.emit(k, { name = fname })
   assert(not src:match("out_tag") and not src:match("out_event_kind") and not src:match("generic_for"), "must not emit protocol/fallback strings")
   assert(not src:match("helper") and not src:match("dispatch"), "must not emit helper/dispatch text")
-  local fn = assert(moon.loadstring(src, "=(" .. fname .. ")"))()
+  local fn = assert(lalin.loadstring(src, "=(" .. fname .. ")"))()
   local native = assert(fn:compile())
   local out = native(...)
   if type(out) == "cdata" then out = tonumber(out) or tonumber(tostring(out):match("^-?%d+")) or out end
@@ -90,7 +90,7 @@ assert(ok_frame, tostring(frame_reason))
 
 local function classify_kernel()
   local params = { cfg_param("callee", "LuaRTValue") }
-  return moon_kernel("classify", params, {
+  return lalin_kernel("classify", params, {
     CFG.Let(temp("out"), CFG.RuntimeClassifyCallee(param_value("callee"))),
   }, "i64")
 end
@@ -102,7 +102,7 @@ v.tag = ValueModel.TAG.IntegerTag; v.payload_i64 = 12
 assert(run(classify_kernel(), "test_call_classify_integer", v) == 0)
 
 local function classify_box_kernel(id, tag, handle)
-  return moon_kernel(id, {}, {
+  return lalin_kernel(id, {}, {
     CFG.Let(temp("callee"), CFG.RuntimeBoxRef(tag, i64(handle or 0))),
     CFG.Let(temp("out"), CFG.RuntimeClassifyCallee(place("callee"))),
   }, "i64")
@@ -112,7 +112,7 @@ assert(run_quote(classify_box_kernel("classify_box_table", RT.TableTag, 12), "qu
 
 local function target_check_kernel(target_to_check)
   local params = { cfg_param("callee", "LuaRTValue") }
-  return moon_kernel("target_check", params, {
+  return lalin_kernel("target_check", params, {
     CFG.Let(temp("ok"), CFG.RuntimeCallTargetCheck(param_value("callee"), target_to_check)),
     CFG.Let(temp("out"), CFG.ValueExpr(CFG.ConstValue(CFG.I64Const(0)))),
     CFG.Let(temp("out"), CFG.Primitive(CFG.AddI64, { i64(0), i64(0) })),
@@ -149,7 +149,7 @@ assert(run_quote(target_check_box_kernel("target_check_box_unknown", unknown_res
 
 local function arg_store_kernel()
   local params = { cfg_param("caller_stack", "ptr(LuaRTValue)"), cfg_param("callee_stack", "ptr(LuaRTValue)") }
-  return moon_kernel("arg_store", params, {
+  return lalin_kernel("arg_store", params, {
     CFG.Let(temp("seq"), CFG.RuntimeValueSeqFromStack(param_value("caller_stack"), i64(1), i64(3))),
     CFG.RuntimeCallFrameStoreArgs(param_value("callee_stack"), layout, place("seq")),
     CFG.Let(temp("elem"), CFG.RuntimeStackLoad(param_value("callee_stack"), i64(2))),
@@ -168,7 +168,7 @@ assert(quote_callee_stack[2].payload_i64 == 103)
 
 local function result_seq_kernel()
   local params = { cfg_param("callee_stack", "ptr(LuaRTValue)") }
-  return moon_kernel("result_seq", params, {
+  return lalin_kernel("result_seq", params, {
     CFG.Let(temp("seq"), CFG.RuntimeCallFrameResultSeq(param_value("callee_stack"), layout, results)),
     CFG.Let(temp("elem"), CFG.RuntimeValueSeqValue(place("seq"), 2)),
     CFG.Let(temp("out"), CFG.RuntimePayloadI64(place("elem"))),
@@ -183,8 +183,8 @@ local function manual_call_exec_kernel(contract)
   local ret_seq = RT.ValueSeq(RT.FixedSeq, {}, RT.FixedCount(3), RT.FromStackWindow(ret_window))
   local block_id = Exec.BlockId(Exec.Name("entry"))
   local params = {
-    Exec.Param(Exec.Name("caller_stack"), Exec.MoonType("ptr(LuaRTValue)")),
-    Exec.Param(Exec.Name("callee_stack"), Exec.MoonType("ptr(LuaRTValue)")),
+    Exec.Param(Exec.Name("caller_stack"), Exec.LalinType("ptr(LuaRTValue)")),
+    Exec.Param(Exec.Name("callee_stack"), Exec.LalinType("ptr(LuaRTValue)")),
   }
   local block = Exec.Block(block_id, {}, { Exec.PrepareCallFrame(frame_state), Exec.ReceiveCallResults(frame_state) }, Exec.Return(ret_seq))
   local region = Exec.Region(Exec.Name("manual_call_region"), Exec.CallRegion, params, {}, block_id, { block })
@@ -204,7 +204,7 @@ local good_contract = Exec.Contract({
 local exec_kernel = manual_call_exec_kernel(good_contract)
 local ok_exec, exec_errors = ExecValidate.kernel(exec_kernel)
 assert(ok_exec, table.concat(exec_errors, ";"))
-local cfg, cfg_errors = ExecToMoon.lower_outcome(exec_kernel, "value2_payload_i64")
+local cfg, cfg_errors = ExecToLalin.lower_outcome(exec_kernel, "value2_payload_i64")
 assert(cfg, table.concat(cfg_errors or {}, ";"))
 local ok_cfg, cfg_validate_errors = Validate.validate(cfg)
 assert(ok_cfg, table.concat(cfg_validate_errors, ";"))
@@ -217,11 +217,11 @@ for i = 0, 2 do quote_callee_results[4 + i].tag = ValueModel.TAG.IntegerTag; quo
 assert(run_quote(cfg, "quote_manual_call_region_value2", quote_caller_stack, quote_callee_results) == 312)
 assert(quote_caller_stack[6].payload_i64 == 312, "quote ReceiveCallResults must copy third callee result to caller result base")
 
-local missing_cfg, missing_errors = ExecToMoon.lower_outcome(manual_call_exec_kernel(Exec.Contract({}, {})), "value2_payload_i64")
+local missing_cfg, missing_errors = ExecToLalin.lower_outcome(manual_call_exec_kernel(Exec.Contract({}, {})), "value2_payload_i64")
 assert(not missing_cfg and table.concat(missing_errors or {}, ";"):match("missing_call_contract"), "under-contracted CallRegion must reject")
 local unknown_frame = RT.CallFrameState(call_ref, layout, args, results, unknown_resolved, RT.CallFrameUnprepared)
 local unknown_contract = Exec.Contract({ Exec.RequiresResolvedCallTarget(unknown_resolved), Exec.RequiresCallFrameLayout(layout), Exec.RequiresCallArgChannel(args), Exec.RequiresCallResultChannel(results) }, { Exec.PreparesCallFrame(unknown_frame), Exec.ProducesCallResults(results) })
-local bad_cfg, bad_errors = ExecToMoon.lower_outcome(manual_call_exec_kernel(unknown_contract), "value2_payload_i64")
+local bad_cfg, bad_errors = ExecToLalin.lower_outcome(manual_call_exec_kernel(unknown_contract), "value2_payload_i64")
 assert(not bad_cfg and table.concat(bad_errors or {}, ";"):match("unsupported_target_kind"), "unknown target must reject")
 local dynamic_layout = RT.CallFrameLayout(RT.CallFrameRef(RT.Name("dynamic_layout")), caller, callee, RT.Slot(0), RT.Slot(0), RT.UnknownCount("args"), RT.Slot(4), RT.FixedCount(3), RT.Count(8))
 local dynamic_frame = RT.CallFrameState(call_ref, dynamic_layout, args, results, resolved, RT.CallFrameUnprepared)

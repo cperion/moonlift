@@ -19,8 +19,8 @@ region. name { input... } { exits... } { body... }
 ```
 
 That expression creates an LLB `Region` descriptor. Member languages decide how
-to consume the descriptor. Moonlift consumes it as native typed control when
-the body contains Moonlift `entry`, `block`, `jump`, and `emit` declarations.
+to consume the descriptor. Lalin consumes it as native typed control when
+the body contains Lalin `entry`, `block`, `jump`, and `emit` declarations.
 
 Canonical stack:
 
@@ -137,7 +137,7 @@ Region<Input, State, Protocol>
 ```
 
 The machine may be interpreted reflectively, compiled to LuaJIT GPS, compiled to
-Moonlift CFG, represented as an LLPVM phase/task, or inspected by tooling.
+Lalin CFG, represented as an LLPVM phase/task, or inspected by tooling.
 
 ## Exit Classes
 
@@ -322,9 +322,9 @@ family value + projection state
   -> done
 ```
 
-## Moonlift And Region
+## Lalin And Region
 
-Moonlift's `region` is a concrete compiled realization of the same algebra:
+Lalin's `region` is a concrete compiled realization of the same algebra:
 
 ```text
 input product
@@ -333,22 +333,22 @@ named continuation protocol
 exactly one selected exit
 ```
 
-The generic LLB region is broader. It may lower to Moonlift CFG, LuaJIT GPS,
+The generic LLB region is broader. It may lower to Lalin CFG, LuaJIT GPS,
 LLPVM task/phase machinery, or reflective tooling.
 
-Moonlift function:
+Lalin function:
 
 ```text
 sealed region with one return continuation
 ```
 
-Moonlift emit:
+Lalin emit:
 
 ```text
 region composition by protocol splicing
 ```
 
-The shared concept is not owned by Moonlift alone. Moonlift owns the native CFG
+The shared concept is not owned by Lalin alone. Lalin owns the native CFG
 lowering and the typed source-level control syntax. LLB owns the generic region
 algebra.
 
@@ -392,7 +392,7 @@ tape
   LLPVM typed bytecode/runtime sequence
 
 lane
-  MoonKernel memory/data lane
+  LalinKernel memory/data lane
 ```
 
 Do not introduce:

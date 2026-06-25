@@ -54,15 +54,15 @@ The shared semantic input is the LuaTrace plan. Materializers do not rediscover
 loop semantics from text or bytecode.
 
 ```text
-MoonLuaTrace.LTModule
-  -> MoonLuaJIT.LJBCStencilBank
+LalinLuaTrace.LTModule
+  -> LalinLuaJIT.LJBCStencilBank
   -> patched dumped bytecode
   -> loaded Lua function
 ```
 
 ## ASDL Shape
 
-Bytecode bank records live in `MoonLuaJIT`, because the dump format is a LuaJIT
+Bytecode bank records live in `LalinLuaJIT`, because the dump format is a LuaJIT
 runtime artifact:
 
 ```text
@@ -162,7 +162,7 @@ LuaTrace source stencil
   -> recorded bytecode template
 ```
 
-This uses LuaJIT as the bytecode assembler and verifier. Moonlift only patches
+This uses LuaJIT as the bytecode assembler and verifier. Lalin only patches
 declared holes whose encoding is proven stable for the selected stencil.
 
 Later, a bytecode assembler may replace the source stencil compiler for selected
@@ -184,10 +184,10 @@ This keeps bytecode copy-patch inspectable. It is not an opaque binary blob.
 
 ## Current Implementation
 
-`moonlift.luajit_bc_bank` provides:
+`lalin.luajit_bc_bank` provides:
 
 ```lua
-local BC = require("moonlift.luajit_bc_bank")(T)
+local BC = require("lalin.luajit_bc_bank")(T)
 
 local entry = assert(BC.compile_entry {
   id = "example",
@@ -215,7 +215,7 @@ local compiled = Backend.compile_module(code_module, {
   luatrace_materializer = "bytecode",
 })
 
-local artifact = moon.emit_luajit_artifact(decl, {
+local artifact = lalin.emit_luajit_artifact(decl, {
   stencil_provider = "lua_trace",
   luatrace_materializer = "bytecode",
 })

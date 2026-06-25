@@ -1,13 +1,13 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require("moonlift")
-local pvm = require("moonlift.pvm")
-local A2 = require("moonlift.schema_projection")
-local ClosureConvert = require("moonlift.closure_convert")
+local lalin = require("lalin")
+local pvm = require("lalin.pvm")
+local A2 = require("lalin.schema_projection")
+local ClosureConvert = require("lalin.closure_convert")
 
 local T = pvm.context()
 A2(T)
-local C, Ty, B, Sem, Tr = T.MoonCore, T.MoonType, T.MoonBind, T.MoonSem, T.MoonTree
+local C, Ty, B, Sem, Tr = T.LalinCore, T.LalinType, T.LalinBind, T.LalinSem, T.LalinTree
 local i32 = Ty.TScalar(C.ScalarI32)
 local closure_i32 = Ty.TClosure({ i32 }, i32)
 
@@ -68,7 +68,7 @@ local module = Tr.Module(Tr.ModuleSurface, {
 })
 
 local converted = ClosureConvert(T).module(module)
-local compiled = moon.compile("ClosureEscapeSmoke", converted)
+local compiled = lalin.compile("ClosureEscapeSmoke", converted)
 local store = compiled.closure_store
 assert(store() == 42)
 local pass = compiled.closure_pass
@@ -83,8 +83,8 @@ local bad_capture_return = Tr.FuncExport("closure_bad_capture_return", {}, closu
 local bad_module = Tr.Module(Tr.ModuleSurface, { Tr.ItemFunc(bad_capture_return) })
 local bad_converted = ClosureConvert(T).module(bad_module)
 local ok, err = pcall(function()
-    moon.compile("ClosureEscapeBad", bad_converted)
+    lalin.compile("ClosureEscapeBad", bad_converted)
 end)
 assert(not ok and tostring(err):find("closure environment ownership model", 1, true), "captured closure returns must fail loudly")
 
-print("moonlift escaping closure descriptors ok")
+print("lalin escaping closure descriptors ok")

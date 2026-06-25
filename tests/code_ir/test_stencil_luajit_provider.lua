@@ -1,19 +1,19 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local Value = T.MoonValue
-local Schedule = T.MoonSchedule
-local Stencil = T.MoonStencil
-local StencilArtifactPlan = require("moonlift.stencil_artifact_plan")(T)
-local StencilLuaJIT = require("moonlift.stencil_luajit")(T)
+local Core = T.LalinCore
+local Code = T.LalinCode
+local Value = T.LalinValue
+local Schedule = T.LalinSchedule
+local Stencil = T.LalinStencil
+local StencilArtifactPlan = require("lalin.stencil_artifact_plan")(T)
+local StencilLuaJIT = require("lalin.stencil_luajit")(T)
 
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)
 local u8 = Code.CodeTyInt(8, Code.CodeUnsigned)
@@ -332,4 +332,4 @@ do
     assert(vf(xs, 0, 17, 0, 2) == 153, "grouped dynamic view reduce")
 end
 
-io.write("moonlift stencil_luajit provider ok\n")
+io.write("lalin stencil_luajit provider ok\n")

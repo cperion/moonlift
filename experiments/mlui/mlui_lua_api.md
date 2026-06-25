@@ -7,7 +7,7 @@ input from the pre-LLPVM design. Current API work must feed the semantic
 domain-world pipeline, not the old lower/solve/interact split.
 
 Historical scope: design specification for the Lua authoring surface above the
-Moonlift UI kernel.
+Lalin UI kernel.
 
 Historical companion docs:
 
@@ -18,13 +18,13 @@ Historical companion docs:
 
 This API follows the same decision as `chain.lua` and the MWUI blueprint:
 tree-shaped authoring is built with Lua callable tables and no parentheses.
-Moonlift owns the typed kernel protocols underneath.
+Lalin owns the typed kernel protocols underneath.
 
 ## Doctrine
 
 ```text
 Lua writes authored UI trees.
-Moonlift owns resource lifetimes, phase protocols, and native buffers.
+Lalin owns resource lifetimes, phase protocols, and native buffers.
 Widgets route typed events; they do not mutate application state.
 Backends draw typed view ops; they do not own UI semantics.
 ```
@@ -51,7 +51,7 @@ the design:
 
 ```text
 Lua rebuilds semantic authoring values.
-Moonlift memoizes imported buffers, style, text layout, measurement, solve, and render products.
+Lalin memoizes imported buffers, style, text layout, measurement, solve, and render products.
 ```
 
 Stable ids and explicit epochs make that cache sound:
@@ -83,7 +83,7 @@ ui_measure_node                -- may hit text/layout cache
 ui_solve_scene / ui_render_ops -- may hit phase-product caches
 ```
 
-That keeps Lua immediate-mode and keeps cache ownership in Moonlift products
+That keeps Lua immediate-mode and keeps cache ownership in Lalin products
 where stale/missing/oom outcomes can be named.
 
 ## No-Parens Law
@@ -257,7 +257,7 @@ ui.modal "settings" {
 ```
 
 Every authored constructor produces a Lua ASDL value first.  Import into
-Moonlift happens through named regions such as `ui_import_auth`; the Lua builder
+Lalin happens through named regions such as `ui_import_auth`; the Lua builder
 does not smuggle native ownership through side tables.
 
 ## Style API
@@ -425,7 +425,7 @@ kernel resources according to the ownership protocols in `mlui_design.md`.
 
 ## Kernel API
 
-The kernel/session object is the only Lua API that crosses into native Moonlift.
+The kernel/session object is the only Lua API that crosses into native Lalin.
 It is still no-parens at public call sites:
 
 ```lua
@@ -508,7 +508,7 @@ borrowed output buffers valid until next frame/reset/close
 
 The C program is a backend/app host.  It imports auth buffers, calls `mlui_frame`,
 draws `mlui_view_op` rows, and applies `mlui_event` rows to its app state.  It
-does not see Lua builders or Moonlift internal stores.
+does not see Lua builders or Lalin internal stores.
 
 More generally, MLUI has a VM frontend contract:
 
@@ -585,7 +585,7 @@ Tree builders produce ASDL values before native import.
 Style tokens remain typed facts, not strings.
 Widgets return bundles and route typed events; no app callbacks.
 Composition nouns remain first-class ASDL.
-Kernel convenience APIs are facades over named Moonlift regions.
+Kernel convenience APIs are facades over named Lalin regions.
 Native ownership lives in UiKernel stores and owned Ui*Ref protocols.
 C exports expose typed buffers, not Lua authoring objects.
 ```

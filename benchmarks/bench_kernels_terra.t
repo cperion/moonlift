@@ -1,18 +1,18 @@
--- Terra side of the Moonlift benchmark kernel suite.
+-- Terra side of the Lalin benchmark kernel suite.
 -- Emits machine-readable lines consumed by run_vs_terra.sh.
 
 local ffi = require("ffi")
 local bit = require("bit")
 
-ffi.cdef[[ typedef struct MoonliftBenchViewI32 { int32_t* data; intptr_t len; intptr_t stride; } MoonliftBenchViewI32; ]]
+ffi.cdef[[ typedef struct LalinBenchViewI32 { int32_t* data; intptr_t len; intptr_t stride; } LalinBenchViewI32; ]]
 
 local mode = arg and arg[1] or nil
 local quick = mode == "quick"
-local N = tonumber(os.getenv("TERRA_MOONLIFT2_BENCH_N") or os.getenv("MOONLIFT2_BENCH_N") or (quick and "1048576" or "16777216"))
-local WARMUP = tonumber(os.getenv("TERRA_MOONLIFT2_BENCH_WARMUP") or os.getenv("MOONLIFT2_BENCH_WARMUP") or (quick and "1" or "1"))
-local ITERS = tonumber(os.getenv("TERRA_MOONLIFT2_BENCH_ITERS") or os.getenv("MOONLIFT2_BENCH_ITERS") or (quick and "2" or "3"))
+local N = tonumber(os.getenv("TERRA_LALIN2_BENCH_N") or os.getenv("LALIN2_BENCH_N") or (quick and "1048576" or "16777216"))
+local WARMUP = tonumber(os.getenv("TERRA_LALIN2_BENCH_WARMUP") or os.getenv("LALIN2_BENCH_WARMUP") or (quick and "1" or "1"))
+local ITERS = tonumber(os.getenv("TERRA_LALIN2_BENCH_ITERS") or os.getenv("LALIN2_BENCH_ITERS") or (quick and "2" or "3"))
 
-struct MoonliftBenchViewI32 {
+struct LalinBenchViewI32 {
     data: &int32;
     len: intptr;
     stride: intptr;
@@ -303,7 +303,7 @@ local terra xor_u64(dst: &uint64, a: &uint64, b: &uint64, n: int32): int32
     return 0
 end
 
-local terra add_view_i32(dst: &MoonliftBenchViewI32, a: &MoonliftBenchViewI32, b: &MoonliftBenchViewI32): int32
+local terra add_view_i32(dst: &LalinBenchViewI32, a: &LalinBenchViewI32, b: &LalinBenchViewI32): int32
     var i: intptr = 0
     while i < dst.len do
         dst.data[i * dst.stride] = a.data[i * a.stride] + b.data[i * b.stride]
@@ -312,7 +312,7 @@ local terra add_view_i32(dst: &MoonliftBenchViewI32, a: &MoonliftBenchViewI32, b
     return 0
 end
 
-local terra copy_view_i32(dst: &MoonliftBenchViewI32, src: &MoonliftBenchViewI32): int32
+local terra copy_view_i32(dst: &LalinBenchViewI32, src: &LalinBenchViewI32): int32
     var i: intptr = 0
     while i < dst.len do
         dst.data[i * dst.stride] = src.data[i * src.stride]
@@ -321,7 +321,7 @@ local terra copy_view_i32(dst: &MoonliftBenchViewI32, src: &MoonliftBenchViewI32
     return 0
 end
 
-local terra threshold_view_i32(dst: &MoonliftBenchViewI32, a: &MoonliftBenchViewI32, t: int32, lo: int32, hi: int32): int32
+local terra threshold_view_i32(dst: &LalinBenchViewI32, a: &LalinBenchViewI32, t: int32, lo: int32, hi: int32): int32
     var i: intptr = 0
     while i < dst.len do
         if a.data[i * a.stride] > t then
@@ -334,7 +334,7 @@ local terra threshold_view_i32(dst: &MoonliftBenchViewI32, a: &MoonliftBenchView
     return 0
 end
 
-local terra max_view_prefix_window_i32(dst: &MoonliftBenchViewI32, a: &MoonliftBenchViewI32, b: &MoonliftBenchViewI32): int32
+local terra max_view_prefix_window_i32(dst: &LalinBenchViewI32, a: &LalinBenchViewI32, b: &LalinBenchViewI32): int32
     var i: intptr = 0
     var m: intptr = dst.len - 1
     while i < m do
@@ -468,9 +468,9 @@ local a32, b32, out32, y32 = fill_i32_arrays(N)
 local a64, b64, out64 = fill_i64_arrays(N)
 local a32u, b32u, out32u = fill_u32_arrays(N)
 local a64u, b64u, out64u = fill_u64_arrays(N)
-local av = ffi.new("MoonliftBenchViewI32[1]", { { a32, N, 1 } })
-local bv = ffi.new("MoonliftBenchViewI32[1]", { { b32, N, 1 } })
-local ov = ffi.new("MoonliftBenchViewI32[1]", { { out32, N, 1 } })
+local av = ffi.new("LalinBenchViewI32[1]", { { a32, N, 1 } })
+local bv = ffi.new("LalinBenchViewI32[1]", { { b32, N, 1 } })
+local ov = ffi.new("LalinBenchViewI32[1]", { { out32, N, 1 } })
 
 io.write(string.format("terra_compile %.9f 0\n", compile_time))
 

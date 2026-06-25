@@ -1,8 +1,8 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
-local Coverage = require("moonlift.c_coverage")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
+local Coverage = require("lalin.c_coverage")
 
 local T = pvm.context(); Schema(T)
 
@@ -34,28 +34,28 @@ local function sum_variants(mod_name, sum_name)
 end
 
 local expected = {
-    ["MoonType.TypeRef"] = sum_variants("MoonType", "TypeRef"),
-    ["MoonType.ArrayLen"] = sum_variants("MoonType", "ArrayLen"),
-    ["MoonType.Type"] = sum_variants("MoonType", "Type"),
+    ["LalinType.TypeRef"] = sum_variants("LalinType", "TypeRef"),
+    ["LalinType.ArrayLen"] = sum_variants("LalinType", "ArrayLen"),
+    ["LalinType.Type"] = sum_variants("LalinType", "Type"),
 
-    ["MoonTree.View"] = sum_variants("MoonTree", "View"),
-    ["MoonTree.Domain"] = sum_variants("MoonTree", "Domain"),
-    ["MoonTree.IndexBase"] = sum_variants("MoonTree", "IndexBase"),
-    ["MoonTree.Place"] = sum_variants("MoonTree", "Place"),
-    ["MoonTree.Expr"] = sum_variants("MoonTree", "Expr"),
-    ["MoonTree.Stmt"] = sum_variants("MoonTree", "Stmt"),
-    ["MoonTree.Func"] = sum_variants("MoonTree", "Func"),
-    ["MoonTree.ExternFunc"] = sum_variants("MoonTree", "ExternFunc"),
-    ["MoonTree.ConstItem"] = sum_variants("MoonTree", "ConstItem"),
-    ["MoonTree.StaticItem"] = sum_variants("MoonTree", "StaticItem"),
-    ["MoonTree.TypeDecl"] = sum_variants("MoonTree", "TypeDecl"),
-    ["MoonTree.Item"] = sum_variants("MoonTree", "Item"),
+    ["LalinTree.View"] = sum_variants("LalinTree", "View"),
+    ["LalinTree.Domain"] = sum_variants("LalinTree", "Domain"),
+    ["LalinTree.IndexBase"] = sum_variants("LalinTree", "IndexBase"),
+    ["LalinTree.Place"] = sum_variants("LalinTree", "Place"),
+    ["LalinTree.Expr"] = sum_variants("LalinTree", "Expr"),
+    ["LalinTree.Stmt"] = sum_variants("LalinTree", "Stmt"),
+    ["LalinTree.Func"] = sum_variants("LalinTree", "Func"),
+    ["LalinTree.ExternFunc"] = sum_variants("LalinTree", "ExternFunc"),
+    ["LalinTree.ConstItem"] = sum_variants("LalinTree", "ConstItem"),
+    ["LalinTree.StaticItem"] = sum_variants("LalinTree", "StaticItem"),
+    ["LalinTree.TypeDecl"] = sum_variants("LalinTree", "TypeDecl"),
+    ["LalinTree.Item"] = sum_variants("LalinTree", "Item"),
 
-    ["MoonTree.SwitchStmtArm"] = { SwitchStmtArm = true },
-    ["MoonTree.SwitchExprArm"] = { SwitchExprArm = true },
-    ["MoonTree.SwitchVariantStmtArm"] = { SwitchVariantStmtArm = true },
-    ["MoonTree.SwitchVariantExprArm"] = { SwitchVariantExprArm = true },
-    ["MoonTree.ControlProducts"] = {
+    ["LalinTree.SwitchStmtArm"] = { SwitchStmtArm = true },
+    ["LalinTree.SwitchExprArm"] = { SwitchExprArm = true },
+    ["LalinTree.SwitchVariantStmtArm"] = { SwitchVariantStmtArm = true },
+    ["LalinTree.SwitchVariantExprArm"] = { SwitchVariantExprArm = true },
+    ["LalinTree.ControlProducts"] = {
         VariantBind = true,
         BlockLabel = true,
         BlockParam = true,
@@ -70,15 +70,15 @@ local expected = {
         DataItem = true,
     },
 
-    ["MoonCore.UnaryOp"] = sum_variants("MoonCore", "UnaryOp"),
-    ["MoonCore.BinaryOp"] = sum_variants("MoonCore", "BinaryOp"),
-    ["MoonCore.CmpOp"] = sum_variants("MoonCore", "CmpOp"),
-    ["MoonCore.LogicOp"] = sum_variants("MoonCore", "LogicOp"),
-    ["MoonCore.SurfaceCastOp"] = sum_variants("MoonCore", "SurfaceCastOp"),
-    ["MoonCore.MachineCastOp"] = sum_variants("MoonCore", "MachineCastOp"),
-    ["MoonCore.Intrinsic"] = sum_variants("MoonCore", "Intrinsic"),
-    ["MoonCore.AtomicOrdering"] = sum_variants("MoonCore", "AtomicOrdering"),
-    ["MoonCore.AtomicRmwOp"] = sum_variants("MoonCore", "AtomicRmwOp"),
+    ["LalinCore.UnaryOp"] = sum_variants("LalinCore", "UnaryOp"),
+    ["LalinCore.BinaryOp"] = sum_variants("LalinCore", "BinaryOp"),
+    ["LalinCore.CmpOp"] = sum_variants("LalinCore", "CmpOp"),
+    ["LalinCore.LogicOp"] = sum_variants("LalinCore", "LogicOp"),
+    ["LalinCore.SurfaceCastOp"] = sum_variants("LalinCore", "SurfaceCastOp"),
+    ["LalinCore.MachineCastOp"] = sum_variants("LalinCore", "MachineCastOp"),
+    ["LalinCore.Intrinsic"] = sum_variants("LalinCore", "Intrinsic"),
+    ["LalinCore.AtomicOrdering"] = sum_variants("LalinCore", "AtomicOrdering"),
+    ["LalinCore.AtomicRmwOp"] = sum_variants("LalinCore", "AtomicRmwOp"),
 }
 
 local tables = Coverage.all_tables()
@@ -95,7 +95,7 @@ for sum_name, expected_variants in pairs(expected) do
         if c.status ~= "supported" then
             assert(c.reason:match("%S"), "empty diagnostic reason for " .. sum_name .. "." .. variant)
         end
-        assert(c.status ~= "backend_todo", "backend_todo is not allowed after the MoonCode C pipeline switch: " .. sum_name .. "." .. variant)
+        assert(c.status ~= "backend_todo", "backend_todo is not allowed after the LalinCode C pipeline switch: " .. sum_name .. "." .. variant)
     end
     for variant in pairs(actual) do
         assert(expected_variants[variant], "stale extra coverage classification for " .. sum_name .. "." .. variant)
@@ -108,8 +108,8 @@ end
 
 -- Spot-check short-name aliases and assert_known API used by validators/lowering.
 assert(Coverage.classification("Expr", "ExprDot").status == "phase_unreachable")
-assert(Coverage.assert_known("MoonType.Type", "TScalar").status == "supported")
+assert(Coverage.assert_known("LalinType.Type", "TScalar").status == "supported")
 
--- There is no relaxed/non-final mode: the MoonCode C pipeline must classify every
+-- There is no relaxed/non-final mode: the LalinCode C pipeline must classify every
 -- row as supported, phase_unreachable, or language_rejected.
-io.write("moonlift C backend coverage matrix ok\n")
+io.write("lalin C backend coverage matrix ok\n")

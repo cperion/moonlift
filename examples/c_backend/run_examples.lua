@@ -1,6 +1,6 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 
 local function exec_status(cmd)
     local r = os.execute(cmd)
@@ -43,15 +43,15 @@ local function have_command(cmd)
 end
 
 local function choose_compiler()
-    local forced = getenv_nonempty("MOONLIFT_C_CC")
+    local forced = getenv_nonempty("LALIN_C_CC")
     if forced then
-        assert(have_command(forced), "MOONLIFT_C_CC compiler not found: " .. forced)
-        return forced, "MOONLIFT_C_CC"
+        assert(have_command(forced), "LALIN_C_CC compiler not found: " .. forced)
+        return forced, "LALIN_C_CC"
     end
     for _, cc in ipairs({ "tcc", "cc", "gcc", "clang" }) do
         if have_command(cc) then return cc, cc == "tcc" and "auto:tcc" or "auto:fallback" end
     end
-    return nil, "no C compiler found (tried MOONLIFT_C_CC, tcc, cc, gcc, clang)"
+    return nil, "no C compiler found (tried LALIN_C_CC, tcc, cc, gcc, clang)"
 end
 
 local examples = {
@@ -91,7 +91,7 @@ int main(void) { return call_fp(inc, 41) == 42 ? 0 : 1; }
         main = [[
 int main(void) {
     int32_t xs[6] = {1,2,3,4,5,6};
-    moonlift_ml_view_MoonCore_ScalarI32 v = { xs, 3, 2 };
+    lalin_ml_view_LalinCore_ScalarI32 v = { xs, 3, 2 };
     if (pointer_store(xs) != 42) return 1;
     if (view_pick(v) != 3) return 2;
     return 0;
@@ -107,8 +107,8 @@ int main(void) { return tagged_pick(41) == 42 ? 0 : 1; }
 }
 
 local function try_libtcc(c_src)
-    if getenv_nonempty("MOONLIFT_C_USE_LIBTCC") ~= "1" then return nil end
-    local c_tcc = require("moonlift.c_tcc")
+    if getenv_nonempty("LALIN_C_USE_LIBTCC") ~= "1" then return nil end
+    local c_tcc = require("lalin.c_tcc")
     local ok, why = c_tcc.available()
     if not ok then return nil, why and why.message or "libtcc unavailable" end
     local session, err = c_tcc.compile(c_src, { libraries = { "m" } })
@@ -129,7 +129,7 @@ end
 for i = 1, #examples do
     local ex = examples[i]
     local src = read(ex.file)
-    local c_src = moon.emit_c(src, nil, ex.file) .. "\n" .. ex.main .. "\n"
+    local c_src = lalin.emit_c(src, nil, ex.file) .. "\n" .. ex.main .. "\n"
     local mode, libtcc_skip = try_libtcc(c_src)
     if not mode then
         local base = os.tmpname()
@@ -147,4 +147,4 @@ for i = 1, #examples do
     io.write("ok ", ex.file, " [", mode, "]\n")
 end
 
-io.write("moonlift C backend examples ok\n")
+io.write("lalin C backend examples ok\n")

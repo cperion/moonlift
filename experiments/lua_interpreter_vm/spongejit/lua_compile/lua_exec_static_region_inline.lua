@@ -1,11 +1,11 @@
 -- lua_exec_static_region_inline.lua -- inline typed LuaExec.Module static invocations.
 --
--- This is a pre-MoonCFG lowering pass.  LuaExec.EmitRegion is accepted only
+-- This is a pre-LalinCFG lowering pass.  LuaExec.EmitRegion is accepted only
 -- inside a LuaExec.Module with matching typed StaticRegionInvocation contracts;
 -- kernel-only lowering still rejects EmitRegion.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local Exec, Compile = T.LuaExec, T.LuaCompile
 local ExecValidate = require("lua_compile.lua_exec_validate")

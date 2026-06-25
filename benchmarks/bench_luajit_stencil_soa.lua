@@ -3,17 +3,17 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local moon = require("moonlift")
-local Measure = require("moonlift.luajit_measure")
+local lalin = require("lalin")
+local Measure = require("lalin.luajit_measure")
 
 local mode = arg and arg[1] or "quick"
 local full = mode == "full"
-local n = tonumber(os.getenv("MOONLIFT_LJ_SOA_STENCIL_BENCH_N") or (full and "1000000" or "120000"))
-local samples = tonumber(os.getenv("MOONLIFT_LJ_SOA_STENCIL_BENCH_SAMPLES") or (full and "5" or "3"))
-local rounds = tonumber(os.getenv("MOONLIFT_LJ_SOA_STENCIL_BENCH_ROUNDS") or (full and "3" or "2"))
-local cc = os.getenv("MOONLIFT_LJ_SOA_STENCIL_BENCH_CC") or os.getenv("CC") or "gcc"
-local cflags = os.getenv("MOONLIFT_LJ_SOA_STENCIL_BENCH_CFLAGS") or "-std=c99 -O3 -march=native"
-local stencil_cflags = os.getenv("MOONLIFT_LJ_SOA_STENCIL_BENCH_STENCIL_CFLAGS")
+local n = tonumber(os.getenv("LALIN_LJ_SOA_STENCIL_BENCH_N") or (full and "1000000" or "120000"))
+local samples = tonumber(os.getenv("LALIN_LJ_SOA_STENCIL_BENCH_SAMPLES") or (full and "5" or "3"))
+local rounds = tonumber(os.getenv("LALIN_LJ_SOA_STENCIL_BENCH_ROUNDS") or (full and "3" or "2"))
+local cc = os.getenv("LALIN_LJ_SOA_STENCIL_BENCH_CC") or os.getenv("CC") or "gcc"
+local cflags = os.getenv("LALIN_LJ_SOA_STENCIL_BENCH_CFLAGS") or "-std=c99 -O3 -march=native"
+local stencil_cflags = os.getenv("LALIN_LJ_SOA_STENCIL_BENCH_STENCIL_CFLAGS")
     or "-std=c99 -O3 -march=native -ffunction-sections -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -c"
 
 local function shell_quote(s)
@@ -88,9 +88,9 @@ return unit. SoABench {
 }
 ]=]
 
-local session = moon.use { scope = "env" }
+local session = lalin.use { scope = "env" }
 local decl = assert(session:loadstring(source, "bench_luajit_stencil_soa.lua"))()
-local artifact = moon.emit_luajit_artifact(decl, {
+local artifact = lalin.emit_luajit_artifact(decl, {
     path = "target/luajit_bench/bench_luajit_stencil_soa_artifact.lua",
     name = "SoABench",
     stem = "bench_luajit_stencil_soa",

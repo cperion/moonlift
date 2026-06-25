@@ -1,13 +1,13 @@
 -- Lua Interpreter VM — Coroutine regions
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 
 local I = {}
-for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
-for k, v in pairs(const.Status) do I["THREAD_" .. k] = moon.int(v) end
-for k, v in pairs(const.ThreadFlag) do I["THREAD_FLAG_" .. k] = moon.int(v) end
+for k, v in pairs(const.Err) do I["ERR_" .. k] = lalin.int(v) end
+for k, v in pairs(const.Status) do I["THREAD_" .. k] = lalin.int(v) end
+for k, v in pairs(const.ThreadFlag) do I["THREAD_FLAG_" .. k] = lalin.int(v) end
 
 -- coroutine_resume: resume a LuaThread. Full re-entry remains in vm_loop;
 -- this region only encodes the explicit state distinctions.

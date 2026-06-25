@@ -4,10 +4,10 @@ package.path = "./experiments/lua_interpreter_vm/spongejit/?.lua;./experiments/l
 local ffi = require("ffi")
 local C = require("lua_compile")
 local Schema = require("lua_compile.schema")
-local Validate = require("lua_compile.moon_cfg_validate")
-local Emit = require("lua_compile.moon_cfg_emit")
+local Validate = require("lua_compile.lalin_cfg_validate")
+local Emit = require("lua_compile.lalin_cfg_emit")
 local ValueModel = require("lua_compile.lua_rt_value_model")
-local ExecToMoon = require("lua_compile.lua_exec_to_moon_cfg_lower")
+local ExecToLalin = require("lua_compile.lua_exec_to_lalin_cfg_lower")
 local T = Schema.get()
 local RT, Exec, GC = T.LuaRT, T.LuaExec, T.LuaGC
 
@@ -123,19 +123,19 @@ local closure_only = fixture({ events = {
 }, omit_call_payloads = true })
 local exec_product, exec_errors = C.lua_src_to_lua_exec_lower.lower(closure_only.source, closure_only.evidence)
 assert(exec_product, table.concat(exec_errors or {}, ";"))
-local cfg_payload, cfg_errors = ExecToMoon.lower_outcome(exec_product, "value0_payload_i64")
+local cfg_payload, cfg_errors = ExecToLalin.lower_outcome(exec_product, "value0_payload_i64")
 assert(cfg_payload, table.concat(cfg_errors or {}, ";"))
 assert(run_cfg(cfg_payload, "test_source_closure_payload") == 77, "CLOSURE must box contracted closure handle")
-local cfg_tag = assert(ExecToMoon.lower_outcome(exec_product, "value0_tag"))
+local cfg_tag = assert(ExecToLalin.lower_outcome(exec_product, "value0_tag"))
 assert(run_cfg(cfg_tag, "test_source_closure_tag") == ValueModel.TAG.LuaClosureTag, "CLOSURE must box LuaClosureTag")
 
 -- Positive: source CLOSURE produces the closure consumed by strict source CALL.
 local unit = fixture()
-local compiled = C.compile_to_moon_kernel(unit)
+local compiled = C.compile_to_lalin_kernel(unit)
 assert(compiled.kind == "Ok", "public CLOSURE->CALL fixture must compile")
 local module_product = assert(C.lua_src_to_lua_exec_lower.lower(unit.source, unit.evidence))
 assert(module_product.kernels and module_product.regions, "CLOSURE->CALL must lower to LuaExec.Module")
-local cfg, errors = ExecToMoon.lower_module_outcome(module_product, "lua_exec_core_kernel", "value1_payload_i64")
+local cfg, errors = ExecToLalin.lower_module_outcome(module_product, "lua_exec_core_kernel", "value1_payload_i64")
 assert(cfg, table.concat(errors or {}, ";"))
 local caller_stack = ffi.new("LuaRTValue[8]")
 local callee_stack = ffi.new("LuaRTValue[8]")
@@ -145,12 +145,12 @@ caller_stack[2].tag = ValueModel.TAG.IntegerTag; caller_stack[2].payload_i64 = 1
 local out = run_cfg(cfg, "test_source_closure_call", caller_stack, top, callee_stack)
 assert(out == 702, "CLOSURE->CALL must return second static callee result")
 assert(caller_stack[0].payload_i64 == 701 and caller_stack[1].payload_i64 == 702, "ReceiveCallResults must copy static callee results")
-local direct_cfg, direct_errors = ExecToMoon.lower_outcome(module_product.kernels[1], "value1_payload_i64")
+local direct_cfg, direct_errors = ExecToLalin.lower_outcome(module_product.kernels[1], "value1_payload_i64")
 assert(not direct_cfg and table.concat(direct_errors or {}, ";"):match("EmitRegion:requires_typed_static_region_lowering"), "direct kernel EmitRegion must remain rejected")
 
 local function reject(opts, needle)
   local unit = fixture(opts)
-  local r = C.compile_to_moon_kernel(unit)
+  local r = C.compile_to_lalin_kernel(unit)
   local parts = {}
   for _, e in ipairs((r.diagnostic and r.diagnostic.errors) or {}) do parts[#parts + 1] = tostring(e) end
   if r.diagnostic and r.diagnostic.message then parts[#parts + 1] = tostring(r.diagnostic.message) end

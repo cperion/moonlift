@@ -1,7 +1,7 @@
 # LLB Guide
 
-LLB (`lua/llb.lua`) is the standard Moonlift Lua DSL substrate. It is part of
-the Moonlift standard library.
+LLB (`lua/llb.lua`) is the standard Lalin Lua DSL substrate. It is part of
+the Lalin standard library.
 
 LLB is not a parser. Lua already parses the source. LLB gives meaning to the Lua
 values produced by parserless authoring syntax:
@@ -83,8 +83,8 @@ Bad fits:
 - languages whose syntax must not be Lua syntax
 - semantic engines that should live in the target compiler instead
 
-LLB should stay generic. Moonlift-specific type rules, ownership, lowering, and
-backend behavior belong to Moonlift, not LLB.
+LLB should stay generic. Lalin-specific type rules, ownership, lowering, and
+backend behavior belong to Lalin, not LLB.
 
 LLB's runtime compilation strategy is documented in
 [`LLB_CODEGEN_APPROACH.md`](LLB_CODEGEN_APPROACH.md). Codegen specializes the
@@ -111,8 +111,8 @@ region. scan { input... } { exits... } { body... }
 
 That creates a generic LLB `Region` descriptor. `region [Type]` remains normal
 typed-name syntax; only dot-head use starts a region. Member languages consume
-the descriptor according to their own backend. Moonlift consumes it as native
-typed control when the body uses Moonlift block/jump/emit vocabulary.
+the descriptor according to their own backend. Lalin consumes it as native
+typed control when the body uses Lalin block/jump/emit vocabulary.
 
 Most workbench code should use a protocol-specific head instead of spelling the
 full generic constructor. For example:
@@ -473,7 +473,7 @@ Lang:use {
   strict = true,
   override = false,
   auto_names = true,
-  requires = { "moonlift.types" },
+  requires = { "lalin.types" },
   provides = { "my.language" },
 }
 ```
@@ -485,7 +485,7 @@ dependencies.
 Low-level stacking is valid for tests and tools:
 
 ```lua
-moon.use { scope = "env", target = env, global = false }
+lalin.use { scope = "env", target = env, global = false }
 ll.use   { scope = "env", target = env, global = false }
 ```
 
@@ -517,23 +517,23 @@ Use explicit multi-language families when languages are designed to be used
 together and their values are expected to cross boundaries.
 
 ```lua
-local Family = llb.family. moonlift {
+local Family = llb.family. lalin {
   prefer = {
     task = "llpvm.dsl",
   },
 
   {
-    name = "moonlift.dsl",
-    lang = Moon,
-    exports = moon_exports,
-    provides = { "moonlift.types", "moonlift.dsl" },
+    name = "lalin.dsl",
+    lang = Lalin,
+    exports = lalin_exports,
+    provides = { "lalin.types", "lalin.dsl" },
   },
 
   {
     name = "llpvm.dsl",
     lang = LLPVM,
     exports = llpvm_exports,
-    requires = { "moonlift.types" },
+    requires = { "lalin.types" },
     provides = { "llpvm.dsl" },
   },
 
@@ -568,7 +568,7 @@ substrate.
 Public use is dot-style:
 
 ```lua
-local session = moon.family.use {
+local session = lalin.family.use {
   scope = "env",
   target = env,
   global = false,
@@ -583,11 +583,11 @@ family.env { ... }
 family.load(src, name)
 family.loadfile(path)
 family.prefer { task = "llpvm.dsl" }
-family.only { "moonlift.types" }
+family.only { "lalin.types" }
 family.subtract "llpvm.dsl"
 ```
 
-The Moonlift family installs Moonlift, MoonSchema, LLPVM, and Llisle namespace
+The Lalin family installs Lalin, LalinSchema, LLPVM, and Llisle namespace
 values together. Each member language consumes generic LLB symbols through its
 roles. That avoids order-dependent metatable stacking.
 
@@ -598,7 +598,7 @@ contract.
 
 Llisle is the rule/rewrite/selection member. It reuses existing family algebra:
 relations are typed product-to-product questions, projections classify family
-values into MoonSchema-backed facts, rules and choices are sum arms, patterns
+values into LalinSchema-backed facts, rules and choices are sum arms, patterns
 are product-shaped values, and rule bodies are process-shaped construction
 bodies.
 
@@ -608,7 +608,7 @@ semantic declarations live in LLB values:
 ```lua
 llisle {
   project. classify_expr {
-    input { expr [MoonExpr] },
+    input { expr [LalinExpr] },
     output { class [ExprClassFact] },
     strategy { select. best_cost, ambiguity. error, coverage. complete },
   },
@@ -643,13 +643,13 @@ That is a role interpretation of LLB algebra, not a private boolean operator.
 Family algebra composes authoring universes:
 
 ```lua
-local Full = MoonFamily .. LLPVMFamily
-local AlsoFull = MoonFamily + LLPVMFamily
+local Full = LalinFamily .. LLPVMFamily
+local AlsoFull = LalinFamily + LLPVMFamily
 local Tooling = Full.prefer {
   task = "llpvm.dsl",
   rule = "llisle.dsl",
 }
-local TypesOnly = Full.only { "moonlift.types" }
+local TypesOnly = Full.only { "lalin.types" }
 local NoLLPVM = Full - "llpvm.dsl"
 ```
 
@@ -827,7 +827,7 @@ The formatter operates on evaluated values. It is not a token-preserving Lua
 formatter. Origin-leading comments may be surfaced as documentation, but the
 formatter will not preserve arbitrary comments or metaprogramming shape.
 
-Canonical dot style for Moonlift-family DSLs is:
+Canonical dot style for Lalin-family DSLs is:
 
 ```lua
 fn. add
@@ -946,12 +946,12 @@ long-running transforms
 
 Do not use processes just to compute one pure value. Use a function for that.
 
-Moonlift uses processes directly:
+Lalin uses processes directly:
 
 ```lua
-moon.source(src, name, { eval = true })
+lalin.source(src, name, { eval = true })
 ll.validate(bytes)
-require("moonlift.compiler_driver").lower_module(module, opts)
+require("lalin.compiler_driver").lower_module(module, opts)
 Debugger.process(debugger, { "init", "start", "step" })
 ```
 
@@ -967,7 +967,7 @@ task. compile {
 }
 ```
 
-Moonlift phase execution reports expose `report.run` as an
+Lalin phase execution reports expose `report.run` as an
 `LlPvm.TaskRun`, so progress tracking, validation, LSP indexing, source
 analysis, and debugger stepping can share one typed event/run model instead of
 ad hoc traces.
@@ -1055,8 +1055,8 @@ g.phase. bind {
 }
 ```
 
-The generic phase/context layer is intentionally small. Moonlift's real compiler
-phases live in Moonlift's PVM and frontend pipeline. LLB phases are for language
+The generic phase/context layer is intentionally small. Lalin's real compiler
+phases live in Lalin's PVM and frontend pipeline. LLB phases are for language
 workbench structure and smaller language analyses.
 
 For long-running phase progress, expose a process:
@@ -1141,7 +1141,7 @@ end
 local document = llb.process. document { "src", "uri" } (document_body)
 ```
 
-Moonlift's LSP dispatch exposes `lsp_document` this way and routes symbol,
+Lalin's LSP dispatch exposes `lsp_document` this way and routes symbol,
 hover, and diagnostic requests through process events.
 
 ## Introspection
@@ -1263,7 +1263,7 @@ An LLB family can expose language zones as ordinary callable values:
 
 ```lua
 return {
-  moonlift {
+  lalin {
     fn. add { a [i32], b [i32] } [i32] { ret (a + b) },
   },
 
@@ -1284,35 +1284,35 @@ zones it owns and ignores foreign zones.
 Same-language zones concatenate with `..`:
 
 ```lua
-local a = moonlift { fn. one {} [i32] { ret (1) } }
-local b = moonlift { fn. two {} [i32] { ret (2) } }
+local a = lalin { fn. one {} [i32] { ret (1) } }
+local b = lalin { fn. two {} [i32] { ret (2) } }
 return a .. b
 ```
 
 Different zones concatenate into a family bundle:
 
 ```lua
-return moonlift { ... } .. llpvm { ... }
+return lalin { ... } .. llpvm { ... }
 ```
 
 Public constructors:
 
 ```lua
-llb.zone_head { family = "moonlift", member = "moonlift.dsl", name = "moonlift", role = "decls" }
-llb.zone { family = "moonlift", member = "moonlift.dsl", name = "moonlift", role = "decls", items = { ... } }
-llb.family_bundle { family = "moonlift", zones = { ... } }
+llb.zone_head { family = "lalin", member = "lalin.dsl", name = "lalin", role = "decls" }
+llb.zone { family = "lalin", member = "lalin.dsl", name = "lalin", role = "decls", items = { ... } }
+llb.family_bundle { family = "lalin", zones = { ... } }
 ```
 
 Family tooling is also family-first:
 
 ```lua
-local value = moon.family.loadfile("program.lua")()
+local value = lalin.family.loadfile("program.lua")()
 
-local text = moon.family.format(value)
-local diagnostics = moon.family.diagnostics(value)
-local index = moon.family.index(value)
-local reference = moon.family.markdown { title = "Moonlift Family Reference" }
-moon.family.write_markdown("docs/MOONLIFT_FAMILY_REFERENCE.md")
+local text = lalin.family.format(value)
+local diagnostics = lalin.family.diagnostics(value)
+local index = lalin.family.index(value)
+local reference = lalin.family.markdown { title = "Lalin Family Reference" }
+lalin.family.write_markdown("docs/LALIN_FAMILY_REFERENCE.md")
 ```
 
 Members contribute formatting, diagnostics, index, and Markdown hooks. The
@@ -1337,7 +1337,7 @@ Formatting defaults should be semantic and stable:
 - block heads use multiline bodies by default
 - dot heads use keyword-side dots, such as `fn. add`
 - product fields use `name [Type]`
-- zones preserve their language name, such as `moonlift { ... }`
+- zones preserve their language name, such as `lalin { ... }`
 - family formatters delegate owned values instead of printing raw tables
 - raw Lua table addresses should never appear in formatter output
 
@@ -1427,19 +1427,19 @@ origin-threaded factories
 introspection-first language objects
 ```
 
-## Relationship to Moonlift
+## Relationship to Lalin
 
-Moonlift is the main LLB language in this repository.
+Lalin is the main LLB language in this repository.
 
 ```text
 Lua syntax
   -> LLB staged heads and role normalization
-  -> Moonlift DSL normalization
-  -> MoonSyntax / MoonTree / MoonOpen ASDL
+  -> Lalin DSL normalization
+  -> LalinSyntax / LalinTree / LalinOpen ASDL
   -> typecheck / lowering / backend
 ```
 
-LLB is the reusable substrate. Moonlift is the compiled language built on top.
+LLB is the reusable substrate. Lalin is the compiled language built on top.
 LLPVM is another LLB language in the same ecosystem.
 
 The shared doctrine:

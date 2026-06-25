@@ -7,7 +7,7 @@ is explicit enough to rewrite safely.
 Current tool:
 
 ```sh
-luajit scripts/pvm_erase.lua lua/moonlift/source_text_apply.lua target/pvm-erased/source_text_apply.lua
+luajit scripts/pvm_erase.lua lua/lalin/source_text_apply.lua target/pvm-erased/source_text_apply.lua
 ```
 
 The eraser is source-to-source. It scans Lua source, extracts balanced
@@ -16,8 +16,8 @@ The eraser is source-to-source. It scans Lua source, extracts balanced
 Current scan status:
 
 ```text
-lua/moonlift + lua/ui: 258 / 259 pvm.phase definitions erase
-remaining unsupported phase: lua/moonlift/pvm.lua itself
+lua/lalin + lua/ui: 258 / 259 pvm.phase definitions erase
+remaining unsupported phase: lua/lalin/pvm.lua itself
 ```
 
 Supported scalar phases:
@@ -44,7 +44,7 @@ local result = pvm.one(phase_name:triplet_uncached(node))
 Generated scalar shape:
 
 ```lua
-local schema = require("moonlift.schema_runtime")
+local schema = require("lalin.schema_runtime")
 
 local function phase_name(node, env)
   return Result(node, env)
@@ -54,7 +54,7 @@ local result = phase_name(node, env)
 ```
 
 `pvm.classof`, `pvm.with`, `pvm.NIL`, and `pvm.context` become calls through
-`moonlift.schema_runtime`. If unsupported `pvm.*` calls remain, the original PVM
+`lalin.schema_runtime`. If unsupported `pvm.*` calls remain, the original PVM
 import is preserved so partially transformed files stay runnable.
 
 Supported dispatch-table phases:
@@ -69,7 +69,7 @@ local phase = pvm.phase("name", {
 Generated dispatch shape:
 
 ```lua
-local schema = require("moonlift.schema_runtime")
+local schema = require("lalin.schema_runtime")
 
 local function single(value) return { value } end
 local function as_list(values) return values end

@@ -7,7 +7,7 @@
 -- metamethod targets.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local Src, Fact, RT, Exec, GC = T.LuaSrc, T.LuaFact, T.LuaRT, T.LuaExec, T.LuaGC
 local StaticRegion = require("lua_compile.lua_exec_static_region_model")

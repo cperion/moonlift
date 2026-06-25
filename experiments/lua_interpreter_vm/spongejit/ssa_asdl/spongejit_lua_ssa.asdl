@@ -1,6 +1,6 @@
 -- spongejit_lua_ssa.asdl
 --
--- Moonlift/PVM ASDL vocabulary for the SpongeJIT Lua SSA compiler rewrite.
+-- Lalin/PVM ASDL vocabulary for the SpongeJIT Lua SSA compiler rewrite.
 --
 -- Doctrine:
 --   LuaSrc          answers: what did PUC encode?
@@ -10,12 +10,12 @@
 --   LuaRT           answers: what Lua runtime semantic objects/state exist.
 --   LuaExec         answers: what explicit semantic Lua CFG is executed over LuaRT.
 --   CompileContract answers: what executable-route obligations/facts/invalidation assumptions are attached.
---   MoonCFG         answers: what explicit Moonlift CFG is emitted.
---   Stencil         answers: what typed copy-and-patch backend artifact is materialized from MoonCFG.
+--   LalinCFG         answers: what explicit Lalin CFG is emitted.
+--   Stencil         answers: what typed copy-and-patch backend artifact is materialized from LalinCFG.
 --
 -- Source opcode mechanics are code-shaping in LuaSrc and must be dead after LuaExec.
 -- Physical residency is not semantic identity.
--- Runtime/Moonlift output never rediscovers Lua opcode meaning.
+-- Runtime/Lalin output never rediscovers Lua opcode meaning.
 
 module LuaSrc {
     Pc      = (number id) unique
@@ -1542,7 +1542,7 @@ module LuaExec {
          | LuaNumberType
          | LuaValueWithTagType(LuaRT.ValueTag tag) unique
          | LuaValueWithTypeTestType(LuaRT.TypeTest test) unique
-         | MoonType(string moon_type) unique
+         | LalinType(string lalin_type) unique
 
     Param = (LuaExec.Name name,
              LuaExec.Type type) unique
@@ -1820,27 +1820,27 @@ module CompileContract {
                 LuaFact.Dependency* dependencies) unique
 }
 
-module MoonCFG {
+module LalinCFG {
     Name = (string text) unique
-    TypeRef = (string moon_type) unique
-    KernelId = (MoonCFG.Name name) unique
-    RegionId = (MoonCFG.Name name) unique
-    BlockId = (MoonCFG.Name name) unique
-    ContId = (MoonCFG.Name name) unique
+    TypeRef = (string lalin_type) unique
+    KernelId = (LalinCFG.Name name) unique
+    RegionId = (LalinCFG.Name name) unique
+    BlockId = (LalinCFG.Name name) unique
+    ContId = (LalinCFG.Name name) unique
 
     KernelKind = InlineSpan | FunctionFastPath
 
     OutcomeKind = NormalReturnOutcome | LuaErrorOutcome | LuaYieldOutcome
 
     ParamMode = ValueParam | ReadonlyPtr | WriteonlyPtr | NoaliasPtr
-    Param = (MoonCFG.Name name, MoonCFG.TypeRef type, MoonCFG.ParamMode mode) unique
+    Param = (LalinCFG.Name name, LalinCFG.TypeRef type, LalinCFG.ParamMode mode) unique
 
     ContinuationKind = LocalContinuation | RegionOk | RegionError | RegionYield | RegionGuardFail | KernelExit
-    Continuation = (MoonCFG.ContId id, MoonCFG.Param* params, MoonCFG.ContinuationKind kind) unique
+    Continuation = (LalinCFG.ContId id, LalinCFG.Param* params, LalinCFG.ContinuationKind kind) unique
 
-    RegionRef = (MoonCFG.RegionId id) unique
-    BlockRef = (MoonCFG.BlockId id) unique
-    ContRef = (MoonCFG.ContId id) unique
+    RegionRef = (LalinCFG.RegionId id) unique
+    BlockRef = (LalinCFG.BlockId id) unique
+    ContRef = (LalinCFG.ContId id) unique
 
     Const = I64Const(number value) unique
           | F64Const(number value) unique
@@ -1851,15 +1851,15 @@ module MoonCFG {
           | ConstSlot(number index) unique
           | UpvalueSlot(number index) unique
           | VarargSlot(number index) unique
-          | Temp(MoonCFG.Name name) unique
+          | Temp(LalinCFG.Name name) unique
           | FrameTop unique
           | ExecCtx unique
-          | TableField(MoonCFG.Value table, MoonCFG.Value key) unique
-          | ArrayElement(MoonCFG.Value table, MoonCFG.Value index) unique
+          | TableField(LalinCFG.Value table, LalinCFG.Value key) unique
+          | ArrayElement(LalinCFG.Value table, LalinCFG.Value index) unique
 
-    Value = PlaceValue(MoonCFG.Place place) unique
-          | ConstValue(MoonCFG.Const const) unique
-          | ParamValue(MoonCFG.Name name) unique
+    Value = PlaceValue(LalinCFG.Place place) unique
+          | ConstValue(LalinCFG.Const const) unique
+          | ParamValue(LalinCFG.Name name) unique
           | UnitValue unique
 
     PrimOp = AddI64 | SubI64 | MulI64 | DivF64 | ModI64 | IDivI64
@@ -1868,94 +1868,94 @@ module MoonCFG {
            | CheckNil | CheckNonNil
            | StringLen | StringConcatPrimitive
 
-    Expr = ValueExpr(MoonCFG.Value value) unique
-         | Primitive(MoonCFG.PrimOp op, MoonCFG.Value* args) unique
-         | Load(MoonCFG.Place place) unique
-         | AddressOf(MoonCFG.Place place) unique
-         | Convert(MoonCFG.TypeRef type, MoonCFG.Value value) unique
+    Expr = ValueExpr(LalinCFG.Value value) unique
+         | Primitive(LalinCFG.PrimOp op, LalinCFG.Value* args) unique
+         | Load(LalinCFG.Place place) unique
+         | AddressOf(LalinCFG.Place place) unique
+         | Convert(LalinCFG.TypeRef type, LalinCFG.Value value) unique
          | RuntimeBoxNil(LuaRT.NilKind kind) unique
-         | RuntimeBoxBool(MoonCFG.Value value) unique
-         | RuntimeBoxI64(MoonCFG.Value value) unique
-         | RuntimeBoxF64(MoonCFG.Value value) unique
-         | RuntimeBoxRef(LuaRT.ValueTag tag, MoonCFG.Value handle) unique
-         | RuntimeTag(MoonCFG.Value value) unique
-         | RuntimePayloadI64(MoonCFG.Value value) unique
-         | RuntimePayloadF64(MoonCFG.Value value) unique
-         | RuntimeTruthiness(MoonCFG.Value value) unique
-         | RuntimeTypeTest(MoonCFG.Value value, LuaRT.TypeTest test) unique
-         | RuntimeOutcomeReturn(MoonCFG.Value count, MoonCFG.Value* values, MoonCFG.Value value_buffer) unique
-         | RuntimeOutcomeReturnSeq(MoonCFG.Value seq) unique
-         | RuntimeOutcomeError(LuaRT.ErrorKind kind, MoonCFG.Value error_value, MoonCFG.Value saved_pc, MoonCFG.Value saved_top) unique
-         | RuntimeOutcomeYield(LuaRT.ResumePoint resume_point, MoonCFG.Value count, MoonCFG.Value* values, MoonCFG.Value saved_pc, MoonCFG.Value saved_top) unique
+         | RuntimeBoxBool(LalinCFG.Value value) unique
+         | RuntimeBoxI64(LalinCFG.Value value) unique
+         | RuntimeBoxF64(LalinCFG.Value value) unique
+         | RuntimeBoxRef(LuaRT.ValueTag tag, LalinCFG.Value handle) unique
+         | RuntimeTag(LalinCFG.Value value) unique
+         | RuntimePayloadI64(LalinCFG.Value value) unique
+         | RuntimePayloadF64(LalinCFG.Value value) unique
+         | RuntimeTruthiness(LalinCFG.Value value) unique
+         | RuntimeTypeTest(LalinCFG.Value value, LuaRT.TypeTest test) unique
+         | RuntimeOutcomeReturn(LalinCFG.Value count, LalinCFG.Value* values, LalinCFG.Value value_buffer) unique
+         | RuntimeOutcomeReturnSeq(LalinCFG.Value seq) unique
+         | RuntimeOutcomeError(LuaRT.ErrorKind kind, LalinCFG.Value error_value, LalinCFG.Value saved_pc, LalinCFG.Value saved_top) unique
+         | RuntimeOutcomeYield(LuaRT.ResumePoint resume_point, LalinCFG.Value count, LalinCFG.Value* values, LalinCFG.Value saved_pc, LalinCFG.Value saved_top) unique
          | RuntimeOutcomeYieldSeq(LuaRT.ResumePoint resume_point,
-                                  MoonCFG.Value seq,
-                                  MoonCFG.Value saved_pc,
-                                  MoonCFG.Value saved_top) unique
-         | RuntimeStackLoad(MoonCFG.Value stack, MoonCFG.Value index) unique
-         | RuntimeTopLoad(MoonCFG.Value top_ptr) unique
-         | RuntimeOpenCountFromTop(MoonCFG.Value top, MoonCFG.Value base) unique
-         | RuntimeValueSeqFixed(MoonCFG.Value count, MoonCFG.Value* values) unique
-         | RuntimeValueSeqFromStack(MoonCFG.Value stack, MoonCFG.Value base, MoonCFG.Value count) unique
-         | RuntimeValueSeqFromVarargs(MoonCFG.Value varargs, MoonCFG.Value count) unique
-         | RuntimeValueSeqAdjust(MoonCFG.Value seq, LuaRT.ResultAdjustment adjustment) unique
-         | RuntimeValueSeqNormalize(MoonCFG.Value seq, LuaRT.ArityShape shape) unique
-         | RuntimeValueSeqCount(MoonCFG.Value seq) unique
-         | RuntimeValueSeqValue(MoonCFG.Value seq, number index) unique
-         | RuntimeValueSeqBuffer(MoonCFG.Value seq) unique
-         | RuntimeValueSeqBase(MoonCFG.Value seq) unique
-         | RuntimeClassifyCallee(MoonCFG.Value callee) unique
-         | RuntimeCallTargetCheck(MoonCFG.Value callee,
+                                  LalinCFG.Value seq,
+                                  LalinCFG.Value saved_pc,
+                                  LalinCFG.Value saved_top) unique
+         | RuntimeStackLoad(LalinCFG.Value stack, LalinCFG.Value index) unique
+         | RuntimeTopLoad(LalinCFG.Value top_ptr) unique
+         | RuntimeOpenCountFromTop(LalinCFG.Value top, LalinCFG.Value base) unique
+         | RuntimeValueSeqFixed(LalinCFG.Value count, LalinCFG.Value* values) unique
+         | RuntimeValueSeqFromStack(LalinCFG.Value stack, LalinCFG.Value base, LalinCFG.Value count) unique
+         | RuntimeValueSeqFromVarargs(LalinCFG.Value varargs, LalinCFG.Value count) unique
+         | RuntimeValueSeqAdjust(LalinCFG.Value seq, LuaRT.ResultAdjustment adjustment) unique
+         | RuntimeValueSeqNormalize(LalinCFG.Value seq, LuaRT.ArityShape shape) unique
+         | RuntimeValueSeqCount(LalinCFG.Value seq) unique
+         | RuntimeValueSeqValue(LalinCFG.Value seq, number index) unique
+         | RuntimeValueSeqBuffer(LalinCFG.Value seq) unique
+         | RuntimeValueSeqBase(LalinCFG.Value seq) unique
+         | RuntimeClassifyCallee(LalinCFG.Value callee) unique
+         | RuntimeCallTargetCheck(LalinCFG.Value callee,
                                   LuaRT.ResolvedCallTarget target) unique
-         | RuntimeCallFramePrepare(MoonCFG.Value caller_stack,
-                                   MoonCFG.Value callee_stack,
+         | RuntimeCallFramePrepare(LalinCFG.Value caller_stack,
+                                   LalinCFG.Value callee_stack,
                                    LuaRT.CallFrameLayout layout,
-                                   MoonCFG.Value args) unique
-         | RuntimeCallFrameResultSeq(MoonCFG.Value callee_stack,
+                                   LalinCFG.Value args) unique
+         | RuntimeCallFrameResultSeq(LalinCFG.Value callee_stack,
                                       LuaRT.CallFrameLayout layout,
                                       LuaRT.CallResultChannel channel) unique
-         | RuntimeVarargSource(MoonCFG.Value values, MoonCFG.Value count, MoonCFG.Value table_handle) unique
-         | RuntimeVarargCount(MoonCFG.Value source) unique
-         | RuntimeVarargGet(MoonCFG.Value source, MoonCFG.Value key) unique
-         | RuntimeTableRawGet(MoonCFG.Value tables, MoonCFG.Value table_value, MoonCFG.Value key) unique
-         | RuntimeRawGetHit(MoonCFG.Value rawget) unique
-         | RuntimeRawGetValue(MoonCFG.Value rawget) unique
-         | RuntimeRawGetValueOrNil(MoonCFG.Value rawget) unique
-         | RuntimeTableRawSetCanWrite(MoonCFG.Value tables, MoonCFG.Value table_value, MoonCFG.Value key) unique
-         | RuntimeTableWriteBarrierNeeded(MoonCFG.Value tables, MoonCFG.Value table_value, MoonCFG.Value value) unique
-         | RuntimeTableArrayLen(MoonCFG.Value tables, MoonCFG.Value table_value) unique
-         | RuntimeStringLen(MoonCFG.Value strings, MoonCFG.Value value) unique
-         | RuntimeLenNoMeta(MoonCFG.Value strings, MoonCFG.Value tables, MoonCFG.Value value) unique
-         | RuntimeLenNoMetaOk(MoonCFG.Value strings, MoonCFG.Value tables, MoonCFG.Value value) unique
-         | RuntimeStringConcat2(MoonCFG.Value strings, MoonCFG.Value left, MoonCFG.Value right) unique
-         | RuntimeStringToNumberOk(MoonCFG.Value strings, MoonCFG.Value value) unique
-         | RuntimeStringToNumber(MoonCFG.Value strings, MoonCFG.Value value) unique
-         | RuntimeArithmeticNumericOk(LuaRT.ArithmeticOp op, MoonCFG.Value strings, MoonCFG.Value left, MoonCFG.Value right) unique
-         | RuntimeArithmeticNoMeta(LuaRT.ArithmeticOp op, MoonCFG.Value strings, MoonCFG.Value left, MoonCFG.Value right) unique
-         | RuntimeArithmeticErrorValue(LuaRT.ArithmeticOp op, MoonCFG.Value strings, MoonCFG.Value left, MoonCFG.Value right) unique
-         | RuntimeCDataAccessOk(MoonCFG.Value cdata_bank,
-                                MoonCFG.Value cdata_value,
+         | RuntimeVarargSource(LalinCFG.Value values, LalinCFG.Value count, LalinCFG.Value table_handle) unique
+         | RuntimeVarargCount(LalinCFG.Value source) unique
+         | RuntimeVarargGet(LalinCFG.Value source, LalinCFG.Value key) unique
+         | RuntimeTableRawGet(LalinCFG.Value tables, LalinCFG.Value table_value, LalinCFG.Value key) unique
+         | RuntimeRawGetHit(LalinCFG.Value rawget) unique
+         | RuntimeRawGetValue(LalinCFG.Value rawget) unique
+         | RuntimeRawGetValueOrNil(LalinCFG.Value rawget) unique
+         | RuntimeTableRawSetCanWrite(LalinCFG.Value tables, LalinCFG.Value table_value, LalinCFG.Value key) unique
+         | RuntimeTableWriteBarrierNeeded(LalinCFG.Value tables, LalinCFG.Value table_value, LalinCFG.Value value) unique
+         | RuntimeTableArrayLen(LalinCFG.Value tables, LalinCFG.Value table_value) unique
+         | RuntimeStringLen(LalinCFG.Value strings, LalinCFG.Value value) unique
+         | RuntimeLenNoMeta(LalinCFG.Value strings, LalinCFG.Value tables, LalinCFG.Value value) unique
+         | RuntimeLenNoMetaOk(LalinCFG.Value strings, LalinCFG.Value tables, LalinCFG.Value value) unique
+         | RuntimeStringConcat2(LalinCFG.Value strings, LalinCFG.Value left, LalinCFG.Value right) unique
+         | RuntimeStringToNumberOk(LalinCFG.Value strings, LalinCFG.Value value) unique
+         | RuntimeStringToNumber(LalinCFG.Value strings, LalinCFG.Value value) unique
+         | RuntimeArithmeticNumericOk(LuaRT.ArithmeticOp op, LalinCFG.Value strings, LalinCFG.Value left, LalinCFG.Value right) unique
+         | RuntimeArithmeticNoMeta(LuaRT.ArithmeticOp op, LalinCFG.Value strings, LalinCFG.Value left, LalinCFG.Value right) unique
+         | RuntimeArithmeticErrorValue(LuaRT.ArithmeticOp op, LalinCFG.Value strings, LalinCFG.Value left, LalinCFG.Value right) unique
+         | RuntimeCDataAccessOk(LalinCFG.Value cdata_bank,
+                                LalinCFG.Value cdata_value,
                                 LuaFFI.CScalarKind scalar,
                                 LuaFFI.CTypeId type_id,
                                 number offset_bytes,
                                 number width_bytes) unique
-         | RuntimeCDataLoadScalar(MoonCFG.Value cdata_bank,
-                                  MoonCFG.Value cdata_value,
+         | RuntimeCDataLoadScalar(LalinCFG.Value cdata_bank,
+                                  LalinCFG.Value cdata_value,
                                   LuaFFI.CScalarKind scalar,
                                   LuaFFI.CTypeId type_id,
                                   number offset_bytes,
                                   number width_bytes) unique
-         | RuntimeOutcomeKind(MoonCFG.Value outcome) unique
-         | RuntimeOutcomeCount(MoonCFG.Value outcome) unique
-         | RuntimeOutcomeValueTag(MoonCFG.Value outcome, number index) unique
-         | RuntimeOutcomeValuePayloadI64(MoonCFG.Value outcome, number index) unique
-         | RuntimeOutcomeValuePayloadF64(MoonCFG.Value outcome, number index) unique
-         | RuntimeOutcomeErrorKind(MoonCFG.Value outcome) unique
-         | RuntimeOutcomeErrorValueTag(MoonCFG.Value outcome) unique
-         | RuntimeOutcomeErrorValuePayloadI64(MoonCFG.Value outcome) unique
-         | RuntimeOutcomeSavedPc(MoonCFG.Value outcome) unique
-         | RuntimeOutcomeYieldKind(MoonCFG.Value outcome) unique
+         | RuntimeOutcomeKind(LalinCFG.Value outcome) unique
+         | RuntimeOutcomeCount(LalinCFG.Value outcome) unique
+         | RuntimeOutcomeValueTag(LalinCFG.Value outcome, number index) unique
+         | RuntimeOutcomeValuePayloadI64(LalinCFG.Value outcome, number index) unique
+         | RuntimeOutcomeValuePayloadF64(LalinCFG.Value outcome, number index) unique
+         | RuntimeOutcomeErrorKind(LalinCFG.Value outcome) unique
+         | RuntimeOutcomeErrorValueTag(LalinCFG.Value outcome) unique
+         | RuntimeOutcomeErrorValuePayloadI64(LalinCFG.Value outcome) unique
+         | RuntimeOutcomeSavedPc(LalinCFG.Value outcome) unique
+         | RuntimeOutcomeYieldKind(LalinCFG.Value outcome) unique
 
-    Arg = (MoonCFG.Name name, MoonCFG.Value value) unique
+    Arg = (LalinCFG.Name name, LalinCFG.Value value) unique
 
     TypeTest = IsNil | IsBool | IsI64 | IsF64 | IsString | IsTable
              | IsClosure | IsFunction | IsThread | IsUserdata
@@ -1966,73 +1966,73 @@ module MoonCFG {
                | Shl | Shr | Unm | Bnot | EqMM | LtMM | LeMM | Index | NewIndex
                | Call | Len | Concat | Close
 
-    Choice = BoolChoice(MoonCFG.Value value) unique
-           | NilChoice(MoonCFG.Value value) unique
-           | TypeChoice(MoonCFG.Value value, MoonCFG.TypeTest test) unique
-           | NumericChoice(MoonCFG.NumericTest test, MoonCFG.Value left, MoonCFG.Value right) unique
-           | EqualityChoice(MoonCFG.Value left, MoonCFG.Value right) unique
-           | MetamethodPresentChoice(MoonCFG.Value value, MoonCFG.Metamethod metamethod) unique
+    Choice = BoolChoice(LalinCFG.Value value) unique
+           | NilChoice(LalinCFG.Value value) unique
+           | TypeChoice(LalinCFG.Value value, LalinCFG.TypeTest test) unique
+           | NumericChoice(LalinCFG.NumericTest test, LalinCFG.Value left, LalinCFG.Value right) unique
+           | EqualityChoice(LalinCFG.Value left, LalinCFG.Value right) unique
+           | MetamethodPresentChoice(LalinCFG.Value value, LalinCFG.Metamethod metamethod) unique
            | GuardChoice(CompileContract.FactUse* facts) unique
 
     ExitProtocol = ReturnExit | ErrorExit | GuardDeoptExit | YieldExit | UnsupportedExit
 
     Projection = ValueKind | Payload | ArrayLength | Shape | Metatable
 
-    ContBinding = (MoonCFG.ContRef continuation, MoonCFG.BlockRef target) unique
+    ContBinding = (LalinCFG.ContRef continuation, LalinCFG.BlockRef target) unique
 
-    Op = Let(MoonCFG.Place dst, MoonCFG.Expr expr) unique
-       | Assign(MoonCFG.Place dst, MoonCFG.Value src) unique
-       | Store(MoonCFG.Place dst, MoonCFG.Value src) unique
-       | RuntimeStackStore(MoonCFG.Value stack, MoonCFG.Value index, MoonCFG.Value value) unique
-       | RuntimeValueSeqStore(MoonCFG.Value stack,
-                            MoonCFG.Value base,
-                            MoonCFG.Value seq) unique
-       | RuntimeCallFrameStoreArgs(MoonCFG.Value callee_stack,
+    Op = Let(LalinCFG.Place dst, LalinCFG.Expr expr) unique
+       | Assign(LalinCFG.Place dst, LalinCFG.Value src) unique
+       | Store(LalinCFG.Place dst, LalinCFG.Value src) unique
+       | RuntimeStackStore(LalinCFG.Value stack, LalinCFG.Value index, LalinCFG.Value value) unique
+       | RuntimeValueSeqStore(LalinCFG.Value stack,
+                            LalinCFG.Value base,
+                            LalinCFG.Value seq) unique
+       | RuntimeCallFrameStoreArgs(LalinCFG.Value callee_stack,
                                    LuaRT.CallFrameLayout layout,
-                                   MoonCFG.Value args) unique
-       | RuntimeTopStore(MoonCFG.Value top_ptr, MoonCFG.Value top) unique
-       | RuntimeTableRawSet(MoonCFG.Value tables, MoonCFG.Value table_value, MoonCFG.Value key, MoonCFG.Value value) unique
-       | RuntimeTableWriteBarrier(MoonCFG.Value tables, MoonCFG.Value table_value, MoonCFG.Value value) unique
-       | RuntimeCDataScalarStore(MoonCFG.Value cdata_bank,
-                                MoonCFG.Value cdata_value,
+                                   LalinCFG.Value args) unique
+       | RuntimeTopStore(LalinCFG.Value top_ptr, LalinCFG.Value top) unique
+       | RuntimeTableRawSet(LalinCFG.Value tables, LalinCFG.Value table_value, LalinCFG.Value key, LalinCFG.Value value) unique
+       | RuntimeTableWriteBarrier(LalinCFG.Value tables, LalinCFG.Value table_value, LalinCFG.Value value) unique
+       | RuntimeCDataScalarStore(LalinCFG.Value cdata_bank,
+                                LalinCFG.Value cdata_value,
                                 LuaFFI.CScalarKind scalar,
                                 LuaFFI.CTypeId type_id,
                                 number offset_bytes,
                                 number width_bytes,
-                                MoonCFG.Value value) unique
-       | EmitRegion(MoonCFG.RegionRef region, MoonCFG.Arg* args, MoonCFG.ContBinding* continuations) unique
-       | Project(MoonCFG.Place dst, MoonCFG.Value src, MoonCFG.Projection projection) unique
-       | Assert(MoonCFG.Expr condition, MoonCFG.ExitProtocol on_fail) unique
+                                LalinCFG.Value value) unique
+       | EmitRegion(LalinCFG.RegionRef region, LalinCFG.Arg* args, LalinCFG.ContBinding* continuations) unique
+       | Project(LalinCFG.Place dst, LalinCFG.Value src, LalinCFG.Projection projection) unique
+       | Assert(LalinCFG.Expr condition, LalinCFG.ExitProtocol on_fail) unique
 
-    SwitchArm = (MoonCFG.Const match, MoonCFG.BlockRef target) unique
+    SwitchArm = (LalinCFG.Const match, LalinCFG.BlockRef target) unique
 
-    Terminator = Jump(MoonCFG.BlockRef target, MoonCFG.Arg* args) unique
-               | Branch(MoonCFG.Choice choice, MoonCFG.BlockRef if_true, MoonCFG.BlockRef if_false) unique
-               | BranchArgs(MoonCFG.Choice choice,
-                            MoonCFG.BlockRef if_true, MoonCFG.Arg* true_args,
-                            MoonCFG.BlockRef if_false, MoonCFG.Arg* false_args) unique
-               | Switch(MoonCFG.Value value, MoonCFG.SwitchArm* arms, MoonCFG.BlockRef default) unique
-               | Continue(MoonCFG.ContRef continuation, MoonCFG.Arg* args) unique
-               | Return(MoonCFG.Value* values) unique
-               | Exit(MoonCFG.ExitProtocol protocol, MoonCFG.Value* args) unique
+    Terminator = Jump(LalinCFG.BlockRef target, LalinCFG.Arg* args) unique
+               | Branch(LalinCFG.Choice choice, LalinCFG.BlockRef if_true, LalinCFG.BlockRef if_false) unique
+               | BranchArgs(LalinCFG.Choice choice,
+                            LalinCFG.BlockRef if_true, LalinCFG.Arg* true_args,
+                            LalinCFG.BlockRef if_false, LalinCFG.Arg* false_args) unique
+               | Switch(LalinCFG.Value value, LalinCFG.SwitchArm* arms, LalinCFG.BlockRef default) unique
+               | Continue(LalinCFG.ContRef continuation, LalinCFG.Arg* args) unique
+               | Return(LalinCFG.Value* values) unique
+               | Exit(LalinCFG.ExitProtocol protocol, LalinCFG.Value* args) unique
                | Unreachable unique
 
-    Block = (MoonCFG.BlockId id, MoonCFG.Param* params, MoonCFG.Op* ops, MoonCFG.Terminator terminator) unique
+    Block = (LalinCFG.BlockId id, LalinCFG.Param* params, LalinCFG.Op* ops, LalinCFG.Terminator terminator) unique
 
-    Region = (MoonCFG.RegionId id,
-              MoonCFG.Param* params,
-              MoonCFG.Continuation* continuations,
-              MoonCFG.BlockId entry,
-              MoonCFG.Block* blocks) unique
+    Region = (LalinCFG.RegionId id,
+              LalinCFG.Param* params,
+              LalinCFG.Continuation* continuations,
+              LalinCFG.BlockId entry,
+              LalinCFG.Block* blocks) unique
 
-    Kernel = (MoonCFG.KernelId id,
-              MoonCFG.KernelKind kind,
-              MoonCFG.Param* params,
-              MoonCFG.TypeRef* returns,
-              MoonCFG.Region body,
+    Kernel = (LalinCFG.KernelId id,
+              LalinCFG.KernelKind kind,
+              LalinCFG.Param* params,
+              LalinCFG.TypeRef* returns,
+              LalinCFG.Region body,
               CompileContract.Contract contract) unique
 
-    Module = (MoonCFG.Region* regions, MoonCFG.Kernel* kernels) unique
+    Module = (LalinCFG.Region* regions, LalinCFG.Kernel* kernels) unique
 }
 
 module Stencil {
@@ -2067,7 +2067,7 @@ module Stencil {
                 | RuntimeBoundaryStencil
 
     VariantKey = (Stencil.StencilKind stencil_kind,
-                  MoonCFG.KernelKind kernel_kind,
+                  LalinCFG.KernelKind kernel_kind,
                   CompileContract.Contract contract,
                   Stencil.Placement placement,
                   Stencil.TargetABI target_abi,
@@ -2318,8 +2318,8 @@ module LuaCompile {
     ExecLowerResult = ExecLowerOk(LuaCompile.ExecProduct product) unique
                     | ExecLowerReject(string* errors) unique
 
-    MoonLowerResult = MoonLowerOk(MoonCFG.Kernel kernel) unique
-                    | MoonLowerReject(string* errors) unique
+    LalinLowerResult = LalinLowerOk(LalinCFG.Kernel kernel) unique
+                    | LalinLowerReject(string* errors) unique
 
     StaticInlineResult = StaticInlineOk(LuaExec.Kernel kernel) unique
                        | StaticInlineReject(string* errors) unique
@@ -2328,9 +2328,9 @@ module LuaCompile {
                     | LuaSrcValidate
                     | LuaExecLower
                     | LuaExecValidate
-                    | MoonCFGLower
-                    | MoonCFGValidate
-                    | MoonCFGEmit
+                    | LalinCFGLower
+                    | LalinCFGValidate
+                    | LalinCFGEmit
                     | StencilValidate
                     | StencilMaterialize
                     | Foundry
@@ -2356,7 +2356,7 @@ module LuaCompile {
                   LuaFact.Fact* missing_facts,
                   LuaFact.PayloadLease* missing_payloads) unique
 
-    Product = MoonKernel(MoonCFG.Kernel kernel) unique
+    Product = LalinKernel(LalinCFG.Kernel kernel) unique
 
     Result = Ok(LuaCompile.Product product) unique
            | Reject(LuaCompile.Diagnostic diagnostic) unique

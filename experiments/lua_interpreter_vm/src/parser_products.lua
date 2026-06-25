@@ -1,6 +1,6 @@
 -- Lua Interpreter VM — Parser/compiler products
 
-local host = require("moonlift.host")
+local host = require("lalin.host")
 
 local SourceView = host.struct [[struct SourceView bytes: ptr(u8), len: index, source_name: ptr(String) end]]
 local SourcePos = host.struct [[struct SourcePos offset: index, line: i32, col: i32 end]]

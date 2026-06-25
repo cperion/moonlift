@@ -1,5 +1,5 @@
-local moon = require("moonlift")
-local m = moon.require("test_m1")
+local lalin = require("lalin")
+local m = lalin.require("test_m1")
 func g(x: i32): i32
     return m.f(x)
 end

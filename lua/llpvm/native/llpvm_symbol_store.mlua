@@ -1,9 +1,9 @@
 -- llpvm_symbol_store.mlua -- Interned symbols and diagnostics.
 
-local H = moon.require("llpvm_header")
+local H = lalin.require("llpvm_header")
 local T = H.T
 local R = H.R
-local Mem = moon.require("llpvm_memory")
+local Mem = lalin.require("llpvm_memory")
 
 local llpvm_grow_byte_arena = region grow_byte_arena(vm: ptr(T.LlVm), needed: index;
     grown

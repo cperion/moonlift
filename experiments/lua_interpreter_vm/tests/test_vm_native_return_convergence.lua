@@ -7,20 +7,20 @@
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 local bytecode = vm.bytecode
 
-local libmoon
-for _, p in ipairs({ "libmoonlift", "./target/release/libmoonlift.so", "./target/debug/libmoonlift.so" }) do
+local liblalin
+for _, p in ipairs({ "liblalin", "./target/release/liblalin.so", "./target/debug/liblalin.so" }) do
     local ok, lib = pcall(ffi.load, p)
-    if ok then libmoon = lib; break end
+    if ok then liblalin = lib; break end
 end
-if not libmoon then error("could not load libmoonlift; build with cargo build --release") end
+if not liblalin then error("could not load liblalin; build with cargo build --release") end
 
 ffi.cdef [[
-void* moonlift_scratch_raw(int slot, int elem_size, int count);
+void* lalin_scratch_raw(int slot, int elem_size, int count);
 typedef struct { void* next; uint8_t tt; uint8_t marked; } GCHeader;
 typedef struct { uint32_t tag; uint32_t aux; uint64_t bits; } Value;
 typedef struct Instr { uint32_t word; } Instr;
@@ -75,7 +75,7 @@ typedef struct {
 typedef struct { void* allocator; Value registry; void* mainthread; uint32_t vm_abi_version; uint32_t native_abi_version; } GlobalState;
 ]]
 
-local scratch_raw = libmoon.moonlift_scratch_raw
+local scratch_raw = liblalin.lalin_scratch_raw
 local NEXT_SLOT = 500
 local function scratch(elem_size, count, ctype)
     local slot = NEXT_SLOT
@@ -100,7 +100,7 @@ local native_cb = ffi.cast("uint64_t (*)(LuaThread*, CClosure*, NativeCallContex
         return ffi.cast("uint64_t", 0)
     end)
 
-local runner = moon.func {
+local runner = lalin.func {
     vm_resume = vm.vm_loop.vm_resume,
     sys_realloc = vm.regions_allocator.sys_realloc,
 } [[

@@ -1,22 +1,22 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
+local pvm = require("lalin.pvm")
+local Schema = require("lalin.schema")
 
 local T = pvm.context()
 Schema(T)
 
-local Core = T.MoonCore
-local Code = T.MoonCode
-local Kernel = T.MoonKernel
-local LJ = T.MoonLuaJIT
-local Stencil = T.MoonStencil
-local Value = T.MoonValue
+local Core = T.LalinCore
+local Code = T.LalinCode
+local Kernel = T.LalinKernel
+local LJ = T.LalinLuaJIT
+local Stencil = T.LalinStencil
+local Value = T.LalinValue
 
-local Lower = require("moonlift.luajit_lower")(T)
-local Emit = require("moonlift.luajit_emit")(T)
-local StencilArtifactPlan = require("moonlift.stencil_artifact_plan")(T)
+local Lower = require("lalin.luajit_lower")(T)
+local Emit = require("lalin.luajit_emit")(T)
+local StencilArtifactPlan = require("lalin.stencil_artifact_plan")(T)
 local StencilBinary = require("tests.code_ir.stencil_binary_helper")
 
 local origin = Code.CodeOriginGenerated("test_luajit_lower_stencil_skeletons")
@@ -397,4 +397,4 @@ do
     assert(out[0] == 1 and out[1] == -2 and out[2] == 5 and out[3] == 0 and out[4] == 3, "overlap-copy output")
 end
 
-io.write("moonlift luajit_lower_stencil_skeletons ok\n")
+io.write("lalin luajit_lower_stencil_skeletons ok\n")

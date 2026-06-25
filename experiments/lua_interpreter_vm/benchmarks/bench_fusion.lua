@@ -2,7 +2,7 @@
 local ffi = require("ffi")
 local bit = require("bit")
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
@@ -166,9 +166,9 @@ local function pack_ABC(op, a, b, c) return bit.bor(op, bit.lshift(a,7), bit.lsh
 local function pack_AsBx(op, a, sbx) return bit.bor(op, bit.lshift(a,7), bit.lshift(sbx+65535,15)) end
 local function set_ABC(i, op, a, b, c) i.word = pack_ABC(op, a, b, c) end
 local function set_AsBx(i, op, a, sbx) i.word = pack_AsBx(op, a, sbx) end
-ffi.cdef [[void* moonlift_scratch_raw(int s, int e, int c);]]
-local ml = (pcall(ffi.load,"./target/release/libmoonlift.so") and ffi.load("./target/release/libmoonlift.so")) or ffi.load("./target/debug/libmoonlift.so")
-local sr = ml.moonlift_scratch_raw
+ffi.cdef [[void* lalin_scratch_raw(int s, int e, int c);]]
+local ml = (pcall(ffi.load,"./target/release/liblalin.so") and ffi.load("./target/release/liblalin.so")) or ffi.load("./target/debug/liblalin.so")
+local sr = ml.lalin_scratch_raw
 local function S(s,e,c,t) return ffi.cast(t or "uint8_t*", sr(s,e,c)) end
 ffi.cdef [[
 typedef struct{void*n;uint8_t t;uint8_t m;} GC;
@@ -211,7 +211,7 @@ local function reset(t,s,f)
     f[0].rm=const.Resume.NORMAL; si(s[1],42); si(s[2],99); si(s[3],7)
 end
 
-local runner = moon.func{vm_resume=vm.vm_loop.vm_resume}[[
+local runner = lalin.func{vm_resume=vm.vm_loop.vm_resume}[[
 run(L:ptr(T),n:i32): i32
 return region: i32
 entry start() emit@{vm_resume}(L,n;ok=d,yielded=y,runtime_error=e,oom=o) end

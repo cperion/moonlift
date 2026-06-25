@@ -1,9 +1,9 @@
--- Bytecode validator contract tests for the Moonlift Lua VM.
+-- Bytecode validator contract tests for the Lalin Lua VM.
 
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 local bytecode = vm.bytecode
@@ -35,7 +35,7 @@ local function set_sJ(i, op, sj) i.word = bytecode.encode_sJ(op, sj) end
 local function set_AvBCk(i, op, a, vb, vc, k) i.word = bytecode.encode_AvBCk(op, a, vb, vc, k) end
 local function set_AsC(i, op, a, b, sc, k) i.word = bytecode.encode_ABC(op, a, b, sc + bytecode.OFFSET_SC, k) end
 
-local validate = moon.func { validate_proto = vm.validate.validate_proto } [[
+local validate = lalin.func { validate_proto = vm.validate.validate_proto } [[
 validate_one(L: ptr(LuaThread), p: ptr(Proto)): i32
     return region: i32
     entry start()

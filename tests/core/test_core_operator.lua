@@ -1,13 +1,13 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local Ops = require("moonlift.core_operator")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local Ops = require("lalin.core_operator")
 
 local T = pvm.context()
 A(T)
 local L = Ops(T)
-local C = T.MoonCore
+local C = T.LalinCore
 
 assert(L.unary(C.UnaryNeg) == C.UnaryClassArithmetic)
 assert(L.unary(C.UnaryNot) == C.UnaryClassLogical)
@@ -48,4 +48,4 @@ assert(L.intrinsic(C.IntrinsicRound) == C.IntrinsicClassFloat)
 assert(L.intrinsic(C.IntrinsicTrap) == C.IntrinsicClassControl)
 assert(L.intrinsic(C.IntrinsicAssume) == C.IntrinsicClassControl)
 
-print("moonlift core_operator ok")
+print("lalin core_operator ok")

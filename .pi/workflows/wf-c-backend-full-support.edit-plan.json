@@ -11,14 +11,14 @@
 			"id": "T001",
 			"title": "Correct coverage status model",
 			"detail": "Replace the misleading supported/unreachable/rejected model with explicit full-support statuses: supported, phase_unreachable, language_rejected, backend_todo. Reclassify current rejected rows so backend TODOs (tagged-union constructors/variant switches) are visible. Phase-boundary rows must be phase_unreachable, not rejected. Keep reasons and C_BACKEND_DESIGN.md sections.",
-			"file": "lua/moonlift/c_coverage.lua",
+			"file": "lua/lalin/c_coverage.lua",
 			"after": [],
 			"status": "done",
 			"order": 1,
 			"claimedBy": "agent-HB3E05",
-			"evidence": "Updated lua/moonlift/c_coverage.lua to use statuses supported, phase_unreachable, language_rejected, backend_todo; reclassified phase-boundary rows (raw dot/cast/closure/open/import/surface casts) to phase_unreachable and tagged-union/dynamic-array work to backend_todo. Updated lua/moonlift/c_validate.lua to validate against Coverage.statuses(). Updated tests/test_c_backend_coverage_matrix.lua spot-checks. Ran: luajit tests/test_c_backend_coverage_matrix.lua && luajit tests/test_c_validate.lua && luajit tests/test_tree_to_c_smoke.lua && luajit tests/test_c_backend_negative.lua.",
+			"evidence": "Updated lua/lalin/c_coverage.lua to use statuses supported, phase_unreachable, language_rejected, backend_todo; reclassified phase-boundary rows (raw dot/cast/closure/open/import/surface casts) to phase_unreachable and tagged-union/dynamic-array work to backend_todo. Updated lua/lalin/c_validate.lua to validate against Coverage.statuses(). Updated tests/test_c_backend_coverage_matrix.lua spot-checks. Ran: luajit tests/test_c_backend_coverage_matrix.lua && luajit tests/test_c_validate.lua && luajit tests/test_tree_to_c_smoke.lua && luajit tests/test_c_backend_negative.lua.",
 			"notes": [
-				"This workflow exists because the previous completed plan was not a real full-support plan; it classified backend gaps as rejected. The goal here is the user's real acceptance criterion: Moonlift source -> C -> gcc -> runnable program for the supported language."
+				"This workflow exists because the previous completed plan was not a real full-support plan; it classified backend gaps as rejected. The goal here is the user's real acceptance criterion: Lalin source -> C -> gcc -> runnable program for the supported language."
 			],
 			"createdAt": "2026-06-08T13:21:32.106Z",
 			"updatedAt": "2026-06-08T13:23:51.935Z"
@@ -34,7 +34,7 @@
 			"status": "done",
 			"order": 2,
 			"claimedBy": "agent-HB3E05",
-			"evidence": "Extended tests/test_c_backend_coverage_matrix.lua to collect backend_todo rows and enforce a final completion gate via MOONLIFT_C_BACKEND_FINAL=1 or --final-complete while keeping default incremental mode explicit. Ran default test and a negative final-mode check: luajit tests/test_c_backend_coverage_matrix.lua && if luajit tests/test_c_backend_coverage_matrix.lua --final-complete ...; then fail; else grep backend_todo rows; fi.",
+			"evidence": "Extended tests/test_c_backend_coverage_matrix.lua to collect backend_todo rows and enforce a final completion gate via LALIN_C_BACKEND_FINAL=1 or --final-complete while keeping default incremental mode explicit. Ran default test and a negative final-mode check: luajit tests/test_c_backend_coverage_matrix.lua && if luajit tests/test_c_backend_coverage_matrix.lua --final-complete ...; then fail; else grep backend_todo rows; fi.",
 			"notes": [],
 			"createdAt": "2026-06-08T13:21:32.106Z",
 			"updatedAt": "2026-06-08T13:24:23.884Z"
@@ -73,14 +73,14 @@
 			"id": "T005",
 			"title": "Implement enum/tagged-union typecheck and layout facts",
 			"detail": "Implement or complete frontend/typecheck/layout support for TypeDeclEnumSugar, TypeDeclTaggedUnionSugar, ExprCtor, variant binds, and variant switch arms so both native and C backends receive typed/resolved layout facts instead of sugar. Include Sem.LayoutEnv entries for tag/payload fields.",
-			"file": "lua/moonlift/tree_typecheck.lua",
+			"file": "lua/lalin/tree_typecheck.lua",
 			"after": [
 				"T004"
 			],
 			"status": "done",
 			"order": 5,
 			"claimedBy": "agent-HB3E05",
-			"evidence": "Implemented shared frontend/typecheck/layout support for enum/tagged-union sugar in lua/moonlift/tree_module_type.lua (u32 __tag plus __payload byte-array layout), lua/moonlift/tree_typecheck.lua (duplicate variant diagnostics, ExprCtor typing, variant switch statement bind typing), and lua/moonlift/sem_layout_resolve.lua (ExprCtor arg resolution). Added tests/test_tagged_union_type_layout.lua covering layout facts, constructor typing, variant bind typing, and duplicate diagnostics. Ran: luajit tests/test_tagged_union_type_layout.lua && luajit tests/test_c_backend_phase_boundaries.lua && luajit tests/test_parse_typecheck.lua && luajit tests/test_tree_to_c_smoke.lua. Backend lowering remains for dependent T006/T007.",
+			"evidence": "Implemented shared frontend/typecheck/layout support for enum/tagged-union sugar in lua/lalin/tree_module_type.lua (u32 __tag plus __payload byte-array layout), lua/lalin/tree_typecheck.lua (duplicate variant diagnostics, ExprCtor typing, variant switch statement bind typing), and lua/lalin/sem_layout_resolve.lua (ExprCtor arg resolution). Added tests/test_tagged_union_type_layout.lua covering layout facts, constructor typing, variant bind typing, and duplicate diagnostics. Ran: luajit tests/test_tagged_union_type_layout.lua && luajit tests/test_c_backend_phase_boundaries.lua && luajit tests/test_parse_typecheck.lua && luajit tests/test_tree_to_c_smoke.lua. Backend lowering remains for dependent T006/T007.",
 			"notes": [],
 			"createdAt": "2026-06-08T13:21:32.106Z",
 			"updatedAt": "2026-06-08T13:40:07.132Z"
@@ -88,15 +88,15 @@
 		{
 			"id": "T019",
 			"title": "Add variant switch expression schema and parser/typecheck plumbing",
-			"detail": "Correct blocker for T006: ExprSwitch currently has only scalar `arms` and no `variant_arms`, while the full-support contract includes SwitchVariantExprArm. Extend ExprSwitch ASDL with variant_arms (parallel to StmtSwitch), update parser/builders/typecheck/layout resolution/coverage tests so variant switch expressions can exist as typed resolved MoonTree instead of being impossible. This is a prerequisite, not a backend workaround.",
-			"file": "lua/moonlift/schema/tree.lua",
+			"detail": "Correct blocker for T006: ExprSwitch currently has only scalar `arms` and no `variant_arms`, while the full-support contract includes SwitchVariantExprArm. Extend ExprSwitch ASDL with variant_arms (parallel to StmtSwitch), update parser/builders/typecheck/layout resolution/coverage tests so variant switch expressions can exist as typed resolved LalinTree instead of being impossible. This is a prerequisite, not a backend workaround.",
+			"file": "lua/lalin/schema/tree.lua",
 			"after": [
 				"T005"
 			],
 			"status": "done",
 			"order": 5.5,
 			"claimedBy": "agent-GBE8GA",
-			"evidence": "Added ExprSwitch.variant_arms to lua/moonlift/schema/tree.lua, updated parser syntax for variant expression/statement switch arms (`case .variant(bind) then`), updated ExprSwitch constructors and typecheck to preserve typed SwitchVariantExprArm payload binds, and threaded variant expression arms through open/closure/layout/residence transforms plus defensive backend guards. Added manual and parsed variant expression switch coverage in tests/test_tagged_union_type_layout.lua. Ran: luajit tests/test_tagged_union_type_layout.lua; luajit tests/test_parse_typecheck.lua; luajit tests/test_c_backend_coverage_matrix.lua; luajit tests/test_c_backend_phase_boundaries.lua; luajit tests/test_tree_to_c_smoke.lua; luajit tests/test_tagged_union_to_back.lua; luajit tests/test_schema_types_smoke.lua.",
+			"evidence": "Added ExprSwitch.variant_arms to lua/lalin/schema/tree.lua, updated parser syntax for variant expression/statement switch arms (`case .variant(bind) then`), updated ExprSwitch constructors and typecheck to preserve typed SwitchVariantExprArm payload binds, and threaded variant expression arms through open/closure/layout/residence transforms plus defensive backend guards. Added manual and parsed variant expression switch coverage in tests/test_tagged_union_type_layout.lua. Ran: luajit tests/test_tagged_union_type_layout.lua; luajit tests/test_parse_typecheck.lua; luajit tests/test_c_backend_coverage_matrix.lua; luajit tests/test_c_backend_phase_boundaries.lua; luajit tests/test_tree_to_c_smoke.lua; luajit tests/test_tagged_union_to_back.lua; luajit tests/test_schema_types_smoke.lua.",
 			"notes": [],
 			"createdAt": "2026-06-08T14:12:17.390Z",
 			"updatedAt": "2026-06-08T14:18:51.340Z"
@@ -105,14 +105,14 @@
 			"id": "T020",
 			"title": "Wire variant control facts for native lowering",
 			"detail": "Correct blocker for T006: ControlVariantArmFact / variant bind facts are not wired into native control lowering. Implement the control-fact plumbing needed for variant switch statement/expression lowering so payload binds are represented and lowered consistently with tagged-union layout.",
-			"file": "lua/moonlift/tree_control_to_back.lua",
+			"file": "lua/lalin/tree_control_to_back.lua",
 			"after": [
 				"T019"
 			],
 			"status": "done",
 			"order": 5.6,
 			"claimedBy": "agent-GBE8GA",
-			"evidence": "Wired variant switch control facts and native control lowering. lua/moonlift/tree_control_facts.lua now emits ControlFactVariantSwitch/ControlVariantArmFact entries for typed variant StmtSwitch arms with payload bind params, using variant definitions when supplied. lua/moonlift/tree_control_to_back.lua receives shared variant layout helpers from tree_to_back and lowers variant switches inside control regions by loading __tag, switching on declared tags, loading scalar payload binds into arm-local bindings, and preserving shared tag/payload representation. Added tests/test_tagged_union_control_to_back.lua proving control facts include variant switch facts and native BackCmd lowering emits tag switch plus payload bind load. Ran: luajit tests/test_tagged_union_control_to_back.lua; luajit tests/test_tagged_union_to_back.lua; luajit tests/test_tagged_union_type_layout.lua; luajit tests/test_back_validate.lua; luajit tests/test_parse_typecheck.lua; luajit tests/test_c_backend_phase_boundaries.lua; luajit tests/test_tree_to_c_smoke.lua.",
+			"evidence": "Wired variant switch control facts and native control lowering. lua/lalin/tree_control_facts.lua now emits ControlFactVariantSwitch/ControlVariantArmFact entries for typed variant StmtSwitch arms with payload bind params, using variant definitions when supplied. lua/lalin/tree_control_to_back.lua receives shared variant layout helpers from tree_to_back and lowers variant switches inside control regions by loading __tag, switching on declared tags, loading scalar payload binds into arm-local bindings, and preserving shared tag/payload representation. Added tests/test_tagged_union_control_to_back.lua proving control facts include variant switch facts and native BackCmd lowering emits tag switch plus payload bind load. Ran: luajit tests/test_tagged_union_control_to_back.lua; luajit tests/test_tagged_union_to_back.lua; luajit tests/test_tagged_union_type_layout.lua; luajit tests/test_back_validate.lua; luajit tests/test_parse_typecheck.lua; luajit tests/test_c_backend_phase_boundaries.lua; luajit tests/test_tree_to_c_smoke.lua.",
 			"notes": [],
 			"createdAt": "2026-06-08T14:12:17.390Z",
 			"updatedAt": "2026-06-08T14:22:56.610Z"
@@ -121,7 +121,7 @@
 			"id": "T006",
 			"title": "Implement native parity for constructors and variant switches",
 			"detail": "Add tree_to_back/tree_control_to_back lowering for ExprCtor, variant switch statement arms, variant switch expression arms, VariantBind, and ControlVariantArmFact using the same representation from the design. This prevents the C backend from having C-only semantics. Depends on the schema/control plumbing tasks that make variant switch expressions and control facts real typed input.",
-			"file": "lua/moonlift/tree_to_back.lua",
+			"file": "lua/lalin/tree_to_back.lua",
 			"after": [
 				"T005",
 				"T019",
@@ -130,7 +130,7 @@
 			"status": "done",
 			"order": 6,
 			"claimedBy": "agent-GBE8GA",
-			"evidence": "Completed native tagged-union parity for the prerequisites now available. Existing ExprCtor and variant statement switch lowering remains in lua/moonlift/tree_to_back.lua; added native ExprSwitch.variant_arms lowering that reads __tag, switches on declared variant tags, establishes scalar payload VariantBind locals, evaluates arm/default bodies/results, and joins through a result block param. Control variant facts/lowering from T020 covers ControlVariantArmFact in native control regions. Updated tests/test_tagged_union_to_back.lua to include variant switch expression lowering and payload bind load proof. Ran: luajit tests/test_tagged_union_to_back.lua; luajit tests/test_tagged_union_control_to_back.lua; luajit tests/test_tagged_union_type_layout.lua; luajit tests/test_back_validate.lua; luajit tests/test_parse_typecheck.lua; luajit tests/test_c_backend_phase_boundaries.lua.",
+			"evidence": "Completed native tagged-union parity for the prerequisites now available. Existing ExprCtor and variant statement switch lowering remains in lua/lalin/tree_to_back.lua; added native ExprSwitch.variant_arms lowering that reads __tag, switches on declared variant tags, establishes scalar payload VariantBind locals, evaluates arm/default bodies/results, and joins through a result block param. Control variant facts/lowering from T020 covers ControlVariantArmFact in native control regions. Updated tests/test_tagged_union_to_back.lua to include variant switch expression lowering and payload bind load proof. Ran: luajit tests/test_tagged_union_to_back.lua; luajit tests/test_tagged_union_control_to_back.lua; luajit tests/test_tagged_union_type_layout.lua; luajit tests/test_back_validate.lua; luajit tests/test_parse_typecheck.lua; luajit tests/test_c_backend_phase_boundaries.lua.",
 			"notes": [
 				"Blocker resolved structurally by adding T019/T020 prerequisites instead of forcing backend code to invent absent schema/control inputs."
 			],
@@ -141,7 +141,7 @@
 			"id": "T007",
 			"title": "Implement C lowering for constructors and variant switches",
 			"detail": "Add tree_to_c/tree_control_to_c lowering for ExprCtor, variant switch statement arms, variant switch expression arms, VariantBind, and ControlVariantArmFact. Emit tag tests, payload access, bind locals, constructors, and result/control joins through CBackend places/CFG.",
-			"file": "lua/moonlift/tree_to_c.lua",
+			"file": "lua/lalin/tree_to_c.lua",
 			"after": [
 				"T005",
 				"T006"
@@ -149,7 +149,7 @@
 			"status": "done",
 			"order": 7,
 			"claimedBy": "agent-GBE8GA",
-			"evidence": "Implemented C tagged-union lowering using the shared tag/payload representation. Changes include lua/moonlift/c_layout.lua declaring enum/tagged-union layout structs instead of opaque decls, lua/moonlift/tree_to_c.lua lowering ExprCtor with zero/tag/payload stores plus variant statement/expression switches with tag loads, payload VariantBind locals, CFG cases/default/join, and lua/moonlift/tree_control_to_c.lua lowering variant StmtSwitch in control regions with the same helpers. Added tests/test_tagged_union_to_c.lua covering constructor, statement variant switch, expression variant switch, control-region variant switch, C validation, emitted C syntax, and tag/payload fields. Updated tests/test_c_backend_negative.lua so unknown constructors remain diagnostic instead of expecting all ExprCtor to be backend-rejected. Ran: luajit tests/test_tagged_union_to_c.lua; luajit tests/test_c_backend_negative.lua; luajit tests/test_tree_to_c_smoke.lua; luajit tests/test_c_validate.lua; luajit tests/test_c_backend_phase_boundaries.lua; luajit tests/test_tagged_union_type_layout.lua; luajit tests/test_tagged_union_to_back.lua.",
+			"evidence": "Implemented C tagged-union lowering using the shared tag/payload representation. Changes include lua/lalin/c_layout.lua declaring enum/tagged-union layout structs instead of opaque decls, lua/lalin/tree_to_c.lua lowering ExprCtor with zero/tag/payload stores plus variant statement/expression switches with tag loads, payload VariantBind locals, CFG cases/default/join, and lua/lalin/tree_control_to_c.lua lowering variant StmtSwitch in control regions with the same helpers. Added tests/test_tagged_union_to_c.lua covering constructor, statement variant switch, expression variant switch, control-region variant switch, C validation, emitted C syntax, and tag/payload fields. Updated tests/test_c_backend_negative.lua so unknown constructors remain diagnostic instead of expecting all ExprCtor to be backend-rejected. Ran: luajit tests/test_tagged_union_to_c.lua; luajit tests/test_c_backend_negative.lua; luajit tests/test_tree_to_c_smoke.lua; luajit tests/test_c_validate.lua; luajit tests/test_c_backend_phase_boundaries.lua; luajit tests/test_tagged_union_type_layout.lua; luajit tests/test_tagged_union_to_back.lua.",
 			"notes": [],
 			"createdAt": "2026-06-08T13:21:32.106Z",
 			"updatedAt": "2026-06-08T14:32:29.744Z"
@@ -158,14 +158,14 @@
 			"id": "T008",
 			"title": "Update coverage matrix to support tagged unions",
 			"detail": "Reclassify ExprCtor, TypeDeclEnumSugar, TypeDeclTaggedUnionSugar, SwitchVariantStmtArm, SwitchVariantExprArm, VariantBind, and ControlVariantArmFact from backend_todo/language_rejected to supported once native and C lowering are implemented. The no-backend-todo proof must pass for these rows.",
-			"file": "lua/moonlift/c_coverage.lua",
+			"file": "lua/lalin/c_coverage.lua",
 			"after": [
 				"T007"
 			],
 			"status": "done",
 			"order": 8,
 			"claimedBy": "agent-GBE8GA",
-			"evidence": "Updated lua/moonlift/c_coverage.lua to mark ExprCtor, TypeDeclEnumSugar, TypeDeclTaggedUnionSugar, SwitchVariantStmtArm, SwitchVariantExprArm, VariantBind, and ControlVariantArmFact as supported with reasons tied to shared tag/payload lowering. Verified the no-backend-todo gate now passes in final mode. Ran: luajit tests/test_c_backend_coverage_matrix.lua; MOONLIFT_C_BACKEND_FINAL=1 luajit tests/test_c_backend_coverage_matrix.lua; luajit tests/test_tagged_union_to_c.lua; luajit tests/test_c_backend_negative.lua; luajit tests/test_tree_to_c_smoke.lua.",
+			"evidence": "Updated lua/lalin/c_coverage.lua to mark ExprCtor, TypeDeclEnumSugar, TypeDeclTaggedUnionSugar, SwitchVariantStmtArm, SwitchVariantExprArm, VariantBind, and ControlVariantArmFact as supported with reasons tied to shared tag/payload lowering. Verified the no-backend-todo gate now passes in final mode. Ran: luajit tests/test_c_backend_coverage_matrix.lua; LALIN_C_BACKEND_FINAL=1 luajit tests/test_c_backend_coverage_matrix.lua; luajit tests/test_tagged_union_to_c.lua; luajit tests/test_c_backend_negative.lua; luajit tests/test_tree_to_c_smoke.lua.",
 			"notes": [],
 			"createdAt": "2026-06-08T13:21:32.106Z",
 			"updatedAt": "2026-06-08T14:35:26.074Z"
@@ -174,7 +174,7 @@
 			"id": "T009",
 			"title": "Settle dynamic array length policy",
 			"detail": "Decide and implement ArrayLenExpr handling: either constant-fold it before layout into ArrayLenConst, or reject it during typechecking with a frontend diagnostic. It must not be a backend-level rejection. Update type_to_c and coverage accordingly.",
-			"file": "lua/moonlift/tree_typecheck.lua",
+			"file": "lua/lalin/tree_typecheck.lua",
 			"after": [
 				"T001"
 			],
@@ -195,7 +195,7 @@
 			"status": "done",
 			"order": 10,
 			"claimedBy": "agent-HB3E05",
-			"evidence": "Added tests/test_c_helpers_runtime.lua, which emits C helper definitions, compiles with cc, and executes edge checks for signed wrapping arithmetic, div/rem trap cases, unsigned div non-trap, masked shifts/rotates, clz/ctz zero, bswap widths, float-to-int cast sample, bool normalization, and memcpy load/store through unaligned byte addresses. Fixed lua/moonlift/c_helpers.lua shift/div-rem helper emission for signed AShr and unsigned div/rem min/-1 handling. Ran: luajit tests/test_c_helpers_runtime.lua && luajit tests/test_c_helpers.lua && luajit tests/test_c_emit.lua.",
+			"evidence": "Added tests/test_c_helpers_runtime.lua, which emits C helper definitions, compiles with cc, and executes edge checks for signed wrapping arithmetic, div/rem trap cases, unsigned div non-trap, masked shifts/rotates, clz/ctz zero, bswap widths, float-to-int cast sample, bool normalization, and memcpy load/store through unaligned byte addresses. Fixed lua/lalin/c_helpers.lua shift/div-rem helper emission for signed AShr and unsigned div/rem min/-1 handling. Ran: luajit tests/test_c_helpers_runtime.lua && luajit tests/test_c_helpers.lua && luajit tests/test_c_emit.lua.",
 			"notes": [],
 			"createdAt": "2026-06-08T13:21:32.106Z",
 			"updatedAt": "2026-06-08T13:49:34.361Z"
@@ -203,13 +203,13 @@
 		{
 			"id": "T011",
 			"title": "Add gcc compile-run harness",
-			"detail": "Create a reusable test helper that takes Moonlift source, emits C with moon.emit_c, compiles with gcc/cc, runs an executable or shared object, and compares return values/output. This is the real user-facing acceptance path.",
+			"detail": "Create a reusable test helper that takes Lalin source, emits C with lalin.emit_c, compiles with gcc/cc, runs an executable or shared object, and compares return values/output. This is the real user-facing acceptance path.",
 			"file": "tests/test_c_gcc_harness.lua",
 			"after": [],
 			"status": "done",
 			"order": 11,
 			"claimedBy": "agent-HB3E05",
-			"evidence": "Added reusable tests/test_c_gcc_harness.lua exposing emit_c_source, compile_c, compile_shared, run_executable, compile_run, and assert_return helpers. The self-test emits C via moon.emit_c, compiles/runs executable wrappers for add_i32 and sum_to, and also compiles emitted C as a shared object. Ran: luajit tests/test_c_gcc_harness.lua && luajit tests/test_emit_c_api.lua.",
+			"evidence": "Added reusable tests/test_c_gcc_harness.lua exposing emit_c_source, compile_c, compile_shared, run_executable, compile_run, and assert_return helpers. The self-test emits C via lalin.emit_c, compiles/runs executable wrappers for add_i32 and sum_to, and also compiles emitted C as a shared object. Ran: luajit tests/test_c_gcc_harness.lua && luajit tests/test_emit_c_api.lua.",
 			"notes": [],
 			"createdAt": "2026-06-08T13:21:32.106Z",
 			"updatedAt": "2026-06-08T13:51:08.302Z"
@@ -218,7 +218,7 @@
 			"id": "T021",
 			"title": "Fix pointer and view gcc runtime semantics",
 			"detail": "Correct blockers for T012/T015: pointer index/store and view indexing currently compile but produce wrong gcc runtime results. Debug using tests/test_c_gcc_feature_corpus.lua; fix c_places/tree_to_c/c_emit/type_to_c so ptr(T) indexing, deref/address-of, stores, view descriptor construction, and view indexing beyond v[0] have correct C semantics and runtime results.",
-			"file": "lua/moonlift/tree_to_c.lua",
+			"file": "lua/lalin/tree_to_c.lua",
 			"after": [
 				"T011"
 			],
@@ -233,17 +233,17 @@
 		{
 			"id": "T023",
 			"title": "Add optional libtcc LuaJIT FFI runner",
-			"detail": "Create a self-contained optional LuaJIT FFI binding for libtcc. It should detect availability without hard failure, expose `available()`, `compile(c_source, opts)`, `symbol(name, ctype)`, and `free()`, support adding include/library paths and host symbols, compile Moonlift-emitted C in memory when libtcc is present, and return clear skip/error diagnostics when libtcc is absent. Do not make normal moonlift require fail if libtcc is missing.",
-			"file": "lua/moonlift/c_tcc.lua",
+			"detail": "Create a self-contained optional LuaJIT FFI binding for libtcc. It should detect availability without hard failure, expose `available()`, `compile(c_source, opts)`, `symbol(name, ctype)`, and `free()`, support adding include/library paths and host symbols, compile Lalin-emitted C in memory when libtcc is present, and return clear skip/error diagnostics when libtcc is absent. Do not make normal lalin require fail if libtcc is missing.",
+			"file": "lua/lalin/c_tcc.lua",
 			"after": [
 				"T011"
 			],
 			"status": "done",
 			"order": 11.7,
 			"claimedBy": "agent-30XQ5K",
-			"evidence": "Added optional self-contained LuaJIT FFI libtcc binding in lua/moonlift/c_tcc.lua. It lazy-loads libtcc from MOONLIFT_LIBTCC/standard names, never fails require on absent ffi/libtcc, exposes available(), compile(), module/session symbol(), and free(), supports include/sysinclude/library paths, libraries, defines/undefines, tcc options, host symbols, in-memory compile+relocate, and structured skip/error diagnostics. Added tests/test_c_tcc.lua proving absence skip behavior here and exercising compile/symbol/free when libtcc is available. Ran: luajit tests/test_c_tcc.lua (libtcc absent; optional skip path passed).",
+			"evidence": "Added optional self-contained LuaJIT FFI libtcc binding in lua/lalin/c_tcc.lua. It lazy-loads libtcc from LALIN_LIBTCC/standard names, never fails require on absent ffi/libtcc, exposes available(), compile(), module/session symbol(), and free(), supports include/sysinclude/library paths, libraries, defines/undefines, tcc options, host symbols, in-memory compile+relocate, and structured skip/error diagnostics. Added tests/test_c_tcc.lua proving absence skip behavior here and exercising compile/symbol/free when libtcc is available. Ran: luajit tests/test_c_tcc.lua (libtcc absent; optional skip path passed).",
 			"notes": [
-				"User explicitly wants TCC so Moonlift->C can 'just work' quickly. libtcc must be optional and self-written via LuaJIT FFI; absence should skip, not break."
+				"User explicitly wants TCC so Lalin->C can 'just work' quickly. libtcc must be optional and self-written via LuaJIT FFI; absence should skip, not break."
 			],
 			"createdAt": "2026-06-08T14:47:49.172Z",
 			"updatedAt": "2026-06-08T14:50:13.173Z"
@@ -251,7 +251,7 @@
 		{
 			"id": "T024",
 			"title": "Prefer TCC in the C compile-run harness",
-			"detail": "Evolve the gcc harness into a generic C runner that prefers `MOONLIFT_C_CC`, then tcc, then cc/gcc/clang for subprocess compilation, and uses `moonlift.c_tcc` in-memory mode when `MOONLIFT_C_USE_LIBTCC=1` and libtcc is available. Keep old require path working for compatibility, but update names/messages to say C compiler/TCC harness rather than gcc-only.",
+			"detail": "Evolve the gcc harness into a generic C runner that prefers `LALIN_C_CC`, then tcc, then cc/gcc/clang for subprocess compilation, and uses `lalin.c_tcc` in-memory mode when `LALIN_C_USE_LIBTCC=1` and libtcc is available. Keep old require path working for compatibility, but update names/messages to say C compiler/TCC harness rather than gcc-only.",
 			"file": "tests/test_c_gcc_harness.lua",
 			"after": [
 				"T023"
@@ -259,7 +259,7 @@
 			"status": "done",
 			"order": 11.8,
 			"claimedBy": "agent-30XQ5K",
-			"evidence": "Evolved tests/test_c_gcc_harness.lua into a generic C compiler/TCC harness while preserving the old require path and have_cc alias. It now chooses MOONLIFT_C_CC first, then tcc, then cc/gcc/clang; records compiler/mode metadata; supports subprocess compile/run and shared builds; and, when MOONLIFT_C_USE_LIBTCC=1, tries moonlift.c_tcc in-memory main() execution with clear absent-lib fallback to subprocess compilation. Ran: luajit tests/test_c_gcc_harness.lua; MOONLIFT_C_USE_LIBTCC=1 luajit tests/test_c_gcc_harness.lua (libtcc absent here, fallback to cc proven); luajit tests/test_c_tcc.lua; luajit tests/test_c_gcc_feature_corpus.lua.",
+			"evidence": "Evolved tests/test_c_gcc_harness.lua into a generic C compiler/TCC harness while preserving the old require path and have_cc alias. It now chooses LALIN_C_CC first, then tcc, then cc/gcc/clang; records compiler/mode metadata; supports subprocess compile/run and shared builds; and, when LALIN_C_USE_LIBTCC=1, tries lalin.c_tcc in-memory main() execution with clear absent-lib fallback to subprocess compilation. Ran: luajit tests/test_c_gcc_harness.lua; LALIN_C_USE_LIBTCC=1 luajit tests/test_c_gcc_harness.lua (libtcc absent here, fallback to cc proven); luajit tests/test_c_tcc.lua; luajit tests/test_c_gcc_feature_corpus.lua.",
 			"notes": [
 				"Keep gcc/clang compatibility, but make TCC the preferred dev-loop compiler when installed."
 			],
@@ -278,7 +278,7 @@
 			"status": "done",
 			"order": 11.9,
 			"claimedBy": "agent-30XQ5K",
-			"evidence": "Completed tests/test_c_gcc_feature_corpus.lua with no known-gap list: arrays/aggregate literals, string-backed data globals, C11 atomics (with availability probe), and closure descriptor calls now compile/run through the generic TCC/C harness. Fixed supporting C backend gaps: lua/moonlift/init.lua now forwards c_target into emit_c; lua/moonlift/tree_to_c.lua emits string data globals, uses pointer values for ptr view/index lowering, and lowers closure descriptor calls; lua/moonlift/c_abi.lua gives closure function pointers an explicit ctx parameter; lua/moonlift/c_emit.lua emits named closure descriptor structs and byte global initializers; lua/moonlift/c_helpers.lua makes atomic CAS return the old scalar value and types atomic helper pointer params; lua/moonlift/c_validate.lua accepts void*/typed pointer compatibility and array-to-pointer decay. Ran: luajit tests/test_c_gcc_feature_corpus.lua (passed with tcc selected, no skips printed); luajit tests/test_tree_to_c_smoke.lua; luajit tests/test_c_gcc_harness.lua; luajit tests/test_c_validate.lua; luajit tests/test_c_helpers_runtime.lua; luajit tests/test_c_backend_phase_boundaries.lua; luajit tests/test_tagged_union_to_c.lua; luajit tests/test_c_backend_negative.lua.",
+			"evidence": "Completed tests/test_c_gcc_feature_corpus.lua with no known-gap list: arrays/aggregate literals, string-backed data globals, C11 atomics (with availability probe), and closure descriptor calls now compile/run through the generic TCC/C harness. Fixed supporting C backend gaps: lua/lalin/init.lua now forwards c_target into emit_c; lua/lalin/tree_to_c.lua emits string data globals, uses pointer values for ptr view/index lowering, and lowers closure descriptor calls; lua/lalin/c_abi.lua gives closure function pointers an explicit ctx parameter; lua/lalin/c_emit.lua emits named closure descriptor structs and byte global initializers; lua/lalin/c_helpers.lua makes atomic CAS return the old scalar value and types atomic helper pointer params; lua/lalin/c_validate.lua accepts void*/typed pointer compatibility and array-to-pointer decay. Ran: luajit tests/test_c_gcc_feature_corpus.lua (passed with tcc selected, no skips printed); luajit tests/test_tree_to_c_smoke.lua; luajit tests/test_c_gcc_harness.lua; luajit tests/test_c_validate.lua; luajit tests/test_c_helpers_runtime.lua; luajit tests/test_c_backend_phase_boundaries.lua; luajit tests/test_tagged_union_to_c.lua; luajit tests/test_c_backend_negative.lua.",
 			"notes": [],
 			"createdAt": "2026-06-08T14:12:17.390Z",
 			"updatedAt": "2026-06-08T15:05:07.460Z"
@@ -297,7 +297,7 @@
 			"status": "done",
 			"order": 12,
 			"claimedBy": "agent-30XQ5K",
-			"evidence": "Expanded tests/test_c_gcc_feature_corpus.lua into a full source-oriented C backend corpus using the generic TCC/C harness: scalars/casts/div/rem/shift/bool/select/logic, block/jump/yield regions, nonterminal if/switch, expression switch/block, assignment, pointers/deref/load/store, structs, arrays/aggregates, string data globals, strided views, function pointers, closure descriptor calls, externs, source parsed tagged-union constructor+variant switch, and C11 atomics when the selected compiler supports stdatomic. Implemented source parsing/plumbing for Type.variant(args) constructors through parse/open expand/open facts/open rewrite/closure conversion/bind residence so tagged-union source reaches emit_c. Verified both fast TCC and cc paths: luajit tests/test_c_gcc_feature_corpus.lua (auto selected tcc, no skips); MOONLIFT_C_CC=cc luajit tests/test_c_gcc_feature_corpus.lua; plus luajit tests/test_tagged_union_type_layout.lua; luajit tests/test_parse_typecheck.lua; luajit tests/test_c_gcc_tagged_union.lua.",
+			"evidence": "Expanded tests/test_c_gcc_feature_corpus.lua into a full source-oriented C backend corpus using the generic TCC/C harness: scalars/casts/div/rem/shift/bool/select/logic, block/jump/yield regions, nonterminal if/switch, expression switch/block, assignment, pointers/deref/load/store, structs, arrays/aggregates, string data globals, strided views, function pointers, closure descriptor calls, externs, source parsed tagged-union constructor+variant switch, and C11 atomics when the selected compiler supports stdatomic. Implemented source parsing/plumbing for Type.variant(args) constructors through parse/open expand/open facts/open rewrite/closure conversion/bind residence so tagged-union source reaches emit_c. Verified both fast TCC and cc paths: luajit tests/test_c_gcc_feature_corpus.lua (auto selected tcc, no skips); LALIN_C_CC=cc luajit tests/test_c_gcc_feature_corpus.lua; plus luajit tests/test_tagged_union_type_layout.lua; luajit tests/test_parse_typecheck.lua; luajit tests/test_c_gcc_tagged_union.lua.",
 			"notes": [
 				"Blocker resolved structurally by adding T021/T022 prerequisites for pointer/view runtime and remaining corpus gaps."
 			],
@@ -316,7 +316,7 @@
 			"status": "done",
 			"order": 13,
 			"claimedBy": "agent-GBE8GA",
-			"evidence": "Added tests/test_c_gcc_tagged_union.lua. The test builds typed MoonTree with enum/tagged-union declarations, ExprCtor constructors, variant switch statements, variant switch expressions, payload binds, default arms, and an impossible-arm negative typecheck proof; lowers to C, validates CBackend, compiles with cc, and runs a main checking enum_red/tag_stmt/tag_expr/tag_default return values. Ran: luajit tests/test_c_gcc_tagged_union.lua.",
+			"evidence": "Added tests/test_c_gcc_tagged_union.lua. The test builds typed LalinTree with enum/tagged-union declarations, ExprCtor constructors, variant switch statements, variant switch expressions, payload binds, default arms, and an impossible-arm negative typecheck proof; lowers to C, validates CBackend, compiles with cc, and runs a main checking enum_red/tag_stmt/tag_expr/tag_default return values. Ran: luajit tests/test_c_gcc_tagged_union.lua.",
 			"notes": [],
 			"createdAt": "2026-06-08T13:21:32.106Z",
 			"updatedAt": "2026-06-08T14:44:03.825Z"
@@ -333,7 +333,7 @@
 			"status": "done",
 			"order": 14,
 			"claimedBy": "agent-30XQ5K",
-			"evidence": "Added tests/test_c_full_semantic_equivalence.lua comparing Cranelift/JIT results against Moonlift source -> emit_c -> selected C compiler/TCC results for scalar/cast/logic, control/block/switch, arrays/aggregates, and pointer load/store cases. The test computes expected values by compiling/running the same Moonlift functions through JIT, then checks C output with the generic harness; it prints skips only if the JIT itself is unavailable. Ran: luajit tests/test_c_full_semantic_equivalence.lua (no skips); luajit tests/test_c_gcc_feature_corpus.lua; MOONLIFT_C_CC=cc luajit tests/test_c_gcc_feature_corpus.lua. Tagged-union C runtime remains covered by tests/test_c_gcc_tagged_union.lua and source compile-run by tests/test_c_gcc_feature_corpus.lua, not by this JIT equivalence file because the hosted mlua local-union path does not currently construct the same source module shape.",
+			"evidence": "Added tests/test_c_full_semantic_equivalence.lua comparing Cranelift/JIT results against Lalin source -> emit_c -> selected C compiler/TCC results for scalar/cast/logic, control/block/switch, arrays/aggregates, and pointer load/store cases. The test computes expected values by compiling/running the same Lalin functions through JIT, then checks C output with the generic harness; it prints skips only if the JIT itself is unavailable. Ran: luajit tests/test_c_full_semantic_equivalence.lua (no skips); luajit tests/test_c_gcc_feature_corpus.lua; LALIN_C_CC=cc luajit tests/test_c_gcc_feature_corpus.lua. Tagged-union C runtime remains covered by tests/test_c_gcc_tagged_union.lua and source compile-run by tests/test_c_gcc_feature_corpus.lua, not by this JIT equivalence file because the hosted mlua local-union path does not currently construct the same source module shape.",
 			"notes": [],
 			"createdAt": "2026-06-08T13:21:32.106Z",
 			"updatedAt": "2026-06-08T15:10:19.877Z"
@@ -361,7 +361,7 @@
 		{
 			"id": "T025",
 			"title": "Add TCC user-facing quick loop examples",
-			"detail": "Add examples and runner support showing Moonlift source -> moon.emit_c -> tcc/libtcc -> run. The example runner should prefer TCC for fast iteration, fall back to cc if unavailable, and print the exact compiler mode used. Include docs explaining how to install/use tcc/libtcc and how `MOONLIFT_C_CC=tcc` / `MOONLIFT_C_USE_LIBTCC=1` affect tests.",
+			"detail": "Add examples and runner support showing Lalin source -> lalin.emit_c -> tcc/libtcc -> run. The example runner should prefer TCC for fast iteration, fall back to cc if unavailable, and print the exact compiler mode used. Include docs explaining how to install/use tcc/libtcc and how `LALIN_C_CC=tcc` / `LALIN_C_USE_LIBTCC=1` affect tests.",
 			"file": "examples/c_backend",
 			"after": [
 				"T024"
@@ -369,7 +369,7 @@
 			"status": "done",
 			"order": 15.5,
 			"claimedBy": "agent-30XQ5K",
-			"evidence": "Updated examples/c_backend/run_examples.lua to use the TCC fast path: MOONLIFT_C_CC override first, then tcc, then cc/gcc/clang, printing the exact mode per example. Added optional MOONLIFT_C_USE_LIBTCC=1 in-memory execution through moonlift.c_tcc with clear absent-libtcc skip diagnostics and subprocess fallback. Updated examples/c_backend/README.md with TCC/libtcc install/use knobs. Ran: luajit examples/c_backend/run_examples.lua (tcc subprocess); MOONLIFT_C_USE_LIBTCC=1 luajit examples/c_backend/run_examples.lua (libtcc absent, skip diagnostics + tcc fallback); MOONLIFT_C_CC=cc luajit examples/c_backend/run_examples.lua.",
+			"evidence": "Updated examples/c_backend/run_examples.lua to use the TCC fast path: LALIN_C_CC override first, then tcc, then cc/gcc/clang, printing the exact mode per example. Added optional LALIN_C_USE_LIBTCC=1 in-memory execution through lalin.c_tcc with clear absent-libtcc skip diagnostics and subprocess fallback. Updated examples/c_backend/README.md with TCC/libtcc install/use knobs. Ran: luajit examples/c_backend/run_examples.lua (tcc subprocess); LALIN_C_USE_LIBTCC=1 luajit examples/c_backend/run_examples.lua (libtcc absent, skip diagnostics + tcc fallback); LALIN_C_CC=cc luajit examples/c_backend/run_examples.lua.",
 			"notes": [],
 			"createdAt": "2026-06-08T14:47:49.172Z",
 			"updatedAt": "2026-06-08T15:12:25.730Z"
@@ -378,7 +378,7 @@
 			"id": "T016",
 			"title": "Remove backend TODO rows from coverage",
 			"detail": "Once implementation and tests pass, ensure the coverage matrix has no backend_todo rows. Any phase_unreachable row must have a phase-boundary test. Any language_rejected row must have frontend/native parity diagnostics. This is the gate before claiming complete.",
-			"file": "lua/moonlift/c_coverage.lua",
+			"file": "lua/lalin/c_coverage.lua",
 			"after": [
 				"T002",
 				"T003",
@@ -389,7 +389,7 @@
 			"status": "done",
 			"order": 16,
 			"claimedBy": "agent-30XQ5K",
-			"evidence": "Verified final coverage gate has no backend_todo rows. Ran: MOONLIFT_C_BACKEND_FINAL=1 luajit tests/test_c_backend_coverage_matrix.lua (passed). Also confirmed c_coverage.lua only retains the status definition/helper string for backend_todo, not active coverage rows.",
+			"evidence": "Verified final coverage gate has no backend_todo rows. Ran: LALIN_C_BACKEND_FINAL=1 luajit tests/test_c_backend_coverage_matrix.lua (passed). Also confirmed c_coverage.lua only retains the status definition/helper string for backend_todo, not active coverage rows.",
 			"notes": [],
 			"createdAt": "2026-06-08T13:21:32.106Z",
 			"updatedAt": "2026-06-08T15:12:43.658Z"
@@ -410,7 +410,7 @@
 			"status": "done",
 			"order": 17,
 			"claimedBy": "agent-30XQ5K",
-			"evidence": "Ran final C backend acceptance suite successfully. Commands: MOONLIFT_C_BACKEND_FINAL=1 luajit tests/test_c_backend_coverage_matrix.lua; luajit tests/test_c_backend_phase_boundaries.lua; luajit tests/test_c_helpers_runtime.lua; luajit tests/test_c_gcc_harness.lua (auto tcc subprocess); MOONLIFT_C_USE_LIBTCC=1 luajit tests/test_c_gcc_harness.lua (libtcc absent, fallback used); luajit tests/test_c_gcc_feature_corpus.lua (auto tcc); MOONLIFT_C_CC=cc luajit tests/test_c_gcc_feature_corpus.lua; luajit tests/test_c_gcc_tagged_union.lua; luajit tests/test_c_full_semantic_equivalence.lua; luajit examples/c_backend/run_examples.lua (tcc subprocess); MOONLIFT_C_USE_LIBTCC=1 luajit examples/c_backend/run_examples.lua (libtcc absent, tcc fallback); luajit tests/test_tree_to_c_smoke.lua; luajit tests/test_emit_c_api.lua; luajit tests/test_c_validate.lua; luajit tests/test_parse_typecheck.lua; luajit tests/test_back_validate.lua; luajit tests/test_back_add_i32.lua. All passed; warnings were compiler warnings for unused labels/helpers only. Compiler modes observed: tcc subprocess auto fast path, cc forced compatibility path, libtcc absent with clear skip/fallback.",
+			"evidence": "Ran final C backend acceptance suite successfully. Commands: LALIN_C_BACKEND_FINAL=1 luajit tests/test_c_backend_coverage_matrix.lua; luajit tests/test_c_backend_phase_boundaries.lua; luajit tests/test_c_helpers_runtime.lua; luajit tests/test_c_gcc_harness.lua (auto tcc subprocess); LALIN_C_USE_LIBTCC=1 luajit tests/test_c_gcc_harness.lua (libtcc absent, fallback used); luajit tests/test_c_gcc_feature_corpus.lua (auto tcc); LALIN_C_CC=cc luajit tests/test_c_gcc_feature_corpus.lua; luajit tests/test_c_gcc_tagged_union.lua; luajit tests/test_c_full_semantic_equivalence.lua; luajit examples/c_backend/run_examples.lua (tcc subprocess); LALIN_C_USE_LIBTCC=1 luajit examples/c_backend/run_examples.lua (libtcc absent, tcc fallback); luajit tests/test_tree_to_c_smoke.lua; luajit tests/test_emit_c_api.lua; luajit tests/test_c_validate.lua; luajit tests/test_parse_typecheck.lua; luajit tests/test_back_validate.lua; luajit tests/test_back_add_i32.lua. All passed; warnings were compiler warnings for unused labels/helpers only. Compiler modes observed: tcc subprocess auto fast path, cc forced compatibility path, libtcc absent with clear skip/fallback.",
 			"notes": [],
 			"createdAt": "2026-06-08T13:21:32.106Z",
 			"updatedAt": "2026-06-08T15:13:15.110Z"
@@ -426,7 +426,7 @@
 			"status": "done",
 			"order": 18,
 			"claimedBy": "agent-30XQ5K",
-			"evidence": "Updated C_BACKEND_DESIGN.md with §26 Completion status — 2026-06-08, claiming the accepted status as C backend complete native64 / hosted C fast path only after T017 acceptance. The section records the Moonlift source -> moon.emit_c -> TCC/cc -> runnable executable path, TCC/libtcc behavior, exact proof tests/examples, and legitimate phase_unreachable/language_rejected proof references without weakening the complete-backend contract.",
+			"evidence": "Updated C_BACKEND_DESIGN.md with §26 Completion status — 2026-06-08, claiming the accepted status as C backend complete native64 / hosted C fast path only after T017 acceptance. The section records the Lalin source -> lalin.emit_c -> TCC/cc -> runnable executable path, TCC/libtcc behavior, exact proof tests/examples, and legitimate phase_unreachable/language_rejected proof references without weakening the complete-backend contract.",
 			"notes": [],
 			"createdAt": "2026-06-08T13:21:32.106Z",
 			"updatedAt": "2026-06-08T15:13:49.097Z"

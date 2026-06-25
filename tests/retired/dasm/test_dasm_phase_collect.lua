@@ -1,7 +1,7 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A2 = require("moonlift.schema_projection")
+local pvm = require("lalin.pvm")
+local A2 = require("lalin.schema_projection")
 local Collect = require("back.dasm.phases.collect_module")
 local Mx = require("back.dasm.model")
 
@@ -9,9 +9,9 @@ local T = pvm.context()
 A2(T)
 Mx.set_context(T)
 
-local B = T.MoonBack
-local C = T.MoonCore
-local D = T.MoonDasm
+local B = T.LalinBack
+local C = T.LalinCore
+local D = T.LalinDasm
 
 local function sid(t) return B.BackSigId(t) end
 local function fid(t) return B.BackFuncId(t) end

@@ -4,7 +4,7 @@
 -- bytes, typed holes, relocations, symbols, ABI, and placement. They must not
 -- encode Lua opcode/protocol semantics or old backend descriptor identities.
 
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local B = require("lua_compile.builders")
 local T = B.T
 local S = T.Stencil
@@ -78,7 +78,7 @@ local function validate_variant_key(variant, errors, opts)
     add(errors, "RuntimeBoundaryStencil requires explicit allow_runtime_boundary")
   end
   if not T.Stencil.StencilKind.members[cls(variant.stencil_kind)] then add(errors, "variant has invalid StencilKind") end
-  if not T.MoonCFG.KernelKind.members[cls(variant.kernel_kind)] then add(errors, "variant has invalid MoonCFG.KernelKind") end
+  if not T.LalinCFG.KernelKind.members[cls(variant.kernel_kind)] then add(errors, "variant has invalid LalinCFG.KernelKind") end
   if not is(variant.contract, T.CompileContract.Contract) then add(errors, "variant contract must be CompileContract.Contract") end
   if not is(variant.placement, S.Placement) then add(errors, "variant placement must be Stencil.Placement") end
   if not is(variant.target_abi, S.TargetABI) then add(errors, "variant target_abi must be Stencil.TargetABI") end

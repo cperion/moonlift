@@ -1,7 +1,7 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A2 = require("moonlift.schema_projection")
+local pvm = require("lalin.pvm")
+local A2 = require("lalin.schema_projection")
 local E = require("back.dasm.phases.emit_dynasm")
 local L = require("back.dasm.phases.link_encode")
 local Mx = require("back.dasm.model")
@@ -9,7 +9,7 @@ local Mx = require("back.dasm.model")
 local T = pvm.context()
 A2(T)
 Mx.set_context(T)
-local D = T.MoonDasm
+local D = T.LalinDasm
 
 local payload = E.run({
     D.DFragment(0, {}, string.char(0x90)),

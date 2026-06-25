@@ -1,7 +1,7 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A2 = require("moonlift.schema_projection")
+local pvm = require("lalin.pvm")
+local A2 = require("lalin.schema_projection")
 local BuildCfg = require("back.dasm.phases.build_cfg")
 local Phi = require("back.dasm.phases.phi_lower")
 local Select = require("back.dasm.phases.select_mir")
@@ -10,8 +10,8 @@ local Mx = require("back.dasm.model")
 local T = pvm.context()
 A2(T)
 Mx.set_context(T)
-local D = T.MoonDasm
-local B = T.MoonBack
+local D = T.LalinDasm
+local B = T.LalinBack
 
 local body = {
     B.CmdCreateBlock(B.BackBlockId("entry")),

@@ -5,20 +5,20 @@
 -- region emits. The only emitted regions here are bounded helpers (lexer and
 -- product vector operations).
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local pconst = require("experiments.lua_interpreter_vm.src.parser_constants")
 local lexer = require("experiments.lua_interpreter_vm.src.regions_lexer")
 
 local V = {
     lex_next = lexer.lex_next,
 }
-for k, v in pairs(pconst.Tok) do V["TOK_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.Kw) do V["KW_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.ParseErr) do V["PERR_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.ParseNodeKind) do V["PNODE_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.ParseFrameKind) do V["PFRAME_" .. k] = moon.int(v) end
-for k, v in pairs(pconst.SourcePhase) do V["SOURCE_" .. k] = moon.int(v) end
+for k, v in pairs(pconst.Tok) do V["TOK_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.Kw) do V["KW_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.ParseErr) do V["PERR_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.ParseNodeKind) do V["PNODE_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.ParseFrameKind) do V["PFRAME_" .. k] = lalin.int(v) end
+for k, v in pairs(pconst.SourcePhase) do V["SOURCE_" .. k] = lalin.int(v) end
 
 local source_error_at_current = host.region(V) [[
 region source_error_at_current(cu: ptr(CompileUnit), code: i32;

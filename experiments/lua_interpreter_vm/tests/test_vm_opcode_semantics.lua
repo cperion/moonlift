@@ -1,10 +1,10 @@
--- Focused Lua 5.5 opcode semantic checks for Moonlift VM.
+-- Focused Lua 5.5 opcode semantic checks for Lalin VM.
 
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
 local bit = require("bit")
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
@@ -20,15 +20,15 @@ local function set_Ax(i, op, ax) i.word = pack_Ax(op, ax) end
 local function set_AsC(i, op, a, b, sc, k) i.word = pack_ABC(op, a, b, sc + bytecode.OFFSET_SC, k) end
 local function op_of(i) return bit.band(i.word, 127) end
 
-local libmoon
-for _, p in ipairs({ "libmoonlift", "./target/release/libmoonlift.so", "./target/debug/libmoonlift.so" }) do
+local liblalin
+for _, p in ipairs({ "liblalin", "./target/release/liblalin.so", "./target/debug/liblalin.so" }) do
     local ok, lib = pcall(ffi.load, p)
-    if ok then libmoon = lib; break end
+    if ok then liblalin = lib; break end
 end
-if not libmoon then error("could not load libmoonlift; build with cargo build --release") end
+if not liblalin then error("could not load liblalin; build with cargo build --release") end
 
 ffi.cdef [[
-void* moonlift_scratch_raw(int slot, int elem_size, int count);
+void* lalin_scratch_raw(int slot, int elem_size, int count);
 typedef struct { void* next; uint8_t tt; uint8_t marked; } GCHeader;
 typedef struct { uint32_t tag; uint32_t aux; uint64_t bits; } Value;
 typedef struct Instr { uint32_t word; } Instr;
@@ -75,7 +75,7 @@ typedef struct {
 typedef struct { void* allocator; Value registry; void* mainthread; uint32_t vm_abi_version; uint32_t native_abi_version; } GlobalState;
 ]]
 
-local scratch_raw = libmoon.moonlift_scratch_raw
+local scratch_raw = liblalin.lalin_scratch_raw
 local NEXT_SLOT = 200
 local function scratch(elem_size, count, ctype)
     local slot = NEXT_SLOT
@@ -107,7 +107,7 @@ local function setstr(v, text)
     v.tag = const.Tag.STR; v.aux = 0; v.bits = ffi.cast("uint64_t", s)
 end
 
-local runner = moon.func {
+local runner = lalin.func {
     vm_resume = vm.vm_loop.vm_resume,
     sys_realloc = vm.regions_allocator.sys_realloc,
 } [[

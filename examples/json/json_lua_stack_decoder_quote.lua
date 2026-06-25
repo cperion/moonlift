@@ -1,8 +1,8 @@
--- Moonlift JSON Decoder → Lua stack values
+-- Lalin JSON Decoder → Lua stack values
 --
 -- Generated with plain Lua metaprogramming (string building + loadstring).
--- The same algorithm as the Moonlift decoder, but generated as pure Lua.
--- Shows how Moonlift's metaprogramming philosophy applies to ANY target.
+-- The same algorithm as the Lalin decoder, but generated as pure Lua.
+-- Shows how Lalin's metaprogramming philosophy applies to ANY target.
 --
 -- Run:
 --   luajit examples/json/json_lua_stack_decoder_quote.lua
@@ -240,7 +240,7 @@ L, parsed = decode_into_new_state('{"features":["Splices","Regions","ASDL"]}')
 assert(parsed > 0); close(L)
 
 -- Complex
-L, parsed = decode_into_new_state([[{"name":"Moonlift","fast":true,"version":2.0,"features":["Splices","Regions","ASDL"],"overhead":null}]])
+L, parsed = decode_into_new_state([[{"name":"Lalin","fast":true,"version":2.0,"features":["Splices","Regions","ASDL"],"overhead":null}]])
 assert(parsed > 0); close(L)
 
 -- Error cases
@@ -262,5 +262,5 @@ L, parsed = decode_into_new_state('"\\u0041\\u0042\\u0043"')
 assert(parsed > 0); s = C.lua_tolstring(L, 1, lenp)
 assert(ffi.string(s, tonumber(lenp[0])) == "ABC"); close(L)
 
-print("Moonlift string-built JSON decoder ok")
+print("Lalin string-built JSON decoder ok")
 return { fn = decode_json_str }

@@ -2,7 +2,7 @@
 -- Structural validation only; close execution remains fail-closed until lowered explicitly.
 
 local Schema = require("lua_compile.schema")
-local pvm = require("moonlift.pvm")
+local pvm = require("lalin.pvm")
 local T = Schema.get()
 local RT = T.LuaRT
 local Arity = require("lua_compile.lua_rt_arity_model")

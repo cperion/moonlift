@@ -1,4 +1,4 @@
--- Fair benchmark: C monolithic stencil vs Moonlift VM dispatch
+-- Fair benchmark: C monolithic stencil vs Lalin VM dispatch
 -- Both do the same work: iterate N times executing a bytecode program
 
 local ffi = require("ffi")
@@ -6,13 +6,13 @@ local bit = require("bit")
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
 -- ── C stencil: compile to .so ──────────────────────────────────────────
 
--- The stencil matches the Moonlift VM's inlined ADD exactly:
+-- The stencil matches the Lalin VM's inlined ADD exactly:
 -- 1. Read base, pc from context
 -- 2. Decode instruction operands (A, B, C)
 -- 3. Load lhs (base+B.tag, base+B.bits), rhs (base+C.tag, base+C.bits)
@@ -113,7 +113,7 @@ int stencil_run(Ctx *ctx);
 ]]
 local lib = ffi.load("/tmp/stencil_mono_vm.so")
 
--- ── Moonlift VM infra ──────────────────────────────────────────────────
+-- ── Lalin VM infra ──────────────────────────────────────────────────
 
 local function pack_ABC(op, a, b, c, k)
     return bit.bor(op, bit.lshift(a or 0, 7), bit.lshift(k or 0, 15), bit.lshift(b or 0, 16), bit.lshift(c or 0, 24))
@@ -124,16 +124,16 @@ end
 local function set_ABC(i, op, a, b, c, k) i.word = pack_ABC(op, a, b, c, k) end
 local function set_AsBx(i, op, a, sbx) i.word = pack_AsBx(op, a, sbx) end
 
-ffi.cdef [[ void* moonlift_scratch_raw(int slot, int elem_size, int count); ]]
+ffi.cdef [[ void* lalin_scratch_raw(int slot, int elem_size, int count); ]]
 
 local function load_mlib()
-    for _, n in ipairs({"./target/release/libmoonlift.so","./target/debug/libmoonlift.so","libmoonlift"}) do
+    for _, n in ipairs({"./target/release/liblalin.so","./target/debug/liblalin.so","liblalin"}) do
         local ok, l = pcall(ffi.load, n); if ok then return l end
     end
     error("build first: cargo build --release")
 end
 local ml = load_mlib()
-local scratch_raw = ml.moonlift_scratch_raw
+local scratch_raw = ml.lalin_scratch_raw
 local function S(s, e, c, t) return ffi.cast(t or "uint8_t*", scratch_raw(s, e, c)) end
 
 ffi.cdef [[
@@ -205,8 +205,8 @@ local function reset(thread, stack, frames)
     set_int(stack[1], 42); set_int(stack[2], 99); set_int(stack[3], 7)
 end
 
--- Moonlift runner
-local runner_fn = moon.func { vm_resume = vm.vm_loop.vm_resume } [[
+-- Lalin runner
+local runner_fn = lalin.func { vm_resume = vm.vm_loop.vm_resume } [[
 run(L: ptr(LuaThread), nargs: i32): i32
     return region: i32
     entry start()

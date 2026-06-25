@@ -1,6 +1,6 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local dsl = require("moonlift.dsl")
+local dsl = require("lalin.dsl")
 
 local src = [=[
 return {
@@ -38,7 +38,7 @@ return {
     {}
     [ptr [u8]]
     {
-      ret "hello, moonlift",
+      ret "hello, lalin",
     },
 
   fn. lit
@@ -194,4 +194,4 @@ end)
 assert(not ok)
 assert(tostring(err):match("unknown DSL global"))
 
-print("moonlift lua-owned dsl ok")
+print("lalin lua-owned dsl ok")

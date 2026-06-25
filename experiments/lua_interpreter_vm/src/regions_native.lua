@@ -1,12 +1,12 @@
 -- Lua Interpreter VM — explicit native ABI boundary.
 
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 
 local I = {}
-for k, v in pairs(const.NativeResult) do I["NATIVE_" .. k] = moon.int(v) end
-for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
+for k, v in pairs(const.NativeResult) do I["NATIVE_" .. k] = lalin.int(v) end
+for k, v in pairs(const.Err) do I["ERR_" .. k] = lalin.int(v) end
 
 local invoke_native = host.region(I) [[
 region invoke_native(L: ptr(LuaThread), cl: ptr(CClosure), ctx: NativeCallContext;

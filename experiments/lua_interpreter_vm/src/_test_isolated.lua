@@ -1,12 +1,12 @@
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
-local moon = require("moonlift")
-local host = require("moonlift.host")
+local lalin = require("lalin")
+local host = require("lalin.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 local I = {}
-for k, v in pairs(const.Tag) do I["TAG_" .. k] = moon.int(v) end
-for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
-for k, v in pairs(const.Resume) do I["RESUME_" .. k] = moon.int(v) end
-for k, v in pairs(const.TM) do I["TM_" .. k] = moon.int(v) end
+for k, v in pairs(const.Tag) do I["TAG_" .. k] = lalin.int(v) end
+for k, v in pairs(const.Err) do I["ERR_" .. k] = lalin.int(v) end
+for k, v in pairs(const.Resume) do I["RESUME_" .. k] = lalin.int(v) end
+for k, v in pairs(const.TM) do I["TM_" .. k] = lalin.int(v) end
 
 -- Load op_loadbool in isolation
 local ok, err = pcall(function()

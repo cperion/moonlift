@@ -1,15 +1,15 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local Scalar = require("moonlift.type_to_back_scalar")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local Scalar = require("lalin.type_to_back_scalar")
 
 local T = pvm.context()
 A(T)
 local L = Scalar(T)
-local C = T.MoonCore
-local Ty = T.MoonType
-local B = T.MoonBack
+local C = T.LalinCore
+local Ty = T.LalinType
+local B = T.LalinBack
 
 local function known(ty, scalar)
     assert(L.result(ty) == Ty.TypeBackScalarKnown(scalar))
@@ -44,4 +44,4 @@ unavailable(Ty.TView(i32))
 known(Ty.TClosure({ i32 }, i32), B.BackPtr)
 unavailable(Ty.TNamed(Ty.TypeRefGlobal("Demo", "Pair")))
 
-print("moonlift type_to_back_scalar ok")
+print("lalin type_to_back_scalar ok")

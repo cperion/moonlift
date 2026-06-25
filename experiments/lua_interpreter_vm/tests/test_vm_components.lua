@@ -1,9 +1,9 @@
--- VM component tests: pure Lua + moon.xxx quoting API
+-- VM component tests: pure Lua + lalin.xxx quoting API
 -- Tests each VM subsystem individually without requiring region composition
 
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require("moonlift")
+local lalin = require("lalin")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
@@ -18,9 +18,9 @@ print("=== VM Component Tests ===\n")
 -- 1. Value type dispatch (value_truth)
 check("modules load", type(vm.regions_value) == "table")
 
--- 2. Raw struct allocation via moon.func
+-- 2. Raw struct allocation via lalin.func
 -- Compile a function that uses struct literals and returns a tag
-local t1 = moon.func [[
+local t1 = lalin.func [[
 test_value_new(): i32
     let v: Value = { tag = 4, aux = 0, bits = as(u64, 42.0) }
     return as(i32, v.tag)
@@ -31,7 +31,7 @@ check("struct literal + field access", c1() == 4)
 c1:free()
 
 -- 3. Test raw_equal on numbers
-local t2 = moon.func [[
+local t2 = lalin.func [[
 test_raw_equal(): i32
     let a: Value = { tag = 4, aux = 0, bits = as(u64, 42.0) }
     let b: Value = { tag = 4, aux = 0, bits = as(u64, 42.0) }
@@ -47,7 +47,7 @@ check("raw value equality", c2() == 1)
 c2:free()
 
 -- 4. Test struct literal construction
-local t3 = moon.func [[
+local t3 = lalin.func [[
 test_frame_new(): i32
     let f: Frame = {
         closure = { tag = 0, aux = 0, bits = 0 },
@@ -67,7 +67,7 @@ check("Frame struct literal", c3() == 0)
 c3:free()
 
 -- 5. Build a simple Instr and verify field access
-local t4 = moon.func [[
+local t4 = lalin.func [[
 test_instr(): i32
     let inst: Instr = { word = 1 }
     return as(i32, inst.word & 127)
@@ -79,7 +79,7 @@ c4:free()
 
 -- 6. Build and run a minimal dispatch simulation
 -- Create a fake Code[], Instr[], and dispatch "by hand"
-local t5 = moon.func { OP_MOVE = moon.int(0) } [[
+local t5 = lalin.func { OP_MOVE = lalin.int(0) } [[
 test_switch(): i32
     let inst: Instr = { word = as(u32, @{OP_MOVE}) | (as(u32, 1) << 7) | (as(u32, 2) << 16) }
     if (inst.word & 127) == @{OP_MOVE} then
@@ -93,7 +93,7 @@ check("opcode switch dispatch", c5() == 42)
 c5:free()
 
 -- 7. Scalar arithmetic sanity
-local t6 = moon.func [[
+local t6 = lalin.func [[
 test_scalar_arith(): i32
     let a: i32 = 10
     let b: i32 = 20
@@ -105,7 +105,7 @@ check("scalar arithmetic", c6() == 30)
 c6:free()
 
 -- 8. Mutable binding sanity
-local t7 = moon.func [[
+local t7 = lalin.func [[
 test_mutable_store(): i32
     var x: i32 = 0
     x = 42
@@ -117,7 +117,7 @@ check("mutable store", c7() == 42)
 c7:free()
 
 -- 9. Test value truth logic (hardcoded inline)
-local t8 = moon.func [[
+local t8 = lalin.func [[
 test_truth(): i32
     let nil_val: Value = { tag = 0, aux = 0, bits = 0 }
     let num_val: Value = { tag = 4, aux = 0, bits = as(u64, 1.0) }
@@ -138,7 +138,7 @@ check("value truth logic inline", c8() == 1)
 c8:free()
 
 -- 10. Test the full LOADK + RETURN logic inline (no region emit)
-local t9 = moon.func { TAG_NUM = moon.int(const.Tag.NUM) } [[
+local t9 = lalin.func { TAG_NUM = lalin.int(const.Tag.NUM) } [[
 test_loadk_return(): i32
     -- Simulate LOADK/RETURN with a typed binding instead of array codegen.
     let r0: i64 = 42

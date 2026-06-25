@@ -1,6 +1,6 @@
 # `lua/ui`
 
-`lua/ui` is Moonlift's ASDL-first UI kit.  It is organized like a small compiler:
+`lua/ui` is Lalin's ASDL-first UI kit.  It is organized like a small compiler:
 authored UI trees are lowered to layout trees, measured and rendered to typed
 view operations, executed by a backend/runtime, and reduced with typed
 interaction events back into application state.
@@ -18,7 +18,7 @@ for authoring, layout, render ops, interaction, text, and widgets.
 - [`widgets/README.md`](widgets/README.md) — canonical widget bundle/event
   contract and catalog guide.
 - [`../../experiments/mlui/mlui_design.md`](../../experiments/mlui/mlui_design.md)
-  — Moonlift-native translation experiment.  It treats this rich UI ASDL as the
+  — Lalin-native translation experiment.  It treats this rich UI ASDL as the
   source architecture and projects it to typed native buffers/protocols.
 - [`../../experiments/mlui/mlui_lua_api.md`](../../experiments/mlui/mlui_lua_api.md)
   — proposed MLUI Lua authoring API: callable tables, no-parentheses builders,

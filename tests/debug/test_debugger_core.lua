@@ -6,15 +6,15 @@ package.path = table.concat({
   package.path,
 }, ";")
 
-local pvm = require("moonlift.pvm")
-local Asdl = require("moonlift.schema_projection")
+local pvm = require("lalin.pvm")
+local Asdl = require("lalin.schema_projection")
 
 local T = pvm.context()
 Asdl(T)
-local Back = T.MoonBack
-local C = T.MoonCore
+local Back = T.LalinBack
+local C = T.LalinCore
 
-local Debugger = require("moonlift.debugger_core")
+local Debugger = require("lalin.debugger_core")
 
 -- Test 1: Basic stepping with breakpoints
 -- Uses a simple program: entry → loop (then compare) → done
@@ -148,4 +148,4 @@ do
     print("test_debugger_core: stack_trace ok")
 end
 
-print("\nmoonlift debugger_core ok")
+print("\nlalin debugger_core ok")

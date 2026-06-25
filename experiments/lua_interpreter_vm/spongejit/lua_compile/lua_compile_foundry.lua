@@ -1,21 +1,21 @@
 -- lua_compile_foundry.lua -- offline LuaCompile foundry enumeration and dedupe.
 --
--- Pipeline: opcode windows + evidence -> LuaCompile.Unit -> LuaExec -> MoonCFG.
--- Representatives are keyed by MoonCFG + CompileContract + Stencil.VariantKey.
+-- Pipeline: opcode windows + evidence -> LuaCompile.Unit -> LuaExec -> LalinCFG.
+-- Representatives are keyed by LalinCFG + CompileContract + Stencil.VariantKey.
 -- This does not emit fake binary stencils or adapt descriptor-runtime artifact APIs.
 --
 -- Foundry/corpus iteration and file artifact writing are procedural external
 -- orchestration.  The compiler-product transitions inside compile_window use
 -- named PVM phases: evidence import, unit construction, public compile,
--- MoonCFG emit/key, contract key, and stencil variant/key generation.
+-- LalinCFG emit/key, contract key, and stencil variant/key generation.
 
 local C = require("lua_compile")
 local FoundryEvidence = require("lua_compile.lua_fact_from_foundry_bundle")
 local ContractKey = require("lua_compile.compile_contract_key")
-local CFGKey = require("lua_compile.moon_cfg_key")
+local CFGKey = require("lua_compile.lalin_cfg_key")
 local StencilKey = require("lua_compile.stencil_key")
 local StencilFoundry = require("lua_compile.stencil_foundry")
-local MoonEmit = require("lua_compile.moon_cfg_emit")
+local LalinEmit = require("lua_compile.lalin_cfg_emit")
 local Diagnostics = require("lua_compile.diagnostics")
 local LuaExecLower = require("lua_compile.lua_src_to_lua_exec_lower")
 local T = C.schema.get()
@@ -311,7 +311,7 @@ end
 local function kernel_summary(kernel)
   local params = {}
   for _, p in ipairs((kernel and kernel.params) or {}) do
-    params[#params + 1] = { name = p.name and p.name.text or p.name, moon_type = p.type and p.type.moon_type or p.moon_type }
+    params[#params + 1] = { name = p.name and p.name.text or p.name, lalin_type = p.type and p.type.lalin_type or p.lalin_type }
   end
   return { kind = kernel and kernel.kind and kernel.kind.kind or kernel and kernel.kind, params = params, blocks = kernel and kernel.body and #(kernel.body.blocks or {}) or 0 }
 end
@@ -321,33 +321,33 @@ function M.compile_window(ops, bundle, opts)
   local evidence = FoundryEvidence.from_bundle(bundle or {})
   local unit = C.lua_compile_unit.from_events(ops or {}, {})
   unit = C.lua_compile_unit.from_parts(unit.source, evidence)
-  local moon_result = C.compile_to_moon_kernel(unit)
-  if moon_result.kind == "Reject" then
-    return { ok = false, reason = diagnostic_reason(moon_result.diagnostic), diagnostic = moon_result.diagnostic, source_ops = copy_array(ops) }
+  local lalin_result = C.compile_to_lalin_kernel(unit)
+  if lalin_result.kind == "Reject" then
+    return { ok = false, reason = diagnostic_reason(lalin_result.diagnostic), diagnostic = lalin_result.diagnostic, source_ops = copy_array(ops) }
   end
-  local kernel = moon_result.product.kernel
+  local kernel = lalin_result.product.kernel
   local contract = kernel.contract
   local ckey = ContractKey.key(contract)
   local cfg_key = CFGKey.key(kernel)
   local variant = StencilFoundry.variant_for_kernel(kernel, contract, opts)
   local stencil_variant_key = StencilKey.variant_key(variant)
   local rep_key = StencilFoundry.representative_key(kernel, ckey, variant)
-  local ok, source_or_err = pcall(MoonEmit.emit, kernel, { name = opts.kernel_name or "lua_compile_foundry_kernel" })
+  local ok, source_or_err = pcall(LalinEmit.emit, kernel, { name = opts.kernel_name or "lua_compile_foundry_kernel" })
   if not ok then
-    return { ok = false, reason = "moon_cfg_emit_failed", error = tostring(source_or_err), source_ops = copy_array(ops) }
+    return { ok = false, reason = "lalin_cfg_emit_failed", error = tostring(source_or_err), source_ops = copy_array(ops) }
   end
 
   return {
     ok = true,
     representative_key = rep_key,
-    moon_cfg_key = cfg_key,
+    lalin_cfg_key = cfg_key,
     stencil_variant = variant,
     stencil_variant_key = stencil_variant_key,
     contract_key = ckey,
     contract = contract,
-    moon_cfg_kernel = kernel,
-    moon_cfg_kernel_summary = kernel_summary(kernel),
-    moonlift_source = source_or_err,
+    lalin_cfg_kernel = kernel,
+    lalin_cfg_kernel_summary = kernel_summary(kernel),
+    lalin_source = source_or_err,
     source_ops = copy_array(ops),
     fact_bundle = copy_array(bundle),
   }
@@ -395,11 +395,11 @@ function M.run_windows(windows, config)
           rep = {
             representative_id = #reps + 1,
             representative_key = cr.representative_key,
-            moon_cfg_key = cr.moon_cfg_key,
+            lalin_cfg_key = cr.lalin_cfg_key,
             stencil_variant_key = cr.stencil_variant_key,
             contract_key = cr.contract_key,
-            moon_cfg_kernel = cr.moon_cfg_kernel_summary,
-            moonlift_source = cr.moonlift_source,
+            lalin_cfg_kernel = cr.lalin_cfg_kernel_summary,
+            lalin_source = cr.lalin_source,
             aliases = {},
             count = 0,
           }
@@ -410,10 +410,10 @@ function M.run_windows(windows, config)
         add_alias(rep, ops, bundle, w.count)
         map_entry.status = "ok"
         map_entry.representative_key = cr.representative_key
-        map_entry.moon_cfg_key = cr.moon_cfg_key
+        map_entry.lalin_cfg_key = cr.lalin_cfg_key
         map_entry.stencil_variant_key = cr.stencil_variant_key
         map_entry.contract_key = cr.contract_key
-        map_entry.moon_cfg_kind = cr.moon_cfg_kernel_summary and cr.moon_cfg_kernel_summary.kind
+        map_entry.lalin_cfg_kind = cr.lalin_cfg_kernel_summary and cr.lalin_cfg_kernel_summary.kind
       else
         stats.rejected = stats.rejected + 1
         local reason = tostring(cr.reason or "Rejected")
@@ -482,14 +482,14 @@ local function representative_index(result)
   for _, r in ipairs(result.representatives or {}) do
     out.representatives[#out.representatives + 1] = {
       representative_id = r.representative_id,
-      moon_cfg_key = r.moon_cfg_key,
+      lalin_cfg_key = r.lalin_cfg_key,
       stencil_variant_key = r.stencil_variant_key,
       contract_key = r.contract_key,
       representative_key = r.representative_key,
       count = r.count,
       aliases = #(r.aliases or {}),
-      moon_cfg_kernel = r.moon_cfg_kernel,
-      moonlift_source_bytes = #(r.moonlift_source or ""),
+      lalin_cfg_kernel = r.lalin_cfg_kernel,
+      lalin_source_bytes = #(r.lalin_source or ""),
     }
   end
   return out
@@ -535,15 +535,15 @@ function M.write_artifacts(result, out_dir)
   local s = result.stats or {}
   md[#md + 1] = string.format("Windows: **%d**; compiles: **%d**; ok: **%d**; rejected: **%d**; unique representatives: **%d**", s.windows or 0, s.compiles or 0, s.ok or 0, s.rejected or 0, s.unique_representatives or 0)
   md[#md + 1] = ""
-  md[#md + 1] = "Artifacts are `MoonCFG + CompileContract + Stencil.VariantKey` representatives with MoonCFG/Moonlift source. Binary StencilTemplate banks are emitted only after object-byte extraction provides real CodeBlobRef data. Source opcode windows are aliases only."
+  md[#md + 1] = "Artifacts are `LalinCFG + CompileContract + Stencil.VariantKey` representatives with LalinCFG/Lalin source. Binary StencilTemplate banks are emitted only after object-byte extraction provides real CodeBlobRef data. Source opcode windows are aliases only."
   md[#md + 1] = ""
-  md[#md + 1] = "| Rep | Count | Aliases | MoonCFG kind | Source preview |"
+  md[#md + 1] = "| Rep | Count | Aliases | LalinCFG kind | Source preview |"
   md[#md + 1] = "|---:|---:|---:|---|---|"
   for i, r in ipairs(result.representatives or {}) do
     if i > 40 then break end
     local first = r.aliases and r.aliases[1]
     local preview = first and ops_key(first.source_ops):sub(1, 80) or ""
-    md[#md + 1] = string.format("| %d | %d | %d | `%s` | `%s` |", i, r.count or 0, #(r.aliases or {}), tostring(r.moon_cfg_kernel and r.moon_cfg_kernel.kind or "?"), preview:gsub("`", "'"))
+    md[#md + 1] = string.format("| %d | %d | %d | `%s` | `%s` |", i, r.count or 0, #(r.aliases or {}), tostring(r.lalin_cfg_kernel and r.lalin_cfg_kernel.kind or "?"), preview:gsub("`", "'"))
   end
   md[#md + 1] = ""
   write_file(out_dir .. "/lua_compile_representatives.md", table.concat(md, "\n"))

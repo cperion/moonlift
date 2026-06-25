@@ -1,9 +1,9 @@
 -- llpvm_report.mlua -- Phase and VM reports.
 
-local H = moon.require("llpvm_header")
+local H = lalin.require("llpvm_header")
 local T = H.T
 local R = H.R
-local Machine = moon.require("llpvm_machine")
+local Machine = lalin.require("llpvm_machine")
 
 local ll_report_phase = region @{R.ll_report_phase}
 entry start()

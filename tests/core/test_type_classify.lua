@@ -1,15 +1,15 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local A = require("moonlift.schema_projection")
-local Classify = require("moonlift.type_classify")
+local pvm = require("lalin.pvm")
+local A = require("lalin.schema_projection")
+local Classify = require("lalin.type_classify")
 
 local T = pvm.context()
 A(T)
 local L = Classify(T)
-local C = T.MoonCore
-local Ty = T.MoonType
-local O = T.MoonOpen
+local C = T.LalinCore
+local Ty = T.LalinType
+local O = T.LalinOpen
 
 local i32 = Ty.TScalar(C.ScalarI32)
 assert(L.classify(i32) == Ty.TypeClassScalar(C.ScalarI32))
@@ -24,4 +24,4 @@ assert(L.classify(Ty.TNamed(Ty.TypeRefGlobal("Demo", "Pair"))) == Ty.TypeClassAg
 assert(L.classify(Ty.TNamed(Ty.TypeRefPath(C.Path({ C.Name("Pair") })))) == Ty.TypeClassUnknown)
 assert(L.classify(Ty.TSlot(O.TypeSlot("T", "T"))) == Ty.TypeClassUnknown)
 
-print("moonlift type_classify ok")
+print("lalin type_classify ok")
