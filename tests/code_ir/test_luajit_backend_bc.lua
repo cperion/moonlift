@@ -77,6 +77,7 @@ local result, err, src = Backend.compile_module(module, {
 assert(result ~= nil, tostring(err) .. "\n" .. tostring(src))
 assert(#result.artifacts == 1, "expected one selected stencil artifact")
 assert(result.artifacts[1].provider == Stencil.StencilProviderLuaTrace, "expected BC stencil provider")
+assert(result.artifacts[1].fingerprint.text:match("^stencil%-artifact%-v1:"), "BC artifact should carry a build fingerprint")
 assert(result.realization.kind == "BCStencilBankRealization", "expected BC copy-patch realization")
 assert(result.realization.bc_bank ~= nil, "expected LuaTrace BC bank")
 local artifact_source, artifact_err = Backend.emit_lua_artifact(result.lj_module, result.artifacts, {

@@ -2,7 +2,6 @@ local S = require("lalin.schema.dsl")
 S.use()
 
 return schema. LalinStencil {
-  product. StencilId { interned, text [str], },
   product. StencilInstanceId { interned, text [str], },
   product. StencilSymbolId { interned, text [str], },
   product. StencilProviderId { interned, text [str], },
@@ -69,6 +68,38 @@ return schema. LalinStencil {
       operand_ty [LalinCode.CodeType],
       field. value [LalinValue.ValueExpr],
     },
+    StencilPredRange {
+      variant_unique,
+      operand_ty [LalinCode.CodeType],
+      lower_cmp [LalinCore.CmpOp],
+      lower [LalinValue.ValueExpr],
+      upper_cmp [LalinCore.CmpOp],
+      upper [LalinValue.ValueExpr],
+    },
+    StencilPredAnd {
+      variant_unique,
+      terms [many [LalinStencil.StencilPredicate]],
+    },
+    StencilPredOr {
+      variant_unique,
+      terms [many [LalinStencil.StencilPredicate]],
+    },
+    StencilPredNot {
+      variant_unique,
+      term [LalinStencil.StencilPredicate],
+    },
+    StencilPredIsNaN {
+      variant_unique,
+      operand_ty [LalinCode.CodeType],
+    },
+    StencilPredIsInf {
+      variant_unique,
+      operand_ty [LalinCode.CodeType],
+    },
+    StencilPredIsFinite {
+      variant_unique,
+      operand_ty [LalinCode.CodeType],
+    },
   },
 
   sum. StencilScanMode {
@@ -99,6 +130,29 @@ return schema. LalinStencil {
     StencilDomainBackward,
   },
 
+  product. StencilDomainAxis {
+    interned,
+    index_ty [LalinCode.CodeType],
+    start [optional [LalinValue.ValueExpr]],
+    stop [optional [LalinValue.ValueExpr]],
+    step [number],
+    order [LalinStencil.StencilDomainOrder],
+  },
+
+  sum. StencilWindowBoundary {
+    StencilWindowBoundaryReject,
+    StencilWindowBoundaryClamp,
+    StencilWindowBoundaryWrap,
+    StencilWindowBoundaryZero,
+  },
+
+  product. StencilWindowAxis {
+    interned,
+    before [number],
+    after [number],
+    boundary [LalinStencil.StencilWindowBoundary],
+  },
+
   sum. StencilDomain {
     StencilDomainRange1D {
       variant_unique,
@@ -108,11 +162,26 @@ return schema. LalinStencil {
       step [number],
       order [LalinStencil.StencilDomainOrder],
     },
+    StencilDomainRangeND {
+      variant_unique,
+      axes [many [LalinStencil.StencilDomainAxis]],
+    },
+    StencilDomainWindowND {
+      variant_unique,
+      axes [many [LalinStencil.StencilDomainAxis]],
+      windows [many [LalinStencil.StencilWindowAxis]],
+    },
+    StencilDomainTiledND {
+      variant_unique,
+      axes [many [LalinStencil.StencilDomainAxis]],
+      tile_sizes [many [number]],
+    },
   },
 
   sum. StencilAccessRole {
     StencilAccessRead,
     StencilAccessWrite,
+    StencilAccessIndex,
     StencilAccessReadWrite,
     StencilAccessReduce,
     StencilAccessControlResult,
@@ -232,30 +301,9 @@ return schema. LalinStencil {
     interned,
     reduction [LalinValue.ReductionKind],
     result_ty [LalinCode.CodeType],
-    init [LalinValue.ValueExpr],
+    field. identity [LalinValue.ValueExpr],
     int_semantics [optional [LalinCode.CodeIntSemantics]],
     float_mode [optional [LalinCode.CodeFloatMode]],
-  },
-
-  sum. StencilSkeleton {
-    StencilSkeletonApply,
-    StencilSkeletonReduce,
-    StencilSkeletonScan {
-      variant_unique,
-      mode [LalinStencil.StencilScanMode],
-    },
-    StencilSkeletonCopy {
-      variant_unique,
-      semantics [LalinStencil.StencilCopySemantics],
-    },
-    StencilSkeletonFind {
-      variant_unique,
-      not_found [LalinValue.ValueExpr],
-    },
-    StencilSkeletonPartition {
-      variant_unique,
-      semantics [LalinStencil.StencilPartitionSemantics],
-    },
   },
 
   sum. StencilCompiler {
@@ -307,6 +355,10 @@ return schema. LalinStencil {
   sum. StencilTripCountFact {
     StencilTripCountUnknown,
     StencilTripCountDynamic,
+    StencilTripCountExact {
+      variant_unique,
+      count [number],
+    },
     StencilTripCountMultipleOf {
       variant_unique,
       factor [number],
@@ -531,12 +583,11 @@ return schema. LalinStencil {
       variant_unique,
       feature [LalinStencil.StencilVectorFeatureRequirement],
       lane_policy [LalinStencil.StencilLanePolicy],
-      alignment [LalinStencil.StencilVectorAlignmentPolicy],
+      required_alignment [LalinStencil.StencilVectorAlignmentPolicy],
       tail [LalinStencil.StencilVectorTailPolicy],
       reduction [LalinStencil.StencilVectorReductionStrategy],
       vector_compiler [LalinStencil.StencilVectorCompilerPolicy],
-      lanes [number],
-      unroll [number],
+      vector_unroll [number],
       interleave [number],
       compiler [LalinStencil.StencilCompilerPolicy],
       facts [LalinStencil.StencilVectorizationFacts],
@@ -699,6 +750,11 @@ return schema. LalinStencil {
       reduction [LalinValue.ReductionKind],
       reason [str],
     },
+    StencilRejectUnsupportedDomain {
+      variant_unique,
+      domain [LalinStencil.StencilDomain],
+      reason [str],
+    },
     StencilRejectMissingProof {
       variant_unique,
       obligation [LalinStencil.StencilProofObligationKind],
@@ -714,15 +770,48 @@ return schema. LalinStencil {
     },
   },
 
+  sum. StencilScheduleCandidateStatus {
+    StencilScheduleCandidateSelected,
+    StencilScheduleCandidateViable,
+    StencilScheduleCandidateRejected,
+  },
+
+  sum. StencilScheduleSelectionOrigin {
+    StencilScheduleSelectionHeuristic,
+    StencilScheduleSelectionCostModel,
+    StencilScheduleSelectionAuthorAnnotated,
+    StencilScheduleSelectionFallback,
+  },
+
+  product. StencilScheduleCandidate {
+    interned,
+    field. name [str],
+    schedule [optional [LalinStencil.StencilSchedule]],
+    cost [number],
+    status [LalinStencil.StencilScheduleCandidateStatus],
+    rejects [many [LalinStencil.StencilScheduleReject]],
+    reason [str],
+  },
+
+  product. StencilScheduleSelectionProvenance {
+    interned,
+    origin [LalinStencil.StencilScheduleSelectionOrigin],
+    winner [str],
+    candidates [many [LalinStencil.StencilScheduleCandidate]],
+    reason [str],
+  },
+
   sum. StencilSelection {
     StencilSelected {
       variant_unique,
       instance [LalinStencil.StencilInstance],
+      provenance [LalinStencil.StencilScheduleSelectionProvenance],
     },
     StencilNoSelection {
       variant_unique,
       vocab [LalinStencil.StencilVocab],
       rejects [many [LalinStencil.StencilReject]],
+      provenance [LalinStencil.StencilScheduleSelectionProvenance],
     },
   },
 
@@ -732,13 +821,34 @@ return schema. LalinStencil {
     selection [LalinStencil.StencilSelection],
   },
 
+  product. StencilArtifactFingerprint {
+    interned,
+    text [str],
+  },
+
+  sum. StencilArtifactDiagnosticSeverity {
+    StencilArtifactDiagnosticNote,
+    StencilArtifactDiagnosticRemark,
+    StencilArtifactDiagnosticWarning,
+    StencilArtifactDiagnosticError,
+  },
+
+  product. StencilArtifactDiagnostic {
+    interned,
+    severity [LalinStencil.StencilArtifactDiagnosticSeverity],
+    source [str],
+    message [str],
+  },
+
   product. StencilArtifact {
     interned,
     instance [LalinStencil.StencilInstance],
     provider [LalinStencil.StencilProvider],
     symbol [LalinStencil.StencilSymbolId],
     c_signature [str],
+    fingerprint [LalinStencil.StencilArtifactFingerprint],
     realized [optional [LalinStencil.StencilRealizedSchedule]],
+    diagnostics [many [LalinStencil.StencilArtifactDiagnostic]],
     schedule_rejects [many [LalinStencil.StencilScheduleReject]],
   },
 

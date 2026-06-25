@@ -86,6 +86,14 @@ result.facts = facts
 assert(#artifacts == 1, "expected one selected stencil artifact")
 local StencilArtifactPlan = require("lalin.stencil_artifact_plan")(T)
 assert(StencilArtifactPlan.descriptor_vocab(artifacts[1].instance.descriptor) == Stencil.StencilReduce, "expected reduce stencil")
+assert(artifacts[1].fingerprint.text:match("^stencil%-artifact%-v1:"), "MC artifact should carry a build fingerprint")
+local selection = facts.stencil.selections[1].selection
+assert(pvm.classof(selection) == Stencil.StencilSelected, "expected selected stencil fact")
+assert(selection.provenance.winner == selection.provenance.candidates[1].name, "selection provenance should name the winning candidate")
+assert(selection.provenance.candidates[1].status == Stencil.StencilScheduleCandidateSelected, "first schedule candidate should be selected")
+assert(selection.provenance.candidates[1].cost > 0, "selected candidate should carry a positive cost")
+assert(#selection.provenance.candidates >= 2, "autovector selection should record scalar fallback candidate")
+assert(selection.provenance.candidates[2].status == Stencil.StencilScheduleCandidateViable, "fallback candidate should remain viable")
 assert(pvm.classof(facts.luajit_stencil_machines) == LJ.LJStencilMachineModulePlan, "expected ASDL LuaJIT stencil machine plan")
 assert(#facts.luajit_stencil_machines.machines == 1, "expected one planned LuaJIT stencil machine")
 assert(facts.luajit_stencil_machines.machines[1].artifact == artifacts[1], "planned LuaJIT stencil machine should reference selected artifact")
@@ -95,6 +103,26 @@ assert(pvm.classof(facts.exec_plan.entries[1].decision) == Exec.ExecMaterializeS
 assert(facts.exec_plan.entries[1].decision.fragment.kind.artifact == artifacts[1], "exec materialization should reference selected artifact")
 assert(result.realization.kind == "MCStencilBankRealization", "expected mc bank realization")
 assert(#result.realization.installed == 1, "expected one installed mc stencil")
+local installed_artifact = result.realization.installed[1].entry.artifact
+assert(#installed_artifact.diagnostics >= 2, "MC realized artifact should carry construction and compiler diagnostics")
+local saw_compiler_diagnostic = false
+for _, diagnostic in ipairs(installed_artifact.diagnostics or {}) do
+    if diagnostic.source == "compiler" then saw_compiler_diagnostic = true end
+end
+assert(saw_compiler_diagnostic, "MC realized artifact should carry compiler diagnostics")
+local stale_artifact = Stencil.StencilArtifact(
+    artifacts[1].instance,
+    artifacts[1].provider,
+    artifacts[1].symbol,
+    artifacts[1].c_signature,
+    Stencil.StencilArtifactFingerprint(artifacts[1].fingerprint.text .. ":stale"),
+    artifacts[1].realized,
+    artifacts[1].diagnostics or {},
+    artifacts[1].schedule_rejects or {}
+)
+local stale_realization, stale_err = Backend.realize_artifacts({ stale_artifact }, { mc_bank = bank })
+assert(stale_realization == nil, "stale MC bank entry must not realize")
+assert(tostring(stale_err):match("fingerprint mismatch"), "stale MC bank rejection should name fingerprint mismatch")
 
 local count = 1024
 local arr = ffi.new("int32_t[?]", count)

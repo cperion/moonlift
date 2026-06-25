@@ -83,6 +83,11 @@ assert(realization.kind == "BCStencilBankRealization", "expected BC copy-patch r
 assert(#realization.installed == #artifacts, "all artifacts installed")
 assert(pvm.classof(realization.installed[1].artifact.realized) == Stencil.StencilRealizedUnrolled, "BC autovector trace grouping should record unrolled realization")
 assert(pvm.classof(realization.installed[1].artifact.schedule_rejects[1]) == Stencil.StencilScheduleRejectRequestedRealizedMismatch, "BC autovector trace grouping should record requested/realized mismatch")
+assert(artifacts[1].fingerprint.text:match("^stencil%-artifact%-v1:"), "C artifact should carry a build fingerprint")
+assert(realization.installed[1].artifact.fingerprint.text:match("^stencil%-artifact%-v1:"), "BC artifact should carry a build fingerprint")
+assert(realization.installed[1].artifact.fingerprint.text ~= artifacts[1].fingerprint.text, "provider change must change artifact fingerprint")
+assert(#realization.installed[1].artifact.diagnostics >= 1, "BC realized artifact should carry diagnostics")
+assert(realization.installed[1].artifact.diagnostics[1].source == "realized-schedule", "BC diagnostic should record realized schedule source")
 
 local reduce_template = CopyPatchLuaTrace.emit_mc_stencil_source(artifacts[1])
 assert(reduce_template:match("local function ml_stencil_reduce_array_i32_add_to_i32_s1"), "expected reduce bytecode template")
@@ -132,12 +137,11 @@ local function artifact_with_facts(artifact, rewrite_fact, alias_facts)
         next_schedule = Stencil.StencilScheduleVector(
             schedule.feature,
             schedule.lane_policy,
-            schedule.alignment,
+            schedule.required_alignment,
             schedule.tail,
             schedule.reduction,
             schedule.vector_compiler,
-            schedule.lanes,
-            schedule.unroll,
+            schedule.vector_unroll,
             schedule.interleave,
             schedule.compiler,
             next_facts
@@ -152,8 +156,16 @@ local function artifact_with_facts(artifact, rewrite_fact, alias_facts)
         artifact.instance.abi,
         artifact.instance.proofs
     )
-    return Stencil.StencilArtifact(next_instance, artifact.provider, artifact.symbol, artifact.c_signature, artifact.realized, artifact.schedule_rejects or {})
+    return Stencil.StencilArtifact(next_instance, artifact.provider, artifact.symbol, artifact.c_signature, artifact.fingerprint, artifact.realized, artifact.diagnostics or {}, artifact.schedule_rejects or {})
 end
+
+local stale_bc_bank = assert(CopyPatchLuaTrace.build_bc_bank({ artifacts[1] }, { stem = "test_copy_patch_luatrace_stale" }))
+local stale_bc_request = artifact_with_facts(artifacts[1], function(fact)
+    return Stencil.StencilAccessVectorFact(fact.access, Stencil.StencilAlignmentKnown(64), fact.readonly, fact.unit_stride)
+end)
+local stale_bc_realization, stale_bc_err = CopyPatchLuaTrace.realize_bc_artifacts({ stale_bc_request }, { bank = stale_bc_bank })
+assert(stale_bc_realization == nil, "stale BC bank entry must not realize")
+assert(tostring(stale_bc_err):match("fingerprint mismatch"), "stale BC bank rejection should name fingerprint mismatch")
 
 local first_plan = CopyPatchLuaTrace.plan_artifact(artifacts[1])
 assert(first_plan.kind == "LuaTraceArtifactPlan", "expected inspectable LuaTrace artifact plan")
@@ -233,12 +245,11 @@ local multiple_facts = Stencil.StencilVectorizationFacts(
 local multiple_schedule = Stencil.StencilScheduleVector(
     vector_schedule.feature,
     vector_schedule.lane_policy,
-    vector_schedule.alignment,
+    vector_schedule.required_alignment,
     vector_schedule.tail,
     vector_schedule.reduction,
     vector_schedule.vector_compiler,
-    vector_schedule.lanes,
-    vector_schedule.unroll,
+    vector_schedule.vector_unroll,
     vector_schedule.interleave,
     vector_schedule.compiler,
     multiple_facts
@@ -255,7 +266,9 @@ local multiple_artifact = Stencil.StencilArtifact(
     vector_artifact.provider,
     vector_artifact.symbol,
     vector_artifact.c_signature,
+    vector_artifact.fingerprint,
     vector_artifact.realized,
+    vector_artifact.diagnostics or {},
     vector_artifact.schedule_rejects or {}
 )
 local multiple_plan = CopyPatchLuaTrace.plan_artifact(multiple_artifact)

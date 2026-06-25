@@ -215,6 +215,13 @@ local function bind_context(T)
         local cls = pvm.classof(pred)
         if pred == Stencil.StencilPredNonZero or cls == Stencil.StencilPredNonZero then return "nonzero" end
         if cls == Stencil.StencilPredCompareConst then return cmp_name(pred.cmp) end
+        if cls == Stencil.StencilPredRange then return "range_" .. cmp_name(pred.lower_cmp) .. "_" .. cmp_name(pred.upper_cmp) end
+        if cls == Stencil.StencilPredAnd then return "and" .. tostring(#(pred.terms or {})) end
+        if cls == Stencil.StencilPredOr then return "or" .. tostring(#(pred.terms or {})) end
+        if cls == Stencil.StencilPredNot then return "not_" .. pred_name(pred.term) end
+        if cls == Stencil.StencilPredIsNaN then return "isnan" end
+        if cls == Stencil.StencilPredIsInf then return "isinf" end
+        if cls == Stencil.StencilPredIsFinite then return "isfinite" end
         return "pred"
     end
 
@@ -346,6 +353,20 @@ local function bind_context(T)
 
     local compare_expr
 
+    local function all_c_expr(terms)
+        if #terms == 0 then return "(1)" end
+        local out = terms[1]
+        for i = 2, #terms do out = "(" .. out .. " && " .. terms[i] .. ")" end
+        return out
+    end
+
+    local function any_c_expr(terms)
+        if #terms == 0 then return "(0)" end
+        local out = terms[1]
+        for i = 2, #terms do out = "(" .. out .. " || " .. terms[i] .. ")" end
+        return out
+    end
+
     local function predicate_expr(pred, item, ty)
         local cls = pvm.classof(pred)
         if pred == Stencil.StencilPredNonZero or cls == Stencil.StencilPredNonZero then return "(" .. item .. " != 0)" end
@@ -355,6 +376,29 @@ local function bind_context(T)
             local rhs = "(" .. ct .. ")(" .. const_literal_source(pred.value, pred.operand_ty) .. ")"
             return compare_expr(pred.cmp, lhs, rhs)
         end
+        if cls == Stencil.StencilPredRange then
+            local ct = c_type(pred.operand_ty)
+            local lhs = "(" .. ct .. ")(" .. item .. ")"
+            return "("
+                .. compare_expr(pred.lower_cmp, lhs, "(" .. ct .. ")(" .. const_literal_source(pred.lower, pred.operand_ty) .. ")")
+                .. " && "
+                .. compare_expr(pred.upper_cmp, lhs, "(" .. ct .. ")(" .. const_literal_source(pred.upper, pred.operand_ty) .. ")")
+                .. ")"
+        end
+        if cls == Stencil.StencilPredAnd then
+            local terms = {}
+            for _, term in ipairs(pred.terms or {}) do terms[#terms + 1] = predicate_expr(term, item, ty) end
+            return all_c_expr(terms)
+        end
+        if cls == Stencil.StencilPredOr then
+            local terms = {}
+            for _, term in ipairs(pred.terms or {}) do terms[#terms + 1] = predicate_expr(term, item, ty) end
+            return any_c_expr(terms)
+        end
+        if cls == Stencil.StencilPredNot then return "(!" .. predicate_expr(pred.term, item, ty) .. ")" end
+        if cls == Stencil.StencilPredIsNaN then return "isnan(" .. item .. ")" end
+        if cls == Stencil.StencilPredIsInf then return "isinf(" .. item .. ")" end
+        if cls == Stencil.StencilPredIsFinite then return "isfinite(" .. item .. ")" end
         error("stencil_c: unsupported predicate " .. pred_name(pred), 3)
     end
 
@@ -555,6 +599,20 @@ local function bind_context(T)
         error("stencil_c: unsupported compare op " .. cmp_name(cmp), 3)
     end
 
+    local function all_c_node(terms)
+        if #terms == 0 then return C.raw_expr("1") end
+        local out = terms[1]
+        for i = 2, #terms do out = C.land(out, terms[i]) end
+        return out
+    end
+
+    local function any_c_node(terms)
+        if #terms == 0 then return C.raw_expr("0") end
+        local out = terms[1]
+        for i = 2, #terms do out = C.lor(out, terms[i]) end
+        return out
+    end
+
     local function c_predicate_expr(pred, value)
         local cls = pvm.classof(pred)
         if pred == Stencil.StencilPredNonZero or cls == Stencil.StencilPredNonZero then return C.ne(value, 0) end
@@ -565,6 +623,27 @@ local function bind_context(T)
                 c_cast(pred.operand_ty, const_literal_value(pred.value))
             )
         end
+        if cls == Stencil.StencilPredRange then
+            local lhs = c_cast(pred.operand_ty, value)
+            return C.land(
+                c_compare_expr(pred.lower_cmp, lhs, c_cast(pred.operand_ty, const_literal_value(pred.lower))),
+                c_compare_expr(pred.upper_cmp, lhs, c_cast(pred.operand_ty, const_literal_value(pred.upper)))
+            )
+        end
+        if cls == Stencil.StencilPredAnd then
+            local terms = {}
+            for _, term in ipairs(pred.terms or {}) do terms[#terms + 1] = c_predicate_expr(term, value) end
+            return all_c_node(terms)
+        end
+        if cls == Stencil.StencilPredOr then
+            local terms = {}
+            for _, term in ipairs(pred.terms or {}) do terms[#terms + 1] = c_predicate_expr(term, value) end
+            return any_c_node(terms)
+        end
+        if cls == Stencil.StencilPredNot then return C.not_(c_predicate_expr(pred.term, value)) end
+        if cls == Stencil.StencilPredIsNaN then return C.builtin.isnan { value } end
+        if cls == Stencil.StencilPredIsInf then return C.builtin.isinf { value } end
+        if cls == Stencil.StencilPredIsFinite then return C.builtin.isfinite { value } end
         error("stencil_c: unsupported predicate " .. pred_name(pred), 3)
     end
 
@@ -661,8 +740,8 @@ local function bind_context(T)
         if not is_i32(shape.elem_ty) or not is_i32(shape.result_ty) then return nil end
         local top = pvm.classof(xs_access.topology)
         if top ~= Stencil.StencilTopologyContiguous and top ~= Stencil.StencilTopologySliceDescriptor then return nil end
-        local lanes = math.max(2, math.floor(tonumber(schedule.lanes) or 4))
-        local unroll = math.max(1, math.floor(tonumber(schedule.unroll) or 1))
+        local lanes = math.max(2, math.floor(tonumber(ArtifactPlan.schedule_lane_count(schedule)) or 4))
+        local unroll = math.max(1, math.floor(tonumber(schedule.vector_unroll) or 1))
         local vec_ty = "ml_vec_u32x" .. tostring(lanes)
         local vec_bytes = lanes * 4
         local lines = {}
@@ -1139,7 +1218,7 @@ local function bind_context(T)
 
     function api.source(artifacts, opts)
         opts = opts or {}
-        local out = { "#include <stdint.h>", "#include <stddef.h>", "#include <string.h>", "typedef intptr_t ml_index;" }
+        local out = { "#include <stdint.h>", "#include <stddef.h>", "#include <string.h>", "#include <math.h>", "typedef intptr_t ml_index;" }
         if opts.preamble ~= nil and opts.preamble ~= "" then out[#out + 1] = opts.preamble end
         local seen = {}
         for _, artifact in ipairs(artifacts or {}) do

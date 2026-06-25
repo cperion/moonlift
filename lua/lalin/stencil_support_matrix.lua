@@ -42,6 +42,25 @@ local function bind_context(T)
         StencilTopologyViewDescriptor = { status = "supported", scope = "current i32 scalar matrix with dynamic stride" },
     }
 
+    M.domains = {
+        StencilDomainRange1D = { status = "supported", scope = "only materialized stencil iteration domain today" },
+        StencilDomainRangeND = { status = "future", scope = "represented for ND iteration, rejected by current 1D materializers" },
+        StencilDomainWindowND = { status = "future", scope = "represented for neighborhood/windowed stencil kernels, rejected by current 1D materializers" },
+        StencilDomainTiledND = { status = "future", scope = "represented for blocked/tiled ND iteration, rejected by current 1D materializers" },
+    }
+
+    M.predicates = {
+        StencilPredNonZero = { status = "supported", scope = "numeric/bool scalar predicate" },
+        StencilPredCompareConst = { status = "supported", scope = "typed scalar comparison against a literal constant" },
+        StencilPredRange = { status = "supported", scope = "typed scalar lower/upper-bound predicate" },
+        StencilPredAnd = { status = "supported", scope = "compound scalar predicate conjunction" },
+        StencilPredOr = { status = "supported", scope = "compound scalar predicate disjunction" },
+        StencilPredNot = { status = "supported", scope = "compound scalar predicate negation" },
+        StencilPredIsNaN = { status = "supported", scope = "float scalar NaN classification" },
+        StencilPredIsInf = { status = "supported", scope = "float scalar infinity classification" },
+        StencilPredIsFinite = { status = "supported", scope = "float scalar finite classification" },
+    }
+
     M.type_families = {
         CodeTyBool8 = { status = "supported", scope = "bool8 scalar cells" },
         CodeTyInt = { status = "supported", scope = "8/16/32/64 signed and unsigned scalar cells" },

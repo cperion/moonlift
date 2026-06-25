@@ -244,8 +244,26 @@ local function bind_context(T)
     local function lua_pred_expr(p, v)
         local cls = pvm.classof(p)
         if p == Stencil.StencilPredNonZero or cls == Stencil.StencilPredNonZero then return "(" .. v .. " ~= 0)" end
-        local c = tostring(iconst(p.value))
-        if cls == Stencil.StencilPredCompareConst then return lua_cmp_expr(p.cmp, v, c) end
+        if cls == Stencil.StencilPredCompareConst then return lua_cmp_expr(p.cmp, v, tostring(iconst(p.value))) end
+        if cls == Stencil.StencilPredRange then
+            return "(" .. lua_cmp_expr(p.lower_cmp, v, tostring(iconst(p.lower))) .. " and " .. lua_cmp_expr(p.upper_cmp, v, tostring(iconst(p.upper))) .. ")"
+        end
+        if cls == Stencil.StencilPredAnd then
+            local terms = {}
+            for _, term in ipairs(p.terms or {}) do terms[#terms + 1] = lua_pred_expr(term, v) end
+            if #terms == 0 then return "(true)" end
+            return "(" .. table.concat(terms, " and ") .. ")"
+        end
+        if cls == Stencil.StencilPredOr then
+            local terms = {}
+            for _, term in ipairs(p.terms or {}) do terms[#terms + 1] = lua_pred_expr(term, v) end
+            if #terms == 0 then return "(false)" end
+            return "(" .. table.concat(terms, " or ") .. ")"
+        end
+        if cls == Stencil.StencilPredNot then return "(not " .. lua_pred_expr(p.term, v) .. ")" end
+        if cls == Stencil.StencilPredIsNaN then return "((" .. v .. ") ~= (" .. v .. "))" end
+        if cls == Stencil.StencilPredIsInf then return "(((" .. v .. ") == math.huge) or ((" .. v .. ") == -math.huge))" end
+        if cls == Stencil.StencilPredIsFinite then return "(((" .. v .. ") == (" .. v .. ")) and ((" .. v .. ") ~= math.huge) and ((" .. v .. ") ~= -math.huge))" end
         error("copy_patch_luatrace: unsupported predicate", 3)
     end
 
@@ -318,9 +336,16 @@ local function bind_context(T)
     local function trip_count_multiple_of(facts, group)
         if facts == nil or group <= 1 then return false end
         local trip = facts.trip_count
-        if pvm.classof(trip) ~= Stencil.StencilTripCountMultipleOf then return false end
-        local factor = tonumber(trip.factor) or 1
-        return factor >= group and factor % group == 0
+        local cls = pvm.classof(trip)
+        if cls == Stencil.StencilTripCountMultipleOf then
+            local factor = tonumber(trip.factor) or 1
+            return factor >= group and factor % group == 0
+        end
+        if cls == Stencil.StencilTripCountExact then
+            local count = tonumber(trip.count) or 0
+            return count >= 0 and count % group == 0
+        end
+        return false
     end
 
     local function facts_unit_stride(desc, facts)
@@ -360,8 +385,8 @@ local function bind_context(T)
         end
         local cls = pvm.classof(schedule)
         if cls == Stencil.StencilScheduleVector then
-            local lanes = math.max(1, math.floor(tonumber(schedule.lanes) or 1))
-            local unroll = math.max(1, math.floor(tonumber(schedule.unroll) or 1))
+            local lanes = math.max(1, math.floor(tonumber(ArtifactPlan.schedule_lane_count(schedule)) or 1))
+            local unroll = math.max(1, math.floor(tonumber(schedule.vector_unroll) or 1))
             local interleave = math.max(1, math.floor(tonumber(schedule.interleave) or 1))
             group, reason = math.max(1, lanes * unroll * interleave), "vector_as_trace_group"
         elseif cls == Stencil.StencilScheduleUnrolled then
@@ -892,13 +917,25 @@ local function bind_context(T)
         local env = opts.env or bc_env()
         for _, artifact in ipairs(artifacts) do
             local symbol = artifact.symbol.text
+            local requested_artifact = api.bc_artifact(artifact)
             local entry = bank and BCBank.entry_by_symbol and BCBank.entry_by_symbol(bank, symbol) or nil
+            if entry ~= nil then
+                if entry.artifact == nil or entry.artifact.fingerprint == nil or entry.artifact.fingerprint.text == nil then
+                    return nil, "copy_patch_bc: bank entry missing artifact fingerprint for " .. tostring(symbol)
+                end
+                if requested_artifact.fingerprint == nil or requested_artifact.fingerprint.text == nil then
+                    return nil, "copy_patch_bc: requested artifact missing fingerprint for " .. tostring(symbol)
+                end
+                if entry.artifact.fingerprint.text ~= requested_artifact.fingerprint.text then
+                    return nil, "copy_patch_bc: artifact fingerprint mismatch for " .. tostring(symbol)
+                end
+            end
             local fn, err = BCBank.load_symbol(bank, symbol, bindings_for_symbol(opts, symbol), {
                 chunk_name = "@lalin_luajit_bc_stencil/load/" .. tostring(symbol),
                 env = env,
             })
             if fn == nil then return nil, err end
-            local installed_artifact = entry and entry.artifact or api.bc_artifact(artifact)
+            local installed_artifact = entry and entry.artifact or requested_artifact
             symbols[symbol] = fn
             installed[#installed + 1] = {
                 symbol = symbol,

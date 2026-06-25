@@ -63,11 +63,12 @@ Severity tags:
   and `schedule_rejects`; BC and MC materializers stamp installed/banked
   artifacts with realized scalar/unrolled/vector facts and typed mismatch
   rejects when requested and realized schedules diverge.
-- [ ] `A5` `[S]` Constrain reducer `init` against reduction and result type.
-  `StencilReducer.init` is an arbitrary `ValueExpr`; for parallel/tree
-  reductions it must be the identity for `(reduction, result_ty)`. Fix by
-  deriving identities from `(reduction, result_ty)`, or by requiring a typed
-  proof obligation that the stored init is the monoid identity.
+- [x] `A5` `[S]` Derive reducer identity from reduction and result type.
+  `StencilReducer.init` was removed and replaced with
+  `StencilReducer.identity`, which is derived from `(reduction, result_ty)` via
+  `reduction_algebra`. Source reduction `init` remains a runtime/user seed; it
+  no longer masquerades as the algebraic identity consumed by parallel/tree
+  reduction descriptors.
 - [x] `A6` `[S]` Define proof provenance for every unsafe vectorization license.
   `StencilVectorizationFacts` now carries typed `proof_obligations`, each with
   an obligation kind, origin, and optional `KernelProof`. The planner emits
@@ -82,22 +83,26 @@ Severity tags:
   combinations such as reduce skeleton without reducer, map vocab with reduce
   skeleton, or extra operators on copy. Each descriptor variant should own the
   mandatory fields for its skeleton and make forbidden fields unrepresentable.
-- [ ] `B2` `[T]` Remove the unconstrained duplicate operation axis between
-  `StencilVocab` and `StencilSkeleton`. Derive one from the other or fold both
-  into the descriptor sum so operation name and parallel pattern cannot
-  disagree.
+- [x] `B2` `[T]` Remove the unconstrained duplicate operation axis between
+  `StencilVocab` and `StencilSkeleton`. `StencilSkeleton` was deleted; scan
+  mode, copy semantics, find `not_found`, and partition semantics now live only
+  on their descriptor variants. The remaining operation vocabulary is derived
+  from descriptor class where needed.
 - [x] `B3` `[T]` Give memory semantics a single owner. Copy, partition, and
   scatter semantics now live on the descriptor variant that needs them; the
   duplicate `StencilMemorySemantics` schema product was removed.
-- [ ] `B4` `[T]` Remove schedule double-encoding. `StencilScheduleVector`
-  carries lane policy plus bare lane count, vector schedule unroll plus
-  `StencilScheduleUnrolled`, and schedule alignment plus per-access alignment.
-  Make lanes derive from policy, separate unroll meaning cleanly, and state how
-  schedule alignment relates to access alignment.
-- [ ] `B5` `[T]` Constrain compiler policy and vector compiler policy as one
-  legal matrix. `StencilCompilerPolicy.compiler` and
-  `StencilVectorCompilerPolicy` currently allow incoherent pairs such as clang
-  plus gcc-autovec. Fix with a sum or typed reject facts for illegal pairs.
+- [x] `B4` `[T]` Remove schedule double-encoding. `StencilScheduleVector`
+  no longer stores a bare lane count; requested lanes derive from
+  `lane_policy`, while concrete lane counts live on `StencilRealizedVector`.
+  Vector schedule unroll is now `vector_unroll`, distinct from
+  `StencilScheduleUnrolled.factor`, and schedule-level alignment is named
+  `required_alignment` to make its relation to per-access alignment facts
+  explicit.
+- [x] `B5` `[T]` Constrain compiler policy and vector compiler policy as one
+  legal matrix. `StencilScheduleRejectCompilerMatrix` is now emitted by the
+  artifact planner for incoherent vector schedules, including clang plus
+  gcc-autovec, SystemC plus handwritten C vectors, and non-gcc copy-patch
+  stencil vector schedules.
 
 ### Stringly-Typed Joins
 
@@ -131,42 +136,66 @@ Severity tags:
   `else_xs` accesses, plus `StencilOpSelect` in the element-operator surface.
   Artifact planning, support-matrix coverage, LuaTrace BC, and MC emission all
   materialize predicate-controlled select/blend arrays.
-- [ ] `D3` `[C]` State the 1D-only domain scope and future ND/windowed stencil
-  direction. `StencilDomain` currently only has `Range1D`, so convolution-style
-  domains, tiled/block domains, and neighborhood access are not representable.
-- [ ] `D4` `[C]` Add range, compound, and float-class predicates, or document
-  their rejection. `find`, `partition`, and `count` need more than const compare
-  plus nonzero for real kernels.
-- [ ] `D5` `[C]` Add exact static trip-count facts. `Exact{n}` is stronger than
-  dynamic or multiple-of and enables full unroll/no-tail decisions.
+- [x] `D3` `[C]` State the 1D-only domain scope and future ND/windowed stencil
+  direction. `StencilDomain` now represents `Range1D`, `RangeND`, `WindowND`,
+  and `TiledND`; the support matrix marks only `Range1D` as materialized today,
+  and artifact-shape extraction rejects future domains through typed
+  `StencilRejectUnsupportedDomain` facts instead of silently treating them as
+  stride-1 linear loops.
+- [x] `D4` `[C]` Add range, compound, and float-class predicates, or document
+  their rejection. `StencilPredicate` now includes typed range predicates,
+  compound `and`/`or`/`not`, and float `isnan`/`isinf`/`isfinite` predicates.
+  Artifact planning validates them recursively, the support matrix tracks every
+  predicate constructor, and both BC and MC materializers emit them.
+- [x] `D5` `[C]` Add exact static trip-count facts. `StencilTripCountExact`
+  is now a schedule fact, artifact planning accepts `exact_trip_count` /
+  explicit trip-count facts, proof obligations are emitted for exact counts,
+  and LuaTrace consumes exact counts as no-tail evidence when divisible by the
+  selected loop group.
 - [x] `D6` `[C]` Add schedule-level rejects. `StencilScheduleReject` now has
   typed variants for unsupported features, illegal lane counts, unprovable
   tails/alignment, compiler matrix failures, and requested/realized mismatch;
   artifacts carry those rejects next to realized schedule evidence.
-- [ ] `D7` `[C]` Record schedule candidates, costs, and winner provenance.
-  `StencilSelection` currently records one winner or no winner, but not why a
-  valid schedule was chosen over alternatives.
-- [ ] `D8` `[C]` Add artifact build-input fingerprints. Cache/bank identity must
-  include descriptor, schedule, compiler, flags, target, and generator version,
-  not just interned descriptor shape.
-- [ ] `D9` `[C]` Capture compiler diagnostics and vectorization remarks on the
+- [x] `D7` `[C]` Record schedule candidates, costs, and winner provenance.
+  `StencilSelection` now carries `StencilScheduleSelectionProvenance` with a
+  winner name, selection origin, candidate list, candidate status, estimated
+  cost, schedule rejects, and reason text. The LuaJIT backend populates selected
+  stencil entries with the chosen schedule plus viable scalar fallback where
+  applicable.
+- [x] `D8` `[C]` Add artifact build-input fingerprints. `StencilArtifact` now
+  carries a typed `StencilArtifactFingerprint` computed from generator version,
+  descriptor/instance identity, schedule, compiler policy/flags/target,
+  provider, symbol, and C signature. Realizing an artifact under a different
+  provider recomputes the fingerprint, so BC and MC cache identities diverge.
+- [x] `D9` `[C]` Capture compiler diagnostics and vectorization remarks on the
   artifact so "did it vectorize, and why not" is queryable from schema facts.
+  `StencilArtifact` now carries typed diagnostics with severity/source/message;
+  artifact realization lifts construction evidence, compiler remarks, and
+  disassembly classifications into diagnostics, and BC/MC tests assert those
+  facts are present.
 
 ### Orphans And Minor Schema Issues
 
-- [ ] `E1` `[M]` Delete or wire `StencilId`. It is declared but currently
-  unused by descriptors or artifacts.
+- [x] `E1` `[M]` Delete or wire `StencilId`. The unused `StencilId` product was
+  deleted; descriptor/artifact identity remains on `StencilInstanceId`,
+  `StencilSymbolId`, and `StencilArtifactFingerprint`.
 - [x] `E2` `[M]` State or unify the relationship between `StencilDescriptor`
   params and `StencilAbi.params`. Descriptor params were deleted; ABI params
   remain the sole call-boundary representation.
-- [ ] `E3` `[M]` Make `StencilArtifact.c_signature` provider-dependent or
-  document that every provider seals through a C ABI.
-- [ ] `E4` `[M]` Decide whether domain step is compile-time only. `start` and
-  `stop` are value expressions, but `step` is a number; runtime stride is
-  therefore not representable. Also clarify how domain order relates to copy
-  overlap direction.
-- [ ] `E5` `[M]` Add an index access role. Gather/scatter index streams have
-  different alias/bounds meaning than ordinary read data streams.
+- [x] `E3` `[M]` Make `StencilArtifact.c_signature` provider-dependent or
+  document that every provider seals through a C ABI. Decision: every current
+  stencil artifact provider seals through the same C-callable ABI surface, so
+  `c_signature` remains mandatory for both `copy_patch_bc` and `copy_patch_mc`.
+- [x] `E4` `[M]` Decide whether domain step is compile-time only. Domain step is
+  intentionally a positive compile-time constant for currently materialized
+  1D stencil domains; runtime stride belongs to `StencilTopologyViewDescriptor`,
+  not `StencilDomain`. Backward and nonpositive 1D domains are represented but
+  rejected with typed unsupported-domain reasons, and copy overlap direction
+  remains owned by `StencilCopySemantics`.
+- [x] `E5` `[M]` Add an index access role. `StencilAccessIndex` now separates
+  gather/scatter index streams from ordinary data reads, the planner marks
+  those accesses readonly for vector facts, and support-matrix tests assert
+  gather/scatter descriptors carry the index role.
 
 ### Schema Closure Priority
 
@@ -304,16 +333,27 @@ Open gate question:
 
 ## Copy-Patch BC/MC Materialization Gaps
 
-- [ ] Make the MC intern set generated from an explicit matrix table instead of
-  ad hoc hand-enumerated artifact construction.
-- [ ] Add a test that compares the declared support matrix against the embedded
-  MC intern set.
-- [ ] Add a test that every artifact selected by the default lowering path can be
-  found in the embedded MC bank, or is deliberately routed to BC fallback.
+- [x] Make the MC intern set generated from an explicit matrix table instead of
+  ad hoc hand-enumerated artifact construction. `copy_patch_mc_intern_set` now
+  declares explicit vocab/topology cells and generates artifacts from those
+  rows.
+- [x] Add a test that compares the declared support matrix against the embedded
+  MC intern set. `test_copy_patch_mc_intern_set` checks every intern row against
+  supported matrix vocab/topology entries and verifies the built bank symbols
+  exactly match the intern matrix.
+- [x] Add a test that every artifact selected by the default lowering path can
+  be found in the embedded MC bank, or is deliberately routed to BC fallback.
+  `test_luajit_embedded_mc_coverage` lowers representative default-path
+  artifacts and checks embedded-bank symbol/fingerprint coverage; this forced
+  scheduled `_v4` intern rows and reusable fingerprint normalization for
+  frontend-local `CodeValueId`s.
 - [ ] Decide whether BC and MC banks must have identical logical coverage or
   whether BC is the semantic superset and MC is the fast subset.
-- [ ] Add artifact-shape hashing/versioning so stale bank entries cannot silently
-  satisfy changed descriptors.
+- [x] Add artifact-shape hashing/versioning so stale bank entries cannot
+  silently satisfy changed descriptors. `StencilArtifactFingerprint` now hashes
+  structural descriptor/schedule/ABI/proof inputs, and BC/MC realization rejects
+  same-symbol bank entries whose stored artifact fingerprint differs from the
+  requested artifact.
 - [ ] Add coverage for local relocations in every vectorized MC shape, not only
   selected SoA zip-map/zip-reduce cases.
 - [ ] Add tests for MC bank generation with view/slice/byte-span dynamic
@@ -322,6 +362,60 @@ Open gate question:
   the intended intern matrix.
 - [ ] Add tests that static binary startup rejects or reports missing MC bank
   entries cleanly when a selected fast artifact is absent.
+
+## Copy-Patch Metastencil / Fusion Track
+
+This is a tracked architecture tangent, not a reason to stop the current
+materializer fact-consumption pass. The core choice is to build fused
+copy-patch artifacts as C/LLB.C source-level metastencils and let GCC see the
+combined body, not to concatenate already compiled machine-code bytes. Cross-op
+optimization only happens if the compiler receives the fused source.
+
+- [x] Record the primitive-basis decision: the production hand-coded stencil
+  family should collapse to perfect `Apply`, `Reduce`, and `Scan` primitives,
+  with `ScatterReduce` reserved as the likely fourth primitive only when
+  collision-combine / histogram semantics enter scope.
+- [x] Record the derivation rule: non-basis vocabulary is generated from the
+  primitive basis, not maintained as independent handwritten production
+  lowerings. `Map`, `ZipMap`, `InPlaceMap`, `Copy`, `Fill`, `Cast`, `Compare`,
+  `ZipCompare`, `Gather`, and plain `Scatter` are `Apply` configurations;
+  `Count`, `Find`, `MapReduce`, and `ZipReduce` are `Apply + Reduce`;
+  `Filter` and `Partition` are `Apply + Scan + Scatter`.
+- [ ] Refactor the descriptor/support-matrix vocabulary so `Apply`, `Reduce`,
+  and `Scan` are the real generator constructors, and the old operation names
+  become derived plan labels or aliases with no separate skeleton authority.
+- [ ] Replace handwritten non-basis metastencils in production paths with
+  generated metastencils from the primitive fragments; keep handwritten versions
+  only as benchmarks, regression fixtures, or temporary scaffolding until the
+  generated artifacts match or beat them.
+- [ ] Generate arity-2/3/4 metastencil candidates from the primitive basis under
+  a legality/cost budget, so total coverage comes from composition rather than
+  hand-coded pair/triple lowerings.
+- [x] Record the design direction: metastencils are composed source artifacts
+  that lower through the normal `copy_patch_mc` bank path after GCC has had a
+  chance to optimize across primitive operations.
+- [ ] Add a typed metastencil descriptor for small op sequences or DAGs,
+  including primitive descriptors, typed wire map, control/loop composition,
+  result ABI, and structural identity.
+- [ ] Add fusion legality facts for composed aliasing, topology, trip count,
+  alignment, integer/float semantics, reduction legality, and proof
+  obligations.
+- [ ] Extend the support matrix with fusion cells:
+  `(producer op, consumer op, type/topology/schedule/facts) ->
+  supported/rejected/future`.
+- [ ] Add a fusion materializer that emits one LLB.C/GCC source unit from
+  primitive descriptor fragments, then interns the compiled machine-code
+  artifact as a normal `copy_patch_mc` entry.
+- [ ] Add selector support for the longest legal cover over a kernel plan, with
+  fallback to primitive stencils and then `copy_patch_bc`.
+- [ ] Add metastencil fingerprints that include primitive descriptors,
+  wire/control map, legality facts, schedule, compiler target, and compiler
+  flags.
+- [ ] Add benchmarks against the unfused primitive sequence and handwritten C
+  compiled with `gcc -O3`.
+- [ ] Reuse lessons from the SpongeJIT experiment: typed variant keys, no
+  opcode/string descriptor leakage, bank selection by structural key, and
+  usefulness/coverage tests.
 
 ## LuaTrace Emission Gaps
 
@@ -367,6 +461,9 @@ Open gate question:
   future cells across type family, vocab, topology, schedule, and materializer.
 - [x] Add a test that the support matrix and artifact planner agree.
 - [x] Add a test that schema additions fail until the support matrix is updated.
+- [ ] Drain every `future`/temporary `rejected` support-matrix cell: either
+  implement the missing lowering/materialization/test coverage, or promote the
+  rejection to a permanent typed design decision with explicit docs and tests.
 - [ ] Decide whether `StencilProviderC` still represents source C stencils or
   whether the provider names should become `copy_patch_bc`/`copy_patch_mc`
   aligned.
@@ -389,6 +486,38 @@ into smaller tracked tasks as the concrete failures become visible.
   descriptor field, topology, predicate, operator, schedule fact, proof
   obligation, realized schedule fact, and reject fact is either consumed in the
   best available way or deliberately rejected with a typed reason.
+- [x] Add a materializer fact-consumption matrix that maps every
+  `LalinStencil` schema fact to `copy_patch_bc`, `copy_patch_mc`, and the
+  emitted C/single-binary bank path.
+- [x] Make stale bank reuse impossible: realization must compare requested
+  artifact fingerprints against the bank entry artifact before loading or
+  installing code. Fingerprints now include structural descriptor, schedule,
+  ABI, and proof inputs instead of only coarse vocab/schedule labels.
+
+#### Materializer Fact-Consumption Matrix
+
+Legend: `consume` means the fact changes emitted code, install behavior, or
+plan shape; `reject` means the path returns a typed unsupported cell; `record`
+means the fact is preserved for audit but does not yet drive lowering.
+
+| Schema surface | `copy_patch_bc` | `copy_patch_mc` | emitted bank / binary | Remaining work |
+| --- | --- | --- | --- | --- |
+| Descriptor variant / vocab | consume all supported shapes | consume all supported C stencil shapes | record/intern selected shapes | [x] Generate MC intern set from the support matrix, not hand enumeration. |
+| Domain | consume positive `Range1D`; reject represented ND/window/tiled domains | consume positive `Range1D`; reject represented ND/window/tiled domains | record current interned `Range1D` set | [ ] Add single-binary tests for rejected/future domain cells. |
+| Topology | consume contiguous, view, slice, byte-span, field, SoA, indexed, scalar | consume same through C access expressions | partial dynamic-descriptor coverage | [ ] Add embedded-bank tests for view/slice/byte-span/field/SoA descriptors. |
+| Access roles | consume read/write/readwrite/reduce/index in access plans | consume read/write/readwrite/reduce/index in generated C signatures/accesses | record through artifacts | [ ] Add index-role bounds/alias tests for gather/scatter in both banks. |
+| Alias facts | consume noalias for BC copy primitive legality | consume noalias as C `restrict` where legal | record through artifact fingerprint | [ ] Benchmark alias-driven gather/scatter/copy materialization against handwritten C. |
+| Alignment facts | record in BC plan; used for fingerprint/proof obligations | consume as C alignment assumptions where emitted | record through artifact fingerprint | [ ] Add runtime/disassembly checks that alignment facts affect MC codegen. |
+| Unit-stride facts | consume to enable grouped LuaTrace plans | consume through generated access shape | record through artifact fingerprint | [ ] Add negative tests where non-unit stride blocks grouping/vectorization. |
+| Trip-count facts | consume multiple/exact facts for no-tail grouped lowering | record/request through schedule/proofs | record through artifact fingerprint | [ ] Add MC realized-schedule evidence for exact/multiple trip-count exploitation. |
+| Predicate surface | consume range/compound/float-class predicates | consume range/compound/float-class predicates | partial intern coverage | [ ] Add embedded-bank predicate coverage for every predicate constructor. |
+| Operator surface | consume scalar unary/binary/cast/select/reduction ops | consume C emission for supported ops | partial intern coverage | [ ] Add bank coverage for every supported op/type/materializer cell. |
+| Schedule facts | consume scalar/unrolled/autovector/fixed-vector as trace grouping | consume scalar plus fixed-vector realization evidence | record bank entries | [ ] Compare requested vs realized MC vectorization from compiler reports/disassembly. |
+| Proof obligations | record and fingerprint; consume selected facts for legality checks | record/fingerprint; consume alias/alignment when emitted | record through artifacts | [ ] Reject unsafe schedules when required proof obligations are absent. |
+| Realized schedule | consume into installed artifact diagnostics/rejects | consume compiler/disassembly construction evidence | record through bank entry artifacts | [ ] Add query tests over emitted-bank realized schedule metadata. |
+| Reject facts | record selection/planning rejects | record selection/planning rejects | partial startup visibility | [ ] Make single-binary startup report missing/rejected intern cells with typed facts. |
+| Artifact fingerprint | consume before BC load | consume before MC install | record in bank entry artifacts | [x] Reject same-symbol stale bank entries before code load/install. |
+
 - [ ] Treat `copy_patch_bc` as the semantic coverage probe: it should either
   materialize the full supported schema surface or expose the exact missing
   materialization cell.

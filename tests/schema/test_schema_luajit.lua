@@ -129,7 +129,9 @@ local artifact = Stencil.StencilArtifact(
     Stencil.StencilProviderC,
     Stencil.StencilSymbolId("ml_stencil_test"),
     "int32_t ml_stencil_test(const int32_t*, int32_t);",
+    Stencil.StencilArtifactFingerprint("test:fingerprint"),
     nil,
+    {},
     {}
 )
 local stencil_machine = LJ.LJMachine(

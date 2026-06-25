@@ -119,7 +119,9 @@ local artifact = Stencil.StencilArtifact(
     Stencil.StencilProviderC,
     Stencil.StencilSymbolId("ml_stencil_reduce_array_i32_add_s1"),
     "int32_t ml_stencil_reduce_array_i32_add_s1(const int32_t *, int32_t, int32_t, int32_t);",
+    Stencil.StencilArtifactFingerprint("test:fingerprint"),
     nil,
+    {},
     {}
 )
 
@@ -128,7 +130,7 @@ assert(pvm.classof(StencilArtifactPlan.descriptor_domain(instance.descriptor)) =
 assert(StencilArtifactPlan.descriptor_accesses(instance.descriptor)[1].role == Stencil.StencilAccessRead)
 assert(StencilArtifactPlan.descriptor_accesses(instance.descriptor)[2].role == Stencil.StencilAccessReduce)
 assert(pvm.classof(instance.descriptor.reducer) == Stencil.StencilReducer)
-assert(StencilArtifactPlan.descriptor_skeleton(instance.descriptor) == Stencil.StencilSkeletonReduce)
+assert(instance.descriptor.reducer.identity == init)
 assert(pvm.classof(instance.schedule) == Stencil.StencilScheduleAutoVector)
 assert(instance.schedule.compiler.compiler == Stencil.StencilCompilerGcc)
 assert(instance.schedule.compiler.opt_level == Stencil.StencilOptO3)
@@ -151,6 +153,57 @@ assert(artifact.provider == Stencil.StencilProviderC)
 assert(artifact.instance == instance)
 assert(artifact.realized == nil)
 assert(#artifact.schedule_rejects == 0)
+
+local axis_x = Stencil.StencilDomainAxis(Code.CodeTyIndex, nil, nil, 1, Stencil.StencilDomainForward)
+local axis_y = Stencil.StencilDomainAxis(Code.CodeTyIndex, nil, nil, 1, Stencil.StencilDomainForward)
+local nd_domain = Stencil.StencilDomainRangeND({ axis_x, axis_y })
+local window_domain = Stencil.StencilDomainWindowND({ axis_x, axis_y }, {
+    Stencil.StencilWindowAxis(1, 1, Stencil.StencilWindowBoundaryClamp),
+    Stencil.StencilWindowAxis(1, 1, Stencil.StencilWindowBoundaryReject),
+})
+local tiled_domain = Stencil.StencilDomainTiledND({ axis_x, axis_y }, { 16, 16 })
+local backward_domain = Stencil.StencilDomainRange1D(Code.CodeTyIndex, nil, nil, 1, Stencil.StencilDomainBackward)
+local zero_step_domain = Stencil.StencilDomainRange1D(Code.CodeTyIndex, nil, nil, 0, Stencil.StencilDomainForward)
+assert(not StencilArtifactPlan.domain_supported(nd_domain))
+assert(not StencilArtifactPlan.domain_supported(window_domain))
+assert(not StencilArtifactPlan.domain_supported(tiled_domain))
+assert(not StencilArtifactPlan.domain_supported(backward_domain))
+assert(not StencilArtifactPlan.domain_supported(zero_step_domain))
+local nd_reject = StencilArtifactPlan.unsupported_domain_reject(nd_domain)
+assert(pvm.classof(nd_reject) == Stencil.StencilRejectUnsupportedDomain)
+assert(nd_reject.domain == nd_domain)
+assert(StencilArtifactPlan.unsupported_domain_reject(backward_domain).reason:find("backward", 1, true) ~= nil)
+assert(StencilArtifactPlan.unsupported_domain_reject(zero_step_domain).reason:find("positive compile-time", 1, true) ~= nil)
+local nd_descriptor = Stencil.StencilDescriptorMap(
+    nd_domain,
+    {
+        Stencil.StencilAccess("dst", Stencil.StencilAccessWrite, i32, Stencil.StencilTopologyContiguous(1)),
+        Stencil.StencilAccess("xs", Stencil.StencilAccessRead, i32, Stencil.StencilTopologyContiguous(1)),
+    },
+    Stencil.StencilOpIdentity
+)
+local nd_instance = Stencil.StencilInstance(instance.id, nd_descriptor, instance.schedule, instance.abi, instance.proofs)
+local nd_artifact = Stencil.StencilArtifact(nd_instance, artifact.provider, artifact.symbol, artifact.c_signature, artifact.fingerprint, nil, {}, {})
+local ok, err = pcall(function() return StencilArtifactPlan.artifact_shape(nd_artifact) end)
+assert(not ok and tostring(err):find("unsupported stencil domain", 1, true) ~= nil)
+
+local bad_vector_schedule = Stencil.StencilScheduleVector(
+    Stencil.StencilVectorFeatureNative,
+    Stencil.StencilLaneFixed(4),
+    Stencil.StencilVectorUnaligned,
+    Stencil.StencilVectorScalarTail,
+    Stencil.StencilVectorReductionHorizontal,
+    Stencil.StencilVectorCompilerGccAutovec,
+    1,
+    1,
+    Stencil.StencilCompilerPolicy(Stencil.StencilCompilerClang, Stencil.StencilOptO3, Stencil.StencilMachineNative, {}),
+    vector_facts
+)
+local bad_vector_instance = Stencil.StencilInstance(instance.id, descriptor, bad_vector_schedule, instance.abi, instance.proofs)
+local bad_vector_artifact = Stencil.StencilArtifact(bad_vector_instance, artifact.provider, artifact.symbol, artifact.c_signature, artifact.fingerprint, nil, {}, {})
+local rejected_vector_artifact = StencilArtifactPlan.artifact_with_realized(bad_vector_artifact, nil, nil)
+assert(#rejected_vector_artifact.schedule_rejects == 1)
+assert(pvm.classof(rejected_vector_artifact.schedule_rejects[1]) == Stencil.StencilScheduleRejectCompilerMatrix)
 
 local realized = Stencil.StencilRealizedVector(
     Stencil.StencilVectorFeatureNative,

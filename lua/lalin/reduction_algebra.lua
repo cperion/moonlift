@@ -153,6 +153,35 @@ local function bind_context(T)
     function api.reduction_name(kind) return reduction_name(kind) end
     function api.entry(kind, ty) return entry(kind, ty) end
 
+    function api.identity_expr(kind, ty)
+        local name = reduction_name(kind)
+        if name == nil then return nil, "unknown reduction kind " .. class_name(kind) end
+        local info = type_info(ty)
+        if info.class == "unsupported" then return nil, info.reason or "unsupported reduction type" end
+        local raw = identity_raw(name, info)
+        if raw == nil then return nil, "no identity for reduction " .. name end
+        local literal
+        if info.class == "float" then literal = Core.LitFloat(raw)
+        else literal = Core.LitInt(raw) end
+        return Value.ValueExprConst(Code.CodeConstLiteral(ty, literal)), nil, { kind = kind, name = name, ty = ty, type = info, identity_raw = raw }
+    end
+
+    function api.literal_identity_raw(expr)
+        if pvm.classof(expr) ~= Value.ValueExprConst then return nil end
+        local k = expr.const or expr.value
+        if pvm.classof(k) ~= Code.CodeConstLiteral then return nil end
+        local lit = k.literal or k.value
+        if pvm.classof(lit) == Core.LitInt or pvm.classof(lit) == Core.LitFloat then return tostring(lit.raw or lit.text) end
+        if pvm.classof(lit) == Core.LitBool then return lit.value and "1" or "0" end
+        return nil
+    end
+
+    function api.identity_matches(expr, kind, ty)
+        local _, why, e = api.identity_expr(kind, ty)
+        if e == nil then return false, why end
+        return api.literal_identity_raw(expr) == tostring(e.identity_raw), "expected identity " .. tostring(e.identity_raw)
+    end
+
     function api.binary_reduction_kind(op, is_float)
         if op == Core.BinAdd then return Value.ReductionAdd end
         if op == Core.BinMul then return Value.ReductionMul end

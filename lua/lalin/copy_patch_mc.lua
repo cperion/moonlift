@@ -465,10 +465,11 @@ local function bind_context(T)
             evidence[#evidence + 1] = Stencil.StencilRealizedCompilerRemark("cflags: " .. tostring(cflags))
         end
         if explicit_vector_mc_path(artifact) then
+            local lanes = assert(ArtifactPlan.schedule_lane_count(schedule), "copy_patch_mc: vector schedule requires fixed lane policy for realized MC schedule")
             return Stencil.StencilRealizedVector(
                 schedule.feature,
-                schedule.lanes,
-                schedule.unroll,
+                lanes,
+                schedule.vector_unroll,
                 schedule.interleave,
                 schedule.tail,
                 Stencil.StencilMaterializerCopyPatchMC,
@@ -738,6 +739,15 @@ local function bind_context(T)
             local symbol = artifact_symbol(artifact)
             local entry = api.entry_for(bank, symbol)
             if entry == nil then return nil, "copy_patch_mc: missing mc stencil entry " .. symbol end
+            if entry.artifact == nil or entry.artifact.fingerprint == nil or entry.artifact.fingerprint.text == nil then
+                return nil, "copy_patch_mc: bank entry missing artifact fingerprint for " .. symbol
+            end
+            if artifact.fingerprint == nil or artifact.fingerprint.text == nil then
+                return nil, "copy_patch_mc: requested artifact missing fingerprint for " .. symbol
+            end
+            if entry.artifact.fingerprint.text ~= artifact.fingerprint.text then
+                return nil, "copy_patch_mc: artifact fingerprint mismatch for " .. symbol
+            end
             local values = opts.patch_values and (opts.patch_values[symbol] or opts.patch_values[artifact]) or nil
             local inst = api.install_mc_stencil(entry, values or {}, {
                 install = install_opts(requested_install(opts, bank)),

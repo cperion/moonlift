@@ -66,6 +66,8 @@ local code_schema = "lua/lalin/schema/code.lua"
 
 assert_matrix_covers("vocabs", variants(stencil_schema, "StencilVocab"))
 assert_matrix_covers("topologies", variants(stencil_schema, "StencilAccessTopology"))
+assert_matrix_covers("domains", variants(stencil_schema, "StencilDomain"))
+assert_matrix_covers("predicates", variants(stencil_schema, "StencilPredicate"))
 assert_matrix_covers("type_families", variants(code_schema, "CodeType"))
 
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)
@@ -173,5 +175,10 @@ for vocab, entry in pairs(Matrix.vocabs) do
         assert(Plan.descriptor_vocab(artifact.instance.descriptor) == Stencil[vocab], "artifact sample for " .. vocab .. " emitted the wrong descriptor vocab")
     end
 end
+
+local gather = artifact_samples.StencilGather()
+assert(Plan.access_named(gather.instance.descriptor, "idx").role == Stencil.StencilAccessIndex, "gather index stream must use index access role")
+local scatter = artifact_samples.StencilScatter()
+assert(Plan.access_named(scatter.instance.descriptor, "idx").role == Stencil.StencilAccessIndex, "scatter index stream must use index access role")
 
 io.write("lalin stencil_support_matrix ok\n")

@@ -23,7 +23,7 @@ lalin-bin: $(LALIN_BIN)
 $(LALIN_BC_BANK_C) $(LALIN_BC_BANK_H): $(shell find lua -name '*.lua' | sort) tools/gen_lalin_module_bank.lua
 	luajit tools/gen_lalin_module_bank.lua $(LALIN_BC_BANK_C) $(LALIN_BC_BANK_H) lua
 
-$(LALIN_MC_BANK_C) $(LALIN_MC_BANK_H): tools/gen_lalin_mc_bank.lua
+$(LALIN_MC_BANK_C) $(LALIN_MC_BANK_H): $(shell find lua -name '*.lua' | sort) tools/gen_lalin_mc_bank.lua
 	luajit tools/gen_lalin_mc_bank.lua $(LALIN_MC_BANK_C) $(LALIN_MC_BANK_H)
 
 $(LALIN_BIN): src/lalin.c $(LALIN_BC_BANK_C) $(LALIN_BC_BANK_H) $(LALIN_MC_BANK_C) $(LALIN_MC_BANK_H) $(LUAJIT)/libluajit.a

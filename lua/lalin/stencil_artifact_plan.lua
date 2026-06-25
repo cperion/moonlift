@@ -1,10 +1,56 @@
 local pvm = require("lalin.pvm")
+local bit = require("bit")
 
 local function sanitize(s)
     s = tostring(s or "x"):gsub("[^%w_]", "_")
     if s == "" then s = "x" end
     if s:match("^%d") then s = "_" .. s end
     return s
+end
+
+local function stable_hash32(s)
+    local h = 2166136261
+    for i = 1, #s do h = (bit.bxor(h, s:byte(i)) * 16777619) % 4294967296 end
+    return string.format("%08x", h)
+end
+
+local function stable_repr(v, seen)
+    local tv = type(v)
+    if tv == "nil" then return "nil" end
+    if tv == "boolean" or tv == "number" then return tostring(v) end
+    if tv == "string" then return string.format("%q", v) end
+    if tv ~= "table" then return tv .. ":" .. tostring(v) end
+    local cls = pvm.classof(v)
+    if tostring(cls) == "Class(LalinCode.CodeValueId)" then return tostring(cls) .. "{_}" end
+    seen = seen or {}
+    if seen[v] then return "<cycle>" end
+    seen[v] = true
+    local out = {}
+    if cls and cls.__fields then
+        out[#out + 1] = tostring(cls)
+        out[#out + 1] = "{"
+        for i, field in ipairs(cls.__fields or {}) do
+            if i > 1 then out[#out + 1] = "," end
+            out[#out + 1] = field.name
+            out[#out + 1] = "="
+            out[#out + 1] = stable_repr(rawget(v, field.name), seen)
+        end
+        out[#out + 1] = "}"
+    else
+        local keys = {}
+        for key in pairs(v) do keys[#keys + 1] = key end
+        table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+        out[#out + 1] = "{"
+        for i, key in ipairs(keys) do
+            if i > 1 then out[#out + 1] = "," end
+            out[#out + 1] = stable_repr(key, seen)
+            out[#out + 1] = "="
+            out[#out + 1] = stable_repr(v[key], seen)
+        end
+        out[#out + 1] = "}"
+    end
+    seen[v] = nil
+    return table.concat(out)
 end
 
 local function bind_context(T)
@@ -19,6 +65,7 @@ local function bind_context(T)
     local Schedule = T.LalinSchedule
     local CodeType = require("lalin.code_type")(T)
     local CEmit = require("lalin.c_emit")(T)
+    local ReductionAlgebra = require("lalin.reduction_algebra")(T)
 
     local api = {}
 
@@ -90,6 +137,13 @@ local function bind_context(T)
         local cls = pvm.classof(pred)
         if pred == Stencil.StencilPredNonZero or cls == Stencil.StencilPredNonZero then return "nonzero" end
         if cls == Stencil.StencilPredCompareConst then return cmp_name(pred.cmp) end
+        if cls == Stencil.StencilPredRange then return "range_" .. cmp_name(pred.lower_cmp) .. "_" .. cmp_name(pred.upper_cmp) end
+        if cls == Stencil.StencilPredAnd then return "and" .. tostring(#(pred.terms or {})) end
+        if cls == Stencil.StencilPredOr then return "or" .. tostring(#(pred.terms or {})) end
+        if cls == Stencil.StencilPredNot then return "not_" .. pred_name(pred.term) end
+        if cls == Stencil.StencilPredIsNaN then return "isnan" end
+        if cls == Stencil.StencilPredIsInf then return "isinf" end
+        if cls == Stencil.StencilPredIsFinite then return "isfinite" end
         return "pred"
     end
 
@@ -239,9 +293,24 @@ local function bind_context(T)
     end
 
     local function predicate_checked(pred, operand_ty)
-        if pred == Stencil.StencilPredNonZero or pvm.classof(pred) == Stencil.StencilPredNonZero then return pred end
-        if pvm.classof(pred) ~= Stencil.StencilPredCompareConst then error("stencil_artifact_plan: unsupported predicate", 3) end
-        if not same_type(pred.operand_ty, operand_ty) then error("stencil_artifact_plan: predicate operand type does not match stencil element type", 3) end
+        local cls = pvm.classof(pred)
+        if pred == Stencil.StencilPredNonZero or cls == Stencil.StencilPredNonZero then return pred end
+        if cls == Stencil.StencilPredCompareConst or cls == Stencil.StencilPredRange or cls == Stencil.StencilPredIsNaN or cls == Stencil.StencilPredIsInf or cls == Stencil.StencilPredIsFinite then
+            if not same_type(pred.operand_ty, operand_ty) then error("stencil_artifact_plan: predicate operand type does not match stencil element type", 3) end
+            if (cls == Stencil.StencilPredIsNaN or cls == Stencil.StencilPredIsInf or cls == Stencil.StencilPredIsFinite) and not is_float(operand_ty) then
+                error("stencil_artifact_plan: float-class predicate requires a float operand type", 3)
+            end
+            return pred
+        end
+        if cls == Stencil.StencilPredAnd or cls == Stencil.StencilPredOr then
+            for _, term in ipairs(pred.terms or {}) do predicate_checked(term, operand_ty) end
+            return pred
+        end
+        if cls == Stencil.StencilPredNot then
+            predicate_checked(pred.term, operand_ty)
+            return pred
+        end
+        error("stencil_artifact_plan: unsupported predicate", 3)
         return pred
     end
 
@@ -327,11 +396,18 @@ local function bind_context(T)
         return Stencil.StencilAccess(name, role, ty, Stencil.StencilTopologyScalar(value))
     end
 
-    local function reducer_desc(reduction, result_ty)
-        return Stencil.StencilReducer(reduction.kind, result_ty, reduction.init, reduction.int_semantics, reduction.float_mode)
+    local function reducer_identity(reduction, result_ty)
+        local identity, reason = ReductionAlgebra.identity_expr(reduction.kind, result_ty)
+        if identity == nil then error("stencil_artifact_plan: reduction has no identity: " .. tostring(reason), 3) end
+        return identity
     end
 
-    local function descriptor(vocab, stride, accesses, operator, reducer, skeleton, mem, result_ty)
+    local function reducer_desc(reduction, result_ty)
+        return Stencil.StencilReducer(reduction.kind, result_ty, reducer_identity(reduction, result_ty), reduction.int_semantics, reduction.float_mode)
+    end
+
+    local function descriptor(vocab, stride, accesses, operator, reducer, attrs, mem, result_ty)
+        attrs = attrs or {}
         local dom = domain(stride)
         if vocab == Stencil.StencilReduce then
             return Stencil.StencilDescriptorReduce(dom, accesses, assert(reducer, "reduce descriptor requires reducer"), assert(result_ty, "reduce descriptor requires result type"))
@@ -339,23 +415,19 @@ local function bind_context(T)
         if vocab == Stencil.StencilMap then return Stencil.StencilDescriptorMap(dom, accesses, assert(operator, "map descriptor requires operator")) end
         if vocab == Stencil.StencilZipMap then return Stencil.StencilDescriptorZipMap(dom, accesses, assert(operator, "zip-map descriptor requires operator")) end
         if vocab == Stencil.StencilScan then
-            local sk = assert(skeleton, "scan descriptor requires skeleton")
-            return Stencil.StencilDescriptorScan(dom, accesses, assert(reducer, "scan descriptor requires reducer"), sk.mode, assert(result_ty, "scan descriptor requires result type"))
+            return Stencil.StencilDescriptorScan(dom, accesses, assert(reducer, "scan descriptor requires reducer"), assert(attrs.mode, "scan descriptor requires mode"), assert(result_ty, "scan descriptor requires result type"))
         end
         if vocab == Stencil.StencilCopy then
-            local sk = assert(skeleton, "copy descriptor requires skeleton")
-            return Stencil.StencilDescriptorCopy(dom, accesses, sk.semantics)
+            return Stencil.StencilDescriptorCopy(dom, accesses, assert(attrs.semantics, "copy descriptor requires semantics"))
         end
         if vocab == Stencil.StencilFill then return Stencil.StencilDescriptorFill(dom, accesses, assert(operator, "fill descriptor requires operator")) end
         if vocab == Stencil.StencilFind then
             local op = assert(operator, "find descriptor requires predicate operator")
-            local sk = assert(skeleton, "find descriptor requires skeleton")
-            return Stencil.StencilDescriptorFind(dom, accesses, op.pred, sk.not_found, assert(result_ty, "find descriptor requires result type"))
+            return Stencil.StencilDescriptorFind(dom, accesses, op.pred, assert(attrs.not_found, "find descriptor requires not_found"), assert(result_ty, "find descriptor requires result type"))
         end
         if vocab == Stencil.StencilPartition then
             local op = assert(operator, "partition descriptor requires predicate operator")
-            local sk = assert(skeleton, "partition descriptor requires skeleton")
-            return Stencil.StencilDescriptorPartition(dom, accesses, op.pred, sk.semantics, assert(result_ty, "partition descriptor requires result type"))
+            return Stencil.StencilDescriptorPartition(dom, accesses, op.pred, assert(attrs.semantics, "partition descriptor requires semantics"), assert(result_ty, "partition descriptor requires result type"))
         end
         if vocab == Stencil.StencilCast then return Stencil.StencilDescriptorCast(dom, accesses, assert(operator, "cast descriptor requires operator")) end
         if vocab == Stencil.StencilCompare then
@@ -417,14 +489,36 @@ local function bind_context(T)
         return desc and desc.domain or nil
     end
 
-    local function descriptor_skeleton(desc)
-        local cls = pvm.classof(desc)
-        if cls == Stencil.StencilDescriptorReduce or cls == Stencil.StencilDescriptorMapReduce or cls == Stencil.StencilDescriptorZipReduce or cls == Stencil.StencilDescriptorCount then return Stencil.StencilSkeletonReduce end
-        if cls == Stencil.StencilDescriptorScan then return Stencil.StencilSkeletonScan(desc.mode) end
-        if cls == Stencil.StencilDescriptorCopy then return Stencil.StencilSkeletonCopy(desc.semantics) end
-        if cls == Stencil.StencilDescriptorFind then return Stencil.StencilSkeletonFind(desc.not_found) end
-        if cls == Stencil.StencilDescriptorPartition then return Stencil.StencilSkeletonPartition(desc.semantics) end
-        return Stencil.StencilSkeletonApply
+    local function domain_supported(domain0)
+        return pvm.classof(domain0) == Stencil.StencilDomainRange1D
+            and (tonumber(domain0.step) or 0) > 0
+            and domain0.order == Stencil.StencilDomainForward
+    end
+
+    local function domain_reject_reason(domain0)
+        local cls = pvm.classof(domain0)
+        if cls == Stencil.StencilDomainRange1D then
+            if domain0.order ~= Stencil.StencilDomainForward then return "backward 1D domains are represented but not materialized by current stencil backends" end
+            if (tonumber(domain0.step) or 0) <= 0 then return "1D stencil domain step must be a positive compile-time constant" end
+            return nil
+        end
+        if cls == Stencil.StencilDomainRangeND then return "ND range domains are represented but not materialized by the current 1D stencil backends" end
+        if cls == Stencil.StencilDomainWindowND then return "windowed stencil domains are represented but not materialized by the current 1D stencil backends" end
+        if cls == Stencil.StencilDomainTiledND then return "tiled ND domains are represented but not materialized by the current 1D stencil backends" end
+        return "unknown stencil domain kind"
+    end
+
+    local function unsupported_domain_reject(domain0)
+        local reason = domain_reject_reason(domain0)
+        if reason == nil then return nil end
+        return Stencil.StencilRejectUnsupportedDomain(domain0, reason)
+    end
+
+    local function schedule_lane_count(schedule)
+        if pvm.classof(schedule) ~= Stencil.StencilScheduleVector then return nil end
+        local policy = schedule.lane_policy
+        if pvm.classof(policy) == Stencil.StencilLaneFixed then return tonumber(policy.lanes) end
+        return nil
     end
 
     local function realized_matches_request(schedule, realized)
@@ -436,9 +530,10 @@ local function bind_context(T)
             return rcls == Stencil.StencilRealizedUnrolled and tonumber(realized.factor) == tonumber(schedule.factor)
         end
         if scls == Stencil.StencilScheduleVector then
+            local lanes = schedule_lane_count(schedule)
             return rcls == Stencil.StencilRealizedVector
-                and tonumber(realized.lanes) == tonumber(schedule.lanes)
-                and tonumber(realized.unroll) == tonumber(schedule.unroll)
+                and (lanes == nil or tonumber(realized.lanes) == lanes)
+                and tonumber(realized.unroll) == tonumber(schedule.vector_unroll)
                 and tonumber(realized.interleave) == tonumber(schedule.interleave)
         end
         return false
@@ -455,17 +550,140 @@ local function bind_context(T)
         }
     end
 
-    local function artifact_with_realized(artifact, provider, realized, extra_rejects)
+    local function compiler_matrix_rejects(schedule)
+        if pvm.classof(schedule) ~= Stencil.StencilScheduleVector then return {} end
+        local compiler = schedule.compiler
+        local vector_compiler = schedule.vector_compiler
+        local cc = compiler and compiler.compiler or nil
+        local reason
+        if vector_compiler == Stencil.StencilVectorCompilerGccAutovec and cc ~= Stencil.StencilCompilerGcc then
+            reason = "gcc autovec vector compiler requires gcc"
+        elseif vector_compiler == Stencil.StencilVectorCompilerHandwritten and cc == Stencil.StencilCompilerSystemC then
+            reason = "handwritten C vector compiler requires a C compiler"
+        elseif vector_compiler == Stencil.StencilVectorCompilerCopyPatchStencil and cc ~= Stencil.StencilCompilerGcc then
+            reason = "copy-patch stencil vector compiler is currently built by gcc"
+        end
+        if reason == nil then return {} end
+        return {
+            Stencil.StencilScheduleRejectCompilerMatrix(
+                compiler,
+                vector_compiler,
+                reason
+            ),
+        }
+    end
+
+    local function variant_name(value)
+        if value == nil then return "nil" end
+        if value.text ~= nil then return value.text end
+        local cls = pvm.classof(value)
+        local s = tostring(cls or value)
+        return s:match("([%w_]+)%)$") or s:match("%.([%w_]+)$") or s
+    end
+
+    local function provider_key(provider)
+        return variant_name(provider)
+    end
+
+    local function compiler_policy_key(policy)
+        if policy == nil then return "compiler:nil" end
+        local flags = {}
+        for i, flag in ipairs(policy.flags or {}) do flags[i] = tostring(flag) end
+        return table.concat({
+            variant_name(policy.compiler),
+            variant_name(policy.opt_level),
+            variant_name(policy.machine),
+            table.concat(flags, ","),
+        }, "/")
+    end
+
+    local function schedule_key(schedule)
+        local cls = pvm.classof(schedule)
+        if cls == Stencil.StencilScheduleScalar then return "scalar:" .. compiler_policy_key(schedule.compiler) end
+        if cls == Stencil.StencilScheduleAutoVector then return "autovector:" .. compiler_policy_key(schedule.compiler) end
+        if cls == Stencil.StencilScheduleUnrolled then return "unrolled:" .. tostring(schedule.factor) .. ":" .. compiler_policy_key(schedule.compiler) end
+        if cls == Stencil.StencilScheduleVector then
+            return table.concat({
+                "vector",
+                variant_name(schedule.feature),
+                variant_name(schedule.lane_policy),
+                tostring(schedule_lane_count(schedule) or "target"),
+                variant_name(schedule.required_alignment),
+                variant_name(schedule.tail),
+                variant_name(schedule.reduction),
+                variant_name(schedule.vector_compiler),
+                tostring(schedule.vector_unroll),
+                tostring(schedule.interleave),
+                compiler_policy_key(schedule.compiler),
+            }, ":")
+        end
+        return "schedule:" .. variant_name(schedule)
+    end
+
+    local function artifact_fingerprint(instance0, provider, symbol, signature)
+        local source = table.concat({
+            "stencil-artifact-v1",
+            stable_repr(instance0.descriptor),
+            stable_repr(instance0.schedule),
+            stable_repr(instance0.abi),
+            provider_key(provider),
+            symbol.text,
+            signature,
+        }, "\n")
+        return Stencil.StencilArtifactFingerprint("stencil-artifact-v1:" .. stable_hash32(source))
+    end
+
+    local function append_realized_diagnostics(out, realized)
+        if realized == nil then return end
+        for _, evidence in ipairs(realized.evidence or {}) do
+            local cls = pvm.classof(evidence)
+            if cls == Stencil.StencilRealizedByConstruction then
+                out[#out + 1] = Stencil.StencilArtifactDiagnostic(
+                    Stencil.StencilArtifactDiagnosticNote,
+                    "realized-schedule",
+                    evidence.reason
+                )
+            elseif cls == Stencil.StencilRealizedCompilerRemark then
+                out[#out + 1] = Stencil.StencilArtifactDiagnostic(
+                    Stencil.StencilArtifactDiagnosticRemark,
+                    "compiler",
+                    evidence.remark
+                )
+            elseif cls == Stencil.StencilRealizedDisassembly then
+                out[#out + 1] = Stencil.StencilArtifactDiagnostic(
+                    Stencil.StencilArtifactDiagnosticRemark,
+                    "disassembly",
+                    evidence.classification
+                )
+            end
+        end
+    end
+
+    local function artifact_with_realized(artifact, provider, realized, extra_rejects, extra_diagnostics)
+        provider = provider or artifact.provider
         local rejects = {}
-        for _, reject in ipairs(artifact.schedule_rejects or {}) do rejects[#rejects + 1] = reject end
+        local has_compiler_matrix_reject = false
+        for _, reject in ipairs(artifact.schedule_rejects or {}) do
+            rejects[#rejects + 1] = reject
+            if pvm.classof(reject) == Stencil.StencilScheduleRejectCompilerMatrix then has_compiler_matrix_reject = true end
+        end
+        if not has_compiler_matrix_reject then
+            for _, reject in ipairs(compiler_matrix_rejects(artifact.instance.schedule)) do rejects[#rejects + 1] = reject end
+        end
         for _, reject in ipairs(schedule_rejects_for_realized(artifact.instance.schedule, realized)) do rejects[#rejects + 1] = reject end
         for _, reject in ipairs(extra_rejects or {}) do rejects[#rejects + 1] = reject end
+        local diagnostics = {}
+        for _, diagnostic in ipairs(artifact.diagnostics or {}) do diagnostics[#diagnostics + 1] = diagnostic end
+        append_realized_diagnostics(diagnostics, realized)
+        for _, diagnostic in ipairs(extra_diagnostics or {}) do diagnostics[#diagnostics + 1] = diagnostic end
         return Stencil.StencilArtifact(
             artifact.instance,
-            provider or artifact.provider,
+            provider,
             artifact.symbol,
             artifact.c_signature,
+            artifact_fingerprint(artifact.instance, provider, artifact.symbol, artifact.c_signature),
             realized,
+            diagnostics,
             rejects
         )
     end
@@ -512,7 +730,7 @@ local function bind_context(T)
         return Stencil.StencilAccessVectorFact(
             access_ref(access.name),
             access_alignment_fact(info, access),
-            access.role == Stencil.StencilAccessRead,
+            access.role == Stencil.StencilAccessRead or access.role == Stencil.StencilAccessIndex,
             topology_unit_stride(access.topology)
         )
     end
@@ -620,7 +838,8 @@ local function bind_context(T)
             end
         end
 
-        if pvm.classof(trip_count) == Stencil.StencilTripCountMultipleOf then
+        local trip_count_cls = pvm.classof(trip_count)
+        if trip_count_cls == Stencil.StencilTripCountMultipleOf or trip_count_cls == Stencil.StencilTripCountExact then
             add_proof_obligation(
                 out,
                 Stencil.StencilProofTripCount(trip_count),
@@ -648,12 +867,29 @@ local function bind_context(T)
         return true
     end
 
+    local function trip_count_fact(info)
+        if info == nil then return Stencil.StencilTripCountDynamic end
+        local fact = info.trip_count or info.trip_count_fact
+        local cls = pvm.classof(fact)
+        if cls == Stencil.StencilTripCountUnknown
+            or cls == Stencil.StencilTripCountDynamic
+            or cls == Stencil.StencilTripCountExact
+            or cls == Stencil.StencilTripCountMultipleOf then
+            return fact
+        end
+        local exact = info.exact_trip_count or info.trip_count_exact
+        if exact ~= nil then return Stencil.StencilTripCountExact(tonumber(exact)) end
+        local multiple = info.trip_count_multiple_of or info.multiple_of
+        if multiple ~= nil then return Stencil.StencilTripCountMultipleOf(tonumber(multiple)) end
+        return Stencil.StencilTripCountDynamic
+    end
+
     local function vectorization_facts(desc, info)
         local access_facts = {}
         for i, access in ipairs(descriptor_accesses(desc)) do access_facts[i] = access_vector_fact(access, info) end
         local reducer = desc.reducer
         local aliases = alias_facts(desc, info)
-        local trip_count = Stencil.StencilTripCountDynamic
+        local trip_count = trip_count_fact(info)
         local arithmetic = Stencil.StencilArithmeticVectorFact(
             reduction_reassociable(reducer),
             reducer and reducer.int_semantics or nil,
@@ -714,7 +950,6 @@ local function bind_context(T)
                     sched.tail == Schedule.TailMasked and Stencil.StencilVectorMaskTail or Stencil.StencilVectorScalarTail,
                     Stencil.StencilVectorReductionHorizontal,
                     Stencil.StencilVectorCompilerCopyPatchStencil,
-                    lanes,
                     tonumber(sched.unroll) or 1,
                     tonumber(sched.interleave) or 1,
                     policy,
@@ -734,15 +969,100 @@ local function bind_context(T)
     local function schedule_suffix(schedule)
         local cls = pvm.classof(schedule)
         if cls == Stencil.StencilScheduleVector then
-            local unroll = tonumber(schedule.unroll) or 1
+            local lanes = schedule_lane_count(schedule)
+            local lane_suffix = lanes and tostring(lanes) or "target"
+            local unroll = tonumber(schedule.vector_unroll) or 1
             local interleave = tonumber(schedule.interleave) or 1
-            return ":v" .. tostring(schedule.lanes) .. (unroll > 1 and (":u" .. tostring(unroll)) or "") .. (interleave > 1 and (":i" .. tostring(interleave)) or ""),
-                "_v" .. tostring(schedule.lanes) .. (unroll > 1 and ("_u" .. tostring(unroll)) or "") .. (interleave > 1 and ("_i" .. tostring(interleave)) or "")
+            return ":v" .. lane_suffix .. (unroll > 1 and (":vu" .. tostring(unroll)) or "") .. (interleave > 1 and (":i" .. tostring(interleave)) or ""),
+                "_v" .. lane_suffix .. (unroll > 1 and ("_vu" .. tostring(unroll)) or "") .. (interleave > 1 and ("_i" .. tostring(interleave)) or "")
         end
         if cls == Stencil.StencilScheduleUnrolled then
             return ":u" .. tostring(schedule.factor), "_u" .. tostring(schedule.factor)
         end
         return "", ""
+    end
+
+    local function schedule_candidate_name(schedule)
+        local cls = pvm.classof(schedule)
+        if cls == Stencil.StencilScheduleScalar then return "scalar" end
+        if cls == Stencil.StencilScheduleAutoVector then return "autovector" end
+        if cls == Stencil.StencilScheduleUnrolled then return "unrolled:" .. tostring(schedule.factor) end
+        if cls == Stencil.StencilScheduleVector then
+            return "vector:" .. tostring(schedule_lane_count(schedule) or "target") .. ":u" .. tostring(schedule.vector_unroll or 1) .. ":i" .. tostring(schedule.interleave or 1)
+        end
+        return "schedule"
+    end
+
+    local function schedule_candidate_cost(schedule)
+        local cls = pvm.classof(schedule)
+        if cls == Stencil.StencilScheduleVector then
+            local lanes = schedule_lane_count(schedule) or 4
+            local unroll = tonumber(schedule.vector_unroll) or 1
+            local interleave = tonumber(schedule.interleave) or 1
+            return math.floor(100000 / math.max(1, lanes * unroll * interleave))
+        end
+        if cls == Stencil.StencilScheduleAutoVector then return 25000 end
+        if cls == Stencil.StencilScheduleUnrolled then return math.floor(60000 / math.max(1, tonumber(schedule.factor) or 1)) end
+        if cls == Stencil.StencilScheduleScalar then return 100000 end
+        return 1000000
+    end
+
+    local function schedule_candidate(schedule, status, reason, rejects)
+        return Stencil.StencilScheduleCandidate(
+            schedule_candidate_name(schedule),
+            schedule,
+            schedule_candidate_cost(schedule),
+            status,
+            rejects or {},
+            reason
+        )
+    end
+
+    local function selection_provenance_for_artifact(artifact, reason)
+        local schedule = artifact.instance.schedule
+        local compiler = schedule.compiler or default_compiler_policy()
+        local selected = schedule_candidate(
+            schedule,
+            Stencil.StencilScheduleCandidateSelected,
+            reason or "selected stencil schedule has lowest estimated materialization cost among viable candidates",
+            artifact.schedule_rejects or {}
+        )
+        local candidates = { selected }
+        if pvm.classof(schedule) ~= Stencil.StencilScheduleScalar then
+            candidates[#candidates + 1] = schedule_candidate(
+                Stencil.StencilScheduleScalar(compiler),
+                Stencil.StencilScheduleCandidateViable,
+                "scalar fallback is viable but has higher estimated cost",
+                {}
+            )
+        end
+        return Stencil.StencilScheduleSelectionProvenance(
+            Stencil.StencilScheduleSelectionHeuristic,
+            selected.name,
+            candidates,
+            selected.reason
+        )
+    end
+
+    local function no_selection_provenance(vocab, rejects, reason)
+        local schedule_rejects = {}
+        for _, reject in ipairs(rejects or {}) do
+            if pvm.classof(reject) == Stencil.StencilRejectSchedule then schedule_rejects[#schedule_rejects + 1] = reject.reject end
+        end
+        local candidate = Stencil.StencilScheduleCandidate(
+            "none:" .. tostring(vocab),
+            nil,
+            1000000,
+            Stencil.StencilScheduleCandidateRejected,
+            schedule_rejects,
+            reason or "no stencil schedule candidate was selected"
+        )
+        return Stencil.StencilScheduleSelectionProvenance(
+            Stencil.StencilScheduleSelectionFallback,
+            "none",
+            { candidate },
+            candidate.reason
+        )
     end
 
     local function instance(id, desc, abi, proofs, info)
@@ -895,7 +1215,16 @@ local function bind_context(T)
                 instance.proofs
             )
         end
-        return Stencil.StencilArtifact(instance, Stencil.StencilProviderC, symbol, signature, nil, {})
+        return Stencil.StencilArtifact(
+            instance,
+            Stencil.StencilProviderC,
+            symbol,
+            signature,
+            artifact_fingerprint(instance, Stencil.StencilProviderC, symbol, signature),
+            nil,
+            {},
+            compiler_matrix_rejects(instance.schedule)
+        )
     end
 
     local function void_desc_decl(symbol, desc, args)
@@ -921,11 +1250,11 @@ local function bind_context(T)
             stride,
             {
                 shaped("xs", Stencil.StencilAccessRead, elem_ty, info.array_topology, stride),
-                scalar("acc", Stencil.StencilAccessReduce, result_ty, reduction.init),
+                scalar("acc", Stencil.StencilAccessReduce, result_ty, reducer_identity(reduction, result_ty)),
             },
             nil,
             reducer_desc(reduction, result_ty),
-            Stencil.StencilSkeletonReduce,
+            nil,
             memory(),
             result_ty
         )
@@ -957,7 +1286,7 @@ local function bind_context(T)
             },
             element_unary_operator(op, result_ty, info),
             nil,
-            Stencil.StencilSkeletonApply,
+            nil,
             memory(),
             nil
         )
@@ -982,7 +1311,7 @@ local function bind_context(T)
             },
             element_binary_operator(op, result_ty, info),
             nil,
-            Stencil.StencilSkeletonApply,
+            nil,
             memory(),
             nil
         )
@@ -1004,11 +1333,11 @@ local function bind_context(T)
             {
                 shaped("dst", Stencil.StencilAccessWrite, result_ty, info.dst_topology, stride),
                 shaped("xs", Stencil.StencilAccessRead, elem_ty, info.array_topology or info.src_topology, stride),
-                scalar("acc", Stencil.StencilAccessReduce, result_ty, reduction.init),
+                scalar("acc", Stencil.StencilAccessReduce, result_ty, reducer_identity(reduction, result_ty)),
             },
             nil,
             reducer_desc(reduction, result_ty),
-            Stencil.StencilSkeletonScan(mode),
+            { mode = mode },
             memory(),
             result_ty
         )
@@ -1031,7 +1360,7 @@ local function bind_context(T)
             },
             Stencil.StencilOpIdentity,
             nil,
-            Stencil.StencilSkeletonCopy(semantics),
+            { semantics = semantics },
             memory({ copy = semantics }),
             nil
         )
@@ -1050,7 +1379,7 @@ local function bind_context(T)
             { shaped("dst", Stencil.StencilAccessWrite, elem_ty, info.dst_topology, stride) },
             Stencil.StencilOpFill(value),
             nil,
-            Stencil.StencilSkeletonApply,
+            nil,
             memory(),
             nil
         )
@@ -1072,7 +1401,7 @@ local function bind_context(T)
             },
             Stencil.StencilOpPredicate(predicate_checked(pred, elem_ty), i32_ty()),
             nil,
-            Stencil.StencilSkeletonFind(not_found),
+            { not_found = not_found },
             memory(),
             i32_ty()
         )
@@ -1096,7 +1425,7 @@ local function bind_context(T)
             },
             Stencil.StencilOpPredicate(predicate_checked(pred, elem_ty), i32_ty()),
             nil,
-            Stencil.StencilSkeletonPartition(semantics),
+            { semantics = semantics },
             memory({ partition = semantics }),
             i32_ty()
         )
@@ -1118,7 +1447,7 @@ local function bind_context(T)
             },
             Stencil.StencilOpCast(op, src_ty, dst_ty),
             nil,
-            Stencil.StencilSkeletonApply,
+            nil,
             memory(),
             nil
         )
@@ -1140,7 +1469,7 @@ local function bind_context(T)
             },
             Stencil.StencilOpPredicate(predicate_checked(pred, elem_ty), result_ty),
             nil,
-            Stencil.StencilSkeletonApply,
+            nil,
             memory(),
             nil
         )
@@ -1164,7 +1493,7 @@ local function bind_context(T)
             },
             Stencil.StencilOpCompare(cmp, result_ty),
             nil,
-            Stencil.StencilSkeletonApply,
+            nil,
             memory(),
             nil
         )
@@ -1194,7 +1523,7 @@ local function bind_context(T)
             },
             Stencil.StencilOpSelect(pred, result_ty),
             nil,
-            Stencil.StencilSkeletonApply,
+            nil,
             memory(),
             nil
         )
@@ -1213,11 +1542,11 @@ local function bind_context(T)
             {
                 shaped("dst", Stencil.StencilAccessWrite, elem_ty, info.dst_topology, stride),
                 indexed("src", Stencil.StencilAccessRead, elem_ty, index_ty, stride),
-                shaped("idx", Stencil.StencilAccessRead, index_ty, info.index_topology, stride),
+                shaped("idx", Stencil.StencilAccessIndex, index_ty, info.index_topology, stride),
             },
             Stencil.StencilOpIdentity,
             nil,
-            Stencil.StencilSkeletonApply,
+            nil,
             memory(),
             nil
         )
@@ -1237,11 +1566,11 @@ local function bind_context(T)
             {
                 indexed("dst", Stencil.StencilAccessWrite, elem_ty, index_ty, stride),
                 shaped("src", Stencil.StencilAccessRead, elem_ty, info.src_topology, stride),
-                shaped("idx", Stencil.StencilAccessRead, index_ty, info.index_topology, stride),
+                shaped("idx", Stencil.StencilAccessIndex, index_ty, info.index_topology, stride),
             },
             Stencil.StencilOpIdentity,
             nil,
-            Stencil.StencilSkeletonApply,
+            nil,
             memory({ scatter = conflicts }),
             nil
         )
@@ -1261,7 +1590,7 @@ local function bind_context(T)
             { Stencil.StencilAccess("xs", Stencil.StencilAccessReadWrite, elem_ty, info.src_topology or info.dst_topology or Stencil.StencilTopologyInPlace(stride)) },
             element_unary_operator(op, elem_ty, info),
             nil,
-            Stencil.StencilSkeletonApply,
+            nil,
             memory(),
             nil
         )
@@ -1283,7 +1612,7 @@ local function bind_context(T)
             },
             Stencil.StencilOpPredicate(predicate_checked(pred, elem_ty), i32_ty()),
             nil,
-            Stencil.StencilSkeletonReduce,
+            nil,
             memory(),
             i32_ty()
         )
@@ -1304,11 +1633,11 @@ local function bind_context(T)
             stride,
             {
                 shaped("xs", Stencil.StencilAccessRead, elem_ty, info.array_topology or info.src_topology, stride),
-                scalar("acc", Stencil.StencilAccessReduce, result_ty, reduction.init),
+                scalar("acc", Stencil.StencilAccessReduce, result_ty, reducer_identity(reduction, result_ty)),
             },
             element_unary_operator(op, mapped_ty, info),
             reducer_desc(reduction, result_ty),
-            Stencil.StencilSkeletonReduce,
+            nil,
             memory(),
             result_ty
         )
@@ -1331,11 +1660,11 @@ local function bind_context(T)
             {
                 shaped("lhs", Stencil.StencilAccessRead, lhs_ty, info.lhs_topology, stride),
                 shaped("rhs", Stencil.StencilAccessRead, rhs_ty, info.rhs_topology, stride),
-                scalar("acc", Stencil.StencilAccessReduce, result_ty, reduction.init),
+                scalar("acc", Stencil.StencilAccessReduce, result_ty, reducer_identity(reduction, result_ty)),
             },
             element_binary_operator(op, mapped_ty, info),
             reducer_desc(reduction, result_ty),
-            Stencil.StencilSkeletonReduce,
+            nil,
             memory(),
             result_ty
         )
@@ -1359,8 +1688,9 @@ local function bind_context(T)
 
     local function domain_stride(desc)
         local dom = descriptor_domain(desc)
-        if pvm.classof(dom) == Stencil.StencilDomainRange1D then return tonumber(dom.step) or 1 end
-        return 1
+        if domain_supported(dom) then return tonumber(dom.step) or 1 end
+        local reason = domain_reject_reason(dom)
+        error("stencil_artifact_plan: unsupported stencil domain for artifact shape: " .. tostring(reason), 3)
     end
 
     local function indexed_ty(access)
@@ -1382,7 +1712,7 @@ local function bind_context(T)
         if cls == Stencil.StencilDescriptorReduce then
             local xs = access_named(desc, "xs")
             local red = desc.reducer
-            return local_shape("reduce_array", { elem_ty = xs.ty, result_ty = red.result_ty, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, init = red.init, stride = domain_stride(desc) })
+            return local_shape("reduce_array", { elem_ty = xs.ty, result_ty = red.result_ty, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, identity = red.identity, stride = domain_stride(desc) })
         end
         if cls == Stencil.StencilDescriptorMap then
             local dst, xs = access_named(desc, "dst"), access_named(desc, "xs")
@@ -1397,7 +1727,7 @@ local function bind_context(T)
         if cls == Stencil.StencilDescriptorScan then
             local dst, xs = access_named(desc, "dst"), access_named(desc, "xs")
             local red = desc.reducer
-            return local_shape("scan_array", { elem_ty = xs.ty, result_ty = dst.ty, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, init = red.init, mode = desc.mode, stride = domain_stride(desc) })
+            return local_shape("scan_array", { elem_ty = xs.ty, result_ty = dst.ty, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, identity = red.identity, mode = desc.mode, stride = domain_stride(desc) })
         end
         if cls == Stencil.StencilDescriptorCopy then
             local src = access_named(desc, "src")
@@ -1456,13 +1786,13 @@ local function bind_context(T)
             local xs = access_named(desc, "xs")
             local op = desc.operator
             local red = desc.reducer
-            return local_shape("map_reduce_array", { elem_ty = xs.ty, mapped_ty = op.result_ty, result_ty = red.result_ty, op = op.op, op_int_semantics = op.int_semantics, op_float_mode = op.float_mode, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, init = red.init, stride = domain_stride(desc) })
+            return local_shape("map_reduce_array", { elem_ty = xs.ty, mapped_ty = op.result_ty, result_ty = red.result_ty, op = op.op, op_int_semantics = op.int_semantics, op_float_mode = op.float_mode, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, identity = red.identity, stride = domain_stride(desc) })
         end
         if cls == Stencil.StencilDescriptorZipReduce then
             local lhs, rhs = access_named(desc, "lhs"), access_named(desc, "rhs")
             local op = desc.operator
             local red = desc.reducer
-            return local_shape("zip_reduce_array", { lhs_ty = lhs.ty, rhs_ty = rhs.ty, mapped_ty = op.result_ty, result_ty = red.result_ty, op = op.op, op_int_semantics = op.int_semantics, op_float_mode = op.float_mode, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, init = red.init, stride = domain_stride(desc) })
+            return local_shape("zip_reduce_array", { lhs_ty = lhs.ty, rhs_ty = rhs.ty, mapped_ty = op.result_ty, result_ty = red.result_ty, op = op.op, op_int_semantics = op.int_semantics, op_float_mode = op.float_mode, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, identity = red.identity, stride = domain_stride(desc) })
         end
         error("stencil_artifact_plan: unsupported stencil descriptor", 3)
     end
@@ -1491,7 +1821,11 @@ local function bind_context(T)
     api.descriptor_vocab = descriptor_vocab
     api.descriptor_accesses = descriptor_accesses
     api.descriptor_domain = descriptor_domain
-    api.descriptor_skeleton = descriptor_skeleton
+    api.domain_supported = domain_supported
+    api.unsupported_domain_reject = unsupported_domain_reject
+    api.schedule_lane_count = schedule_lane_count
+    api.selection_provenance_for_artifact = selection_provenance_for_artifact
+    api.no_selection_provenance = no_selection_provenance
     api.schedule_rejects_for_realized = schedule_rejects_for_realized
     api.artifact_with_realized = artifact_with_realized
     api.stride_param_name = stride_param_name

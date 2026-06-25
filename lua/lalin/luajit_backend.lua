@@ -93,7 +93,13 @@ local function bind_context(T)
         info = info or {}
         local artifact = artifact_with_provider(artifact_for(vocab, op, reduction, plan, info), opts)
         artifacts[#artifacts + 1] = artifact
-        selections[#selections + 1] = Stencil.StencilPlanEntry(plan.id, Stencil.StencilSelected(artifact.instance))
+        selections[#selections + 1] = Stencil.StencilPlanEntry(
+            plan.id,
+            Stencil.StencilSelected(
+                artifact.instance,
+                StencilArtifactPlan.selection_provenance_for_artifact(artifact)
+            )
+        )
         return artifact
     end
 
