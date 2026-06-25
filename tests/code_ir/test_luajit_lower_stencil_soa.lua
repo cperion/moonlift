@@ -159,14 +159,26 @@ local lj_module, facts = Lower.lower_module(module, {
     contracts = contracts,
     collect_rejects = rejects,
     stencil_store_artifact_for = function(func, vocab, op, plan, info)
-        assert(vocab == Stencil.StencilZipMap, "expected SoA zip_map store lowering")
+        assert(vocab == "zip_map", "expected SoA zip_map store lowering")
         local artifact = StencilArtifactPlan.zip_map_array_artifact(op, info)
         artifacts[#artifacts + 1] = artifact
         return artifact
     end,
     stencil_reduce_artifact_for = function(func, vocab, op, reduction, plan, info)
-        assert(vocab == Stencil.StencilZipReduce, "expected SoA zip_reduce lowering")
-        local artifact = StencilArtifactPlan.zip_reduce_array_artifact(op, reduction, plan, info)
+        assert(vocab == "zip_reduce", "expected SoA zip_reduce lowering")
+        local artifact = StencilArtifactPlan.reduce_n_array_artifact(reduction, plan, {
+            tag = "soa_zip",
+            inputs = {
+                { name = "lhs", ty = info.lhs_ty, topology = info.lhs_topology },
+                { name = "rhs", ty = info.rhs_ty, topology = info.rhs_topology },
+            },
+            expr = StencilArtifactPlan.apply_binary_expr(op, StencilArtifactPlan.input_expr("lhs"), StencilArtifactPlan.input_expr("rhs"), info.mapped_ty, { int_semantics = sem }),
+            item_ty = info.mapped_ty,
+            result_ty = info.result_ty,
+            step_num = info.step_num or info.stride,
+            schedule = info.schedule,
+            noalias_pairs = info.noalias_pairs,
+        })
         artifacts[#artifacts + 1] = artifact
         return artifact
     end,

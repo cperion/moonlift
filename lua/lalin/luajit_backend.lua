@@ -55,25 +55,56 @@ local function bind_context(T)
         return info
     end
 
-    local function artifact_for(vocab, op, reduction, plan, info)
-        if vocab == Stencil.StencilCopy then return StencilArtifactPlan.copy_array_artifact(info) end
-        if vocab == Stencil.StencilFill then return StencilArtifactPlan.fill_array_artifact(info) end
-        if vocab == Stencil.StencilMap then return StencilArtifactPlan.map_array_artifact(op, info) end
-        if vocab == Stencil.StencilZipMap then return StencilArtifactPlan.zip_map_array_artifact(op, info) end
-        if vocab == Stencil.StencilCast then return StencilArtifactPlan.cast_array_artifact(op, info) end
-        if vocab == Stencil.StencilCompare then return StencilArtifactPlan.compare_array_artifact(op, info) end
-        if vocab == Stencil.StencilZipCompare then return StencilArtifactPlan.zip_compare_array_artifact(op, info) end
-        if vocab == Stencil.StencilGather then return StencilArtifactPlan.gather_array_artifact(info) end
-        if vocab == Stencil.StencilScatter then return StencilArtifactPlan.scatter_array_artifact(info) end
-        if vocab == Stencil.StencilInPlaceMap then return StencilArtifactPlan.in_place_map_array_artifact(op, info) end
-        if vocab == Stencil.StencilScan then return StencilArtifactPlan.scan_array_artifact(reduction, plan, info) end
-        if vocab == Stencil.StencilFind then return StencilArtifactPlan.find_array_artifact(op, info) end
-        if vocab == Stencil.StencilPartition then return StencilArtifactPlan.partition_array_artifact(op, info) end
-        if vocab == Stencil.StencilReduce then return StencilArtifactPlan.reduce_array_artifact(reduction, plan, info) end
-        if vocab == Stencil.StencilCount then return StencilArtifactPlan.count_array_artifact(op, info) end
-        if vocab == Stencil.StencilMapReduce then return StencilArtifactPlan.map_reduce_array_artifact(op, reduction, plan, info) end
-        if vocab == Stencil.StencilZipReduce then return StencilArtifactPlan.zip_reduce_array_artifact(op, reduction, plan, info) end
-        error("luajit_backend: unsupported selected stencil vocab " .. tostring(vocab), 3)
+    local function artifact_for(kind, op, reduction, plan, info)
+        if kind == "copy" then return StencilArtifactPlan.copy_array_artifact(info) end
+        if kind == "fill" then return StencilArtifactPlan.fill_array_artifact(info) end
+        if kind == "map" then return StencilArtifactPlan.map_array_artifact(op, info) end
+        if kind == "zip_map" then return StencilArtifactPlan.zip_map_array_artifact(op, info) end
+        if kind == "cast" then return StencilArtifactPlan.cast_array_artifact(op, info) end
+        if kind == "compare" then return StencilArtifactPlan.compare_array_artifact(op, info) end
+        if kind == "zip_compare" then return StencilArtifactPlan.zip_compare_array_artifact(op, info) end
+        if kind == "gather" then return StencilArtifactPlan.gather_array_artifact(info) end
+        if kind == "scatter" then return StencilArtifactPlan.scatter_array_artifact(info) end
+        if kind == "in_place_map" then return StencilArtifactPlan.in_place_map_array_artifact(op, info) end
+        if kind == "scan" then return StencilArtifactPlan.scan_array_artifact(reduction, plan, info) end
+        if kind == "find" then return StencilArtifactPlan.find_array_artifact(op, info) end
+        if kind == "partition" then return StencilArtifactPlan.partition_array_artifact(op, info) end
+        if kind == "reduce" then return StencilArtifactPlan.reduce_array_artifact(reduction, plan, info) end
+        if kind == "count" then return StencilArtifactPlan.count_array_artifact(op, info) end
+        if kind == "map_reduce" then
+            return StencilArtifactPlan.reduce_n_array_artifact(reduction, plan, {
+                tag = "map_" .. tostring(op),
+                inputs = { { name = "xs", ty = assert(info.elem_ty), topology = info.array_topology or info.src_topology } },
+                expr = StencilArtifactPlan.apply_unary_expr(op, StencilArtifactPlan.input_expr("xs"), assert(info.mapped_ty), info),
+                item_ty = info.mapped_ty,
+                result_ty = info.result_ty,
+                step_num = info.step_num or info.stride,
+                schedule = info.schedule,
+                noalias = info.noalias,
+                noalias_pairs = info.noalias_pairs,
+                alignment = info.alignment,
+                alignments = info.alignments,
+            })
+        end
+        if kind == "zip_reduce" then
+            return StencilArtifactPlan.reduce_n_array_artifact(reduction, plan, {
+                tag = "zip_" .. tostring(op),
+                inputs = {
+                    { name = "lhs", ty = assert(info.lhs_ty), topology = info.lhs_topology },
+                    { name = "rhs", ty = assert(info.rhs_ty), topology = info.rhs_topology },
+                },
+                expr = StencilArtifactPlan.apply_binary_expr(op, StencilArtifactPlan.input_expr("lhs"), StencilArtifactPlan.input_expr("rhs"), assert(info.mapped_ty), info),
+                item_ty = info.mapped_ty,
+                result_ty = info.result_ty,
+                step_num = info.step_num or info.stride,
+                schedule = info.schedule,
+                noalias = info.noalias,
+                noalias_pairs = info.noalias_pairs,
+                alignment = info.alignment,
+                alignments = info.alignments,
+            })
+        end
+        error("luajit_backend: unsupported selected stencil kind " .. tostring(kind), 3)
     end
 
     local function copy_patch_mode(opts)

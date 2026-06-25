@@ -235,13 +235,13 @@ for _, ty in ipairs(scalar_tys) do
     local fill = clone(store_base_ctx)
     fill.dst_elem_ty = ty
     fill.class = { kind = "fill", value = fake_value, value_expr = fake_expr }
-    cases[#cases + 1] = { ctx = fill, vocab = Stencil.StencilFill }
+    cases[#cases + 1] = { ctx = fill, vocab = Stencil.StencilApply, kind = "fill" }
 
     local copy = clone(store_base_ctx)
     copy.dst_elem_ty = ty
     copy.class = { kind = "load", index_primary = true, src = "src", src_expr = fake_expr, elem_ty = ty }
     copy.copy_semantics = Stencil.StencilCopyMemMove
-    cases[#cases + 1] = { ctx = copy, vocab = Stencil.StencilCopy }
+    cases[#cases + 1] = { ctx = copy, vocab = Stencil.StencilApply, kind = "copy" }
 
     local gather = clone(store_base_ctx)
     gather.dst_elem_ty = ty
@@ -253,14 +253,14 @@ for _, ty in ipairs(scalar_tys) do
         elem_ty = ty,
         index_lane = { base = "idx", base_expr = fake_expr, elem_ty = i32, index_primary = true },
     }
-    cases[#cases + 1] = { ctx = gather, vocab = Stencil.StencilGather }
+    cases[#cases + 1] = { ctx = gather, vocab = Stencil.StencilApply, kind = "gather" }
 
     local scatter = clone(store_base_ctx)
     scatter.dst_elem_ty = ty
     scatter.store_index_primary = false
     scatter.store_index_lane = { base = "idx", base_expr = fake_expr, elem_ty = i32, index_primary = true }
     scatter.class = { kind = "load", index_primary = true, src = "src", src_expr = fake_expr, elem_ty = ty }
-    cases[#cases + 1] = { ctx = scatter, vocab = Stencil.StencilScatter }
+    cases[#cases + 1] = { ctx = scatter, vocab = Stencil.StencilApply, kind = "scatter" }
 
     local in_place = clone(store_base_ctx)
     in_place.dst_elem_ty = ty
@@ -274,7 +274,7 @@ for _, ty in ipairs(scalar_tys) do
         same_src_dst_ty = true,
         op = Stencil.StencilUnaryIdentity,
     }
-    cases[#cases + 1] = { ctx = in_place, vocab = Stencil.StencilInPlaceMap }
+    cases[#cases + 1] = { ctx = in_place, vocab = Stencil.StencilApply, kind = "in_place_map" }
 
     local map = clone(store_base_ctx)
     map.dst_elem_ty = ty
@@ -287,7 +287,7 @@ for _, ty in ipairs(scalar_tys) do
         result_ty = ty,
         op = Stencil.StencilUnaryIdentity,
     }
-    cases[#cases + 1] = { ctx = map, vocab = Stencil.StencilMap }
+    cases[#cases + 1] = { ctx = map, vocab = Stencil.StencilApply, kind = "map" }
 
     local cast = clone(store_base_ctx)
     cast.dst_elem_ty = ty
@@ -300,7 +300,7 @@ for _, ty in ipairs(scalar_tys) do
         result_ty = ty,
         op = Core.MachineCastIdentity,
     }
-    cases[#cases + 1] = { ctx = cast, vocab = Stencil.StencilCast }
+    cases[#cases + 1] = { ctx = cast, vocab = Stencil.StencilApply, kind = "cast" }
 
     local compare = clone(store_base_ctx)
     compare.dst_elem_ty = Code.CodeTyBool8
@@ -313,7 +313,7 @@ for _, ty in ipairs(scalar_tys) do
         result_ty = Code.CodeTyBool8,
         pred = Stencil.StencilPredNonZero,
     }
-    cases[#cases + 1] = { ctx = compare, vocab = Stencil.StencilCompare }
+    cases[#cases + 1] = { ctx = compare, vocab = Stencil.StencilApply, kind = "compare" }
 
     local zip_map = clone(store_base_ctx)
     zip_map.dst_elem_ty = ty
@@ -330,7 +330,7 @@ for _, ty in ipairs(scalar_tys) do
         result_ty = ty,
         op = Stencil.StencilBinaryAdd,
     }
-    cases[#cases + 1] = { ctx = zip_map, vocab = Stencil.StencilZipMap }
+    cases[#cases + 1] = { ctx = zip_map, vocab = Stencil.StencilApply, kind = "zip_map" }
 
     local zip_compare = clone(store_base_ctx)
     zip_compare.dst_elem_ty = Code.CodeTyBool8
@@ -346,12 +346,12 @@ for _, ty in ipairs(scalar_tys) do
         rhs_ty = ty,
         cmp = Core.CmpEq,
     }
-    cases[#cases + 1] = { ctx = zip_compare, vocab = Stencil.StencilZipCompare }
+    cases[#cases + 1] = { ctx = zip_compare, vocab = Stencil.StencilApply, kind = "zip_compare" }
 
     for _, case in ipairs(cases) do
         local selection, err = Rules:run("select_store_stencil", { ctx = case.ctx }, "selection", "unsupported store stencil shape")
         assert(selection ~= nil, "expected store stencil selection: " .. tostring(err))
-        assert(selection.vocab == case.vocab, "store selected wrong stencil vocab")
+        assert(selection.vocab == case.vocab, "store selected wrong basis vocab"); assert(selection.kind == case.kind, "store selected wrong derived kind")
         store_shape_cells = store_shape_cells + 1
     end
 end
@@ -367,7 +367,7 @@ for _, case in ipairs(non_scalar_types) do
     copy.copy_semantics = Stencil.StencilCopyMemMove
     local copy_selection, copy_err = Rules:run("select_store_stencil", { ctx = copy }, "selection", "unsupported store stencil shape")
     assert(copy_selection ~= nil, "expected non-scalar copy selection for " .. case.kind .. ": " .. tostring(copy_err))
-    assert(copy_selection.vocab == Stencil.StencilCopy, "expected non-scalar copy stencil for " .. case.kind)
+    assert(copy_selection.vocab == Stencil.StencilApply and copy_selection.kind == "copy", "expected non-scalar copy stencil for " .. case.kind)
     non_scalar_store_cells = non_scalar_store_cells + 1
 
     local gather = clone(store_base_ctx)
@@ -382,7 +382,7 @@ for _, case in ipairs(non_scalar_types) do
     }
     local gather_selection, gather_err = Rules:run("select_store_stencil", { ctx = gather }, "selection", "unsupported store stencil shape")
     assert(gather_selection ~= nil, "expected non-scalar gather selection for " .. case.kind .. ": " .. tostring(gather_err))
-    assert(gather_selection.vocab == Stencil.StencilGather, "expected non-scalar gather stencil for " .. case.kind)
+    assert(gather_selection.vocab == Stencil.StencilApply and gather_selection.kind == "gather", "expected non-scalar gather stencil for " .. case.kind)
     non_scalar_store_cells = non_scalar_store_cells + 1
 
     local scatter = clone(store_base_ctx)
@@ -392,7 +392,7 @@ for _, case in ipairs(non_scalar_types) do
     scatter.class = { kind = "load", index_primary = true, src = "src", src_expr = fake_expr, elem_ty = ty }
     local scatter_selection, scatter_err = Rules:run("select_store_stencil", { ctx = scatter }, "selection", "unsupported store stencil shape")
     assert(scatter_selection ~= nil, "expected non-scalar scatter selection for " .. case.kind .. ": " .. tostring(scatter_err))
-    assert(scatter_selection.vocab == Stencil.StencilScatter, "expected non-scalar scatter stencil for " .. case.kind)
+    assert(scatter_selection.vocab == Stencil.StencilApply and scatter_selection.kind == "scatter", "expected non-scalar scatter stencil for " .. case.kind)
     non_scalar_store_cells = non_scalar_store_cells + 1
 
     local map = clone(store_base_ctx)
@@ -408,7 +408,7 @@ for _, case in ipairs(non_scalar_types) do
     }
     local map_selection, map_err = Rules:run("select_store_stencil", { ctx = map }, "selection", "unsupported store stencil shape")
     assert(map_selection ~= nil, "expected non-scalar identity-map selection for " .. case.kind .. ": " .. tostring(map_err))
-    assert(map_selection.vocab == Stencil.StencilMap, "expected non-scalar identity-map stencil for " .. case.kind)
+    assert(map_selection.vocab == Stencil.StencilApply and map_selection.kind == "map", "expected non-scalar identity-map stencil for " .. case.kind)
     non_scalar_store_cells = non_scalar_store_cells + 1
 
     local neg = clone(store_base_ctx)
@@ -449,7 +449,7 @@ do
     find.class = { kind = "load", index_primary = true, src = "src", src_expr = fake_expr, elem_ty = i32 }
     local selection, err = Rules:run("select_find_stencil", { ctx = find }, "selection", "unsupported find stencil shape")
     assert(selection ~= nil, "expected find stencil selection: " .. tostring(err))
-    assert(selection.vocab == Stencil.StencilFind, "expected find-array stencil")
+    assert(selection.vocab == Stencil.StencilReduce and selection.kind == "find", "expected find-array stencil")
 end
 
 do
@@ -460,7 +460,7 @@ do
     partition.class = { kind = "load", index_primary = true, src = "src", src_expr = fake_expr, elem_ty = i32 }
     local selection, err = Rules:run("select_partition_stencil", { ctx = partition }, "selection", "unsupported partition stencil shape")
     assert(selection ~= nil, "expected partition stencil selection: " .. tostring(err))
-    assert(selection.vocab == Stencil.StencilPartition, "expected partition-array stencil")
+    assert(selection.vocab == Stencil.StencilApply and selection.kind == "partition", "expected partition-array stencil")
 end
 
 do
@@ -478,7 +478,7 @@ do
         selection_ctx = ready_store,
     }
     assert(plan ~= nil, "expected store stencil plan: " .. tostring(err))
-    assert(plan.selection.vocab == Stencil.StencilCopy, "store plan should carry selected stencil")
+    assert(plan.selection.vocab == Stencil.StencilApply and plan.selection.kind == "copy", "store plan should carry selected stencil")
 
     local rejected = Rules.plan_store {
         planned = true,
@@ -525,7 +525,7 @@ for _, ty in ipairs(int_types) do
         }
         local map_selection, map_err = Rules:run("select_reduce_stencil", { ctx = map_ctx }, "selection", "unsupported reduction stencil contribution")
         assert(map_selection ~= nil, "expected integer map-reduce selection: " .. tostring(map_err))
-        assert(map_selection.vocab == Stencil.StencilMapReduce, "expected map-reduce stencil")
+        assert(map_selection.vocab == Stencil.StencilReduce and map_selection.kind == "map_reduce", "expected map-reduce stencil")
         higher_reduce_shape_cells = higher_reduce_shape_cells + 1
 
         local zip_ctx = reduce_ctx(reduction, ty)
@@ -544,7 +544,7 @@ for _, ty in ipairs(int_types) do
         }
         local zip_selection, zip_err = Rules:run("select_reduce_stencil", { ctx = zip_ctx }, "selection", "unsupported reduction stencil contribution")
         assert(zip_selection ~= nil, "expected integer zip-reduce selection: " .. tostring(zip_err))
-        assert(zip_selection.vocab == Stencil.StencilZipReduce, "expected zip-reduce stencil")
+        assert(zip_selection.vocab == Stencil.StencilReduce and zip_selection.kind == "zip_reduce", "expected zip-reduce stencil")
         higher_reduce_shape_cells = higher_reduce_shape_cells + 1
     end
 end
@@ -563,7 +563,7 @@ for _, ty in ipairs(float_types) do
         }
         local map_selection, map_err = Rules:run("select_reduce_stencil", { ctx = map_ctx }, "selection", "unsupported reduction stencil contribution")
         assert(map_selection ~= nil, "expected float map-reduce selection: " .. tostring(map_err))
-        assert(map_selection.vocab == Stencil.StencilMapReduce, "expected map-reduce stencil")
+        assert(map_selection.vocab == Stencil.StencilReduce and map_selection.kind == "map_reduce", "expected map-reduce stencil")
         higher_reduce_shape_cells = higher_reduce_shape_cells + 1
 
         local zip_ctx = reduce_ctx(reduction, ty)
@@ -582,7 +582,7 @@ for _, ty in ipairs(float_types) do
         }
         local zip_selection, zip_err = Rules:run("select_reduce_stencil", { ctx = zip_ctx }, "selection", "unsupported reduction stencil contribution")
         assert(zip_selection ~= nil, "expected float zip-reduce selection: " .. tostring(zip_err))
-        assert(zip_selection.vocab == Stencil.StencilZipReduce, "expected zip-reduce stencil")
+        assert(zip_selection.vocab == Stencil.StencilReduce and zip_selection.kind == "zip_reduce", "expected zip-reduce stencil")
         higher_reduce_shape_cells = higher_reduce_shape_cells + 1
     end
 end
@@ -602,7 +602,7 @@ for _, ty in ipairs(scalar_tys) do
     }
     local selection, err = Rules:run("select_reduce_stencil", { ctx = count_ctx }, "selection", "unsupported reduction stencil contribution")
     assert(selection ~= nil, "expected count selection: " .. tostring(err))
-    assert(selection.vocab == Stencil.StencilCount, "expected count stencil")
+    assert(selection.vocab == Stencil.StencilReduce and selection.kind == "count", "expected count stencil")
 end
 
 do

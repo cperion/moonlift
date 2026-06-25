@@ -98,9 +98,15 @@ local function bind_context(T)
         fields.kind = kind
         return fields
     end
-    local function with_selection_kind(kind, vocab, fields)
+    local function basis_vocab_for_kind(kind)
+        if kind == "reduce" or kind == "count" or kind == "find" or kind == "map_reduce" or kind == "zip_reduce" then return Stencil.StencilReduce end
+        if kind == "scan" then return Stencil.StencilScan end
+        return Stencil.StencilApply
+    end
+
+    local function with_selection_kind(kind, _vocab, fields)
         fields.kind = kind
-        fields.vocab = vocab
+        fields.vocab = basis_vocab_for_kind(kind)
         return fields
     end
     impl.has_const_pred = function(op, operand_ty, value, const_on_left)
@@ -124,23 +130,23 @@ local function bind_context(T)
     impl.zip_compare_class = function(fields) return with_class_kind("zip_compare", fields) end
     impl.pred_const = function(fields) return predicate_from_cmp_const(fields.op, fields.operand_ty, fields.value, fields.const_on_left) end
     impl.index_lane = function(fields) return fields end
-    impl.store_fill = function(fields) return with_selection_kind("fill", Stencil.StencilFill, fields) end
-    impl.store_copy = function(fields) return with_selection_kind("copy", Stencil.StencilCopy, fields) end
-    impl.store_gather = function(fields) return with_selection_kind("gather", Stencil.StencilGather, fields) end
-    impl.store_scatter = function(fields) return with_selection_kind("scatter", Stencil.StencilScatter, fields) end
-    impl.store_in_place_map = function(fields) return with_selection_kind("in_place_map", Stencil.StencilInPlaceMap, fields) end
-    impl.store_map = function(fields) return with_selection_kind("map", Stencil.StencilMap, fields) end
-    impl.store_cast = function(fields) return with_selection_kind("cast", Stencil.StencilCast, fields) end
-    impl.store_compare = function(fields) return with_selection_kind("compare", Stencil.StencilCompare, fields) end
-    impl.store_zip_map = function(fields) return with_selection_kind("zip_map", Stencil.StencilZipMap, fields) end
-    impl.store_zip_compare = function(fields) return with_selection_kind("zip_compare", Stencil.StencilZipCompare, fields) end
-    impl.scan_array = function(fields) return with_selection_kind("scan", Stencil.StencilScan, fields) end
-    impl.find_array = function(fields) return with_selection_kind("find", Stencil.StencilFind, fields) end
-    impl.partition_array = function(fields) return with_selection_kind("partition", Stencil.StencilPartition, fields) end
-    impl.reduce_array = function(fields) return with_selection_kind("reduce", Stencil.StencilReduce, fields) end
-    impl.reduce_map = function(fields) return with_selection_kind("map_reduce", Stencil.StencilMapReduce, fields) end
-    impl.reduce_zip = function(fields) return with_selection_kind("zip_reduce", Stencil.StencilZipReduce, fields) end
-    impl.reduce_count = function(fields) return with_selection_kind("count", Stencil.StencilCount, fields) end
+    impl.store_fill = function(fields) return with_selection_kind("fill", nil, fields) end
+    impl.store_copy = function(fields) return with_selection_kind("copy", nil, fields) end
+    impl.store_gather = function(fields) return with_selection_kind("gather", nil, fields) end
+    impl.store_scatter = function(fields) return with_selection_kind("scatter", nil, fields) end
+    impl.store_in_place_map = function(fields) return with_selection_kind("in_place_map", nil, fields) end
+    impl.store_map = function(fields) return with_selection_kind("map", nil, fields) end
+    impl.store_cast = function(fields) return with_selection_kind("cast", nil, fields) end
+    impl.store_compare = function(fields) return with_selection_kind("compare", nil, fields) end
+    impl.store_zip_map = function(fields) return with_selection_kind("zip_map", nil, fields) end
+    impl.store_zip_compare = function(fields) return with_selection_kind("zip_compare", nil, fields) end
+    impl.scan_array = function(fields) return with_selection_kind("scan", nil, fields) end
+    impl.find_array = function(fields) return with_selection_kind("find", nil, fields) end
+    impl.partition_array = function(fields) return with_selection_kind("partition", nil, fields) end
+    impl.reduce_array = function(fields) return with_selection_kind("reduce", nil, fields) end
+    impl.reduce_map = function(fields) return with_selection_kind("map_reduce", nil, fields) end
+    impl.reduce_zip = function(fields) return with_selection_kind("zip_reduce", nil, fields) end
+    impl.reduce_count = function(fields) return with_selection_kind("count", nil, fields) end
     impl.store_stencil_plan = function(fields) return fields end
     impl.reduce_stencil_plan = function(fields) return fields end
     impl.store_stencil_no_plan = function(fields) fields.kind = "no_plan"; return fields end

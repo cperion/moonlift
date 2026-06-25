@@ -31,7 +31,7 @@ local function reduction(kind, init)
 end
 
 local function raw_identity(artifact)
-    return ReductionAlgebra.literal_identity_raw(artifact.instance.descriptor.reducer.identity)
+    return ReductionAlgebra.literal_identity_raw(artifact.instance.descriptor.mode.reducer.identity)
 end
 
 local add = Plan.reduce_array_artifact(reduction(Value.ReductionAdd, iconst(i32, 0)), nil, {
@@ -40,7 +40,7 @@ local add = Plan.reduce_array_artifact(reduction(Value.ReductionAdd, iconst(i32,
     step_num = 1,
 })
 assert(raw_identity(add) == "0", "add identity should be derived as 0")
-assert(Plan.artifact_shape(add).identity == add.instance.descriptor.reducer.identity, "shape should expose reducer identity")
+assert(Plan.artifact_shape(add).identity == add.instance.descriptor.mode.reducer.identity, "shape should expose reducer identity")
 
 local max_u8 = Plan.reduce_array_artifact(reduction(Value.ReductionMax, nil), nil, {
     elem_ty = u8,

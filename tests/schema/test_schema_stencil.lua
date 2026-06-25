@@ -104,8 +104,9 @@ local descriptor = Stencil.StencilDescriptorReduce(
             Stencil.StencilTopologyScalar(init)
         ),
     },
-    Stencil.StencilReducer(Value.ReductionAdd, i32, init, sem, nil),
-    i32
+    Stencil.StencilApplyInput(Stencil.StencilAccessRef("xs")),
+    i32,
+    Stencil.StencilReduceFold(Stencil.StencilReducer(Value.ReductionAdd, i32, init, sem, nil))
 )
 local instance = Stencil.StencilInstance(
     Stencil.StencilInstanceId("stencil:reduce_array:i32:add"),
@@ -129,8 +130,9 @@ assert(StencilArtifactPlan.descriptor_vocab(instance.descriptor) == Stencil.Sten
 assert(pvm.classof(StencilArtifactPlan.descriptor_domain(instance.descriptor)) == Stencil.StencilDomainRange1D)
 assert(StencilArtifactPlan.descriptor_accesses(instance.descriptor)[1].role == Stencil.StencilAccessRead)
 assert(StencilArtifactPlan.descriptor_accesses(instance.descriptor)[2].role == Stencil.StencilAccessReduce)
-assert(pvm.classof(instance.descriptor.reducer) == Stencil.StencilReducer)
-assert(instance.descriptor.reducer.identity == init)
+assert(pvm.classof(instance.descriptor.mode) == Stencil.StencilReduceFold)
+assert(pvm.classof(instance.descriptor.mode.reducer) == Stencil.StencilReducer)
+assert(instance.descriptor.mode.reducer.identity == init)
 assert(pvm.classof(instance.schedule) == Stencil.StencilScheduleAutoVector)
 assert(instance.schedule.compiler.compiler == Stencil.StencilCompilerGcc)
 assert(instance.schedule.compiler.opt_level == Stencil.StencilOptO3)
@@ -154,6 +156,73 @@ assert(artifact.instance == instance)
 assert(artifact.realized == nil)
 assert(#artifact.schedule_rejects == 0)
 
+local meta_node_id = Stencil.StencilMetastencilNodeId("meta:n0")
+local meta_external = Stencil.StencilMetastencilPort(
+    Stencil.StencilMetastencilPortRef(nil, "xs"),
+    Stencil.StencilMetastencilPortInput,
+    i32,
+    nil
+)
+local meta_input = Stencil.StencilMetastencilPort(
+    Stencil.StencilMetastencilPortRef(meta_node_id, "xs"),
+    Stencil.StencilMetastencilPortInput,
+    i32,
+    Stencil.StencilAccessRef("xs")
+)
+local meta_output = Stencil.StencilMetastencilPort(
+    Stencil.StencilMetastencilPortRef(meta_node_id, "acc"),
+    Stencil.StencilMetastencilPortOutput,
+    i32,
+    Stencil.StencilAccessRef("acc")
+)
+local meta_node = Stencil.StencilMetastencilNode(meta_node_id, artifact, { meta_input }, { meta_output })
+local meta_wire = Stencil.StencilMetastencilWire(
+    Stencil.StencilMetastencilWireId("meta:w0"),
+    meta_external.ref,
+    meta_input.ref,
+    i32
+)
+local meta_legality = Stencil.StencilFusionLegality(
+    {
+        Stencil.StencilFusionCompatibleAbi(meta_wire.id, i32),
+        Stencil.StencilFusionNoIntermediateMaterialization(meta_wire.id),
+    },
+    {},
+    {}
+)
+local meta_descriptor = Stencil.StencilMetastencilDescriptor(
+    Stencil.StencilMetastencilId("meta:reduce"),
+    { meta_external },
+    { meta_node },
+    { meta_wire },
+    instance.abi,
+    meta_legality
+)
+local meta_fingerprint = Stencil.StencilMetastencilFingerprint("test:meta:fingerprint")
+local meta_candidate = Stencil.StencilMetastencilCandidate(
+    meta_descriptor,
+    meta_fingerprint,
+    1,
+    0,
+    Stencil.StencilMetastencilCandidateSelected,
+    {},
+    "schema smoke"
+)
+local meta_provenance = Stencil.StencilMetastencilCoverProvenance(
+    Stencil.StencilScheduleSelectionHeuristic,
+    meta_descriptor.id.text,
+    { meta_candidate },
+    "schema smoke"
+)
+local meta_selection = Stencil.StencilMetastencilCoverSelected(meta_candidate, meta_provenance)
+assert(meta_descriptor.id.text == "meta:reduce")
+assert(meta_descriptor.external_ports[1].ref.name == "xs")
+assert(meta_descriptor.nodes[1].artifact == artifact)
+assert(meta_descriptor.wires[1].ty == i32)
+assert(pvm.classof(meta_descriptor.legality.facts[1]) == Stencil.StencilFusionCompatibleAbi)
+assert(pvm.classof(meta_selection.candidate) == Stencil.StencilMetastencilCandidate)
+assert(meta_selection.provenance.winner == "meta:reduce")
+
 local axis_x = Stencil.StencilDomainAxis(Code.CodeTyIndex, nil, nil, 1, Stencil.StencilDomainForward)
 local axis_y = Stencil.StencilDomainAxis(Code.CodeTyIndex, nil, nil, 1, Stencil.StencilDomainForward)
 local nd_domain = Stencil.StencilDomainRangeND({ axis_x, axis_y })
@@ -174,13 +243,14 @@ assert(pvm.classof(nd_reject) == Stencil.StencilRejectUnsupportedDomain)
 assert(nd_reject.domain == nd_domain)
 assert(StencilArtifactPlan.unsupported_domain_reject(backward_domain).reason:find("backward", 1, true) ~= nil)
 assert(StencilArtifactPlan.unsupported_domain_reject(zero_step_domain).reason:find("positive compile-time", 1, true) ~= nil)
-local nd_descriptor = Stencil.StencilDescriptorMap(
+local nd_descriptor = Stencil.StencilDescriptorApply(
     nd_domain,
     {
         Stencil.StencilAccess("dst", Stencil.StencilAccessWrite, i32, Stencil.StencilTopologyContiguous(1)),
         Stencil.StencilAccess("xs", Stencil.StencilAccessRead, i32, Stencil.StencilTopologyContiguous(1)),
     },
-    Stencil.StencilOpIdentity
+    Stencil.StencilApplyInput(Stencil.StencilAccessRef("xs")),
+    Stencil.StencilApplyElementwise
 )
 local nd_instance = Stencil.StencilInstance(instance.id, nd_descriptor, instance.schedule, instance.abi, instance.proofs)
 local nd_artifact = Stencil.StencilArtifact(nd_instance, artifact.provider, artifact.symbol, artifact.c_signature, artifact.fingerprint, nil, {}, {})
@@ -221,11 +291,14 @@ assert(pvm.classof(schedule_reject.reject) == Stencil.StencilScheduleRejectReque
 assert(pvm.classof(missing_proof.obligation) == Stencil.StencilProofTripCount)
 
 local pred = Stencil.StencilPredCompareConst(Core.CmpEq, i32, init)
-local op = Stencil.StencilOpUnary(Stencil.StencilUnaryNeg, i32, sem, nil)
-local zip_op = Stencil.StencilOpBinary(Stencil.StencilBinaryAdd, i32, sem, nil)
-local cast_op = Stencil.StencilOpCast(Core.MachineCastSToF, i32, Code.CodeTyFloat(64))
-local pred_op = Stencil.StencilOpPredicate(pred, Code.CodeTyBool8)
-local cmp_op = Stencil.StencilOpCompare(Core.CmpLt, Code.CodeTyBool8)
+local input_xs = Stencil.StencilApplyInput(Stencil.StencilAccessRef("xs"))
+local input_lhs = Stencil.StencilApplyInput(Stencil.StencilAccessRef("lhs"))
+local input_rhs = Stencil.StencilApplyInput(Stencil.StencilAccessRef("rhs"))
+local op = Stencil.StencilApplyUnary(Stencil.StencilUnaryNeg, input_xs, i32, sem, nil)
+local zip_op = Stencil.StencilApplyBinary(Stencil.StencilBinaryAdd, input_lhs, input_rhs, i32, sem, nil)
+local cast_op = Stencil.StencilApplyCast(Core.MachineCastSToF, input_xs, i32, Code.CodeTyFloat(64))
+local pred_op = Stencil.StencilApplyPredicate(pred, input_xs, Code.CodeTyBool8)
+local cmp_op = Stencil.StencilApplyCompare(Core.CmpLt, input_lhs, input_rhs, Code.CodeTyBool8)
 local indexed = Stencil.StencilTopologyIndexed(i32, 1)
 local slice_topology = Stencil.StencilTopologySliceDescriptor(
     Code.CodeValueId("v:slice"),

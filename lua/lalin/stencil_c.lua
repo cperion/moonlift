@@ -142,6 +142,14 @@ local function bind_context(T)
         })
     end
 
+    local function param_fragment(items)
+        return LLBL.fragment("params", items)
+    end
+
+    local function structured_param(name, ty)
+        return { name = name, type = ty }
+    end
+
     local function loop_i(stride, body)
         return C.for_ { C.decl. i[C.i32](cn("start")), C.lt(cn("i"), cn("stop")), C.assign(cn("i"), cn("i") + (tonumber(stride) or 1)) } {
             _(body),
@@ -711,6 +719,68 @@ local function bind_context(T)
         error("stencil_c: unsupported binary op " .. binary_name(op), 3)
     end
 
+    local function c_value_const_expr(value, ty)
+        return c_cast(ty, const_literal_value(value))
+    end
+
+    local function c_apply_expr(expr, desc, access_by_name, index)
+        local cls = pvm.classof(expr)
+        if cls == Stencil.StencilApplyInput then
+            local name = expr.access.name
+            local access = access_by_name[name] or access_named(desc, name)
+            if pvm.classof(access.topology) == Stencil.StencilTopologyScalar then return cn(name) end
+            return access_c_expr(access, name, index)
+        end
+        if cls == Stencil.StencilApplyConst then return c_value_const_expr(expr.value, expr.ty) end
+        if cls == Stencil.StencilApplyUnary then
+            local result_ty = assert(expr.result_ty, "stencil_c: generic unary apply requires result_ty")
+            local arg = c_apply_expr(expr.arg, desc, access_by_name, index)
+            if expr.op == Stencil.StencilUnaryIdentity then return c_cast(result_ty, arg) end
+            if expr.op == Stencil.StencilUnaryNeg then return c_cast(result_ty, C.cast[c_unsigned_type_node(result_ty)](0) - c_unsigned_cast(result_ty, arg)) end
+            if expr.op == Stencil.StencilUnaryBitNot then return c_cast(result_ty, C.bnot(c_unsigned_cast(result_ty, arg))) end
+            if expr.op == Stencil.StencilUnaryBoolNot then return c_cast(result_ty, C.not_(arg)) end
+            error("stencil_c: unsupported generic unary apply " .. unary_name(expr.op), 3)
+        end
+        if cls == Stencil.StencilApplyBinary then
+            return c_binary_expr(
+                expr.op,
+                c_apply_expr(expr.left, desc, access_by_name, index),
+                c_apply_expr(expr.right, desc, access_by_name, index),
+                assert(expr.result_ty, "stencil_c: generic binary apply requires result_ty"),
+                expr.int_semantics,
+                expr.float_mode
+            )
+        end
+        if cls == Stencil.StencilApplyCast then
+            if expr.op == Core.MachineCastBitcast then error("stencil_c: generic apply bitcast requires a dedicated lowering", 3) end
+            return c_cast(expr.to, c_apply_expr(expr.arg, desc, access_by_name, index))
+        end
+        if cls == Stencil.StencilApplyPredicate then
+            return c_cast(expr.result_ty, c_predicate_expr(expr.pred, c_apply_expr(expr.arg, desc, access_by_name, index)))
+        end
+        if cls == Stencil.StencilApplyCompare then
+            return c_cast(
+                expr.result_ty,
+                c_compare_expr(
+                    expr.cmp,
+                    c_apply_expr(expr.left, desc, access_by_name, index),
+                    c_apply_expr(expr.right, desc, access_by_name, index)
+                )
+            )
+        end
+        if cls == Stencil.StencilApplySelect then
+            return c_cast(
+                expr.result_ty,
+                C.select(
+                    c_predicate_expr(expr.pred, c_apply_expr(expr.cond, desc, access_by_name, index)),
+                    c_apply_expr(expr.then_expr, desc, access_by_name, index),
+                    c_apply_expr(expr.else_expr, desc, access_by_name, index)
+                )
+            )
+        end
+        error("stencil_c: unsupported generic apply expression", 3)
+    end
+
     local function c_reduction_update_expr(kind, acc, item, ty)
         if kind == Value.ReductionAdd then return c_cast(ty, c_unsigned_cast(ty, acc) + c_unsigned_cast(ty, item)) end
         if kind == Value.ReductionMul then return c_cast(ty, c_unsigned_cast(ty, acc) * c_unsigned_cast(ty, item)) end
@@ -1043,6 +1113,39 @@ local function bind_context(T)
         })
     end
 
+    local function apply_n_array_source(artifact)
+        local shape = artifact_shape(artifact)
+        local desc = artifact.instance.descriptor
+        local dst_access = access_named(desc, "dst")
+        local access_by_name = {}
+        for _, access in ipairs(descriptor_accesses(desc)) do access_by_name[access.name] = access end
+        local params = {
+            structured_param("dst", C.ptr[c_type_node(shape.result_ty)]),
+        }
+        for _, access in ipairs(shape.inputs or {}) do
+            if pvm.classof(access.topology) == Stencil.StencilTopologyScalar then
+                params[#params + 1] = structured_param(access.name, c_type_node(access.ty))
+            else
+                params[#params + 1] = structured_param(access.name, C.ptr[C.const[c_type_node(access.ty)]])
+            end
+        end
+        params[#params + 1] = structured_param("start", C.i32)
+        params[#params + 1] = structured_param("stop", C.i32)
+        for _, access in ipairs(dynamic_stride_accesses(desc)) do
+            params[#params + 1] = structured_param(stride_param_name(access), C.i32)
+        end
+        local i = cn("i")
+        local name = LLBL.N[artifact.symbol.text]
+        return C.emit_decl(C.fn[name] { _(param_fragment(params)) } [C.void] {
+            loop_i(shape.stride, {
+                C.assign(
+                    access_c_expr(dst_access, "dst", i),
+                    c_apply_expr(shape.expr, desc, access_by_name, i)
+                ),
+            }),
+        })
+    end
+
     local function gather_array_source(artifact)
         local shape = artifact_shape(artifact)
         local desc = artifact.instance.descriptor
@@ -1146,45 +1249,38 @@ local function bind_context(T)
         })
     end
 
-    local function map_reduce_array_source(artifact)
-        local shape = artifact_shape(artifact)
-        local xs_access = access_named(artifact.instance.descriptor, "xs")
-        local et, mt, rt = c_type(shape.elem_ty), c_type(shape.mapped_ty), c_type(shape.result_ty)
-        local acc_ty = (shape.reduction == Value.ReductionMin or shape.reduction == Value.ReductionMax) and rt or unsigned_c_type(shape.result_ty)
-        local stride = tonumber(shape.stride) or 1
-        return emit_c_fn(artifact, rt, { const_elem_ptr_decl(shape.elem_ty, "xs"), "int32_t start", "int32_t stop", rt .. " init" }, {
-            C.decl. acc[C.type[acc_ty]](C.raw_expr("(" .. acc_ty .. ")init")),
-            loop_i(stride, {
-                C.assign(C.raw_expr("acc"), C.raw_expr(reduction_update_expr(shape.reduction, "acc", unary_expr(shape.op, access_ref(xs_access, "xs", "i"), shape.mapped_ty, shape.op_int_semantics, shape.op_float_mode), shape.result_ty))),
-            }),
-            C.return_(C.raw_expr("(" .. rt .. ")acc")),
-        })
-    end
-
-    local function zip_reduce_array_source(artifact)
+    local function reduce_n_array_source(artifact)
         local shape = artifact_shape(artifact)
         local desc = artifact.instance.descriptor
-        local lhs_access, rhs_access = access_named(desc, "lhs"), access_named(desc, "rhs")
-        local lt, rt = c_type(shape.lhs_ty), c_type(shape.result_ty)
+        local access_by_name = {}
+        for _, access in ipairs(descriptor_accesses(desc)) do access_by_name[access.name] = access end
+        local result_ty = c_type(shape.result_ty)
         local acc_type_node = (shape.reduction == Value.ReductionMin or shape.reduction == Value.ReductionMax) and c_type_node(shape.result_ty) or c_unsigned_type_node(shape.result_ty)
-        local stride = tonumber(shape.stride) or 1
+        local params = {}
+        for _, access in ipairs(shape.inputs or {}) do
+            if pvm.classof(access.topology) == Stencil.StencilTopologyScalar then
+                params[#params + 1] = structured_param(access.name, c_type_node(access.ty))
+            else
+                params[#params + 1] = structured_param(access.name, C.ptr[C.const[c_type_node(access.ty)]])
+            end
+        end
+        params[#params + 1] = structured_param("start", C.i32)
+        params[#params + 1] = structured_param("stop", C.i32)
+        params[#params + 1] = structured_param("init", c_type_node(shape.result_ty))
+        for _, access in ipairs(dynamic_stride_accesses(desc)) do
+            params[#params + 1] = structured_param(stride_param_name(access), C.i32)
+        end
         local i = cn("i")
-        return emit_c_fn(artifact, rt, { const_elem_ptr_decl(shape.lhs_ty, "lhs"), const_elem_ptr_decl(shape.rhs_ty, "rhs"), "int32_t start", "int32_t stop", rt .. " init" }, {
+        local name = LLBL.N[artifact.symbol.text]
+        return C.emit_decl(C.fn[name] { _(param_fragment(params)) } [C.type[result_ty]] {
             C.decl. acc[acc_type_node](C.cast[acc_type_node](cn("init"))),
-            loop_i(stride, {
+            loop_i(shape.stride, {
                 C.assign(
                     cn("acc"),
                     c_reduction_update_expr(
                         shape.reduction,
                         cn("acc"),
-                        c_binary_expr(
-                            shape.op,
-                            access_c_expr(lhs_access, "lhs", i),
-                            access_c_expr(rhs_access, "rhs", i),
-                            shape.mapped_ty,
-                            shape.op_int_semantics,
-                            shape.op_float_mode
-                        ),
+                        c_apply_expr(shape.expr, desc, access_by_name, i),
                         shape.result_ty
                     )
                 ),
@@ -1207,12 +1303,12 @@ local function bind_context(T)
         if kind == "compare_array" then return compare_array_source(artifact) end
         if kind == "zip_compare_array" then return zip_compare_array_source(artifact) end
         if kind == "select_array" then return select_array_source(artifact) end
+        if kind == "apply_n_array" then return apply_n_array_source(artifact) end
         if kind == "gather_array" then return gather_array_source(artifact) end
         if kind == "scatter_array" then return scatter_array_source(artifact) end
         if kind == "in_place_map_array" then return in_place_map_array_source(artifact) end
         if kind == "count_array" then return count_array_source(artifact) end
-        if kind == "map_reduce_array" then return map_reduce_array_source(artifact) end
-        if kind == "zip_reduce_array" then return zip_reduce_array_source(artifact) end
+        if kind == "reduce_n_array" then return reduce_n_array_source(artifact) end
         error("stencil_c: unsupported stencil shape", 3)
     end
 

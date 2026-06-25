@@ -284,12 +284,36 @@ local function bind_context(T)
         return info and info.float_mode or Code.CodeFloatStrict
     end
 
-    local function element_unary_operator(op, result_ty, info)
-        return Stencil.StencilOpUnary(op, result_ty, element_int_semantics(result_ty, info), element_float_mode(result_ty, info))
+    local function input_expr(name)
+        return Stencil.StencilApplyInput(Stencil.StencilAccessRef(name))
     end
 
-    local function element_binary_operator(op, result_ty, info)
-        return Stencil.StencilOpBinary(op, result_ty, element_int_semantics(result_ty, info), element_float_mode(result_ty, info))
+    local function const_expr(value, ty)
+        return Stencil.StencilApplyConst(value, ty)
+    end
+
+    local function apply_unary_expr(op, arg, result_ty, info)
+        return Stencil.StencilApplyUnary(op, arg, result_ty, element_int_semantics(result_ty, info), element_float_mode(result_ty, info))
+    end
+
+    local function apply_binary_expr(op, left, right, result_ty, info)
+        return Stencil.StencilApplyBinary(op, left, right, result_ty, element_int_semantics(result_ty, info), element_float_mode(result_ty, info))
+    end
+
+    local function apply_predicate_expr(pred, arg, result_ty)
+        return Stencil.StencilApplyPredicate(pred, arg, result_ty)
+    end
+
+    local function apply_compare_expr(cmp, left, right, result_ty)
+        return Stencil.StencilApplyCompare(cmp, left, right, result_ty)
+    end
+
+    local function apply_cast_expr(op, arg, from, to)
+        return Stencil.StencilApplyCast(op, arg, from, to)
+    end
+
+    local function apply_select_expr(pred, cond, then_expr, else_expr, result_ty)
+        return Stencil.StencilApplySelect(pred, cond, then_expr, else_expr, result_ty)
     end
 
     local function predicate_checked(pred, operand_ty)
@@ -406,78 +430,53 @@ local function bind_context(T)
         return Stencil.StencilReducer(reduction.kind, result_ty, reducer_identity(reduction, result_ty), reduction.int_semantics, reduction.float_mode)
     end
 
-    local function descriptor(vocab, stride, accesses, operator, reducer, attrs, mem, result_ty)
+    local function predicate_expr_pred(expr)
+        local cls = pvm.classof(expr)
+        if cls == Stencil.StencilApplyPredicate or cls == Stencil.StencilApplySelect then return expr.pred end
+        error("stencil_artifact_plan: descriptor mode requires a predicate apply expression", 3)
+    end
+
+    local function descriptor(vocab, stride, accesses, expr, reducer, attrs, mem, result_ty)
         attrs = attrs or {}
         local dom = domain(stride)
-        if vocab == Stencil.StencilReduce then
-            return Stencil.StencilDescriptorReduce(dom, accesses, assert(reducer, "reduce descriptor requires reducer"), assert(result_ty, "reduce descriptor requires result type"))
+        if vocab == "reduce" then
+            return Stencil.StencilDescriptorReduce(dom, accesses, expr or input_expr("xs"), assert(result_ty, "reduce descriptor requires result type"), Stencil.StencilReduceFold(assert(reducer, "reduce descriptor requires reducer")))
         end
-        if vocab == Stencil.StencilMap then return Stencil.StencilDescriptorMap(dom, accesses, assert(operator, "map descriptor requires operator")) end
-        if vocab == Stencil.StencilZipMap then return Stencil.StencilDescriptorZipMap(dom, accesses, assert(operator, "zip-map descriptor requires operator")) end
-        if vocab == Stencil.StencilScan then
+        if vocab == "apply" then return Stencil.StencilDescriptorApply(dom, accesses, assert(expr, "apply descriptor requires expr"), attrs.apply_mode or Stencil.StencilApplyElementwise) end
+        if vocab == "scan" then
             return Stencil.StencilDescriptorScan(dom, accesses, assert(reducer, "scan descriptor requires reducer"), assert(attrs.mode, "scan descriptor requires mode"), assert(result_ty, "scan descriptor requires result type"))
         end
-        if vocab == Stencil.StencilCopy then
-            return Stencil.StencilDescriptorCopy(dom, accesses, assert(attrs.semantics, "copy descriptor requires semantics"))
+        if vocab == "find" then
+            expr = assert(expr, "find descriptor requires predicate expr")
+            return Stencil.StencilDescriptorReduce(dom, accesses, expr, assert(result_ty, "find descriptor requires result type"), Stencil.StencilReduceFind(predicate_expr_pred(expr), assert(attrs.not_found, "find descriptor requires not_found")))
         end
-        if vocab == Stencil.StencilFill then return Stencil.StencilDescriptorFill(dom, accesses, assert(operator, "fill descriptor requires operator")) end
-        if vocab == Stencil.StencilFind then
-            local op = assert(operator, "find descriptor requires predicate operator")
-            return Stencil.StencilDescriptorFind(dom, accesses, op.pred, assert(attrs.not_found, "find descriptor requires not_found"), assert(result_ty, "find descriptor requires result type"))
+        if vocab == "partition" then
+            return Stencil.StencilDescriptorApply(dom, accesses, assert(expr, "partition descriptor requires predicate expr"), Stencil.StencilApplyPartition(assert(attrs.semantics, "partition descriptor requires semantics")))
         end
-        if vocab == Stencil.StencilPartition then
-            local op = assert(operator, "partition descriptor requires predicate operator")
-            return Stencil.StencilDescriptorPartition(dom, accesses, op.pred, assert(attrs.semantics, "partition descriptor requires semantics"), assert(result_ty, "partition descriptor requires result type"))
-        end
-        if vocab == Stencil.StencilCast then return Stencil.StencilDescriptorCast(dom, accesses, assert(operator, "cast descriptor requires operator")) end
-        if vocab == Stencil.StencilCompare then
-            local op = assert(operator, "compare descriptor requires predicate operator")
-            return Stencil.StencilDescriptorCompare(dom, accesses, op.pred, op.result_ty)
-        end
-        if vocab == Stencil.StencilZipCompare then
-            local op = assert(operator, "zip-compare descriptor requires compare operator")
-            return Stencil.StencilDescriptorZipCompare(dom, accesses, op.cmp, op.result_ty)
-        end
-        if vocab == Stencil.StencilSelect then
-            local op = assert(operator, "select descriptor requires select operator")
-            return Stencil.StencilDescriptorSelect(dom, accesses, op.pred, op.result_ty)
-        end
-        if vocab == Stencil.StencilGather then return Stencil.StencilDescriptorGather(dom, accesses) end
-        if vocab == Stencil.StencilScatter then return Stencil.StencilDescriptorScatter(dom, accesses, assert((mem or {}).scatter, "scatter descriptor requires conflict semantics")) end
-        if vocab == Stencil.StencilInPlaceMap then return Stencil.StencilDescriptorInPlaceMap(dom, accesses, assert(operator, "in-place map descriptor requires operator")) end
-        if vocab == Stencil.StencilCount then
-            local op = assert(operator, "count descriptor requires predicate operator")
-            return Stencil.StencilDescriptorCount(dom, accesses, op.pred, assert(result_ty, "count descriptor requires result type"))
-        end
-        if vocab == Stencil.StencilMapReduce then
-            return Stencil.StencilDescriptorMapReduce(dom, accesses, assert(operator, "map-reduce descriptor requires operator"), assert(reducer, "map-reduce descriptor requires reducer"), assert(result_ty, "map-reduce descriptor requires result type"))
-        end
-        if vocab == Stencil.StencilZipReduce then
-            return Stencil.StencilDescriptorZipReduce(dom, accesses, assert(operator, "zip-reduce descriptor requires operator"), assert(reducer, "zip-reduce descriptor requires reducer"), assert(result_ty, "zip-reduce descriptor requires result type"))
+        if vocab == "count" then
+            expr = assert(expr, "count descriptor requires predicate expr")
+            return Stencil.StencilDescriptorReduce(dom, accesses, expr, assert(result_ty, "count descriptor requires result type"), Stencil.StencilReduceCount(predicate_expr_pred(expr)))
         end
         error("stencil_artifact_plan: unsupported descriptor vocab", 3)
     end
 
     local function descriptor_vocab(desc)
         local cls = pvm.classof(desc)
+        if cls == Stencil.StencilDescriptorApply then return Stencil.StencilApply end
         if cls == Stencil.StencilDescriptorReduce then return Stencil.StencilReduce end
-        if cls == Stencil.StencilDescriptorMap then return Stencil.StencilMap end
-        if cls == Stencil.StencilDescriptorZipMap then return Stencil.StencilZipMap end
         if cls == Stencil.StencilDescriptorScan then return Stencil.StencilScan end
-        if cls == Stencil.StencilDescriptorCopy then return Stencil.StencilCopy end
-        if cls == Stencil.StencilDescriptorFill then return Stencil.StencilFill end
-        if cls == Stencil.StencilDescriptorFind then return Stencil.StencilFind end
-        if cls == Stencil.StencilDescriptorPartition then return Stencil.StencilPartition end
-        if cls == Stencil.StencilDescriptorCast then return Stencil.StencilCast end
-        if cls == Stencil.StencilDescriptorCompare then return Stencil.StencilCompare end
-        if cls == Stencil.StencilDescriptorZipCompare then return Stencil.StencilZipCompare end
-        if cls == Stencil.StencilDescriptorSelect then return Stencil.StencilSelect end
-        if cls == Stencil.StencilDescriptorGather then return Stencil.StencilGather end
-        if cls == Stencil.StencilDescriptorScatter then return Stencil.StencilScatter end
-        if cls == Stencil.StencilDescriptorInPlaceMap then return Stencil.StencilInPlaceMap end
-        if cls == Stencil.StencilDescriptorCount then return Stencil.StencilCount end
-        if cls == Stencil.StencilDescriptorMapReduce then return Stencil.StencilMapReduce end
-        if cls == Stencil.StencilDescriptorZipReduce then return Stencil.StencilZipReduce end
+        return nil
+    end
+
+    local function descriptor_reduce_mode(desc)
+        if pvm.classof(desc) ~= Stencil.StencilDescriptorReduce then return nil end
+        return desc.mode
+    end
+
+    local function descriptor_reducer(desc)
+        local cls = pvm.classof(desc)
+        if cls == Stencil.StencilDescriptorScan then return desc.reducer end
+        if cls == Stencil.StencilDescriptorReduce and pvm.classof(desc.mode) == Stencil.StencilReduceFold then return desc.mode.reducer end
         return nil
     end
 
@@ -848,7 +847,7 @@ local function bind_context(T)
             )
         end
 
-        if arithmetic.reduction_reassociable and desc.reducer ~= nil then
+        if arithmetic.reduction_reassociable and descriptor_reducer(desc) ~= nil then
             add_proof_obligation(
                 out,
                 Stencil.StencilProofReductionReassociable,
@@ -887,7 +886,7 @@ local function bind_context(T)
     local function vectorization_facts(desc, info)
         local access_facts = {}
         for i, access in ipairs(descriptor_accesses(desc)) do access_facts[i] = access_vector_fact(access, info) end
-        local reducer = desc.reducer
+        local reducer = descriptor_reducer(desc)
         local aliases = alias_facts(desc, info)
         local trip_count = trip_count_fact(info)
         local arithmetic = Stencil.StencilArithmeticVectorFact(
@@ -904,23 +903,16 @@ local function bind_context(T)
         )
     end
 
-    local function auto_vector_vocab(vocab)
-        return vocab == Stencil.StencilReduce
-            or vocab == Stencil.StencilMap
-            or vocab == Stencil.StencilZipMap
-            or vocab == Stencil.StencilScan
-            or vocab == Stencil.StencilCopy
-            or vocab == Stencil.StencilFill
-            or vocab == Stencil.StencilCast
-            or vocab == Stencil.StencilCompare
-            or vocab == Stencil.StencilZipCompare
-            or vocab == Stencil.StencilSelect
-            or vocab == Stencil.StencilGather
-            or vocab == Stencil.StencilScatter
-            or vocab == Stencil.StencilInPlaceMap
-            or vocab == Stencil.StencilCount
-            or vocab == Stencil.StencilMapReduce
-            or vocab == Stencil.StencilZipReduce
+    local function auto_vector_descriptor(desc)
+        local cls = pvm.classof(desc)
+        if cls == Stencil.StencilDescriptorScan then return true end
+        if cls == Stencil.StencilDescriptorApply then
+            return pvm.classof(desc.mode) ~= Stencil.StencilApplyPartition
+        end
+        if cls == Stencil.StencilDescriptorReduce then
+            return pvm.classof(desc.mode) ~= Stencil.StencilReduceFind
+        end
+        return false
     end
 
     local function unroll_factor(info)
@@ -960,9 +952,8 @@ local function bind_context(T)
             return Stencil.StencilScheduleScalar(policy)
         end
         local unroll = unroll_factor(info)
-        local vocab = descriptor_vocab(desc)
-        if unroll > 1 and auto_vector_vocab(vocab) then return Stencil.StencilScheduleUnrolled(unroll, policy, vectorization_facts(desc, info)) end
-        if auto_vector_vocab(vocab) then return Stencil.StencilScheduleAutoVector(policy, vectorization_facts(desc, info)) end
+        if unroll > 1 and auto_vector_descriptor(desc) then return Stencil.StencilScheduleUnrolled(unroll, policy, vectorization_facts(desc, info)) end
+        if auto_vector_descriptor(desc) then return Stencil.StencilScheduleAutoVector(policy, vectorization_facts(desc, info)) end
         return Stencil.StencilScheduleScalar(policy)
     end
 
@@ -1246,7 +1237,7 @@ local function bind_context(T)
         local supported, reason = api.reduce_array_supported(reduction, info)
         if not supported then error("stencil_artifact_plan: unsupported reduce_array artifact: " .. tostring(reason), 2) end
         local desc = descriptor(
-            Stencil.StencilReduce,
+            "reduce",
             stride,
             {
                 shaped("xs", Stencil.StencilAccessRead, elem_ty, info.array_topology, stride),
@@ -1278,13 +1269,13 @@ local function bind_context(T)
         local id = Stencil.StencilInstanceId("stencil:map_array:" .. type_name(elem_ty) .. ":" .. unary_name(op) .. ":to:" .. type_name(result_ty) .. ":stride" .. tostring(stride))
         local symbol = Stencil.StencilSymbolId("ml_stencil_map_array_" .. type_name(elem_ty) .. "_" .. unary_name(op) .. "_to_" .. type_name(result_ty) .. "_s" .. tostring(stride))
         local desc = descriptor(
-            Stencil.StencilMap,
+            "apply",
             stride,
             {
                 shaped("dst", Stencil.StencilAccessWrite, result_ty, info.dst_topology, stride),
                 shaped("xs", Stencil.StencilAccessRead, elem_ty, info.src_topology or info.array_topology, stride),
             },
-            element_unary_operator(op, result_ty, info),
+            apply_unary_expr(op, input_expr("xs"), result_ty, info),
             nil,
             nil,
             memory(),
@@ -1302,14 +1293,14 @@ local function bind_context(T)
         local id = Stencil.StencilInstanceId("stencil:zip_map_array:" .. type_name(lhs_ty) .. ":" .. binary_name(op) .. ":to:" .. type_name(result_ty) .. ":stride" .. tostring(stride))
         local symbol = Stencil.StencilSymbolId("ml_stencil_zip_map_array_" .. type_name(lhs_ty) .. "_" .. binary_name(op) .. "_to_" .. type_name(result_ty) .. "_s" .. tostring(stride))
         local desc = descriptor(
-            Stencil.StencilZipMap,
+            "apply",
             stride,
             {
                 shaped("dst", Stencil.StencilAccessWrite, result_ty, info.dst_topology, stride),
                 shaped("lhs", Stencil.StencilAccessRead, lhs_ty, info.lhs_topology, stride),
                 shaped("rhs", Stencil.StencilAccessRead, rhs_ty, info.rhs_topology, stride),
             },
-            element_binary_operator(op, result_ty, info),
+            apply_binary_expr(op, input_expr("lhs"), input_expr("rhs"), result_ty, info),
             nil,
             nil,
             memory(),
@@ -1328,7 +1319,7 @@ local function bind_context(T)
         local id = Stencil.StencilInstanceId("stencil:scan_array:" .. type_name(elem_ty) .. ":" .. reduction_name(reduction.kind) .. ":to:" .. type_name(result_ty) .. ":" .. scan_mode_name(mode) .. ":stride" .. tostring(stride))
         local symbol = Stencil.StencilSymbolId("ml_stencil_scan_array_" .. type_name(elem_ty) .. "_" .. reduction_name(reduction.kind) .. "_to_" .. type_name(result_ty) .. "_" .. scan_mode_name(mode) .. "_s" .. tostring(stride))
         local desc = descriptor(
-            Stencil.StencilScan,
+            "scan",
             stride,
             {
                 shaped("dst", Stencil.StencilAccessWrite, result_ty, info.dst_topology, stride),
@@ -1352,15 +1343,15 @@ local function bind_context(T)
         local id = Stencil.StencilInstanceId("stencil:copy_array:" .. type_name(elem_ty) .. ":" .. copy_semantics_name(semantics) .. ":stride" .. tostring(stride))
         local symbol = Stencil.StencilSymbolId("ml_stencil_copy_array_" .. type_name(elem_ty) .. "_" .. copy_semantics_name(semantics) .. "_s" .. tostring(stride))
         local desc = descriptor(
-            Stencil.StencilCopy,
+            "apply",
             stride,
             {
                 shaped("dst", Stencil.StencilAccessWrite, elem_ty, info.dst_topology, stride),
                 shaped("src", Stencil.StencilAccessRead, elem_ty, info.src_topology, stride),
             },
-            Stencil.StencilOpIdentity,
+            input_expr("src"),
             nil,
-            { semantics = semantics },
+            { apply_mode = Stencil.StencilApplyCopy(semantics) },
             memory({ copy = semantics }),
             nil
         )
@@ -1374,10 +1365,13 @@ local function bind_context(T)
         local id = Stencil.StencilInstanceId("stencil:fill_array:" .. type_name(elem_ty) .. ":stride" .. tostring(stride))
         local symbol = Stencil.StencilSymbolId("ml_stencil_fill_array_" .. type_name(elem_ty) .. "_s" .. tostring(stride))
         local desc = descriptor(
-            Stencil.StencilFill,
+            "apply",
             stride,
-            { shaped("dst", Stencil.StencilAccessWrite, elem_ty, info.dst_topology, stride) },
-            Stencil.StencilOpFill(value),
+            {
+                shaped("dst", Stencil.StencilAccessWrite, elem_ty, info.dst_topology, stride),
+                scalar("value", Stencil.StencilAccessRead, elem_ty, value),
+            },
+            input_expr("value"),
             nil,
             nil,
             memory(),
@@ -1393,13 +1387,13 @@ local function bind_context(T)
         local id = Stencil.StencilInstanceId("stencil:find_array:" .. type_name(elem_ty) .. ":" .. pred_name(pred) .. ":stride" .. tostring(stride))
         local symbol = Stencil.StencilSymbolId("ml_stencil_find_array_" .. type_name(elem_ty) .. "_" .. pred_name(pred) .. "_s" .. tostring(stride))        local not_found = Value.ValueExprConst(Code.CodeConstLiteral(i32_ty(), Core.LitInt("-1")))
         local desc = descriptor(
-            Stencil.StencilFind,
+            "find",
             stride,
             {
                 shaped("xs", Stencil.StencilAccessRead, elem_ty, info.array_topology or info.src_topology, stride),
                 scalar("index", Stencil.StencilAccessControlResult, i32_ty(), not_found),
             },
-            Stencil.StencilOpPredicate(predicate_checked(pred, elem_ty), i32_ty()),
+            apply_predicate_expr(predicate_checked(pred, elem_ty), input_expr("xs"), i32_ty()),
             nil,
             { not_found = not_found },
             memory(),
@@ -1416,14 +1410,14 @@ local function bind_context(T)
         local id = Stencil.StencilInstanceId("stencil:partition_array:" .. type_name(elem_ty) .. ":" .. pred_name(pred) .. ":" .. partition_semantics_name(semantics) .. ":stride" .. tostring(stride))
         local symbol = Stencil.StencilSymbolId("ml_stencil_partition_array_" .. type_name(elem_ty) .. "_" .. pred_name(pred) .. "_" .. partition_semantics_name(semantics) .. "_s" .. tostring(stride))
         local desc = descriptor(
-            Stencil.StencilPartition,
+            "partition",
             stride,
             {
                 shaped("dst", Stencil.StencilAccessWrite, elem_ty, info.dst_topology, stride),
                 shaped("xs", Stencil.StencilAccessRead, elem_ty, info.array_topology or info.src_topology, stride),
                 scalar("split", Stencil.StencilAccessControlResult, i32_ty(), nil),
             },
-            Stencil.StencilOpPredicate(predicate_checked(pred, elem_ty), i32_ty()),
+            apply_predicate_expr(predicate_checked(pred, elem_ty), input_expr("xs"), i32_ty()),
             nil,
             { semantics = semantics },
             memory({ partition = semantics }),
@@ -1439,13 +1433,13 @@ local function bind_context(T)
         local id = Stencil.StencilInstanceId("stencil:cast_array:" .. type_name(src_ty) .. ":" .. cast_name(op) .. ":to:" .. type_name(dst_ty) .. ":stride" .. tostring(stride))
         local symbol = Stencil.StencilSymbolId("ml_stencil_cast_array_" .. type_name(src_ty) .. "_" .. cast_name(op) .. "_to_" .. type_name(dst_ty) .. "_s" .. tostring(stride))
         local desc = descriptor(
-            Stencil.StencilCast,
+            "apply",
             stride,
             {
                 shaped("dst", Stencil.StencilAccessWrite, dst_ty, info.dst_topology, stride),
                 shaped("xs", Stencil.StencilAccessRead, src_ty, info.src_topology or info.array_topology, stride),
             },
-            Stencil.StencilOpCast(op, src_ty, dst_ty),
+            apply_cast_expr(op, input_expr("xs"), src_ty, dst_ty),
             nil,
             nil,
             memory(),
@@ -1461,13 +1455,13 @@ local function bind_context(T)
         local id = Stencil.StencilInstanceId("stencil:compare_array:" .. type_name(elem_ty) .. ":" .. pred_name(pred) .. ":to:" .. type_name(result_ty) .. ":stride" .. tostring(stride))
         local symbol = Stencil.StencilSymbolId("ml_stencil_compare_array_" .. type_name(elem_ty) .. "_" .. pred_name(pred) .. "_to_" .. type_name(result_ty) .. "_s" .. tostring(stride))
         local desc = descriptor(
-            Stencil.StencilCompare,
+            "apply",
             stride,
             {
                 shaped("dst", Stencil.StencilAccessWrite, result_ty, info.dst_topology, stride),
                 shaped("xs", Stencil.StencilAccessRead, elem_ty, info.src_topology or info.array_topology, stride),
             },
-            Stencil.StencilOpPredicate(predicate_checked(pred, elem_ty), result_ty),
+            apply_predicate_expr(predicate_checked(pred, elem_ty), input_expr("xs"), result_ty),
             nil,
             nil,
             memory(),
@@ -1484,14 +1478,14 @@ local function bind_context(T)
         local id = Stencil.StencilInstanceId("stencil:zip_compare_array:" .. type_name(lhs_ty) .. ":" .. cmp_name(cmp) .. ":to:" .. type_name(result_ty) .. ":stride" .. tostring(stride))
         local symbol = Stencil.StencilSymbolId("ml_stencil_zip_compare_array_" .. type_name(lhs_ty) .. "_" .. cmp_name(cmp) .. "_to_" .. type_name(result_ty) .. "_s" .. tostring(stride))
         local desc = descriptor(
-            Stencil.StencilZipCompare,
+            "apply",
             stride,
             {
                 shaped("dst", Stencil.StencilAccessWrite, result_ty, info.dst_topology, stride),
                 shaped("lhs", Stencil.StencilAccessRead, lhs_ty, info.lhs_topology, stride),
                 shaped("rhs", Stencil.StencilAccessRead, rhs_ty, info.rhs_topology, stride),
             },
-            Stencil.StencilOpCompare(cmp, result_ty),
+            apply_compare_expr(cmp, input_expr("lhs"), input_expr("rhs"), result_ty),
             nil,
             nil,
             memory(),
@@ -1513,7 +1507,7 @@ local function bind_context(T)
         local id = Stencil.StencilInstanceId("stencil:select_array:" .. type_name(cond_ty) .. ":" .. select_name(pred) .. ":to:" .. type_name(result_ty) .. ":stride" .. tostring(stride))
         local symbol = Stencil.StencilSymbolId("ml_stencil_select_array_" .. type_name(cond_ty) .. "_" .. select_name(pred) .. "_to_" .. type_name(result_ty) .. "_s" .. tostring(stride))
         local desc = descriptor(
-            Stencil.StencilSelect,
+            "apply",
             stride,
             {
                 shaped("dst", Stencil.StencilAccessWrite, result_ty, info.dst_topology, stride),
@@ -1521,7 +1515,7 @@ local function bind_context(T)
                 shaped("then_xs", Stencil.StencilAccessRead, then_ty, info.then_topology or info.true_topology, stride),
                 shaped("else_xs", Stencil.StencilAccessRead, else_ty, info.else_topology or info.false_topology, stride),
             },
-            Stencil.StencilOpSelect(pred, result_ty),
+            apply_select_expr(pred, input_expr("cond"), input_expr("then_xs"), input_expr("else_xs"), result_ty),
             nil,
             nil,
             memory(),
@@ -1537,14 +1531,14 @@ local function bind_context(T)
         local id = Stencil.StencilInstanceId("stencil:gather_array:" .. type_name(elem_ty) .. ":index:" .. type_name(index_ty) .. ":stride" .. tostring(stride))
         local symbol = Stencil.StencilSymbolId("ml_stencil_gather_array_" .. type_name(elem_ty) .. "_idx_" .. type_name(index_ty) .. "_s" .. tostring(stride))
         local desc = descriptor(
-            Stencil.StencilGather,
+            "apply",
             stride,
             {
                 shaped("dst", Stencil.StencilAccessWrite, elem_ty, info.dst_topology, stride),
                 indexed("src", Stencil.StencilAccessRead, elem_ty, index_ty, stride),
                 shaped("idx", Stencil.StencilAccessIndex, index_ty, info.index_topology, stride),
             },
-            Stencil.StencilOpIdentity,
+            input_expr("src"),
             nil,
             nil,
             memory(),
@@ -1561,16 +1555,16 @@ local function bind_context(T)
         local id = Stencil.StencilInstanceId("stencil:scatter_array:" .. type_name(elem_ty) .. ":index:" .. type_name(index_ty) .. ":" .. scatter_conflict_name(conflicts) .. ":stride" .. tostring(stride))
         local symbol = Stencil.StencilSymbolId("ml_stencil_scatter_array_" .. type_name(elem_ty) .. "_idx_" .. type_name(index_ty) .. "_" .. scatter_conflict_name(conflicts) .. "_s" .. tostring(stride))
         local desc = descriptor(
-            Stencil.StencilScatter,
+            "apply",
             stride,
             {
                 indexed("dst", Stencil.StencilAccessWrite, elem_ty, index_ty, stride),
                 shaped("src", Stencil.StencilAccessRead, elem_ty, info.src_topology, stride),
                 shaped("idx", Stencil.StencilAccessIndex, index_ty, info.index_topology, stride),
             },
-            Stencil.StencilOpIdentity,
+            input_expr("src"),
             nil,
-            nil,
+            { apply_mode = Stencil.StencilApplyScatter(conflicts) },
             memory({ scatter = conflicts }),
             nil
         )
@@ -1585,10 +1579,10 @@ local function bind_context(T)
         local id = Stencil.StencilInstanceId("stencil:in_place_map_array:" .. type_name(elem_ty) .. ":" .. unary_name(op) .. ":stride" .. tostring(stride))
         local symbol = Stencil.StencilSymbolId("ml_stencil_in_place_map_array_" .. type_name(elem_ty) .. "_" .. unary_name(op) .. "_s" .. tostring(stride))
         local desc = descriptor(
-            Stencil.StencilInPlaceMap,
+            "apply",
             stride,
             { Stencil.StencilAccess("xs", Stencil.StencilAccessReadWrite, elem_ty, info.src_topology or info.dst_topology or Stencil.StencilTopologyInPlace(stride)) },
-            element_unary_operator(op, elem_ty, info),
+            apply_unary_expr(op, input_expr("xs"), elem_ty, info),
             nil,
             nil,
             memory(),
@@ -1604,13 +1598,13 @@ local function bind_context(T)
         local id = Stencil.StencilInstanceId("stencil:count_array:" .. type_name(elem_ty) .. ":" .. pred_name(pred) .. ":stride" .. tostring(stride))
         local symbol = Stencil.StencilSymbolId("ml_stencil_count_array_" .. type_name(elem_ty) .. "_" .. pred_name(pred) .. "_s" .. tostring(stride))
         local desc = descriptor(
-            Stencil.StencilCount,
+            "count",
             stride,
             {
                 shaped("xs", Stencil.StencilAccessRead, elem_ty, info.array_topology or info.src_topology, stride),
                 scalar("count", Stencil.StencilAccessReduce, i32_ty(), nil),
             },
-            Stencil.StencilOpPredicate(predicate_checked(pred, elem_ty), i32_ty()),
+            apply_predicate_expr(predicate_checked(pred, elem_ty), input_expr("xs"), i32_ty()),
             nil,
             nil,
             memory(),
@@ -1621,56 +1615,70 @@ local function bind_context(T)
         return artifact(inst, symbol, int32_desc_decl(symbol, desc, { const_elem_ptr_decl(elem_ty, "xs"), "int32_t start", "int32_t stop" }))
     end
 
-    function api.map_reduce_array_artifact(op, reduction, plan, info)
-        local elem_ty, mapped_ty, result_ty, stride = assert(info.elem_ty), assert(info.mapped_ty), assert(info.result_ty), assert(info.step_num or info.stride or 1)
-        if not unary_supported(op, elem_ty) then error("stencil_artifact_plan: unsupported map_reduce_array op/type", 2) end
-        local ok, reason = api.reduce_array_supported(reduction, { elem_ty = mapped_ty, result_ty = result_ty })
-        if not ok then error("stencil_artifact_plan: unsupported map_reduce_array reduction: " .. tostring(reason), 2) end
-        local id = Stencil.StencilInstanceId("stencil:map_reduce_array:" .. type_name(elem_ty) .. ":" .. unary_name(op) .. ":" .. reduction_name(reduction.kind) .. ":to:" .. type_name(result_ty) .. ":stride" .. tostring(stride))
-        local symbol = Stencil.StencilSymbolId("ml_stencil_map_reduce_array_" .. type_name(elem_ty) .. "_" .. unary_name(op) .. "_" .. reduction_name(reduction.kind) .. "_to_" .. type_name(result_ty) .. "_s" .. tostring(stride))
-        local desc = descriptor(
-            Stencil.StencilMapReduce,
-            stride,
-            {
-                shaped("xs", Stencil.StencilAccessRead, elem_ty, info.array_topology or info.src_topology, stride),
-                scalar("acc", Stencil.StencilAccessReduce, result_ty, reducer_identity(reduction, result_ty)),
-            },
-            element_unary_operator(op, mapped_ty, info),
-            reducer_desc(reduction, result_ty),
-            nil,
-            memory(),
-            result_ty
-        )
-        local inst
-        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(elem_ty), i32_ty(), i32_ty(), result_ty }, result_ty), proof_list(plan), info)
-        return artifact(inst, symbol, result_desc_decl(symbol, result_ty, desc, { const_elem_ptr_decl(elem_ty, "xs"), "int32_t start", "int32_t stop", c_type(result_ty) .. " init" }))
+    local function apply_n_inputs(info, stride)
+        local inputs = assert(info.inputs, "stencil_artifact_plan.apply_n_array_artifact requires inputs")
+        if #inputs > 4 then error("stencil_artifact_plan: apply_n_array arity is capped at 4", 3) end
+        local accesses = { shaped("dst", Stencil.StencilAccessWrite, assert(info.result_ty), info.dst_topology, stride) }
+        local abi = { Code.CodeTyDataPtr(info.result_ty) }
+        local args = { c_type(info.result_ty) .. " *dst" }
+        for i, input in ipairs(inputs) do
+            local name = input.name or ("x" .. tostring(i))
+            local ty = assert(input.ty, "stencil_artifact_plan.apply_n_array input requires ty")
+            accesses[#accesses + 1] = shaped(name, Stencil.StencilAccessRead, ty, input.topology, stride)
+            abi[#abi + 1] = Code.CodeTyDataPtr(ty)
+            args[#args + 1] = const_elem_ptr_decl(ty, name)
+        end
+        abi[#abi + 1] = i32_ty()
+        abi[#abi + 1] = i32_ty()
+        args[#args + 1] = "int32_t start"
+        args[#args + 1] = "int32_t stop"
+        return inputs, accesses, abi, args
     end
 
-    function api.zip_reduce_array_artifact(op, reduction, plan, info)
-        local lhs_ty, rhs_ty, mapped_ty, result_ty, stride = assert(info.lhs_ty), assert(info.rhs_ty), assert(info.mapped_ty), assert(info.result_ty), assert(info.step_num or info.stride or 1)
-        if not same_type(lhs_ty, rhs_ty) or not same_type(lhs_ty, mapped_ty) then error("stencil_artifact_plan: zip_reduce_array currently requires matching lhs/rhs/mapped types", 2) end
-        if not binary_supported(op, mapped_ty) then error("stencil_artifact_plan: unsupported zip_reduce_array op/type", 2) end
-        local ok, reason = api.reduce_array_supported(reduction, { elem_ty = mapped_ty, result_ty = result_ty })
-        if not ok then error("stencil_artifact_plan: unsupported zip_reduce_array reduction: " .. tostring(reason), 2) end
-        local id = Stencil.StencilInstanceId("stencil:zip_reduce_array:" .. type_name(lhs_ty) .. ":" .. binary_name(op) .. ":" .. reduction_name(reduction.kind) .. ":to:" .. type_name(result_ty) .. ":stride" .. tostring(stride))
-        local symbol = Stencil.StencilSymbolId("ml_stencil_zip_reduce_array_" .. type_name(lhs_ty) .. "_" .. binary_name(op) .. "_" .. reduction_name(reduction.kind) .. "_to_" .. type_name(result_ty) .. "_s" .. tostring(stride))
-        local desc = descriptor(
-            Stencil.StencilZipReduce,
-            stride,
-            {
-                shaped("lhs", Stencil.StencilAccessRead, lhs_ty, info.lhs_topology, stride),
-                shaped("rhs", Stencil.StencilAccessRead, rhs_ty, info.rhs_topology, stride),
-                scalar("acc", Stencil.StencilAccessReduce, result_ty, reducer_identity(reduction, result_ty)),
-            },
-            element_binary_operator(op, mapped_ty, info),
-            reducer_desc(reduction, result_ty),
-            nil,
-            memory(),
-            result_ty
-        )
+    function api.apply_n_array_artifact(info)
+        local result_ty, stride = assert(info.result_ty, "stencil_artifact_plan.apply_n_array_artifact requires result_ty"), assert(info.step_num or info.stride or 1)
+        local expr = assert(info.expr, "stencil_artifact_plan.apply_n_array_artifact requires expr")
+        local inputs, accesses, abi, args = apply_n_inputs(info, stride)
+        local tag = sanitize(info.tag or ("arity" .. tostring(#inputs)))
+        local id = Stencil.StencilInstanceId("stencil:apply_n_array:" .. type_name(result_ty) .. ":" .. tag .. ":stride" .. tostring(stride))
+        local symbol = Stencil.StencilSymbolId("ml_stencil_apply_n_array_" .. type_name(result_ty) .. "_" .. tag .. "_s" .. tostring(stride))
+        local desc = descriptor("apply", stride, accesses, expr, nil, nil, memory(), nil)
         local inst
-        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, { Code.CodeTyDataPtr(lhs_ty), Code.CodeTyDataPtr(rhs_ty), i32_ty(), i32_ty(), result_ty }, result_ty), proof_list(plan), info)
-        return artifact(inst, symbol, result_desc_decl(symbol, result_ty, desc, { const_elem_ptr_decl(lhs_ty, "lhs"), const_elem_ptr_decl(rhs_ty, "rhs"), "int32_t start", "int32_t stop", c_type(result_ty) .. " init" }))
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, abi, nil), {}, info)
+        return artifact(inst, symbol, void_desc_decl(symbol, desc, args))
+    end
+
+    function api.reduce_n_array_artifact(reduction, plan, info)
+        local result_ty, item_ty, stride = assert(info.result_ty, "stencil_artifact_plan.reduce_n_array_artifact requires result_ty"), assert(info.item_ty or info.mapped_ty or info.result_ty, "stencil_artifact_plan.reduce_n_array_artifact requires item_ty"), assert(info.step_num or info.stride or 1)
+        local expr = assert(info.expr, "stencil_artifact_plan.reduce_n_array_artifact requires expr")
+        local ok, reason = api.reduce_array_supported(reduction, { elem_ty = item_ty, result_ty = result_ty })
+        if not ok then error("stencil_artifact_plan: unsupported reduce_n_array reduction: " .. tostring(reason), 2) end
+        local inputs = assert(info.inputs, "stencil_artifact_plan.reduce_n_array_artifact requires inputs")
+        if #inputs > 4 then error("stencil_artifact_plan: reduce_n_array arity is capped at 4", 3) end
+        local accesses = {}
+        local abi = {}
+        local args = {}
+        for i, input in ipairs(inputs) do
+            local name = input.name or ("x" .. tostring(i))
+            local ty = assert(input.ty, "stencil_artifact_plan.reduce_n_array input requires ty")
+            accesses[#accesses + 1] = shaped(name, Stencil.StencilAccessRead, ty, input.topology, stride)
+            abi[#abi + 1] = Code.CodeTyDataPtr(ty)
+            args[#args + 1] = const_elem_ptr_decl(ty, name)
+        end
+        accesses[#accesses + 1] = scalar("acc", Stencil.StencilAccessReduce, result_ty, reducer_identity(reduction, result_ty))
+        abi[#abi + 1] = i32_ty()
+        abi[#abi + 1] = i32_ty()
+        abi[#abi + 1] = result_ty
+        args[#args + 1] = "int32_t start"
+        args[#args + 1] = "int32_t stop"
+        args[#args + 1] = c_type(result_ty) .. " init"
+        local tag = sanitize(info.tag or ("arity" .. tostring(#inputs)))
+        local id = Stencil.StencilInstanceId("stencil:reduce_n_array:" .. type_name(item_ty) .. ":" .. reduction_name(reduction.kind) .. ":to:" .. type_name(result_ty) .. ":" .. tag .. ":stride" .. tostring(stride))
+        local symbol = Stencil.StencilSymbolId("ml_stencil_reduce_n_array_" .. type_name(item_ty) .. "_" .. reduction_name(reduction.kind) .. "_to_" .. type_name(result_ty) .. "_" .. tag .. "_s" .. tostring(stride))
+        local desc = descriptor("reduce", stride, accesses, expr, reducer_desc(reduction, result_ty), nil, memory(), result_ty)
+        local inst
+        inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, abi, result_ty), proof_list(plan), info)
+        return artifact(inst, symbol, result_desc_decl(symbol, result_ty, desc, args))
     end
 
     local function access_named(desc, name)
@@ -1706,93 +1714,182 @@ local function bind_context(T)
         return fields
     end
 
+    local function expr_input_name(expr)
+        if pvm.classof(expr) == Stencil.StencilApplyInput then return expr.access.name end
+        return nil
+    end
+
+    local function expr_is_input(expr, name)
+        return expr_input_name(expr) == name
+    end
+
+    local function collect_expr_inputs(expr, seen, out)
+        seen = seen or {}
+        out = out or {}
+        local cls = pvm.classof(expr)
+        if cls == Stencil.StencilApplyInput then
+            local name = expr.access.name
+            if not seen[name] then
+                seen[name] = true
+                out[#out + 1] = name
+            end
+        elseif cls == Stencil.StencilApplyUnary or cls == Stencil.StencilApplyCast or cls == Stencil.StencilApplyPredicate then
+            collect_expr_inputs(expr.arg, seen, out)
+        elseif cls == Stencil.StencilApplyBinary or cls == Stencil.StencilApplyCompare then
+            collect_expr_inputs(expr.left, seen, out)
+            collect_expr_inputs(expr.right, seen, out)
+        elseif cls == Stencil.StencilApplySelect then
+            collect_expr_inputs(expr.cond, seen, out)
+            collect_expr_inputs(expr.then_expr, seen, out)
+            collect_expr_inputs(expr.else_expr, seen, out)
+        elseif cls == Stencil.StencilApplyConst then
+            return out
+        else
+            error("stencil_artifact_plan: unsupported apply expression", 3)
+        end
+        return out
+    end
+
+    local function expr_inputs_for_shape(desc, expr)
+        local names = collect_expr_inputs(expr)
+        local out = {}
+        for _, name in ipairs(names) do
+            local access = access_named(desc, name)
+            if access.role == Stencil.StencilAccessRead or access.role == Stencil.StencilAccessReadWrite then
+                out[#out + 1] = access
+            end
+        end
+        return out
+    end
+
+    local function apply_n_shape(desc, result_ty)
+        local inputs = expr_inputs_for_shape(desc, desc.expr)
+        if #inputs > 4 then error("stencil_artifact_plan: apply_n descriptor exceeds arity cap 4", 3) end
+        return local_shape("apply_n_array", { inputs = inputs, result_ty = result_ty, expr = desc.expr, stride = domain_stride(desc) })
+    end
+
+    local function reduce_n_shape(desc, red)
+        local inputs = expr_inputs_for_shape(desc, desc.expr)
+        if #inputs > 4 then error("stencil_artifact_plan: reduce_n descriptor exceeds arity cap 4", 3) end
+        return local_shape("reduce_n_array", {
+            inputs = inputs,
+            expr = desc.expr,
+            item_ty = desc.result_ty,
+            result_ty = red.result_ty,
+            reduction = red.reduction,
+            int_semantics = red.int_semantics,
+            float_mode = red.float_mode,
+            identity = red.identity,
+            stride = domain_stride(desc),
+        })
+    end
+
     local function artifact_shape(artifact)
         local desc = artifact.instance.descriptor
         local cls = pvm.classof(desc)
         if cls == Stencil.StencilDescriptorReduce then
-            local xs = access_named(desc, "xs")
-            local red = desc.reducer
-            return local_shape("reduce_array", { elem_ty = xs.ty, result_ty = red.result_ty, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, identity = red.identity, stride = domain_stride(desc) })
+            local mode = desc.mode
+            local mode_cls = pvm.classof(mode)
+            if mode_cls == Stencil.StencilReduceCount then
+                local xs = access_named(desc, "xs")
+                return local_shape("count_array", { elem_ty = xs.ty, pred = mode.pred, stride = domain_stride(desc) })
+            end
+            if mode_cls == Stencil.StencilReduceFind then
+                local xs = access_named(desc, "xs")
+                return local_shape("find_array", { elem_ty = xs.ty, pred = mode.pred, stride = domain_stride(desc) })
+            end
+            if mode_cls == Stencil.StencilReduceFold then
+                local red = mode.reducer
+                local expr = desc.expr
+                local expr_cls = pvm.classof(expr)
+                if expr_is_input(expr, "xs") then
+                    local xs = access_named(desc, "xs")
+                    return local_shape("reduce_array", { elem_ty = xs.ty, result_ty = red.result_ty, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, identity = red.identity, stride = domain_stride(desc) })
+                end
+                return reduce_n_shape(desc, red)
+            end
+            error("stencil_artifact_plan: unsupported reduce descriptor mode/operator", 3)
         end
-        if cls == Stencil.StencilDescriptorMap then
-            local dst, xs = access_named(desc, "dst"), access_named(desc, "xs")
-            local op = desc.operator
-            return local_shape("map_array", { elem_ty = xs.ty, result_ty = dst.ty, op = op.op, int_semantics = op.int_semantics, float_mode = op.float_mode, stride = domain_stride(desc) })
-        end
-        if cls == Stencil.StencilDescriptorZipMap then
-            local dst, lhs, rhs = access_named(desc, "dst"), access_named(desc, "lhs"), access_named(desc, "rhs")
-            local op = desc.operator
-            return local_shape("zip_map_array", { lhs_ty = lhs.ty, rhs_ty = rhs.ty, result_ty = dst.ty, op = op.op, int_semantics = op.int_semantics, float_mode = op.float_mode, stride = domain_stride(desc) })
+        if cls == Stencil.StencilDescriptorApply then
+            local mode_cls = pvm.classof(desc.mode)
+            local expr = desc.expr
+            local expr_cls = pvm.classof(expr)
+            if mode_cls == Stencil.StencilApplyCopy then
+                local src = access_named(desc, "src")
+                return local_shape("copy_array", { elem_ty = src.ty, semantics = desc.mode.semantics, stride = domain_stride(desc) })
+            end
+            if mode_cls == Stencil.StencilApplyScatter then
+                local dst = access_named(desc, "dst")
+                return local_shape("scatter_array", { elem_ty = dst.ty, index_ty = indexed_ty(dst), conflicts = desc.mode.conflicts, stride = domain_stride(desc) })
+            end
+            if mode_cls == Stencil.StencilApplyPartition then
+                local xs = access_named(desc, "xs")
+                return local_shape("partition_array", { elem_ty = xs.ty, pred = predicate_expr_pred(expr), semantics = desc.mode.semantics, stride = domain_stride(desc) })
+            end
+            if expr_cls == Stencil.StencilApplyInput then
+                local src
+                for _, candidate in ipairs(descriptor_accesses(desc)) do
+                    if candidate.name == expr.access.name then
+                        src = candidate
+                        break
+                    end
+                end
+                if src == nil then src = access_named(desc, "src") end
+                if pvm.classof(src.topology) == Stencil.StencilTopologyScalar then
+                    local dst = access_named(desc, "dst")
+                    return local_shape("fill_array", { elem_ty = dst.ty, value = src.topology.value, stride = domain_stride(desc) })
+                end
+                if src.name ~= "src" and src.name ~= "xs" then
+                    return apply_n_shape(desc, access_named(desc, "dst").ty)
+                end
+                if pvm.classof(src.topology) == Stencil.StencilTopologyIndexed then
+                    return local_shape("gather_array", { elem_ty = src.ty, index_ty = indexed_ty(src), stride = domain_stride(desc) })
+                end
+                local dst = access_named(desc, "dst")
+                return local_shape("map_array", { elem_ty = src.ty, result_ty = dst.ty, op = Stencil.StencilUnaryIdentity, stride = domain_stride(desc) })
+            end
+            if expr_cls == Stencil.StencilApplyConst then
+                local dst = access_named(desc, "dst")
+                return local_shape("apply_n_array", { inputs = {}, result_ty = dst.ty, expr = expr, stride = domain_stride(desc) })
+            end
+            if expr_cls == Stencil.StencilApplyUnary and expr_is_input(expr.arg, "xs") then
+                local xs = access_named(desc, "xs")
+                if xs.role == Stencil.StencilAccessReadWrite then
+                    return local_shape("in_place_map_array", { elem_ty = xs.ty, op = expr.op, int_semantics = expr.int_semantics, float_mode = expr.float_mode, stride = domain_stride(desc) })
+                end
+                local dst = access_named(desc, "dst")
+                return local_shape("map_array", { elem_ty = xs.ty, result_ty = dst.ty, op = expr.op, int_semantics = expr.int_semantics, float_mode = expr.float_mode, stride = domain_stride(desc) })
+            end
+            if expr_cls == Stencil.StencilApplyBinary and expr_is_input(expr.left, "lhs") and expr_is_input(expr.right, "rhs") then
+                local dst, lhs, rhs = access_named(desc, "dst"), access_named(desc, "lhs"), access_named(desc, "rhs")
+                return local_shape("zip_map_array", { lhs_ty = lhs.ty, rhs_ty = rhs.ty, result_ty = dst.ty, op = expr.op, int_semantics = expr.int_semantics, float_mode = expr.float_mode, stride = domain_stride(desc) })
+            end
+            if expr_cls == Stencil.StencilApplyCast and expr_is_input(expr.arg, "xs") then
+                return local_shape("cast_array", { src_ty = expr.from, dst_ty = expr.to, op = expr.op, stride = domain_stride(desc) })
+            end
+            if expr_cls == Stencil.StencilApplyPredicate and expr_is_input(expr.arg, "xs") then
+                local xs = access_named(desc, "xs")
+                return local_shape("compare_array", { elem_ty = xs.ty, result_ty = expr.result_ty, pred = expr.pred, stride = domain_stride(desc) })
+            end
+            if expr_cls == Stencil.StencilApplyCompare and expr_is_input(expr.left, "lhs") and expr_is_input(expr.right, "rhs") then
+                local lhs, rhs = access_named(desc, "lhs"), access_named(desc, "rhs")
+                return local_shape("zip_compare_array", { lhs_ty = lhs.ty, rhs_ty = rhs.ty, result_ty = expr.result_ty, cmp = expr.cmp, stride = domain_stride(desc) })
+            end
+            if expr_cls == Stencil.StencilApplySelect
+                and expr_is_input(expr.cond, "cond")
+                and expr_is_input(expr.then_expr, "then_xs")
+                and expr_is_input(expr.else_expr, "else_xs") then
+                local cond = access_named(desc, "cond")
+                local then_xs = access_named(desc, "then_xs")
+                local else_xs = access_named(desc, "else_xs")
+                return local_shape("select_array", { cond_ty = cond.ty, then_ty = then_xs.ty, else_ty = else_xs.ty, result_ty = expr.result_ty, pred = expr.pred, stride = domain_stride(desc) })
+            end
+            return apply_n_shape(desc, access_named(desc, "dst").ty)
         end
         if cls == Stencil.StencilDescriptorScan then
             local dst, xs = access_named(desc, "dst"), access_named(desc, "xs")
             local red = desc.reducer
             return local_shape("scan_array", { elem_ty = xs.ty, result_ty = dst.ty, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, identity = red.identity, mode = desc.mode, stride = domain_stride(desc) })
-        end
-        if cls == Stencil.StencilDescriptorCopy then
-            local src = access_named(desc, "src")
-            return local_shape("copy_array", { elem_ty = src.ty, semantics = desc.semantics, stride = domain_stride(desc) })
-        end
-        if cls == Stencil.StencilDescriptorFill then
-            local dst = access_named(desc, "dst")
-            local op = desc.operator
-            return local_shape("fill_array", { elem_ty = dst.ty, value = op.value, stride = domain_stride(desc) })
-        end
-        if cls == Stencil.StencilDescriptorFind then
-            local xs = access_named(desc, "xs")
-            return local_shape("find_array", { elem_ty = xs.ty, pred = desc.pred, stride = domain_stride(desc) })
-        end
-        if cls == Stencil.StencilDescriptorPartition then
-            local xs = access_named(desc, "xs")
-            return local_shape("partition_array", { elem_ty = xs.ty, pred = desc.pred, semantics = desc.semantics, stride = domain_stride(desc) })
-        end
-        if cls == Stencil.StencilDescriptorCast then
-            local xs = access_named(desc, "xs")
-            local op = desc.operator
-            return local_shape("cast_array", { src_ty = op.from, dst_ty = op.to, op = op.op, stride = domain_stride(desc) })
-        end
-        if cls == Stencil.StencilDescriptorCompare then
-            local xs = access_named(desc, "xs")
-            return local_shape("compare_array", { elem_ty = xs.ty, result_ty = desc.result_ty, pred = desc.pred, stride = domain_stride(desc) })
-        end
-        if cls == Stencil.StencilDescriptorZipCompare then
-            local lhs, rhs = access_named(desc, "lhs"), access_named(desc, "rhs")
-            return local_shape("zip_compare_array", { lhs_ty = lhs.ty, rhs_ty = rhs.ty, result_ty = desc.result_ty, cmp = desc.cmp, stride = domain_stride(desc) })
-        end
-        if cls == Stencil.StencilDescriptorSelect then
-            local cond = access_named(desc, "cond")
-            local then_xs = access_named(desc, "then_xs")
-            local else_xs = access_named(desc, "else_xs")
-            return local_shape("select_array", { cond_ty = cond.ty, then_ty = then_xs.ty, else_ty = else_xs.ty, result_ty = desc.result_ty, pred = desc.pred, stride = domain_stride(desc) })
-        end
-        if cls == Stencil.StencilDescriptorGather then
-            local src = access_named(desc, "src")
-            return local_shape("gather_array", { elem_ty = src.ty, index_ty = indexed_ty(src), stride = domain_stride(desc) })
-        end
-        if cls == Stencil.StencilDescriptorScatter then
-            local dst = access_named(desc, "dst")
-            return local_shape("scatter_array", { elem_ty = dst.ty, index_ty = indexed_ty(dst), conflicts = desc.conflicts, stride = domain_stride(desc) })
-        end
-        if cls == Stencil.StencilDescriptorInPlaceMap then
-            local xs = access_named(desc, "xs")
-            local op = desc.operator
-            return local_shape("in_place_map_array", { elem_ty = xs.ty, op = op.op, int_semantics = op.int_semantics, float_mode = op.float_mode, stride = domain_stride(desc) })
-        end
-        if cls == Stencil.StencilDescriptorCount then
-            local xs = access_named(desc, "xs")
-            return local_shape("count_array", { elem_ty = xs.ty, pred = desc.pred, stride = domain_stride(desc) })
-        end
-        if cls == Stencil.StencilDescriptorMapReduce then
-            local xs = access_named(desc, "xs")
-            local op = desc.operator
-            local red = desc.reducer
-            return local_shape("map_reduce_array", { elem_ty = xs.ty, mapped_ty = op.result_ty, result_ty = red.result_ty, op = op.op, op_int_semantics = op.int_semantics, op_float_mode = op.float_mode, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, identity = red.identity, stride = domain_stride(desc) })
-        end
-        if cls == Stencil.StencilDescriptorZipReduce then
-            local lhs, rhs = access_named(desc, "lhs"), access_named(desc, "rhs")
-            local op = desc.operator
-            local red = desc.reducer
-            return local_shape("zip_reduce_array", { lhs_ty = lhs.ty, rhs_ty = rhs.ty, mapped_ty = op.result_ty, result_ty = red.result_ty, op = op.op, op_int_semantics = op.int_semantics, op_float_mode = op.float_mode, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, identity = red.identity, stride = domain_stride(desc) })
         end
         error("stencil_artifact_plan: unsupported stencil descriptor", 3)
     end
@@ -1818,6 +1915,14 @@ local function bind_context(T)
     api.artifact_shape = artifact_shape
     api.source_params = source_params
     api.access_named = access_named
+    api.input_expr = input_expr
+    api.const_expr = const_expr
+    api.apply_unary_expr = apply_unary_expr
+    api.apply_binary_expr = apply_binary_expr
+    api.apply_predicate_expr = apply_predicate_expr
+    api.apply_compare_expr = apply_compare_expr
+    api.apply_cast_expr = apply_cast_expr
+    api.apply_select_expr = apply_select_expr
     api.descriptor_vocab = descriptor_vocab
     api.descriptor_accesses = descriptor_accesses
     api.descriptor_domain = descriptor_domain

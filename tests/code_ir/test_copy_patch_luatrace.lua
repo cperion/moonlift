@@ -46,6 +46,31 @@ local function reduction(kind, init)
     }
 end
 
+local function reduce_unary_artifact(topology)
+    return StencilArtifactPlan.reduce_n_array_artifact(reduction(Value.ReductionAdd, 0), nil, {
+        tag = "unary_neg",
+        inputs = { { name = "xs", ty = i32, topology = topology } },
+        expr = StencilArtifactPlan.apply_unary_expr(Stencil.StencilUnaryNeg, StencilArtifactPlan.input_expr("xs"), i32, { int_semantics = sem }),
+        item_ty = i32,
+        result_ty = i32,
+        step_num = 1,
+    })
+end
+
+local function reduce_binary_artifact(lhs_topology, rhs_topology)
+    return StencilArtifactPlan.reduce_n_array_artifact(reduction(Value.ReductionAdd, 0), nil, {
+        tag = "binary_add",
+        inputs = {
+            { name = "lhs", ty = i32, topology = lhs_topology },
+            { name = "rhs", ty = i32, topology = rhs_topology },
+        },
+        expr = StencilArtifactPlan.apply_binary_expr(Stencil.StencilBinaryAdd, StencilArtifactPlan.input_expr("lhs"), StencilArtifactPlan.input_expr("rhs"), i32, { int_semantics = sem }),
+        item_ty = i32,
+        result_ty = i32,
+        step_num = 1,
+    })
+end
+
 local function view_topology(name, stride_const)
     return Stencil.StencilTopologyViewDescriptor(
         Code.CodeValueId("v:view:" .. name),
@@ -73,8 +98,8 @@ local artifacts = {
     StencilArtifactPlan.scatter_array_artifact({ elem_ty = i32, index_ty = i32, conflicts = Stencil.StencilScatterUniqueIndices, step_num = 1 }),
     StencilArtifactPlan.in_place_map_array_artifact(Stencil.StencilUnaryNeg, { elem_ty = i32, step_num = 1 }),
     StencilArtifactPlan.count_array_artifact(pred(Core.CmpGt, i32, iconst(0)), { elem_ty = i32, step_num = 1 }),
-    StencilArtifactPlan.map_reduce_array_artifact(Stencil.StencilUnaryNeg, reduction(Value.ReductionAdd, 0), nil, { elem_ty = i32, mapped_ty = i32, result_ty = i32, step_num = 1 }),
-    StencilArtifactPlan.zip_reduce_array_artifact(Stencil.StencilBinaryAdd, reduction(Value.ReductionAdd, 0), nil, { lhs_ty = i32, rhs_ty = i32, mapped_ty = i32, result_ty = i32, step_num = 1 }),
+    reduce_unary_artifact(),
+    reduce_binary_artifact(),
     StencilArtifactPlan.select_array_artifact(Stencil.StencilPredNonZero, { cond_ty = bool8, elem_ty = i32, result_ty = i32, step_num = 1 }),
 }
 

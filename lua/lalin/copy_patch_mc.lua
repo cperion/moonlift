@@ -273,13 +273,14 @@ local function parse_sections(readelf_output)
     local by_index = {}
     local by_name = {}
     for line in tostring(readelf_output or ""):gmatch("[^\n]+") do
-        local idx, name, typ, _addr, _off, size, _es, flags, _link, _info, align =
+        local idx, name, typ, _addr, off, size, _es, flags, _link, _info, align =
             line:match("^%s*%[%s*(%d+)%]%s+(%S+)%s+(%S+)%s+([0-9a-fA-F]+)%s+([0-9a-fA-F]+)%s+([0-9a-fA-F]+)%s+([0-9a-fA-F]+)%s+(%S*)%s+(%d+)%s+(%d+)%s+(%d+)%s*$")
         if idx ~= nil and name ~= "" then
             local section = {
                 index = tonumber(idx),
                 name = name,
                 typ = typ,
+                offset = tonumber(off, 16) or 0,
                 size = tonumber(size, 16) or 0,
                 flags = flags or "",
                 align = tonumber(align) or 1,
@@ -344,6 +345,7 @@ local function bind_context(T)
 
     local StencilC = require("lalin.stencil_c")(T)
     local ArtifactPlan = require("lalin.stencil_artifact_plan")(T)
+    local Meta = require("lalin.stencil_metastencil")(T)
     local Code = T.LalinCode
     local Value = T.LalinValue
     local Stencil = T.LalinStencil
@@ -496,6 +498,8 @@ local function bind_context(T)
 
     function api.build_mc_bank(artifacts, opts)
         opts = opts or {}
+        local metastencil_covers
+        artifacts, metastencil_covers = Meta.normalize_artifact_inputs(artifacts or {})
         artifacts = unique_artifacts(artifacts)
         local dir = opts.dir or "target/copy_patch_mc"
         os.execute("mkdir -p " .. shell_quote(dir))
@@ -505,7 +509,7 @@ local function bind_context(T)
         local source = StencilC.source(artifacts, { preamble = opts.preamble })
         write_file(c_path, source)
         local cc = opts.cc or os.getenv("CC") or "gcc"
-        local cflags = opts.cflags or "-std=c99 -O3 -march=native -fno-tree-vectorize -fno-builtin -fno-builtin-memmove -fno-builtin-memcpy -fno-builtin-memset -ffunction-sections -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -c"
+        local cflags = opts.cflags or "-std=c99 -O3 -march=native -fno-builtin -fno-builtin-memmove -fno-builtin-memcpy -fno-builtin-memset -ffunction-sections -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -c"
         local cmd = table.concat({ shell_quote(cc), cflags, shell_quote(c_path), "-o", shell_quote(o_path) }, " ")
         local ok = os.execute(cmd)
         if not (ok == true or ok == 0) then return nil, "copy_patch_mc: MC bank object build failed: " .. cmd, source end
@@ -519,15 +523,15 @@ local function bind_context(T)
         if symbol_out == nil then return nil, "copy_patch_mc: readelf symbols failed: " .. tostring(symbol_err), source end
         local symbols = parse_symbols(symbol_out, sections)
         local dumped_sections = {}
+        local object_bytes
 
         local function dump_section(section)
             local cached = dumped_sections[section]
             if cached ~= nil then return cached end
-            local path = dir .. "/" .. stem .. "." .. sanitize(section) .. ".section.bin"
-            local dump_cmd = "objcopy --dump-section " .. shell_quote(section .. "=" .. path) .. " " .. shell_quote(o_path)
-            local dump_ok = os.execute(dump_cmd)
-            if not (dump_ok == true or dump_ok == 0) then error("copy_patch_mc: failed to dump local section " .. section, 3) end
-            cached = read_file(path)
+            local meta = sections_by_name[section]
+            if meta == nil then error("copy_patch_mc: missing object section " .. tostring(section), 3) end
+            if object_bytes == nil then object_bytes = read_file(o_path) end
+            cached = object_bytes:sub(meta.offset + 1, meta.offset + meta.size)
             dumped_sections[section] = cached
             return cached
         end
@@ -622,13 +626,11 @@ local function bind_context(T)
         for _, artifact in ipairs(artifacts) do
             local symbol = artifact_symbol(artifact)
             local section = ".text." .. symbol
-            local bin_path = dir .. "/" .. stem .. "." .. sanitize(symbol) .. ".bin"
-            local dump_cmd = "objcopy --dump-section " .. shell_quote(section .. "=" .. bin_path) .. " " .. shell_quote(o_path)
-            local dump_ok = os.execute(dump_cmd)
-            if not (dump_ok == true or dump_ok == 0) then
-                return nil, "copy_patch_mc: failed to dump section " .. section .. " for " .. symbol, source
+            local section_meta = sections_by_name[section]
+            if section_meta == nil then
+                return nil, "copy_patch_mc: missing section " .. section .. " for " .. symbol, source
             end
-            local binary = read_file(bin_path)
+            local binary = dump_section(section)
             local raw_patches = relocs[".rela" .. section] or relocs[".rel" .. section] or {}
             local entry_needs_low32
             binary, raw_patches, entry_needs_low32 = materialize_local_sections(section, binary, raw_patches)
@@ -653,7 +655,7 @@ local function bind_context(T)
                 raw_entry.artifact
             )
         end
-        return LJ.LJMCStencilBank(
+        local bank = LJ.LJMCStencilBank(
             bank_id(stem),
             target_for(opts),
             install_policy(opts, needs_low32),
@@ -662,8 +664,10 @@ local function bind_context(T)
             source,
             cmd,
             opts.preamble,
-            entries
-        ), nil, source
+            entries,
+            metastencil_covers
+        )
+        return bank, nil, source
     end
 
     function api.entry_for(bank, symbol)
@@ -727,6 +731,8 @@ local function bind_context(T)
 
     function api.realize_mc_artifacts(artifacts, opts)
         opts = opts or {}
+        local metastencil_covers
+        artifacts, metastencil_covers = Meta.normalize_artifact_inputs(artifacts or {})
         local bank = assert(opts.mc_bank, "copy_patch_mc.realize_mc_artifacts requires opts.mc_bank")
         local ffi_preamble = opts.ffi_preamble or opts.preamble or bank.preamble
         if type(ffi_preamble) ~= "string" then ffi_preamble = nil end
@@ -755,7 +761,13 @@ local function bind_context(T)
             installed[#installed + 1] = inst
             symbols[symbol] = inst.fn
         end
-        return { kind = "MCStencilBankRealization", mc_bank = bank, symbols = symbols, installed = installed }
+        return {
+            kind = "MCStencilBankRealization",
+            mc_bank = bank,
+            symbols = symbols,
+            installed = installed,
+            metastencil_covers = metastencil_covers or bank.metastencil_covers or {},
+        }
     end
 
     function api.emit_mc_bank_source(bank, opts)

@@ -95,59 +95,75 @@ local function reduction(kind, init)
 end
 
 local artifact_samples = {
-    StencilReduce = function()
+    reduce = function()
         return Plan.reduce_array_artifact(reduction(Value.ReductionAdd, 0), nil, { elem_ty = i32, result_ty = i32, step_num = 1 })
     end,
-    StencilMap = function()
+    map = function()
         return Plan.map_array_artifact(Stencil.StencilUnaryNeg, { elem_ty = i32, result_ty = i32, step_num = 1 })
     end,
-    StencilZipMap = function()
+    zip_map = function()
         return Plan.zip_map_array_artifact(Stencil.StencilBinaryAdd, { lhs_ty = i32, rhs_ty = i32, result_ty = i32, step_num = 1 })
     end,
-    StencilScan = function()
+    scan = function()
         return Plan.scan_array_artifact(reduction(Value.ReductionAdd, 0), nil, { elem_ty = i32, result_ty = i32, step_num = 1 })
     end,
-    StencilCopy = function()
+    copy = function()
         return Plan.copy_array_artifact({ elem_ty = i32, step_num = 1 })
     end,
-    StencilFill = function()
+    copy_memmove = function()
+        return Plan.copy_array_artifact({ elem_ty = i32, semantics = Stencil.StencilCopyMemMove, step_num = 1 })
+    end,
+    fill = function()
         return Plan.fill_array_artifact({ elem_ty = i32, value = iconst(7), step_num = 1 })
     end,
-    StencilFind = function()
+    find = function()
         return Plan.find_array_artifact(pred(Core.CmpEq, i32, iconst(5)), { elem_ty = i32, step_num = 1 })
     end,
-    StencilPartition = function()
+    partition = function()
         return Plan.partition_array_artifact(pred(Core.CmpGt, i32, iconst(0)), { elem_ty = i32, step_num = 1 })
     end,
-    StencilCast = function()
+    cast = function()
         return Plan.cast_array_artifact(Core.MachineCastSToF, { src_ty = i32, dst_ty = f64, step_num = 1 })
     end,
-    StencilCompare = function()
+    compare = function()
         return Plan.compare_array_artifact(pred(Core.CmpGt, i32, iconst(0)), { elem_ty = i32, result_ty = bool8, step_num = 1 })
     end,
-    StencilZipCompare = function()
+    zip_compare = function()
         return Plan.zip_compare_array_artifact(Core.CmpLt, { lhs_ty = i32, rhs_ty = i32, result_ty = bool8, step_num = 1 })
     end,
-    StencilSelect = function()
+    select = function()
         return Plan.select_array_artifact(Stencil.StencilPredNonZero, { cond_ty = bool8, elem_ty = i32, result_ty = i32, step_num = 1 })
     end,
-    StencilGather = function()
+    apply_n = function()
+        return Plan.apply_n_array_artifact({
+            tag = "matrix",
+            result_ty = i32,
+            inputs = { { name = "x1", ty = i32 }, { name = "x2", ty = i32 }, { name = "x3", ty = i32 } },
+            expr = Plan.apply_select_expr(Stencil.StencilPredNonZero, Plan.input_expr("x1"), Plan.input_expr("x2"), Plan.input_expr("x3"), i32),
+            step_num = 1,
+        })
+    end,
+    gather = function()
         return Plan.gather_array_artifact({ elem_ty = i32, index_ty = i32, step_num = 1 })
     end,
-    StencilScatter = function()
+    scatter = function()
         return Plan.scatter_array_artifact({ elem_ty = i32, index_ty = i32, conflicts = Stencil.StencilScatterUniqueIndices, step_num = 1 })
     end,
-    StencilInPlaceMap = function()
+    in_place_map = function()
         return Plan.in_place_map_array_artifact(Stencil.StencilUnaryNeg, { elem_ty = i32, step_num = 1 })
     end,
-    StencilCount = function()
+    count = function()
         return Plan.count_array_artifact(pred(Core.CmpGt, i32, iconst(0)), { elem_ty = i32, step_num = 1 })
     end,
-    StencilMapReduce = function()
-        return Plan.map_reduce_array_artifact(Stencil.StencilUnaryNeg, reduction(Value.ReductionAdd, 0), nil, { elem_ty = i32, mapped_ty = i32, result_ty = i32, step_num = 1 })
-    end,
-    StencilZipReduce = function()
-        return Plan.zip_reduce_array_artifact(Stencil.StencilBinaryAdd, reduction(Value.ReductionAdd, 0), nil, { lhs_ty = i32, rhs_ty = i32, mapped_ty = i32, result_ty = i32, step_num = 1 })
+    reduce_n = function()
+        return Plan.reduce_n_array_artifact(reduction(Value.ReductionAdd, 0), nil, {
+            tag = "matrix",
+            inputs = { { name = "lhs", ty = i32 }, { name = "rhs", ty = i32 } },
+            expr = Plan.apply_binary_expr(Stencil.StencilBinaryAdd, Plan.input_expr("lhs"), Plan.input_expr("rhs"), i32, { int_semantics = int_semantics }),
+            item_ty = i32,
+            result_ty = i32,
+            step_num = 1,
+        })
     end,
 }
 
@@ -166,19 +182,25 @@ assert(Rules.classify_type(vec_i32) ~= nil, "matrix says CodeTyVector is support
 
 for vocab, entry in pairs(Matrix.vocabs) do
     if entry.status == Matrix.status.supported then
-        local ctor = Matrix.artifact_constructors[vocab]
-        assert(ctor ~= nil, "supported vocab " .. vocab .. " needs an artifact constructor mapping")
-        assert(type(Plan[ctor]) == "function", "artifact constructor " .. ctor .. " for " .. vocab .. " is not exported by stencil_artifact_plan")
-        local sample = artifact_samples[vocab]
-        assert(sample ~= nil, "supported vocab " .. vocab .. " needs an artifact sample")
-        local artifact = sample()
-        assert(Plan.descriptor_vocab(artifact.instance.descriptor) == Stencil[vocab], "artifact sample for " .. vocab .. " emitted the wrong descriptor vocab")
+        assert(Stencil[vocab] ~= nil, "supported basis vocab " .. vocab .. " must be exported by schema")
     end
 end
 
-local gather = artifact_samples.StencilGather()
+for name, entry in pairs(Matrix.derived_plans) do
+    if entry.status == Matrix.status.supported then
+        local ctor = Matrix.artifact_constructors[name]
+        assert(ctor ~= nil, "supported derived plan " .. name .. " needs an artifact constructor mapping")
+        assert(type(Plan[ctor]) == "function", "artifact constructor " .. ctor .. " for " .. name .. " is not exported by stencil_artifact_plan")
+        local sample = artifact_samples[name]
+        assert(sample ~= nil, "supported derived plan " .. name .. " needs an artifact sample")
+        local artifact = sample()
+        assert(Plan.descriptor_vocab(artifact.instance.descriptor) == Stencil[entry.basis], "artifact sample for " .. name .. " emitted the wrong basis descriptor vocab")
+    end
+end
+
+local gather = artifact_samples.gather()
 assert(Plan.access_named(gather.instance.descriptor, "idx").role == Stencil.StencilAccessIndex, "gather index stream must use index access role")
-local scatter = artifact_samples.StencilScatter()
+local scatter = artifact_samples.scatter()
 assert(Plan.access_named(scatter.instance.descriptor, "idx").role == Stencil.StencilAccessIndex, "scatter index stream must use index access role")
 
 io.write("lalin stencil_support_matrix ok\n")

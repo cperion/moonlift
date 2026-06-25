@@ -347,6 +347,20 @@ Open gate question:
   artifacts and checks embedded-bank symbol/fingerprint coverage; this forced
   scheduled `_v4` intern rows and reusable fingerprint normalization for
   frontend-local `CodeValueId`s.
+- [x] Add sharded MC bank generation so larger intern sets are a build
+  knob instead of a one-object bottleneck. `tools/gen_lalin_mc_bank.lua` now
+  honors `LALIN_MC_BANK_SOAC_ORDER`, `LALIN_MC_BANK_INPUT_COUNT`,
+  `LALIN_MC_BANK_TARGET_BYTES` / `LALIN_MC_BANK_TARGET_MB`,
+  `LALIN_MC_BANK_CFLAGS`, and `LALIN_MC_BANK_JOBS`; the parent process shards
+  the intern set, builds shards in parallel, emits one C translation unit per
+  shard plus a small index C file, and links the same embedded-bank C ABI. If an
+  explicit target is provided, it is a compiled MC payload cap, not an emitted C
+  source-size cap. The binary build compiles generated bank C files to objects
+  in bounded `MAXPROCS` batches before one final link. The embedded bank keeps a
+  size-oriented default CFLAGS profile (`-fno-tree-vectorize`) because vectorizing
+  every interned cell expanded the default payload from about 5.7 MiB to about
+  59.7 MiB; explicit materializer/probe builds can use the performance-oriented
+  MC default.
 - [ ] Decide whether BC and MC banks must have identical logical coverage or
   whether BC is the semantic superset and MC is the fast subset.
 - [x] Add artifact-shape hashing/versioning so stale bank entries cannot
@@ -358,8 +372,13 @@ Open gate question:
   selected SoA zip-map/zip-reduce cases.
 - [ ] Add tests for MC bank generation with view/slice/byte-span dynamic
   descriptors in the single-binary path.
-- [ ] Add tests that generated embedded MC bank count and descriptor set match
-  the intended intern matrix.
+- [x] Add tests that generated embedded MC bank count matches an explicit
+  targeted 3x3 intern matrix. `test_lalin_mc_bank_generator` exercises the sharded
+  generator, checks the generated C/header shape, and syntax-checks the emitted
+  C when `cc` is available. It also checks that an explicit compiled-payload
+  target bounds the generated MC payload reported by the generator.
+- [ ] Add tests that generated embedded MC bank descriptor/fingerprint sets
+  match the intended intern matrix, not only the count and default-path symbols.
 - [ ] Add tests that static binary startup rejects or reports missing MC bank
   entries cleanly when a selected fast artifact is absent.
 
@@ -381,16 +400,95 @@ optimization only happens if the compiler receives the fused source.
   `ZipCompare`, `Gather`, and plain `Scatter` are `Apply` configurations;
   `Count`, `Find`, `MapReduce`, and `ZipReduce` are `Apply + Reduce`;
   `Filter` and `Partition` are `Apply + Scan + Scatter`.
-- [ ] Refactor the descriptor/support-matrix vocabulary so `Apply`, `Reduce`,
+- [x] Refactor the descriptor/support-matrix vocabulary so `Apply`, `Reduce`,
   and `Scan` are the real generator constructors, and the old operation names
   become derived plan labels or aliases with no separate skeleton authority.
+  `StencilDescriptor` now has only `Apply`, `Reduce`, and `Scan` variants;
+  generated artifact shapes are recovered from descriptor mode/expression/access
+  facts, and the support matrix tracks primitive vocabs separately from
+  derived plans.
 - [ ] Replace handwritten non-basis metastencils in production paths with
   generated metastencils from the primitive fragments; keep handwritten versions
   only as benchmarks, regression fixtures, or temporary scaffolding until the
   generated artifacts match or beat them.
-- [ ] Generate arity-2/3/4 metastencil candidates from the primitive basis under
-  a legality/cost budget, so total coverage comes from composition rather than
-  hand-coded pair/triple lowerings.
+- [x] Add expression-backed `ApplyN` descriptors/materializers with input-count
+  capped at 4. The current `StencilApplyExpr` tree covers const/input/unary/binary/
+  cast/predicate/compare/select expressions, and `apply_n_array` is tested on
+  input counts 0 through 4 through both BC and MC.
+- [x] Generate MC bank candidates by SOAC order, not by the old scalar
+  depth/input-arity grid. Order `1` emits primitive `Apply` and `Reduce`; order
+  `2` emits `Apply -> Apply` and `Apply -> Reduce`; order `3` extends the Apply
+  chain one stage before either array output or reduction. Input count is a
+  separate coverage axis.
+- [x] Stream the actual `StencilApplyExpr` grammar in constructor order, not by
+  hand-picked templates.
+  The stream covers input, const, unary, binary, predicate, compare, cast, and
+  select expressions over the currently consumable scalar surface. Explicit
+  compiled-payload targets remain available only as caller-selected probes.
+- [x] Set the default generated MC bank shape to saturated SOAC order
+  `1`/input-count `4`, plus the saturated SOAC order-2
+  `Apply -> Reduce` subset through input-count `4`. This gives a full scalar
+  expression layer plus the high-value transform-and-reduce family without the
+  full `Apply -> Apply` order-2 explosion. The profile for this shape is 71,831
+  cells with an estimated 15,238,950-byte payload. Actual sharded generation
+  completed in 41.41 seconds with 16 jobs: 71,831 entries, 5,727,864 payload
+  bytes, 10 patches, and 330 MiB max RSS.
+- [x] Add typed metastencil descriptors and selection facts. A metastencil is now
+  a typed DAG of artifact nodes, external/node ports, wires, fusion legality
+  facts/rejects, ABI, fingerprint, cover candidates, and deterministic longest
+  legal cover selection.
+- [x] Add a local selector benchmark:
+  `benchmarks/bench_luajit_metastencil_selection.lua` precomputes typed cover
+  candidates and measures cover ranking throughput.
+- [x] Consume selected metastencil covers in the BC, MC, and emitted-bank
+  materializer boundary as typed bank facts. `LJBCStencilBank` and
+  `LJMCStencilBank` now own `metastencil_covers`, and the materializers accept
+  selected covers/candidates/descriptors as inputs. For the current bounded
+  bank family, selected `Apply -> Reduce` covers lower to one fused artifact and
+  preserve the selected cover metadata through realization.
+- [x] Lower selected `Apply -> Reduce` metastencil covers to one fused executable
+  artifact. The selected cover now becomes a single `reduce_n_array` artifact
+  whose body is emitted through `llbl.c` nodes, so GCC sees the composed
+  expression and reduction in one function.
+- [x] Add a focused materializer benchmark against handwritten C:
+  `benchmarks/bench_luajit_metastencil_fused_reduce.lua` builds a width-4
+  typed `Apply -> Reduce` cover, verifies it materializes as one fused
+  `reduce_n_array` MC entry, compares it with direct `reduce_n_array`, and
+  compiles the handwritten baseline from `llbl.c`. Quick probe on 2026-06-25:
+  `mc fused Apply->Reduce` median 0.069 ms, `mc direct reduce_n` median
+  0.064 ms, handwritten `gcc -O3` median 0.066 ms for 120k elements.
+- [ ] Optional future budget expansion: extend fused-cover materialization beyond
+  the current bounded `Apply -> Reduce` bank family to `Apply -> Apply`,
+  `Apply -> Scan`, `Apply -> Scan -> Scatter`, and future
+  `ScatterReduce`/collision-combine families when bank size/compile budget can
+  carry them.
+- [x] Remove the default compiled-payload frontier and the eager-enumerator
+  guards. A real unbounded SOAC order-3/input-count-3 profile run was attempted
+  and failed before producing a count: LuaJIT reported `not enough memory` after
+  80.82 seconds with maximum resident set size around 11.99 GiB.
+- [x] Remove the stage-list cache from the grammar profile path so unbounded
+  3x3 counting no longer needs to retain every previous stage. Follow-up
+  unbounded profile run with a 120-second timeout did not complete a count; it
+  was killed by timeout at 120.56 seconds with maximum resident set size around
+  7.56 GiB.
+- [x] Probe unbounded SOAC order-2/input-count-3. The streaming profile
+  completed in 12.49 seconds with 482 MiB max RSS and reported 6,699,539 cells
+  with an estimated 1.42 GB compiled payload. Actual unbounded bank generation
+  with one worker still failed before compile output: LuaJIT reported `not
+  enough memory` after 114.67 seconds with maximum resident set size around
+  11.99 GiB.
+- [x] Probe unbounded SOAC order-1. Order-1/input-count-1 profiles at 4,955
+  cells with an estimated 615,270-byte payload. Order-1/input-count-3 profiles
+  at 24,761 cells with an estimated 4,044,000-byte payload and actual bank
+  generation completed in 15.38 seconds with 16 jobs: 24,761 entries,
+  2,178,242 payload bytes, 10 patches, and 256 MiB max RSS.
+- [ ] Replace the recursive eager expression-construction profile with a true
+  lazy metastencil enumerator if unbounded SOAC order-3/input-count-3 must
+  complete without a caller-provided payload target.
+- [ ] Extend grammar-stream saturation beyond the current consumable scalar
+  surface: all supported type families, topology/fact/schedule variants,
+  gather/scatter/indexed expression forms, and realized-materializer coverage
+  checks for every generated constructor family.
 - [x] Record the design direction: metastencils are composed source artifacts
   that lower through the normal `copy_patch_mc` bank path after GCC has had a
   chance to optimize across primitive operations.
@@ -412,7 +510,9 @@ optimization only happens if the compiler receives the fused source.
   wire/control map, legality facts, schedule, compiler target, and compiler
   flags.
 - [ ] Add benchmarks against the unfused primitive sequence and handwritten C
-  compiled with `gcc -O3`.
+  compiled with `gcc -O3`. Current bounded `Apply -> Reduce` has a focused
+  direct-materializer benchmark; this remains open for the broader family and
+  source-level frontend path.
 - [ ] Reuse lessons from the SpongeJIT experiment: typed variant keys, no
   opcode/string descriptor leakage, bank selection by structural key, and
   usefulness/coverage tests.
@@ -517,6 +617,7 @@ means the fact is preserved for audit but does not yet drive lowering.
 | Realized schedule | consume into installed artifact diagnostics/rejects | consume compiler/disassembly construction evidence | record through bank entry artifacts | [ ] Add query tests over emitted-bank realized schedule metadata. |
 | Reject facts | record selection/planning rejects | record selection/planning rejects | partial startup visibility | [ ] Make single-binary startup report missing/rejected intern cells with typed facts. |
 | Artifact fingerprint | consume before BC load | consume before MC install | record in bank entry artifacts | [x] Reject same-symbol stale bank entries before code load/install. |
+| Metastencil descriptor | consume selected covers as typed bank facts; current bounded `Apply -> Reduce` family lowers to one fused artifact | consume selected covers as typed bank facts; current bounded `Apply -> Reduce` family lowers to one fused artifact | fingerprint selected cover on the typed bank | [ ] Optional budget expansion: extend fused-cover lowering beyond the current bank family. |
 
 - [ ] Treat `copy_patch_bc` as the semantic coverage probe: it should either
   materialize the full supported schema surface or expose the exact missing
@@ -531,6 +632,10 @@ means the fact is preserved for audit but does not yet drive lowering.
 - [ ] Update the benchmark corpus so it covers each newly expressible stencil
   family and topology, including negative/control cases where a materializer
   should reject.
+- [x] Add the first focused materializer-consumption probe for the current
+  bounded metastencil family: width-4 `Apply -> Reduce` fused MC versus direct
+  MC versus handwritten GCC C. The probe confirmed selected-cover metadata is
+  consumed by the MC bank boundary and exposed the `-fno-tree-vectorize` issue.
 - [ ] Run the benchmarks against handwritten C compiled with `gcc -O3`, record
   the results, and interpret each gap as either bad materialization, missing
   schedule information, frontend information loss, or an expected target limit.
@@ -563,7 +668,22 @@ means the fact is preserved for audit but does not yet drive lowering.
 - [ ] Complete selection-rule coverage against the support matrix.
 - [ ] Then complete artifact-plan construction against the same matrix.
 - [ ] Then complete LuaTrace emission/runtime tests.
-- [ ] Then complete MC intern-bank generation from the matrix.
+- [x] Then complete the first generated MC intern-bank pass from the matrix.
+- [ ] Then expand the generated MC intern bank from SOAC order
+  saturation into legality-driven primitive composition / metastencil DAG
+  coverage.
+- [x] Add typed metastencil descriptors, fusion legality facts, deterministic
+  longest legal cover selection, and metastencil fingerprints.
+- [x] Add a selector-level metastencil benchmark so cover-ranking changes have
+  a local performance probe before full materializer benchmarks.
+- [x] Feed selected metastencil covers into `copy_patch_bc`, `copy_patch_mc`,
+  and emitted-bank materializers as typed bank facts instead of treating them
+  only as planning facts.
+- [x] Implement fused-cover materialization for `Apply -> Reduce`: one selected
+  cover becomes one compiled artifact/body, not only a typed grouping of node
+  artifacts.
+- [ ] Optional future budget expansion: implement fused-cover materialization for
+  legal cover families outside the current `Apply -> Reduce` bank shape.
 - [ ] Then run the materializer consumption and benchmark meta-task above.
 - [ ] Finally, make frontend lowering feed the full schema and prove the matrix
   from source program to loaded LuaJIT module.

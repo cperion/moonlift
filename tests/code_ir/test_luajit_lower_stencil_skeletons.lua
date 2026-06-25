@@ -244,10 +244,10 @@ local function first_load_expr(body)
 end
 
 local function provider(func, vocab, op, reduction, plan, info)
-    if vocab == Stencil.StencilScan then return StencilArtifactPlan.scan_array_artifact(reduction, plan, info) end
-    if vocab == Stencil.StencilFind then return StencilArtifactPlan.find_array_artifact(op, info) end
-    if vocab == Stencil.StencilPartition then return StencilArtifactPlan.partition_array_artifact(op, info) end
-    if vocab == Stencil.StencilCopy then return StencilArtifactPlan.copy_array_artifact(info) end
+    if vocab == "scan" then return StencilArtifactPlan.scan_array_artifact(reduction, plan, info) end
+    if vocab == "find" then return StencilArtifactPlan.find_array_artifact(op, info) end
+    if vocab == "partition" then return StencilArtifactPlan.partition_array_artifact(op, info) end
+    if vocab == "copy" then return StencilArtifactPlan.copy_array_artifact(info) end
     error("unexpected skeleton vocab " .. tostring(vocab))
 end
 

@@ -23,6 +23,7 @@ local function bind_context(T)
     local Stencil = T.LalinStencil
     local LT = T.LalinLuaTrace
     local ArtifactPlan = require("lalin.stencil_artifact_plan")(T)
+    local Meta = require("lalin.stencil_metastencil")(T)
     local BCBank = require("lalin.copy_patch_bc")(T)
 
     local api = {}
@@ -365,8 +366,8 @@ local function bind_context(T)
     local function kind_group_cap(shape)
         local kind = shape.kind
         if kind == "reduce_array" or kind == "scan_array" then return 16 end
-        if kind == "map_array" or kind == "zip_map_array" or kind == "select_array" or kind == "copy_array" or kind == "fill_array" or kind == "cast_array" then return 8 end
-        if kind == "in_place_map_array" or kind == "map_reduce_array" or kind == "zip_reduce_array" then return 8 end
+        if kind == "map_array" or kind == "zip_map_array" or kind == "select_array" or kind == "apply_n_array" or kind == "copy_array" or kind == "fill_array" or kind == "cast_array" then return 8 end
+        if kind == "in_place_map_array" or kind == "reduce_n_array" then return 8 end
         if kind == "compare_array" or kind == "zip_compare_array" or kind == "count_array" then return 4 end
         if kind == "scatter_array" and shape.conflicts == Stencil.StencilScatterUniqueIndices then return 4 end
         return 1
@@ -468,7 +469,7 @@ local function bind_context(T)
 
     local function build_reduction_plan(shape, facts)
         if shape.kind ~= "reduce_array" and shape.kind ~= "scan_array"
-            and shape.kind ~= "map_reduce_array" and shape.kind ~= "zip_reduce_array" then
+            and shape.kind ~= "reduce_n_array" then
             return nil
         end
         local arithmetic = facts and facts.arithmetic or nil
@@ -519,6 +520,53 @@ local function bind_context(T)
             scatter_plan = build_scatter_plan(shape),
             reduction_plan = build_reduction_plan(shape, facts),
         }
+    end
+
+    local function lua_apply_expr(expr, desc, access_by_name, index)
+        local cls = pvm.classof(expr)
+        if cls == Stencil.StencilApplyInput then
+            local name = expr.access.name
+            local access = assert(access_by_name[name], "copy_patch_luatrace: missing apply input access " .. tostring(name))
+            if pvm.classof(access.topology) == Stencil.StencilTopologyScalar then return name end
+            return lua_access_ref(access, name, index)
+        end
+        if cls == Stencil.StencilApplyConst then return tostring(iconst(expr.value)) end
+        if cls == Stencil.StencilApplyUnary then
+            return lua_unary_expr(expr.op, lua_apply_expr(expr.arg, desc, access_by_name, index), expr.result_ty, expr.int_semantics, expr.float_mode)
+        end
+        if cls == Stencil.StencilApplyBinary then
+            return lua_binary_expr(
+                expr.op,
+                lua_apply_expr(expr.left, desc, access_by_name, index),
+                lua_apply_expr(expr.right, desc, access_by_name, index),
+                expr.result_ty,
+                expr.int_semantics,
+                expr.float_mode
+            )
+        end
+        if cls == Stencil.StencilApplyCast then
+            return lua_apply_expr(expr.arg, desc, access_by_name, index)
+        end
+        if cls == Stencil.StencilApplyPredicate then
+            return "(" .. lua_pred_expr(expr.pred, lua_apply_expr(expr.arg, desc, access_by_name, index)) .. " and 1 or 0)"
+        end
+        if cls == Stencil.StencilApplyCompare then
+            return "(" .. lua_cmp_expr(
+                expr.cmp,
+                lua_apply_expr(expr.left, desc, access_by_name, index),
+                lua_apply_expr(expr.right, desc, access_by_name, index)
+            ) .. " and 1 or 0)"
+        end
+        if cls == Stencil.StencilApplySelect then
+            return "("
+                .. lua_pred_expr(expr.pred, lua_apply_expr(expr.cond, desc, access_by_name, index))
+                .. " and "
+                .. lua_apply_expr(expr.then_expr, desc, access_by_name, index)
+                .. " or "
+                .. lua_apply_expr(expr.else_expr, desc, access_by_name, index)
+                .. ")"
+        end
+        error("copy_patch_luatrace: unsupported apply expression", 3)
     end
 
     local function build_artifact_plan(artifact)
@@ -730,6 +778,19 @@ local function bind_context(T)
                     .. " or "
                     .. lua_access_ref(else_access, "else_xs", i)
             end)
+        elseif kind == "apply_n_array" then
+            local dst_access = assert(access.dst, "missing dst access plan")
+            local params = { "dst" }
+            for _, input in ipairs(shape.inputs or {}) do params[#params + 1] = input.name end
+            params[#params + 1] = "start"
+            params[#params + 1] = "stop"
+            out[#out + 1] = fn_header(artifact, params)
+            emit_forward_loop(out, artifact_plan, function(i, indent)
+                out[#out + 1] = indent
+                    .. lua_access_ref(dst_access, "dst", i)
+                    .. " = "
+                    .. lua_apply_expr(shape.expr, artifact_plan.descriptor, access, i)
+            end)
         elseif kind == "gather_array" then
             local dst_access, idx_access = assert(access.dst, "missing dst access plan"), assert(access.idx, "missing idx access plan")
             out[#out + 1] = fn_header(artifact, { "dst", "src", "idx", "start", "stop" })
@@ -793,21 +854,16 @@ local function bind_context(T)
                 end)
                 out[#out + 1] = "    return n"
             end
-        elseif kind == "map_reduce_array" then
-            local xs_access = assert(access.xs, "missing xs access plan")
-            out[#out + 1] = fn_header(artifact, { "xs", "start", "stop", "init" })
+        elseif kind == "reduce_n_array" then
+            local params = {}
+            for _, input in ipairs(shape.inputs or {}) do params[#params + 1] = input.name end
+            params[#params + 1] = "start"
+            params[#params + 1] = "stop"
+            params[#params + 1] = "init"
+            out[#out + 1] = fn_header(artifact, params)
             out[#out + 1] = "    local acc = init"
             emit_forward_loop(out, artifact_plan, function(i, indent)
-                out[#out + 1] = indent .. "acc = " .. lua_reduce_expr(shape.reduction, "acc", lua_unary_expr(shape.op, lua_access_ref(xs_access, "xs", i), shape.mapped_ty, shape.op_int_semantics, shape.op_float_mode), shape.result_ty)
-            end)
-            out[#out + 1] = "    return acc"
-        elseif kind == "zip_reduce_array" then
-            local lhs_access, rhs_access = assert(access.lhs, "missing lhs access plan"), assert(access.rhs, "missing rhs access plan")
-            out[#out + 1] = fn_header(artifact, { "lhs", "rhs", "start", "stop", "init" })
-            out[#out + 1] = "    local acc = init"
-            emit_forward_loop(out, artifact_plan, function(i, indent)
-                local mapped = lua_binary_expr(shape.op, lua_access_ref(lhs_access, "lhs", i), lua_access_ref(rhs_access, "rhs", i), shape.mapped_ty, shape.op_int_semantics, shape.op_float_mode)
-                out[#out + 1] = indent .. "acc = " .. lua_reduce_expr(shape.reduction, "acc", mapped, shape.result_ty)
+                out[#out + 1] = indent .. "acc = " .. lua_reduce_expr(shape.reduction, "acc", lua_apply_expr(shape.expr, artifact_plan.descriptor, access, i), shape.result_ty)
             end)
             out[#out + 1] = "    return acc"
         else
@@ -876,6 +932,8 @@ local function bind_context(T)
 
     function api.build_bc_bank(artifacts, opts)
         opts = opts or {}
+        local metastencil_covers
+        artifacts, metastencil_covers = Meta.normalize_artifact_inputs(artifacts or {})
         local entries = {}
         for _, artifact in ipairs(artifacts or {}) do
             artifact = api.bc_artifact(artifact)
@@ -891,10 +949,13 @@ local function bind_context(T)
             if entry == nil then return nil, err end
             entries[#entries + 1] = entry
         end
-        return BCBank.build_bank(entries, {
+        local bank, err = BCBank.build_bank(entries, {
             id = opts.id or ((opts.stem or "ljbc") .. ":bank"),
             target = opts.target,
+            metastencil_covers = metastencil_covers,
         })
+        if bank == nil then return nil, err end
+        return bank
     end
 
     local function bindings_for_symbol(opts, symbol)
@@ -905,11 +966,14 @@ local function bind_context(T)
 
     function api.realize_bc_artifacts(artifacts, opts)
         opts = opts or {}
+        local requested_inputs = artifacts or {}
+        local metastencil_covers
+        artifacts, metastencil_covers = Meta.normalize_artifact_inputs(requested_inputs)
         artifacts = artifacts or {}
         local bank = opts.bank
         if bank == nil then
             local err
-            bank, err = api.build_bc_bank(artifacts, opts)
+            bank, err = api.build_bc_bank(requested_inputs, opts)
             if bank == nil then return nil, err end
         end
         local symbols = {}
@@ -951,6 +1015,7 @@ local function bind_context(T)
             provider = Stencil.StencilProviderLuaTrace,
             materializer = "bc",
             bc_bank = bank,
+            metastencil_covers = metastencil_covers or bank.metastencil_covers or {},
         }
     end
 

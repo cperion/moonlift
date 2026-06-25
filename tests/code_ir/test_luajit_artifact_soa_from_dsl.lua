@@ -104,11 +104,12 @@ end
 for _, selected in ipairs(artifact.artifacts) do
     local desc = selected.instance.descriptor
     local descriptor_kind = tostring(pvm.classof(desc)):match('Class%((.-)%)')
-    if descriptor_kind == 'LalinStencil.StencilDescriptorZipMap' then
+    local expr_kind = tostring(pvm.classof(desc.expr)):match('Class%((.-)%)')
+    if descriptor_kind == 'LalinStencil.StencilDescriptorApply' and expr_kind == 'LalinStencil.StencilApplyBinary' then
         assert_soa(access_named(desc, 'dst'), 'total', 2)
         assert_soa(access_named(desc, 'lhs'), 'left', 0)
         assert_soa(access_named(desc, 'rhs'), 'right', 1)
-    elseif descriptor_kind == 'LalinStencil.StencilDescriptorZipReduce' then
+    elseif descriptor_kind == 'LalinStencil.StencilDescriptorReduce' and expr_kind == 'LalinStencil.StencilApplyBinary' then
         assert_soa(access_named(desc, 'lhs'), 'left', 0)
         assert_soa(access_named(desc, 'rhs'), 'right', 1)
     else

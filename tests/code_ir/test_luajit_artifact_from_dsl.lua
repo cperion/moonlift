@@ -513,25 +513,6 @@ assert(artifact.kind == 'LuaJITSourceArtifact')
 assert(#artifact.artifacts == 18, 'expected selected stencil artifact for each DSL loop')
 assert(artifact.source:match('__ml_check_stencil_target'), 'expected generated target guard')
 
-local expected_vocab = {
-    ['LalinStencil.StencilDescriptorReduce'] = 'reduce',
-    ['LalinStencil.StencilDescriptorCopy'] = 'copy',
-    ['LalinStencil.StencilDescriptorFill'] = 'fill',
-    ['LalinStencil.StencilDescriptorMap'] = 'map',
-    ['LalinStencil.StencilDescriptorZipMap'] = 'zip_map',
-    ['LalinStencil.StencilDescriptorCast'] = 'cast',
-    ['LalinStencil.StencilDescriptorCompare'] = 'compare',
-    ['LalinStencil.StencilDescriptorZipCompare'] = 'zip_compare',
-    ['LalinStencil.StencilDescriptorGather'] = 'gather',
-    ['LalinStencil.StencilDescriptorScatter'] = 'scatter',
-    ['LalinStencil.StencilDescriptorInPlaceMap'] = 'in_place_map',
-    ['LalinStencil.StencilDescriptorCount'] = 'count',
-    ['LalinStencil.StencilDescriptorMapReduce'] = 'map_reduce',
-    ['LalinStencil.StencilDescriptorZipReduce'] = 'zip_reduce',
-    ['LalinStencil.StencilDescriptorScan'] = 'scan',
-    ['LalinStencil.StencilDescriptorFind'] = 'find',
-    ['LalinStencil.StencilDescriptorPartition'] = 'partition',
-}
 local expected_labels = {
     reduce = true,
     copy = true,
@@ -554,11 +535,52 @@ local expected_labels = {
 }
 local function selected_label(descriptor)
     local descriptor_kind = tostring(pvm.classof(descriptor)):match('Class%((.-)%)')
-    if descriptor_kind == 'LalinStencil.StencilDescriptorCopy' then
-        if tostring(descriptor.semantics):match('StencilCopyMemMove') then return 'copy_memmove' end
-        return 'copy'
+    local function class_name(v)
+        return tostring(pvm.classof(v)):match('Class%((.-)%)')
     end
-    return expected_vocab[descriptor_kind]
+    local function access_named(name)
+        for _, access in ipairs(descriptor.accesses or {}) do
+            if access.name == name then return access end
+        end
+        return nil
+    end
+    if descriptor_kind == 'LalinStencil.StencilDescriptorScan' then return 'scan' end
+    if descriptor_kind == 'LalinStencil.StencilDescriptorReduce' then
+        local mode_kind = class_name(descriptor.mode)
+        local expr_kind = class_name(descriptor.expr)
+        if mode_kind == 'LalinStencil.StencilReduceCount' then return 'count' end
+        if mode_kind == 'LalinStencil.StencilReduceFind' then return 'find' end
+        if expr_kind == 'LalinStencil.StencilApplyUnary' then return 'map_reduce' end
+        if expr_kind == 'LalinStencil.StencilApplyBinary' then return 'zip_reduce' end
+        return 'reduce'
+    end
+    if descriptor_kind == 'LalinStencil.StencilDescriptorApply' then
+        local mode_kind = class_name(descriptor.mode)
+        local expr_kind = class_name(descriptor.expr)
+        if mode_kind == 'LalinStencil.StencilApplyCopy' then
+            if tostring(descriptor.mode.semantics):match('StencilCopyMemMove') then return 'copy_memmove' end
+            return 'copy'
+        end
+        if mode_kind == 'LalinStencil.StencilApplyScatter' then return 'scatter' end
+        if mode_kind == 'LalinStencil.StencilApplyPartition' then return 'partition' end
+        if expr_kind == 'LalinStencil.StencilApplyInput' then
+            local access = access_named(descriptor.expr.access.name)
+            if access and class_name(access.topology) == 'LalinStencil.StencilTopologyScalar' then return 'fill' end
+            if access and class_name(access.topology) == 'LalinStencil.StencilTopologyIndexed' then return 'gather' end
+            return 'map'
+        end
+        if expr_kind == 'LalinStencil.StencilApplyUnary' then
+            if #(descriptor.accesses or {}) == 1 then return 'in_place_map' end
+            return 'map'
+        end
+        if expr_kind == 'LalinStencil.StencilApplyBinary' then return 'zip_map' end
+        if expr_kind == 'LalinStencil.StencilApplyCast' then return 'cast' end
+        if expr_kind == 'LalinStencil.StencilApplyPredicate' then return 'compare' end
+        if expr_kind == 'LalinStencil.StencilApplyCompare' then return 'zip_compare' end
+        if expr_kind == 'LalinStencil.StencilApplySelect' then return 'select' end
+        return 'map'
+    end
+    return nil
 end
 local seen = {}
 for _, selected in ipairs(artifact.artifacts) do

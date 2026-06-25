@@ -109,14 +109,16 @@ assert(module.funcs[1].cdefs[1].ty == i32_c, "cdefs should carry FFI C physical 
 assert(void_c == LJ.LJCTypeVoid, "void C type singleton should be available")
 
 local init = Value.ValueExprConst(Code.CodeConstLiteral(Code.CodeTyInt(32, Code.CodeSigned), Core.LitInt("0")))
+local reducer = Stencil.StencilReducer(Value.ReductionAdd, Code.CodeTyInt(32, Code.CodeSigned), init, nil, nil)
 local descriptor = Stencil.StencilDescriptorReduce(
     Stencil.StencilDomainRange1D(Code.CodeTyIndex, nil, nil, 1, Stencil.StencilDomainForward),
     {
         Stencil.StencilAccess("xs", Stencil.StencilAccessRead, Code.CodeTyInt(32, Code.CodeSigned), Stencil.StencilTopologyContiguous(1)),
         Stencil.StencilAccess("acc", Stencil.StencilAccessReduce, Code.CodeTyInt(32, Code.CodeSigned), Stencil.StencilTopologyScalar(init)),
     },
-    Stencil.StencilReducer(Value.ReductionAdd, Code.CodeTyInt(32, Code.CodeSigned), init, nil, nil),
-    Code.CodeTyInt(32, Code.CodeSigned)
+    Stencil.StencilApplyInput(Stencil.StencilAccessRef("xs")),
+    Code.CodeTyInt(32, Code.CodeSigned),
+    Stencil.StencilReduceFold(reducer)
 )
 local artifact = Stencil.StencilArtifact(
     Stencil.StencilInstance(

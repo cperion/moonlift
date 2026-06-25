@@ -23,8 +23,18 @@ local function sorted_keys(t)
     return out
 end
 
-local cells = InternSet.cells()
+local smoke_opts = { soac_order = 1, input_count = 1 }
+local cells = InternSet.cells(smoke_opts)
 assert(#cells > 0, "MC intern matrix must not be empty")
+
+local default_profile = InternSet.bank_profile({ target_bytes = 1024 * 1024 })
+assert(default_profile.soac_order == 1, "default MC intern matrix should saturate SOAC order 1")
+assert(default_profile.input_count == 4, "default MC intern matrix should saturate Apply input count 4")
+assert(default_profile.second_soac_order == 2, "default MC intern matrix should add SOAC order 2")
+assert(default_profile.second_input_count == 4, "default MC intern matrix should saturate the order-2 subset to input count 4")
+assert(default_profile.second_family == "reduce_after_apply", "default MC intern matrix should use the reduce-after-apply order-2 subset")
+assert(default_profile.target_bytes == 1024 * 1024, "explicit MC intern target should be reported")
+assert(default_profile.cells > #cells, "default targeted profile should be larger than the order-1 smoke matrix")
 
 local covered_vocabs = {}
 for _, cell in ipairs(cells) do
@@ -44,10 +54,10 @@ for vocab, entry in pairs(Matrix.vocabs) do
     end
 end
 
-local artifacts = InternSet.artifacts()
+local artifacts = InternSet.artifacts(smoke_opts)
 assert(#artifacts == #cells, "MC intern matrix should build exactly one artifact per cell")
 
-local expected_symbols = InternSet.expected_symbols()
+local expected_symbols = InternSet.expected_symbols(smoke_opts)
 assert(#expected_symbols == #cells, "MC intern matrix cells should produce unique symbols")
 
 local bank, err, source = Bank.build_mc_bank(artifacts, {

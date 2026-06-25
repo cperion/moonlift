@@ -150,7 +150,8 @@ local function bind_context(T)
         return LJ.LJBCStencilBank(
             LJ.LJBCBankId(tostring(opts.id or "ljbc:bank")),
             opts.target or api.runtime_target(),
-            entries or {}
+            entries or {},
+            opts.metastencil_covers or {}
         )
     end
 

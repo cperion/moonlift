@@ -640,6 +640,7 @@ return schema. LalinLuaJIT {
     command [str],
     preamble [optional [str]],
     entries [many [LalinLuaJIT.LJMCStencilEntry]],
+    metastencil_covers [many [LalinStencil.StencilMetastencilCandidate]],
   },
 
   product. LJBCTarget {
@@ -701,5 +702,6 @@ return schema. LalinLuaJIT {
     field. id [LalinLuaJIT.LJBCBankId],
     target [LalinLuaJIT.LJBCTarget],
     entries [many [LalinLuaJIT.LJBCStencilEntry]],
+    metastencil_covers [many [LalinStencil.StencilMetastencilCandidate]],
   },
 }

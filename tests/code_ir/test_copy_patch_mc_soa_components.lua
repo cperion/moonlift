@@ -63,14 +63,16 @@ local artifacts = {
         lhs_topology = soa_component("left", 0),
         rhs_topology = soa_component("right", 1),
     }),
-    StencilArtifactPlan.zip_reduce_array_artifact(Stencil.StencilBinaryAdd, reduction(Value.ReductionAdd, 0), nil, {
-        lhs_ty = i32,
-        rhs_ty = i32,
-        mapped_ty = i32,
+    StencilArtifactPlan.reduce_n_array_artifact(reduction(Value.ReductionAdd, 0), nil, {
+        tag = "soa_binary_add",
+        inputs = {
+            { name = "lhs", ty = i32, topology = soa_component("left", 0) },
+            { name = "rhs", ty = i32, topology = soa_component("right", 1) },
+        },
+        expr = StencilArtifactPlan.apply_binary_expr(Stencil.StencilBinaryAdd, StencilArtifactPlan.input_expr("lhs"), StencilArtifactPlan.input_expr("rhs"), i32, { int_semantics = sem }),
+        item_ty = i32,
         result_ty = i32,
         step_num = 1,
-        lhs_topology = soa_component("left", 0),
-        rhs_topology = soa_component("right", 1),
     }),
     StencilArtifactPlan.zip_compare_array_artifact(Core.CmpLt, {
         lhs_ty = i32,

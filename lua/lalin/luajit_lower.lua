@@ -787,7 +787,7 @@ local function bind_context(T)
         local planned, reason = stencil_store_plan(ctx, func, plan, graph_loop, loop_fact)
         if planned == nil then return nil, reason end
         local selection = planned.selection
-        local artifact = opts.stencil_store_artifact_for(func, selection.vocab, selection.op, plan, selection.info)
+        local artifact = opts.stencil_store_artifact_for(func, selection.kind or selection.vocab, selection.op, plan, selection.info)
         if artifact == nil then return nil, "store stencil artifact provider did not select an artifact" end
         local id = LJ.LJMachineId("machine:" .. sanitize(func.name) .. ":stencil_store:" .. sanitize(loop_fact.loop.text))
         return LJ.LJMachine(id, LJ.LJMachineStencilEffect(artifact, stencil_args(ctx, artifact, selection.args)), nil, LJ.LJStateScalar, LJ.LJTraceHot), nil
@@ -851,7 +851,7 @@ local function bind_context(T)
         local planned, reason = stencil_reduce_plan(ctx, func, plan, graph_loop, loop_fact)
         if planned == nil then return nil, reason end
         local reduction, selection = planned.reduction, planned.selection
-        local artifact = select_reduction_artifact(opts, func, selection.vocab, selection.op, reduction, plan, selection.info)
+        local artifact = select_reduction_artifact(opts, func, selection.kind or selection.vocab, selection.op, reduction, plan, selection.info)
         if artifact == nil then return nil, "reduction stencil artifact provider did not select an artifact" end
         local id = LJ.LJMachineId("machine:" .. sanitize(func.name) .. ":stencil_reduce:" .. sanitize(loop_fact.loop.text))
         return LJ.LJMachine(id, LJ.LJMachineStencilCall(artifact, stencil_args(ctx, artifact, selection.args), physical(ctx, reduction.ty)), physical(ctx, reduction.ty), LJ.LJStateScalar, LJ.LJTraceHot), nil
@@ -1054,7 +1054,7 @@ local function bind_context(T)
         local planned, reason = stencil_skeleton_plan(ctx, func, plan, graph_loop, loop_fact)
         if planned == nil then return nil, reason end
         local selection = planned.selection
-        local artifact = select_skeleton_artifact(opts, func, selection.vocab, selection.op, planned.reduction, plan, selection.info)
+        local artifact = select_skeleton_artifact(opts, func, selection.kind or selection.vocab, selection.op, planned.reduction, plan, selection.info)
         if artifact == nil then return nil, "skeleton stencil artifact provider did not select an artifact" end
         local id = LJ.LJMachineId("machine:" .. sanitize(func.name) .. ":stencil_skeleton:" .. sanitize(loop_fact.loop.text))
         if planned.result_ty ~= nil then

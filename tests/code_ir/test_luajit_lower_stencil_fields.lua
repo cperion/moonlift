@@ -171,13 +171,13 @@ local lj_module, facts = Lower.lower_module(module, {
     contracts = contracts,
     collect_rejects = rejects,
     stencil_reduce_artifact_for = function(func, vocab, op, reduction, plan, info)
-        assert(vocab == Stencil.StencilReduce)
+        assert(vocab == "reduce")
         local artifact = StencilArtifactPlan.reduce_array_artifact(reduction, plan, info)
         artifacts[#artifacts + 1] = artifact
         return artifact
     end,
     stencil_store_artifact_for = function(func, vocab, op, plan, info)
-        assert(vocab == Stencil.StencilMap)
+        assert(vocab == "map")
         local artifact = StencilArtifactPlan.map_array_artifact(op, info)
         artifacts[#artifacts + 1] = artifact
         return artifact
