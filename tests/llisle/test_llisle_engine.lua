@@ -9,7 +9,7 @@ llisle.use { scope = "env", target = env, base = env, global = false }
 local chunk = assert(loadstring([[
 return llisle {
   relation. lower_expr {
-    input { expr [ml.i32], ctx [LowerCtx] },
+    input { expr [ll.i32], ctx [LowerCtx] },
     output { value [BackValue] },
     effects { cmd [BackCmd] },
     strategy {
@@ -35,8 +35,8 @@ return llisle {
 
     when {
       (P. expr.kind :eq (add))
-        * (P. expr.lhs.ty :eq (ml.i32))
-        * (P. expr.rhs.ty :eq (ml.i32)),
+        * (P. expr.lhs.ty :eq (ll.i32))
+        * (P. expr.rhs.ty :eq (ll.i32)),
     },
 
     choose {
@@ -93,7 +93,7 @@ return llisle {
 }
 ]], "llisle_engine.lua"))
 
-local i32 = env.ml.i32
+local i32 = env.ll.i32
 local S = {
   kind = llb.symbol("kind"),
   ty = llb.symbol("ty"),

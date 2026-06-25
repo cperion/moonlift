@@ -43,7 +43,12 @@ Every program — every program, in every language, since the beginning — is t
 
 For sixty years, languages gave us a type system for the first structure and nothing for the second. We typed our data — `int`, `struct`, `List<T>` — and left our control flow untyped: `goto`, `break`, `return`, exceptions, callbacks. Then we spent decades inventing crutches to win back the lost safety: monads to type effects, `Result<T,E>` to type failure, async/await to type suspension, state-machine compilers to type protocols. Every crutch encodes control *as data*, ships the data somewhere, and decodes it back *into control* — paying in allocations, dispatch, and obscurity at every step.
 
-Lalin's founding move is to give the second structure its own type system, natively:
+The Lalin family gets that second type system from LLB. LLB is the workbench:
+it owns the generic region algebra, protocols, fragments, origins, diagnostics,
+and family composition. Lalin is the compiled member that consumes this algebra
+and gives it native typed CFG checking and executable lowering.
+
+The shared vocabulary:
 
 ```text
 region  = a typed control fragment with declared, named, typed exits
@@ -51,18 +56,13 @@ cont    = the type of one exit: a name plus a payload product
 block   = a named internal state carrying a typed product
 jump    = a typed state transition, totally assigning the target's product
 emit    = compile-time graph splicing: compose a sub-machine, fill its exits
-func    = a region sealed to one implicit exit (return), forming an ABI boundary
+call    = a frame boundary for a region: recursion, profiling, debugging, tracing
+func    = the sealed product-return substrate used at ABI/call boundaries
 ```
 
 A region signature reads like this:
 
-```lalin
-region parse_number(p: ptr(u8), n: index, i: index;
-    ok(value: f64, next: index)
-    | err(pos: index, code: i32))
-```
-
-Lua-owned DSL equivalent:
+Lalin syntax:
 
 ```lua
 region. parse_number
@@ -361,16 +361,6 @@ fn authenticate(creds) -> Result<User, AuthError>
 
 It looks explicit. It is not. *Account locked* and *invalid credentials* are both `AuthError`; whether the caller distinguishes them is invisible; whether rate-limiting exists at all is invisible. Now the Lalin form:
 
-```lalin
-region authenticate(creds: ptr(Credentials);
-    success(user_id: u64)
-    | invalid
-    | locked(unlock_at: i64)
-    | rate_limited(retry_after: i32))
-```
-
-Lua-owned DSL equivalent (declarations):
-
 ```lua
 local dsl = require("lalin.dsl")
 return module "Auth" {
@@ -402,13 +392,7 @@ Lalin design uses two semantic type forms and one connective. Learn these three 
 
 A product is a group of facts that coexist. Structs are products:
 
-```lalin
-struct Cursor   byte: index, line: index, column: index end
-struct Buffer   data: ptr(u8), len: index end
-struct SourceSpan  file_id: u32, start: index, len: index end
-```
-
-Lua-owned DSL equivalent:
+Lalin syntax:
 
 ```lua
 return module "Positions" {
@@ -445,15 +429,7 @@ The product test: *do all the fields exist at the same time? can a consumer use 
 
 A protocol is a set of named, typed continuations: all the ways a machine can hand off control, each carrying an exit product. The protocol test: *will some consumer branch on this? do the branches carry different payloads? would a boolean, status code, or result object hide what can happen?* If yes — protocol.
 
-```lalin
-region recv_i32(ch: ptr(Channel);
-    got(value: i32)
-    | empty
-    | closed
-    | parked(waiter: ptr(Waiter)))
-```
-
-Lua-owned DSL equivalent:
+Lua-owned
 
 ```lua
 return module "ProtocolRecv" {
@@ -473,16 +449,6 @@ return module "ProtocolRecv" {
 
 A protocol is not returned, not allocated, not a runtime object. It is a set of **control obligations** that the caller discharges at the emit site:
 
-```lalin
-emit recv_i32(ch;
-    got    = handle_value,
-    empty  = try_other_work,
-    closed = stop_worker,
-    parked = suspend_task)
-```
-
-Lua-owned DSL equivalent (inside a function body):
-
 ```lua
 fn. consume_recv
   { ch [ptr [Channel]] }
@@ -501,14 +467,6 @@ Read that emit carefully, because the perspective shift is the whole paradigm. T
 
 ### 3.3 Region — the connective
 
-```text
-region R(input_product ; protocol)
-    consumes the input product
-    runs a control machine (blocks, jumps, emits)
-    selects EXACTLY ONE continuation in the protocol
-    passes it an exit product
-```
-
 A region is *not* `Product → Union`. A region is `Product + Protocol → one selected continuation with a product payload`. The difference is not pedantry — it is where the entire cost model and the entire checking model come from. Because the protocol is supplied by the caller and consumed by a jump, composition is graph splicing (`emit` merges the callee's CFG into the caller's — no call, no frame, no return address), and checking is structural (the splice must type-fit).
 
 The payload is also where newly known facts appear. A `borrowed(state: lease ptr(VoiceState))` continuation does not merely carry an address; it declares that this path has resolved a handle, granted temporary access, and excluded the stale/missing paths. Region signatures are therefore control contracts and memory contracts at the same time.
@@ -516,12 +474,6 @@ The payload is also where newly known facts appear. A `borrowed(state: lease ptr
 ### 3.4 Function — the seal
 
 A function is a sealed region with one implicit continuation:
-
-```lalin
-func add(a: i32, b: i32): i32         -- region add(a: i32, b: i32; return(result: i32))
-```
-
-Lua-owned DSL equivalent:
 
 ```lua
 fn. add
@@ -532,13 +484,26 @@ fn. add
   }
 ```
 
-Sealing buys an ABI: callable from Lua, C, other modules; a symbol; a recursion boundary. The recursion boundary matters mechanically: a function call gives you a stack frame for free. A recursive descent packaged as functions can call a child and resume in the parent because the call stack remembered the parent continuation. A flat region has no such frame; if you flatten recursive descent into one dispatcher, you must build the stack product yourself.
+`emit` buys zero-cost composition: no frame, no return address, no encoded
+status. The callee's exits are wired directly into the caller.
 
-Sealing costs the protocol: multiple outcomes must be squeezed back into one return product, which is exactly how status codes, result objects, exceptions, and callback registries get invented. Hence the design law that recurs throughout this book:
+`call` buys a frame for a region. That is the right shape for recursion,
+profiling, debugging, instrumentation, and any place where the machine must stay
+visible as its own activation. Semantically, `call` is disciplined sugar over a
+sealed function that returns an encoded exit union, followed by dispatch back to
+the region's named exits. The user still sees the protocol; the runtime gets the
+frame.
 
-> **Compose locally with regions. Recurse and cross ABIs with functions.**
+Sealing all the way down costs the protocol: multiple outcomes get squeezed
+into one return product, which is exactly how status codes, result objects,
+exceptions, and callback registries get invented. Hence the design law that
+recurs throughout this book:
 
-A function is product-to-product. That is a wonderful shape at an ABI boundary or recursion seam, and a smuggler's shape *inside* local protocol-rich control.
+> **Compose locally with `emit`. Recurse and instrument with region `call`. Seal with functions only at ABI/product-return boundaries.**
+
+A function is product-to-product. That is a wonderful substrate at an ABI
+boundary and underneath region `call`, but a smuggler's shape inside local
+protocol-rich control when used directly.
 
 ### 3.5 Lua — the family generator
 
@@ -619,27 +584,6 @@ not a buffer. A protected-call status code is not the error model.
 
 The typed bridge names those facts:
 
-```lalin
-handle LuaStateRef : u32 invalid 0
-    target LuaStateRecord
-end
-
-handle LuaRef : u32 invalid 0
-    target LuaRefRecord
-end
-
-struct LuaStackMark
-    top: i32,
-end
-
-struct LuaStackRange
-    first: i32,
-    count: i32,
-end
-```
-
-Lua-owned DSL equivalent:
-
 ```lua
 handle. LuaStateRef {
   invalid = 0,
@@ -662,12 +606,6 @@ struct. LuaStackRange {
 ```
 
 The key ownership type is:
-
-```lalin
-owned LuaRef
-```
-
-Lua-owned DSL type:
 
 ```lua
 fn. consume_ref
@@ -720,23 +658,7 @@ func   = sealed product-to-product ABI edge
 The syntax mirrors the algebra. Product positions accept product shapes; sum
 positions accept sum shapes:
 
-```lalin
-struct ParseInput
-    p: ptr(u8),
-    n: index,
-    i: index,
-end
 
-union ParseExit
-    ok(value: f64, next: index)
-  | syntax(pos: index, code: i32)
-  | truncated(pos: index)
-end
-
-region parse_number(ParseInput; ParseExit)
-```
-
-Lua-owned DSL equivalent:
 
 ```lua
 return module "ParserShapes" {
@@ -763,14 +685,7 @@ return module "ParserShapes" {
 That last line is not a new abstraction layer. It is the same declaration graph
 written with names instead of anonymous lists:
 
-```lalin
-region parse_number(p: ptr(u8), n: index, i: index;
-    ok(value: f64, next: index)
-  | syntax(pos: index, code: i32)
-  | truncated(pos: index))
-```
-
-Lua-owned DSL equivalent signature form:
+Lalin syntax signature form:
 
 ```lua
 region. parse_number
@@ -863,15 +778,7 @@ For every union-shaped thing in a draft design, ask three questions in order.
 
 **Q1 — Is it consumed immediately after being produced?** Then it is not data at all. Delete it. The producer is a region with a protocol; the consumer fills the continuations at the emit site. The "union" was a branch wearing a box.
 
-```lalin
--- before: func parse(...): ParseResult     ... switch result ...
--- after:
-region parse(...;
-    ok(value: f64, next: index)
-    | err(pos: index, code: i32))
-```
 
-Lua-owned DSL equivalent:
 
 ```lua
 region. parse
@@ -884,21 +791,7 @@ region. parse
 
 **Q2 — Does it genuinely need to be stored** — queued, pooled, serialized, kept in an array? Then store an **encoded fact** (a product carrying a kind byte and payload records) and name the **consuming region** that gives it meaning later:
 
-```lalin
-struct ExprRef   kind: u8, index: u32 end        -- encoding: a product
 
-struct IntLitExpr  value: i64 end
-struct NameExpr    symbol: u32 end
-struct CallExpr    fn: ExprRef, args_data: ptr(ExprRef), args_len: index end
-
-region visit_expr(ast: ptr(Ast), e: ExprRef;     -- meaning: a protocol
-    int_lit(e: ptr(IntLitExpr))
-    | name(e: ptr(NameExpr))
-    | call(e: ptr(CallExpr))
-    | invalid(code: i32))
-```
-
-Lua-owned DSL equivalent:
 
 ```lua
 return module "ExprVisitation" {
@@ -966,13 +859,6 @@ cost(R) = |input params| + |continuations| + Σ |payload fields| (+ invariants t
 
 — and the implementation magnitude is countable too: blocks, emits, and the transitive size of the spliced sub-machine tree. A deep region has a small signature in front of a large spliced CFG:
 
-```lalin
-region parse_value(L: ptr(lua_State), p: ptr(u8), n: index, i: index;
-    ok(next: index)
-    | err(pos: index, code: i32))
-```
-
-Lua-owned DSL equivalent:
 
 ```lua
 region. parse_value
@@ -1024,10 +910,6 @@ One of Ousterhout's most provocative chapters argues that exceptions are a dispr
 
 **Move 1 — Normalize the outcome.** In an exception world, "queue empty" must either throw or hide in a nullable return. In a protocol world it is just a named, ordinary exit:
 
-```lalin
-empty
-```
-
 Lua-owned DSL is the continuation name:
 
 ```lua
@@ -1038,14 +920,7 @@ Nothing about `empty` is exceptional — it is one of the things `recv` *does*, 
 
 **Move 2 — Delete the continuation by strengthening the input.** The genuinely Ousterhoutian move is making the case *impossible*, and in Lalin that is performed on the signature, visibly. An "index out of range" exit disappears when the parameter becomes a bounds-carrying `view(T)` and the loop is driven by its length. An `oom` on every node-allocation disappears when allocation is restructured: reserve once, up front —
 
-```lalin
-region reserve_bytes(arena: ptr(Arena), n: index;
-    ok(p: ptr(u8), len: index)
-    | oom
-    | invalid(code: i32))
-```
 
-Lua-owned DSL equivalent:
 
 ```lua
 region. reserve_bytes
@@ -1245,20 +1120,7 @@ Transcription rules, applied in order:
 **Cross-references → handles, not pointers,** when the reference must survive serialization, reuse, or compaction: `post_id: PostId`, resolved by a typed region, never a string key, never a maybe-stale pointer. The resolved pointer/view is a lease, not the durable reference.
 
 **Methods → machines that take the product.** A UML operation `parse(buf): Config` is not a struct member; it is a region or function whose first input is the product. And its *return type* is where the class diagram was lying by omission — `Config` with no error channel. The transcription forces the honesty:
-
-```lalin
-struct Buffer    data: ptr(u8), len: index end
-struct Setting   key_off: index, key_len: index, val_off: index, val_len: index end
-struct Config    items: ptr(Setting), len: index, cap: index end
-
-region parse_config(buf: ptr(Buffer), out: ptr(Config);
-    done(count: index),
-    syntax(pos: index, code: i32),
-    empty,
-    truncated(pos: index))
-```
-
-Lua-owned DSL equivalent:
+Lalin syntax:
 
 ```lua
 return module "ParseConfig" {
@@ -1327,18 +1189,7 @@ OO languages fuse the claims into one mechanism — vtables — paying runtime d
 
 **Claim A is a protocol.** "Is-one-of, with dispatch" is the definition of a choice, and choice is control. The stored shape is an encoded fact; the abstract class is the consumer region:
 
-```lalin
-struct ShapeRef     kind: u8, index: u32 end       -- the encoding
-struct CircleData   cx: f64, cy: f64, r: f64 end
-struct PolygonData  pts: ptr(Point), len: index end
 
-region visit_shape(shapes: ptr(ShapeStore), s: ShapeRef;
-    circle(c: ptr(CircleData)),
-    polygon(p: ptr(PolygonData)),
-    invalid(code: i32))
-```
-
-Lua-owned DSL equivalent:
 
 ```lua
 return module "Shapes" {
@@ -1423,18 +1274,7 @@ activation bar                 → the spliced extent of the emitted machine
 
 Transcribed:
 
-```lalin
-region pop_local(d: ptr(Deque);
-    got(job: JobRef)
-    | empty
-    | stop)
 
-region steal(s: ptr(Sched), self_id: i32;
-    stole(job: JobRef, victim: i32)
-    | empty)
-```
-
-Lua-owned DSL equivalent:
 
 ```lua
 region. pop_local
@@ -1453,13 +1293,7 @@ region. steal
   }
 ```
 
-```lalin
-emit pop_local(d; got = run_it, empty = try_steal, stop = drain)
--- inside block try_steal():
-emit steal(s, id; stole = run_stolen, empty = park)
-```
-
-Lua-owned DSL equivalent:
+Lalin syntax:
 
 ```lua
 emit. pop_local { d } {
@@ -1507,25 +1341,7 @@ The rules — and the repairs:
 **Composite state → an emitted sub-region.** UML's nested states with their own internal machine are exactly a region: enter through its entry, leave through its protocol. Hierarchical statecharts come for free from `emit`.
 
 **Final states → the continuation protocol.** This is the most elegant correspondence in the whole UML mapping, so dwell on it. The `[*]` terminals — Done, Failed, Cancelled — are precisely the ways the machine can *end*, each plausibly carrying different information. That is the definition of a protocol:
-
-```lalin
-region job_lifecycle(s: ptr(Sched), job: JobRef;
-    done(result: i64)
-    | failed(code: i32)
-    | cancelled)
-entry start()
-    jump pending(job = job)
-end
-block pending(job: JobRef)
-    ...
-end
-block running(job: JobRef, started_at: i64, retries: i32)
-    ...
-end
-end
-```
-
-Lua-owned DSL equivalent:
+Lalin syntax:
 
 ```lua
 region. job_lifecycle
@@ -1724,7 +1540,7 @@ For each region: at every resting point, what does the machine know? Each answer
 
 ### Step 9 — Wire the composition and choose the seals
 
-Write the emit/fill plan: per parent, which child continuation goes to a local block (handled) and which forwards to the parent's same-typed exit (aggregated upward, as wiring, for free). Fills are total — if filling a continuation feels annoying, the design just told you about an unhandled case. Then seal: a function only where an ABI, a recursion boundary, or an external caller demands product-to-product; any internal function returning a status is a protocol in a trench coat — unseal it.
+Write the emit/fill plan: per parent, which child continuation goes to a local block (handled) and which forwards to the parent's same-typed exit (aggregated upward, as wiring, for free). Fills are total — if filling a continuation feels annoying, the design just told you about an unhandled case. Then choose the boundary: `emit` where direct splicing is enough; region `call` where recursion, profiling, debugging, or instrumentation needs a frame; a plain function only where an ABI or external caller demands product-to-product. Any internal function returning a status is a protocol in a trench coat — unseal it into a region.
 
 ### Step 10 — Identify persistent state
 
@@ -1764,21 +1580,6 @@ OUTCOMES   submit: accepted | full | shutting_down
 The class sketch (Job, Deque, Worker, Sched; Sched ◆-owns workers and the job pool; Worker ◇-borrows the Sched) transcribes via Chapter 13 — and its `submit(job): bool` method is caught immediately: a boolean protocol hiding three outcomes. The sequence sketch is Chapter 15's worked example verbatim — `pop_local` and `steal` fall out of its `alt` frames. The statechart is Chapter 16's — and its final states *are* `job_lifecycle`'s protocol. One inheritance temptation appears — `Job <|-- OneShot, Periodic` — and Chapter 14's question dissolves it: nothing dispatches at runtime per-job-kind on the hot path, so it is not a protocol; it is a *family*, i.e. a factory axis (a periodic job is a one-shot job whose completion fill re-submits — wiring, not subclassing).
 
 ### V.3 The type forest (Steps 3, 5, 6, 10)
-
-```lalin
-struct Job        fn: ptr(u8), arg: ptr(u8), state: u8, pad: u8, gen: u16 end
-struct JobPool    items: ptr(Job), cap: index, free_head: u32 end
-struct Deque      ring: ptr(u32), cap: index, head: u64, tail: u64 end
-struct Worker     id: i32, deque: Deque, rng: u64 end
-struct Sched      pool: JobPool, workers: ptr(Worker), n_workers: index, flags: u32 end
-
-handle JobRef : u32 invalid 0                     -- durable job identity; packing is store-private
-    domain JobPool
-    target Job
-end
-```
-
-Lua-owned DSL equivalent:
 
 ```lua
 return module "SchedulerModel" {
@@ -1823,37 +1624,7 @@ Ownership and access facts: *Sched owns the pool and the workers array; a JobRef
 
 ### V.4 The region tree, audited (Steps 4, 7)
 
-```lalin
-region submit(s: ptr(Sched), fn: ptr(u8), arg: ptr(u8);
-    accepted(job: JobRef)
-    | full
-    | shutting_down)
 
-region borrow_job(s: ptr(Sched), job: JobRef;
-    borrowed(slot: lease ptr(Job))
-    | stale(job: JobRef)
-    | missing(job: JobRef))
-
-region pop_local(w: ptr(Worker), s: ptr(Sched);
-    got(job: JobRef)
-    | empty
-    | stop)
-
-region steal(s: ptr(Sched), self_id: i32;
-    stole(job: JobRef, victim: i32)
-    | empty)
-
-region run_job(s: ptr(Sched), job: JobRef;
-    done(result: i64)
-    | failed(code: i32)
-    | cancelled)
-
-region worker_loop(w: ptr(Worker), s: ptr(Sched);
-    drained(ran: index)
-    | aborted(code: i32))
-```
-
-Lua-owned DSL equivalent:
 
 ```lua
 region. submit
@@ -1907,30 +1678,7 @@ Depth audit (Ch. 5): `worker_loop` is the deep module — two exits hiding the e
 
 ### V.5 States and wiring (Steps 8–9)
 
-```lalin
-region worker_loop(w: ptr(Worker), s: ptr(Sched);
-    drained(ran: index) | aborted(code: i32))
-entry start()
-    jump idle(ran = 0, spins = 0)
-end
-block idle(ran: index, spins: index)
-    emit pop_local(w, s; got = work, empty = hungry, stop = finish)
-end
-block hungry(ran: index, spins: index)
-    emit steal(s, w.id; stole = work_stolen, empty = park)
-end
-block work(ran: index, spins: index, job: JobRef)
-    emit run_job(s, job;
-        done = bookkeep, failed = bookkeep_failed, cancelled = bookkeep)
-end
-...
-block finish(ran: index, spins: index)
-    jump drained(ran = ran)
-end
-end
-```
 
-Lua-owned DSL equivalent:
 
 ```lua
 region. worker_loop
@@ -1979,12 +1727,7 @@ Every block's parameter list is its whole state (Ch. 6's back-door rule): `ran` 
 
 Seals — exactly where ABIs live, nowhere else:
 
-```lalin
-func sched_submit(s: ptr(Sched), fn: ptr(u8), arg: ptr(u8)): i32   -- 0/1/2 at FFI only
-func sched_worker_main(w: ptr(Worker), s: ptr(Sched)): i64         -- thread entry
-```
-
-Lua-owned DSL equivalent:
+Lalin syntax:
 
 ```lua
 fn. sched_submit
@@ -2051,7 +1794,7 @@ Move the missing facts into the consumed world.
 
 **Hidden state.** A counter, a flag, a Lua upvalue mutated across jumps or shared between factory outputs. The block product is the complete state; everything else is a back door (Ch. 6).
 
-**The premature seal.** An internal function created "for tidiness," now squeezing four outcomes through one return. Compose with regions; seal only at ABIs (Ch. 3.4).
+**The premature seal.** An internal function created "for tidiness," now squeezing four outcomes through one return. Compose with `emit`; use region `call` for frames/recursion; seal only at ABI/product-return boundaries (Ch. 3.4).
 
 **The clever body.** A body that needs explaining. Cleverness is a missing declaration; lift it into the trees (Ch. 10).
 
@@ -2068,15 +1811,18 @@ Move the missing facts into the consumed world.
 Run this before bodies are written, and again before a design is declared done. Every "no" is a declaration to fix now, not a comment to leave.
 
 **The sentence**
+
 - [ ] Can the system be stated as *consumes / produces / by repeatedly*? Does every declaration earn its place against that sentence?
 
 **Products**
+
 - [ ] Do all fields of each product genuinely coexist, usable without first choosing a branch?
 - [ ] No derived data stored beside source truth? No string keys as internal identity? Cross-references typed handles?
 - [ ] Ownership of every pointer/view/resource boundary written down, or carried as handle/lease/owned facts? Units and invariants written where types can't carry them?
 - [ ] Every kind/tag/status field annotated with its single owning consumer region?
 
 **Worlds and reuse**
+
 - [ ] Is every repeated/incremental subsystem expressed as a world line: `world -> phase -> world`?
 - [ ] Can each world complete the sentence: "this world changes exactly when ______ can no longer be reused"?
 - [ ] For each phase cache, are all invalidating facts inside the consumed world, not hidden in side args, globals, Lua upvalues, or stores read by convention?
@@ -2085,18 +1831,21 @@ Run this before bodies are written, and again before a design is declared done. 
 - [ ] Are coarse worlds split, or given stable internal lanes, wherever partial reuse matters?
 
 **Protocols**
+
 - [ ] Is every "or" from the harvest a named continuation somewhere — including the embarrassing ones (truncated, already_closed, parked)?
 - [ ] Payloads minimal exit products, not context bags? Names that state outcomes, payloads that state new knowledge?
 - [ ] No boolean protocols, result objects, or internal status codes?
 - [ ] Granularity from the consumer's chair — no exposed distinction that no caller consumes?
 
 **Regions, blocks, wiring**
+
 - [ ] Each region: clear input product, clear protocol, depth audit passed (no pass-throughs, no step regions)?
 - [ ] Each block's parameter list the *complete* state? Every path terminating explicitly?
 - [ ] Every emit's fill total? Error channels forwarded as wiring, not re-encoded as data?
 - [ ] Continuations deleted where a stronger product could kill them (views, handles and leases, reserve-then-bump)?
 
 **Memory contracts**
+
 - [ ] Are durable references handles rather than raw pointers?
 - [ ] Does every store-resolved handle declare `domain Store` and `target Item`?
 - [ ] Does every store have named resolving regions that grant leases/views on successful exits?
@@ -2106,19 +1855,23 @@ Run this before bodies are written, and again before a design is declared done. 
 - [ ] Are raw pointers confined to ABI boundaries, store internals, or hot kernels with explicit contracts?
 
 **Seals and persistent state**
-- [ ] Every function a genuine ABI/recursion boundary — and every status-returning internal function unsealed?
+
+- [ ] Every region boundary chosen deliberately: `emit` for splicing, `call` for frame/recursion/instrumentation, function only for ABI/product-return?
 - [ ] Persistent state explicit products passed to their regions — no globals, no side tables, no Lua back doors?
 
 **Families**
+
 - [ ] Every repetition axis a factory parameter; every factory output monomorphic and distinctly named?
 - [ ] No instance quirks in family signatures; no speculative instantiation; platform selection explicit at build time?
 
 **The Ousterhout pass**
+
 - [ ] Red-flag concordance (Ch. 11) walked, item by item?
 - [ ] Designed twice anywhere a signature felt arguable?
 - [ ] Tree reads aloud as a narration of the system, with no off-signature words?
 
 **The explicitness audit (the meta-check)**
+
 - [ ] Could a newcomer reconstruct the system's behavior from the declarations alone?
 - [ ] Is there any meaning left in strings, callbacks, conventions, globals, or "the body will handle it"?
 
@@ -2212,21 +1965,7 @@ it.
 
 A handle is a nominal opaque scalar identity plus optional store metadata:
 
-```lalin
-struct AudioBufferStore
-    records: ptr(AudioBufferRecord),
-    samples: ptr(f32),
-    capacity: index,
-    generation: u64,
-end
-
-handle AudioBuffer : u32 invalid 0
-    domain AudioBufferStore
-    target AudioBufferRecord
-end
-```
-
-Lua-owned DSL equivalent:
+Lalin syntax:
 
 ```lua
 return module "AudioBufferModel" {
@@ -2272,16 +2011,7 @@ grants a lease.
 Access is a region whose protocol names stale, missing, free, rebuilding,
 unsupported-format, and any other cases the caller can actually act on:
 
-```lalin
-region borrow_audio_buffer(store: ptr(AudioBufferStore),
-                           buffer: AudioBuffer;
-    borrowed(samples: lease view(f32))
-  | stale(buffer: AudioBuffer)
-  | missing(buffer: AudioBuffer)
-  | unsupported_format) end
-```
-
-Lua-owned DSL equivalent:
+Lalin syntax:
 
 ```lua
 region. borrow_audio_buffer
@@ -2344,12 +2074,7 @@ it is the ABI/boundary case: it refines a raw pointer for the duration of the
 function. It is not durable identity and it should not make `ptr(T)` magically
 smart.
 
-```lalin
-func c_sum(readonly p: ptr(i32), n: index): i32
-    requires bounds(p, n)
-```
-
-Lua-owned DSL equivalent:
+Lalin syntax:
 
 ```lua
 -- ABI-side bound contract
@@ -2369,24 +2094,11 @@ shape is first-class.
 
 No-escape alone is not enough. This must be rejected:
 
-```lalin
-block borrowed(state: lease ptr(VoiceState))
-    destroy_voice(store, voice)
-    state.phase = 0.0       -- stale if destroy frees or reuses the slot
-end
-```
-
 Store APIs therefore have memory effects. At first a checker may conservatively
 treat mutable calls on the same store as invalidating and readonly calls as
 preserving. The full design names the effect explicitly:
 
-```lalin
-func destroy_voice(invalidate store: ptr(VoiceStore), voice: Voice)
-func count_voices(readonly store: ptr(VoiceStore)): index
-func process_voice(state: lease ptr(VoiceState))
-```
-
-Lua-owned DSL equivalent:
+Lalin syntax:
 
 ```lua
 -- invalidate store: consumes a live lease from VoiceStore if active
@@ -2424,14 +2136,7 @@ facts.
 Arena reset, publication, retirement, destruction, and resource close are also
 protocols:
 
-```lalin
-region reset_render_scratch(scratch: ptr(RenderScratch), shape: BlockShape;
-    reset
-  | bad_buffer
-  | wrong_thread) end
-```
-
-Lua-owned DSL equivalent:
+Lalin syntax:
 
 ```lua
 region. reset_render_scratch
@@ -2477,8 +2182,8 @@ region/function says what can happen, what access it invalidates, and whether an
  5. Jumps are total constructions.   15. Diagrams are sketches; declarations are the design.
  6. Every path exits by name.        16. Lua generates families; machines stay monomorphic.
  7. Emits compose; fills are total.  17. Memory ownership is ordinary products/protocols.
- 8. Compose with regions,            18. Memory failure is a protocol, not a nullable pointer.
-    seal with functions.             19. Handles may escape; leases may not.
+ 8. Emit for splicing, call for       18. Memory failure is a protocol, not a nullable pointer.
+    frames; seal at ABI.              19. Handles may escape; leases may not.
  9. The protocol belongs to          20. Stores own bytes; regions grant access facts.
     the consumer.
 10. Deep region: small signature,    21. Foreign runtime facts cross through typed bridges.

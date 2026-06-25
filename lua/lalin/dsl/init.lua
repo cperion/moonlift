@@ -1670,8 +1670,8 @@ function M.namespace(opts)
 end
 
 function M.make_family_env(opts)
-    local ns = M.namespace { name = "ml", base = opts and opts.base or nil }
-    return { ml = ns, lalin = ns }
+    local ns = M.namespace { name = "ll", base = opts and opts.base or nil }
+    return { ll = ns, lalin = ns }
 end
 
 --- Install Lalin DSL globals into _G so plain .lua files can use

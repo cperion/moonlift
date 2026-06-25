@@ -1,14 +1,14 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local lalin = require("lalin")
-local ll = require("llpvm")
+local LLPVM = require("llpvm")
 
 local env = {}
 local session = lalin.family.use { scope = "env", target = env, global = false }
 local desc = session:describe()
 assert(desc.lang == "lalin", "family session is named")
-assert(env.ml and env.lalin and env.llpvm and env.schema, "family installs member namespaces")
-assert(env.ml == env.lalin, "ml should be the short alias for the Lalin namespace")
+assert(env.ll and env.lalin and env.llpvm and env.schema, "family installs member namespaces")
+assert(env.ll == env.lalin, "ll should be the short alias for the Lalin namespace")
 assert(env.region == require("llb").region, "family installs generic LLB region as the bare region head")
 assert(rawget(env, "fn") == nil and rawget(env, "pvm") == nil and rawget(env, "i32") == nil and rawget(env, "task") == nil, "family does not leak member heads as bare globals")
 assert(env.schema.product and env.schema.module and env.schema.FamilyProbe, "family installs LalinSchema through the schema namespace")
@@ -35,25 +35,25 @@ assert(llpvm_reuses_type_family, "LLPVM should reuse schema type-family semantic
 
 local chunk = assert(loadstring([[
 return {
-  fields = ml.product { a [ml.i32], b [ml.i64] },
+  fields = ll.product { a [ll.i32], b [ll.i64] },
 
-  lalin = ml {
-    ml.fn. add { a [ml.i32], b [ml.i32] } [ml.i32] {
-      ml.ret (a + b),
+  lalin = ll {
+    ll.fn. add { a [ll.i32], b [ll.i32] } [ll.i32] {
+      ll.ret (a + b),
     },
   },
 
   proc = llpvm.task. compile {
-    llpvm.input [ml.i32],
-    llpvm.output [ml.i64],
-    llpvm.event. progress [ml.i32],
+    llpvm.input [ll.i32],
+    llpvm.output [ll.i64],
+    llpvm.event. progress [ll.i32],
   },
 
   low = llpvm {
     llpvm.pvm. Demo {
       llpvm.lang. Demo {
         llpvm.type. Node {
-          llpvm.op. Int { value [ml.i64] },
+          llpvm.op. Int { value [ll.i64] },
         },
       },
 
@@ -74,10 +74,10 @@ local out = chunk()
 assert(#out.fields.items == 2, "Lalin fragment uses family auto names")
 assert(out.lalin.name == "lalin" and #out.lalin.items == 1, "lalin zone is installed")
 assert(out.lalin.items[1].name == "add" and out.lalin.items[1]:syntax_item(), "Lalin function consumes generic LLB symbols")
-assert(getmetatable(out.proc) == ll.TaskSpec, "LLPVM task head is installed")
+assert(getmetatable(out.proc) == LLPVM.TaskSpec, "LLPVM task head is installed")
 assert(out.low.name == "llpvm" and #out.low.items == 1, "llpvm zone is installed")
-assert(getmetatable(out.low.items[1]) == ll.ProgramSpec, "LLPVM pvm head is installed")
-assert(ll.bytecode(out):sub(1, 4) == "LLPV", "family-authored LLPVM zone projects to bytecode")
+assert(getmetatable(out.low.items[1]) == LLPVM.ProgramSpec, "LLPVM pvm head is installed")
+assert(LLPVM.bytecode(out):sub(1, 4) == "LLPV", "family-authored LLPVM zone projects to bytecode")
 local schema_zone = lalin.family.load([[
 return schema {
   schema. FamilySchemaSmoke {
@@ -96,16 +96,16 @@ assert(lalin.family.format(schema_zone):match("schema%. FamilySchemaSmoke"), "fa
 assert(formatted:match("fn%. add"), "family formatter delegates Lalin declarations")
 assert(formatted:match("pvm%. Demo"), "family formatter delegates LLPVM programs")
 assert(formatted:match("task%. compile"), "family formatter delegates direct LLPVM task values")
-assert(ll.format(out.proc):match("input %[i32%]"), "LLPVM formatter should render scalar input as source type")
-assert(ll.format(out.proc):match("\n  output %[i64%],"), "LLPVM formatter should use multiline task bodies")
+assert(LLPVM.format(out.proc):match("input %[i32%]"), "LLPVM formatter should render scalar input as source type")
+assert(LLPVM.format(out.proc):match("\n  output %[i64%],"), "LLPVM formatter should use multiline task bodies")
 
 local diagnostics = lalin.family.diagnostics(out)
 assert(not diagnostics:has_errors(), "family diagnostics should accept coherent mixed family value")
 
 local bad = lalin.family.load([[
 return lalin {
-  ml.fn. bad {} [ml.i32] {
-    ml.ret "not an integer",
+  ll.fn. bad {} [ll.i32] {
+    ll.ret "not an integer",
   },
 }
 ]], "family_bad.lua")
@@ -139,10 +139,10 @@ assert(markdown:match("LLPVM LLB Surface"), "lalin markdown should include LLPVM
 
 local loaded = lalin.family.load([[
 return llpvm.task. quick {
-  llpvm.input [ml.i32],
-  llpvm.output [ml.i32],
+  llpvm.input [ll.i32],
+  llpvm.output [ll.i32],
 }
 ]], "family_load.lua")
-assert(getmetatable(loaded) == ll.TaskSpec, "family load uses composed environment")
+assert(getmetatable(loaded) == LLPVM.TaskSpec, "family load uses composed environment")
 
 io.write("llpvm family_use ok\n")

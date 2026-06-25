@@ -9,21 +9,21 @@ local chunk = assert(loadstring([[
 local scalar_rules = llisle.rules {
   rule. lower_const_i32 {
     llisle.lower_expr { expr = P. expr, ctx = P. ctx },
-    when { (P. expr :is_const ()) * (P. expr :has_type (ml.i32)) },
+    when { (P. expr :is_const ()) * (P. expr :has_type (ll.i32)) },
     run { ret { value = V. out } },
   },
 }
 
 local arith_rules = llisle.rules {
   rule. lower_add_i32 {
-    llisle.lower_expr { expr = add { lhs = P. lhs, rhs = P. rhs } [ml.i32], ctx = P. ctx },
+    llisle.lower_expr { expr = add { lhs = P. lhs, rhs = P. rhs } [ll.i32], ctx = P. ctx },
     run { ret { value = V. out } },
   },
 }
 
 return llisle {
   relation. lower_expr {
-    input { expr [ml.i32], ctx [LowerCtx] },
+    input { expr [ll.i32], ctx [LowerCtx] },
     output { value [BackValue] },
   },
   _(scalar_rules .. arith_rules),

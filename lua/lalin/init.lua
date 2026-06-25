@@ -35,7 +35,7 @@ M.flatline = require("lalin.flatline")
 M.ast = require("lalin.ast")
 M.dsl = require("lalin.dsl")
 M.lalin = M.dsl.namespace()
-M.ml = M.dsl.namespace { name = "ml" }
+M.ll = M.dsl.namespace { name = "ll" }
 M.debugger_core = require("lalin.debugger_core")
 M.back_program = require("lalin.back_program")
 M.back_target_model = require("lalin.back_target_model")
@@ -303,12 +303,12 @@ local function lalin_markdown(member, opts, family)
         "",
         "Lalin is the typed native language member of the family. It owns functions, regions, types, resources, and native compilation projection.",
         "",
-        "Family source uses the `ml` namespace value for Lalin. `lalin` is the long alias. Call `ml { ... }` when a family value contains Lalin declarations.",
+        "Family source uses the `ll` namespace value for Lalin. `lalin` is the long alias. Call `ll { ... }` when a family value contains Lalin declarations.",
         "",
         "```lua",
-        "ml {",
-        "  ml.fn. add { a [ml.i32], b [ml.i32] } [ml.i32] {",
-        "    ml.ret (a + b),",
+        "ll {",
+        "  ll.fn. add { a [ll.i32], b [ll.i32] } [ll.i32] {",
+        "    ll.ret (a + b),",
         "  },",
         "}",
         "```",
@@ -328,9 +328,9 @@ local function llpvm_markdown(member, opts, family)
         "```lua",
         "llpvm {",
         "  llpvm.task. compile {",
-        "    llpvm.input [ml.i32],",
-        "    llpvm.output [ml.i32],",
-        "    llpvm.event. progress [ml.i32],",
+        "    llpvm.input [ll.i32],",
+        "    llpvm.output [ll.i32],",
+        "    llpvm.event. progress [ll.i32],",
         "  },",
         "}",
         "```",
@@ -380,12 +380,12 @@ local function llisle_markdown(member, opts, family)
         "",
         "  rule. add_i32 {",
         "    llisle.lower_expr {",
-        "      expr = add { lhs = P. lhs, rhs = P. rhs } [ml.i32],",
+        "      expr = add { lhs = P. lhs, rhs = P. rhs } [ll.i32],",
         "      ctx = P. ctx,",
         "    },",
         "",
         "    when {",
-        "      (P. lhs :has_type (ml.i32)) * (P. rhs :has_type (ml.i32)),",
+        "      (P. lhs :has_type (ll.i32)) * (P. rhs :has_type (ll.i32)),",
         "    },",
         "",
         "    run {",
@@ -431,7 +431,7 @@ M.family = llb.family. lalin {
         language = "llpvm.dsl",
         llpvm = "llpvm.dsl",
         llisle = "llisle.dsl",
-        ml = "lalin.dsl",
+        ll = "lalin.dsl",
         machine = "llpvm.dsl",
         lalin = "lalin.dsl",
         schema = "lalinschema.dsl",
@@ -470,7 +470,7 @@ M.family = llb.family. lalin {
         "input",
         "output",
         "root",
-        "ml",
+        "ll",
         "lalin",
         "llpvm",
         "llisle",

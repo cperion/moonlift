@@ -12,7 +12,7 @@ assert(llb.describe(env.llisle).tag == "Namespace", "llisle export is an LLB nam
 local chunk = assert(loadstring([[
 return llisle {
   llisle.relation. lower_expr {
-    llisle.input { expr [ml.i32], ctx [LowerCtx] },
+    llisle.input { expr [ll.i32], ctx [LowerCtx] },
     llisle.output { value [BackValue] },
     llisle.effects { cmd [BackCmd], diagnostic [Diagnostic] },
     llisle.strategy {
@@ -24,12 +24,12 @@ return llisle {
 
   llisle.rule. add_i32 {
     llisle.lower_expr {
-      expr = add { lhs = llisle.P. lhs, rhs = llisle.P. rhs } [ml.i32],
+      expr = add { lhs = llisle.P. lhs, rhs = llisle.P. rhs } [ll.i32],
       ctx = llisle.P. ctx,
     },
 
     llisle.when {
-      (llisle.P. lhs :has_type (ml.i32)) * (llisle.P. rhs :has_type (ml.i32)),
+      (llisle.P. lhs :has_type (ll.i32)) * (llisle.P. rhs :has_type (ll.i32)),
     },
 
     llisle.choose {
