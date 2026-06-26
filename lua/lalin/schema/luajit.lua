@@ -638,7 +638,7 @@ return schema. LalinLuaJIT {
     o_path [str],
     source [str],
     command [str],
-    preamble [optional [str]],
+    ffi_preamble [optional [str]],
     entries [many [LalinLuaJIT.LJMCStencilEntry]],
     metastencil_covers [many [LalinStencil.StencilMetastencilCandidate]],
   },

@@ -24,23 +24,25 @@ local function sorted_keys(t)
 end
 
 local smoke_opts = { soac_order = 1, input_count = 1, target_bytes = 250000 }
-local cells = InternSet.cells(smoke_opts)
-assert(#cells > 0, "MC intern matrix must not be empty")
+local smoke_cells = InternSet.cells(smoke_opts)
+assert(#smoke_cells > 0, "MC intern smoke matrix must not be empty")
+local coverage_cells = InternSet.cells({ soac_order = 1, input_count = 1 })
+assert(#coverage_cells > #smoke_cells, "unbounded MC intern matrix must be larger than the bounded smoke matrix")
 
 local default_profile = InternSet.bank_profile({ target_bytes = 1024 * 1024 })
 assert(default_profile.soac_order == 1, "default MC intern matrix should saturate SOAC order 1")
-assert(default_profile.input_count == 4, "default MC intern matrix should saturate Apply input count 4")
-assert(default_profile.second_soac_order == 2, "default MC intern matrix should add SOAC order 2")
-assert(default_profile.second_input_count == 4, "default MC intern matrix should saturate the order-2 subset to input count 4")
-assert(default_profile.second_family == "sink_after_apply", "default MC intern matrix should use the sink-after-apply order-2 subset")
+assert(default_profile.input_count == 1, "default MC intern matrix should use the simple width-1 bank")
+assert(default_profile.second_soac_order == nil, "default MC intern matrix should not add implicit SOAC order 2")
+assert(default_profile.second_input_count == nil, "default MC intern matrix should not add an implicit second width")
+assert(default_profile.second_family == nil, "default MC intern matrix should not add an implicit fusion family")
 assert(default_profile.target_bytes == 1024 * 1024, "explicit MC intern target should be reported")
-assert(default_profile.cells > #cells, "default targeted profile should be larger than the order-1 smoke matrix")
+assert(default_profile.cells > #smoke_cells, "default targeted profile should be larger than the order-1 smoke matrix")
 
 local covered_vocabs = {}
 local covered_layouts = {}
 local covered_groups = {}
 local covered_producers = {}
-for _, cell in ipairs(cells) do
+for _, cell in ipairs(coverage_cells) do
     assert(type(cell.name) == "string" and cell.name ~= "", "MC intern cell needs a stable name")
     local vocab = Matrix.vocabs[cell.vocab]
     assert(vocab ~= nil, "MC intern cell uses unknown vocab " .. tostring(cell.vocab))
@@ -95,15 +97,16 @@ for _, producer_group in ipairs({ "range1d", "range_nd2", "tiled_nd2", "window_n
 end
 
 local artifacts = InternSet.artifacts(smoke_opts)
-assert(#artifacts == #cells, "MC intern matrix should build exactly one artifact per cell")
+assert(#artifacts == #smoke_cells, "MC intern matrix should build exactly one artifact per smoke cell")
 
 local expected_symbols = InternSet.expected_symbols(smoke_opts)
-assert(#expected_symbols == #cells, "MC intern matrix cells should produce unique symbols")
+assert(#expected_symbols == #smoke_cells, "MC intern matrix smoke cells should produce unique symbols")
 
 local bank, err, source = Bank.build_mc_bank(artifacts, {
     stem = "test_copy_patch_mc_intern_set",
     dir = "target/test_artifacts/test_copy_patch_mc_intern_set",
-    preamble = InternSet.preamble(),
+    c_decls = InternSet.c_decls(),
+    ffi_preamble = InternSet.ffi_preamble(),
 })
 assert(bank ~= nil, tostring(err) .. "\n" .. tostring(source))
 

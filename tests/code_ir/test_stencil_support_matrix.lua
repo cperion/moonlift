@@ -253,5 +253,18 @@ assert(Plan.access_named(scatter.instance.descriptor, "idx").role == Stencil.Ste
 local scatter_reduce = artifact_samples.scatter_reduce()
 assert(Plan.access_named(scatter_reduce.instance.descriptor, "idx").role == Stencil.StencilAccessIndex, "scatter-reduce index stream must use index access role")
 assert(Plan.access_named(scatter_reduce.instance.descriptor, "dst").role == Stencil.StencilAccessReadWrite, "scatter-reduce destination must be readwrite")
+local atomic_scatter_reduce_ok, atomic_scatter_reduce_err = pcall(function()
+    return Plan.scatter_reduce_n_artifact(reduction(Value.ReductionAdd, 0), nil, {
+        tag = "matrix_atomic",
+        result_ty = i32,
+        item_ty = i32,
+        index_ty = i32,
+        inputs = { { name = "xs", ty = i32 } },
+        expr = Plan.input_expr("xs"),
+        conflicts = Stencil.StencilScatterReduceAtomic(Core.AtomicSeqCst),
+        step_num = 1,
+    })
+end)
+assert(not atomic_scatter_reduce_ok and tostring(atomic_scatter_reduce_err):match("atomic scatter%-reduce"), "atomic scatter-reduce must be represented but rejected until materialized")
 
 io.write("lalin stencil_support_matrix ok\n")

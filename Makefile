@@ -8,7 +8,6 @@ LALIN_BC_BANK_C = $(LALIN_BIN_DIR)/lalin_embedded_bc_bank.c
 LALIN_BC_BANK_H = $(LALIN_BIN_DIR)/lalin_embedded_bc_bank.h
 LALIN_MC_BANK_C = $(LALIN_BIN_DIR)/lalin_embedded_mc_bank.c
 LALIN_MC_BANK_H = $(LALIN_BIN_DIR)/lalin_embedded_mc_bank.h
-LALIN_MC_BANK_SHARD_CS = $(wildcard $(LALIN_BIN_DIR)/lalin_embedded_mc_bank_shard_*.c)
 LALIN_BIN_OBJ_DIR = $(LALIN_BIN_DIR)/obj
 MAXPROCS ?= $(shell n=$$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1); if [ "$$n" -gt 0 ] 2>/dev/null; then echo "$$n"; else echo 1; fi)
 
@@ -23,10 +22,10 @@ $(LUAJIT)/libluajit.a:
 
 lalin-bin: $(LALIN_BIN)
 
-$(LALIN_BC_BANK_C) $(LALIN_BC_BANK_H): $(shell find lua -name '*.lua' | sort) tools/gen_lalin_module_bank.lua
+$(LALIN_BC_BANK_C) $(LALIN_BC_BANK_H) &: $(shell find lua -name '*.lua' | sort) tools/gen_lalin_module_bank.lua
 	luajit tools/gen_lalin_module_bank.lua $(LALIN_BC_BANK_C) $(LALIN_BC_BANK_H) lua
 
-$(LALIN_MC_BANK_C) $(LALIN_MC_BANK_H): $(shell find lua -name '*.lua' | sort) tools/gen_lalin_mc_bank.lua
+$(LALIN_MC_BANK_C) $(LALIN_MC_BANK_H) &: $(shell find lua -name '*.lua' | sort) tools/gen_lalin_mc_bank.lua
 	luajit tools/gen_lalin_mc_bank.lua $(LALIN_MC_BANK_C) $(LALIN_MC_BANK_H)
 
 $(LALIN_BIN): src/lalin.c $(LALIN_BC_BANK_C) $(LALIN_BC_BANK_H) $(LALIN_MC_BANK_C) $(LALIN_MC_BANK_H) $(LUAJIT)/libluajit.a
@@ -36,7 +35,8 @@ $(LALIN_BIN): src/lalin.c $(LALIN_BC_BANK_C) $(LALIN_BC_BANK_H) $(LALIN_MC_BANK_
 	case "$$maxprocs" in ""|0|*[!0-9]*) maxprocs=1 ;; esac; \
 	running=0; \
 	objs=""; \
-	for src in src/lalin.c $(LALIN_BC_BANK_C) $(LALIN_MC_BANK_C) $(LALIN_MC_BANK_SHARD_CS); do \
+	for src in src/lalin.c $(LALIN_BC_BANK_C) $(LALIN_MC_BANK_C) $(LALIN_BIN_DIR)/lalin_embedded_mc_bank_shard_*.c; do \
+		[ -e "$$src" ] || continue; \
 		obj="$(LALIN_BIN_OBJ_DIR)/$$(printf '%s' "$$src" | sed 's#[^A-Za-z0-9_]#_#g').o"; \
 		objs="$$objs $$obj"; \
 		$(CC) -O2 -I$(LUAJIT) -I$(LALIN_BIN_DIR) -c "$$src" -o "$$obj" & \

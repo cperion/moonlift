@@ -244,6 +244,13 @@ E.array = setmetatable({}, {
         return setmetatable({}, { __index = function(_, n) return ctype("array", { elem = elem, count = n }) end })
     end,
 })
+E.fnptr = setmetatable({}, {
+    __index = function(_, params)
+        local ps = {}
+        for i = 1, #(params or {}) do ps[i] = type_any(params[i]) end
+        return setmetatable({}, { __index = function(_, result) return ctype("fnptr", { params = ps, result = type_any(result) }) end })
+    end,
+})
 E.vector = setmetatable({}, {
     __index = function(_, t)
         local elem = type_any(t)
@@ -344,12 +351,19 @@ local function type_s(t, ctx)
     if t.kind == "attribute" then need_gnu(ctx, "__attribute__"); return type_s(t.base, ctx) .. " __attribute__((" .. table.concat(t.attrs, ", ") .. "))" end
     if t.kind == "typeof_type" then need_gnu(ctx, "__typeof__"); return "__typeof__(" .. type_s(t.ty, ctx) .. ")" end
     if t.kind == "typeof_expr" then need_gnu(ctx, "__typeof__"); return "__typeof__(" .. expr_s(t.value, ctx) .. ")" end
+    if t.kind == "fnptr" then fail("function pointer type requires a declarator name", t.origin, 2) end
     fail("unsupported C type kind " .. tostring(t.kind), t.origin, 2)
 end
 
 local function declarator(t, name, ctx)
     if lua_type(t) == "table" and t.raw then return t.raw end
     t = type_any(t)
+    if t.kind == "fnptr" then
+        local ps = {}
+        for i = 1, #(t.params or {}) do ps[i] = type_s(t.params[i], ctx) end
+        if #ps == 0 then ps[1] = "void" end
+        return type_s(t.result, ctx) .. " (*" .. cname(name, "declarator") .. ")(" .. table.concat(ps, ", ") .. ")"
+    end
     if t.kind == "array" then return type_s(t.elem, ctx) .. " " .. cname(name, "declarator") .. "[" .. tostring(t.count) .. "]" end
     local s = type_s(t, ctx)
     return s .. (s:match("[%*%s]$") and "" or " ") .. cname(name, "declarator")
@@ -514,6 +528,11 @@ format_type_doc = function(t, f)
     if t.kind == "const" then return d.group { "c.const [", format_type_doc(t.base, f), "]" } end
     if t.kind == "restrict" then return d.group { "c.restrict [", format_type_doc(t.base, f), "]" } end
     if t.kind == "array" then return d.group { "c.array [", format_type_doc(t.elem, f), "] [", tostring(t.count), "]" } end
+    if t.kind == "fnptr" then
+        local params = {}
+        for i = 1, #(t.params or {}) do params[i] = format_type_doc(t.params[i], f) end
+        return d.group { "c.fnptr [{ ", d.join(d.concat { ",", d.line() }, params), " }] [", format_type_doc(t.result, f), "]" }
+    end
     if t.kind == "attribute" then
         local vec = t.attrs and t.attrs[1] and tostring(t.attrs[1]):match("^vector_size%((.+)%)$")
         if vec then return d.group { "c.vector [", format_type_doc(t.base, f), "] (", vec, ")" } end

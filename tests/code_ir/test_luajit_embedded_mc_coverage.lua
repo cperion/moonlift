@@ -28,7 +28,8 @@ local function place(base, index) return Code.CodePlaceIndex(Code.CodePlaceDeref
 local intern_bank = assert(Bank.build_mc_bank(InternSet.artifacts(), {
     stem = "test_luajit_embedded_mc_coverage_bank",
     dir = "target/test_artifacts/test_luajit_embedded_mc_coverage",
-    preamble = InternSet.preamble(),
+    c_decls = InternSet.c_decls(),
+    ffi_preamble = InternSet.ffi_preamble(),
 }))
 
 local embedded_by_symbol = {}

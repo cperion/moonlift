@@ -817,7 +817,8 @@ function M.emit_luajit_artifact(decl, path_or_opts, name, opts)
         local bank_opts = opts.mc_bank_opts or {}
         bank_opts.stem = bank_opts.stem or opts.stem or sanitize(name)
         bank_opts.dir = bank_opts.dir or opts.mc_bank_dir
-        bank_opts.preamble = bank_opts.preamble or opts.preamble
+        bank_opts.c_decls = bank_opts.c_decls or opts.c_decls or opts.decls
+        bank_opts.ffi_preamble = bank_opts.ffi_preamble or opts.ffi_preamble
         bank_opts.cc = bank_opts.cc or opts.cc
         bank_opts.cflags = bank_opts.cflags or opts.cflags
         bank_opts.arch = bank_opts.arch or opts.arch

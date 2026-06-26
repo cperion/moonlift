@@ -506,7 +506,7 @@ local function bind_context(T)
         local stem = opts.stem or ("lalin_stencil_mc_bank_" .. tostring(os.time()) .. "_" .. sanitize(tostring(os.clock())))
         local c_path = dir .. "/" .. stem .. ".c"
         local o_path = dir .. "/" .. stem .. ".o"
-        local source = StencilC.source(artifacts, { preamble = opts.preamble })
+        local source = StencilC.source(artifacts, { c_decls = opts.c_decls or opts.decls })
         write_file(c_path, source)
         local cc = opts.cc or os.getenv("CC") or "gcc"
         local cflags = opts.cflags or "-std=c99 -O3 -march=native -fno-builtin -fno-builtin-memmove -fno-builtin-memcpy -fno-builtin-memset -ffunction-sections -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -c"
@@ -663,7 +663,7 @@ local function bind_context(T)
             o_path,
             source,
             cmd,
-            opts.preamble,
+            opts.ffi_preamble,
             entries,
             metastencil_covers
         )
@@ -734,7 +734,7 @@ local function bind_context(T)
         local metastencil_covers
         artifacts, metastencil_covers = Meta.normalize_artifact_inputs(artifacts or {})
         local bank = assert(opts.mc_bank, "copy_patch_mc.realize_mc_artifacts requires opts.mc_bank")
-        local ffi_preamble = opts.ffi_preamble or opts.preamble or bank.preamble
+        local ffi_preamble = opts.ffi_preamble or bank.ffi_preamble
         if type(ffi_preamble) ~= "string" then ffi_preamble = nil end
         if ffi_preamble ~= nil and ffi_preamble ~= "" and not ffi_preambles[ffi_preamble] then
             require("ffi").cdef(ffi_preamble)
@@ -793,8 +793,8 @@ local function bind_context(T)
         out[#out + 1] = "void *memcpy(void *dst, const void *src, size_t n);"
         out[#out + 1] = "void *memset(void *dst, int c, size_t n);"
         out[#out + 1] = "]])"
-        if bank.preamble ~= nil and bank.preamble ~= "" then
-            out[#out + 1] = "pcall(ffi.cdef, " .. lua_string(bank.preamble) .. ")"
+        if bank.ffi_preamble ~= nil and bank.ffi_preamble ~= "" then
+            out[#out + 1] = "pcall(ffi.cdef, " .. lua_string(bank.ffi_preamble) .. ")"
         end
         out[#out + 1] = target_guard_source(bank.target)
         out[#out + 1] = "local function __ml_runtime_symbol(name)"

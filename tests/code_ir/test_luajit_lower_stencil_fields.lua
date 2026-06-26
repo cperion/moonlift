@@ -1,6 +1,8 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
+local LLBL = require("llbl")
+local C = require("llbl.c")
 local pvm = require("lalin.pvm")
 local Schema = require("lalin.schema")
 
@@ -201,10 +203,17 @@ local reduce_access = assert_field_layout(artifacts[1], "xs")
 local map_access = assert_field_layout(artifacts[2], "xs")
 assert(reduce_access.ty == i32 and map_access.ty == i32, "field accesses should expose field element type")
 
-local preamble = "typedef struct { int32_t left; int32_t right; } Demo_Pair;"
+local ffi_preamble = "typedef struct { int32_t left; int32_t right; } Demo_Pair;"
+local c_decls = {
+    C.typedef_struct [LLBL.N.Demo_Pair] {
+        LLBL.N.left [C.i32],
+        LLBL.N.right [C.i32],
+    },
+}
 local build, build_err, csrc = StencilBinary.compile(T, artifacts, {
     stem = "test_luajit_lower_stencil_fields",
-    preamble = preamble,
+    c_decls = c_decls,
+    ffi_preamble = ffi_preamble,
 })
 assert(build ~= nil, tostring(build_err) .. "\n" .. tostring(csrc))
 

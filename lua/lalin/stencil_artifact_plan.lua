@@ -193,6 +193,14 @@ local function bind_context(T)
         return "scatter"
     end
 
+    local function scatter_reduce_conflict_name(conflicts)
+        if conflicts == Stencil.StencilScatterReduceSequential then return "seq" end
+        if conflicts == Stencil.StencilScatterReduceUniqueIndices then return "unique" end
+        if pvm.classof(conflicts) == Stencil.StencilScatterReduceAtomic then return "atomic" end
+        if conflicts == Stencil.StencilScatterReducePrivatized then return "privatized" end
+        return "scatter_reduce"
+    end
+
     local function proof_list(plan)
         local eq = plan and plan.body and plan.body.equivalence or nil
         if pvm.classof(eq) == Kernel.KernelEquivalenceProof then return eq.proofs or {} end
@@ -492,7 +500,17 @@ local function bind_context(T)
         local body = Stencil.StencilBodyApply(expr or input_expr("xs"))
         if vocab == "scatter_reduce" then
             body = Stencil.StencilBodyApply(assert(expr, "scatter_reduce descriptor requires expr"))
-            return Stencil.StencilDescriptor(producer, accesses, body, Stencil.StencilSinkScatterReduce(Stencil.StencilAccessRef(attrs.store_dst or "dst"), assert(reducer, "scatter_reduce descriptor requires reducer"), assert(result_ty, "scatter_reduce descriptor requires result type")))
+            return Stencil.StencilDescriptor(
+                producer,
+                accesses,
+                body,
+                Stencil.StencilSinkScatterReduce(
+                    Stencil.StencilAccessRef(attrs.store_dst or "dst"),
+                    assert(reducer, "scatter_reduce descriptor requires reducer"),
+                    attrs.scatter_reduce_conflicts or Stencil.StencilScatterReduceSequential,
+                    assert(result_ty, "scatter_reduce descriptor requires result type")
+                )
+            )
         end
         if vocab == "reduce" then
             return Stencil.StencilDescriptor(producer, accesses, body, Stencil.StencilSinkReduce(assert(result_ty, "reduce descriptor requires result type"), reduce_scope_from_attrs(attrs), Stencil.StencilReduceFold(assert(reducer, "reduce descriptor requires reducer"))))
@@ -751,7 +769,12 @@ local function bind_context(T)
             return nil
         end
         if sink_cls == Stencil.StencilSinkStore then return nil end
-        if sink_cls == Stencil.StencilSinkScatterReduce then return nil end
+        if sink_cls == Stencil.StencilSinkScatterReduce then
+            if sink.conflicts == Stencil.StencilScatterReduceSequential or sink.conflicts == Stencil.StencilScatterReduceUniqueIndices then return nil end
+            if pvm.classof(sink.conflicts) == Stencil.StencilScatterReduceAtomic then return "atomic scatter-reduce is represented but not materialized yet" end
+            if sink.conflicts == Stencil.StencilScatterReducePrivatized then return "privatized scatter-reduce is represented but not materialized yet" end
+            return "unknown scatter-reduce conflict semantics"
+        end
         return "unknown stencil sink"
     end
 
@@ -1917,10 +1940,12 @@ local function bind_context(T)
         accesses[#accesses + 1] = shaped(idx_name, Stencil.StencilAccessIndex, index_ty, info.index_layout, stride)
         local tag = sanitize(info.tag or ("arity" .. tostring(#inputs)))
         local ptag = producer_tag(producer)
-        local id = Stencil.StencilInstanceId("stencil:scatter_reduce_n:" .. type_name(item_ty) .. ":" .. reduction_name(reduction.kind) .. ":to:" .. type_name(result_ty) .. ":" .. tag .. ":" .. ptag)
-        local symbol = Stencil.StencilSymbolId("ml_stencil_scatter_reduce_n_" .. type_name(item_ty) .. "_" .. reduction_name(reduction.kind) .. "_to_" .. type_name(result_ty) .. "_" .. tag .. "_" .. ptag)
+        local conflicts = info.conflicts or info.scatter_reduce_conflicts or Stencil.StencilScatterReduceSequential
+        local conflict_tag = scatter_reduce_conflict_name(conflicts)
+        local id = Stencil.StencilInstanceId("stencil:scatter_reduce_n:" .. type_name(item_ty) .. ":" .. reduction_name(reduction.kind) .. ":to:" .. type_name(result_ty) .. ":" .. conflict_tag .. ":" .. tag .. ":" .. ptag)
+        local symbol = Stencil.StencilSymbolId("ml_stencil_scatter_reduce_n_" .. type_name(item_ty) .. "_" .. reduction_name(reduction.kind) .. "_to_" .. type_name(result_ty) .. "_" .. conflict_tag .. "_" .. tag .. "_" .. ptag)
         local reducer = reducer_desc(reduction, result_ty)
-        local desc = descriptor("scatter_reduce", stride, accesses, expr, reducer, { producer = producer, store_dst = dst_name }, memory({ scatter_reduce = true }), result_ty)
+        local desc = descriptor("scatter_reduce", stride, accesses, expr, reducer, { producer = producer, store_dst = dst_name, scatter_reduce_conflicts = conflicts }, memory({ scatter_reduce = true, scatter_reduce_conflicts = conflicts }), result_ty)
         local sink_reason = sink_materializer_reject_reason(desc)
         if sink_reason ~= nil then error("stencil_artifact_plan: unsupported scatter_reduce_n sink/body: " .. tostring(sink_reason), 2) end
         local abi, args = descriptor_abi_args(desc)
@@ -2409,6 +2434,7 @@ local function bind_context(T)
             float_mode = red.float_mode,
             identity = red.identity,
             dst_name = sink.dst.name,
+            conflicts = sink.conflicts,
             producer = producer,
             stride = producer.kind == "range1d" and producer.stride or nil,
         })

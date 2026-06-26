@@ -1,6 +1,8 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
+local LLBL = require("llbl")
+local C = require("llbl.c")
 local pvm = require("lalin.pvm")
 local Schema = require("lalin.schema")
 
@@ -78,10 +80,17 @@ local artifacts = {
     }),
 }
 
-local preamble = "typedef struct { int32_t left; int32_t right; } Demo_Pair;"
+local ffi_preamble = "typedef struct { int32_t left; int32_t right; } Demo_Pair;"
+local c_decls = {
+    C.typedef_struct [LLBL.N.Demo_Pair] {
+        LLBL.N.left [C.i32],
+        LLBL.N.right [C.i32],
+    },
+}
 local build, err, src = StencilBinary.compile(T, artifacts, {
     stem = "test_copy_patch_mc_field_projection",
-    preamble = preamble,
+    c_decls = c_decls,
+    ffi_preamble = ffi_preamble,
 })
 assert(build ~= nil, tostring(err) .. "\n" .. tostring(src))
 assert(src:match("Demo_Pair const %*%s*__restrict%s*xs"), src)

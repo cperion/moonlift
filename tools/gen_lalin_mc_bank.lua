@@ -8,6 +8,7 @@ package.path = table.concat({
 
 local out_c = assert(arg[1], "usage: luajit tools/gen_lalin_mc_bank.lua OUT_C OUT_H")
 local out_h = assert(arg[2], "usage: luajit tools/gen_lalin_mc_bank.lua OUT_C OUT_H")
+local script_path = arg[0] or "tools/gen_lalin_mc_bank.lua"
 
 local pvm = require("lalin.pvm")
 local Schema = require("lalin.schema")
@@ -20,10 +21,15 @@ local InternSet = require("lalin.copy_patch_mc_intern_set")(T)
 local Bank = require("lalin.copy_patch_mc")(T)
 
 local embedded_mc_cflags = os.getenv("LALIN_MC_BANK_CFLAGS")
-    or "-std=c99 -O3 -march=native -fno-tree-vectorize -fno-builtin -fno-builtin-memmove -fno-builtin-memcpy -fno-builtin-memset -ffunction-sections -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -c"
+    or "-std=c99 -O3 -march=native -fno-builtin -fno-builtin-memmove -fno-builtin-memcpy -fno-builtin-memset -ffunction-sections -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -c"
 
 local function shell_quote(s)
     return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+local function command_ok(cmd)
+    local ok = os.execute(cmd)
+    return ok == true or ok == 0
 end
 
 local function mkdir_parent(path)
@@ -203,7 +209,8 @@ local function build_bank(artifacts, stem, dir)
     local mc_bank, err, source = Bank.build_mc_bank(artifacts, {
         stem = stem,
         dir = dir,
-        preamble = InternSet.preamble(),
+        c_decls = InternSet.c_decls(),
+        ffi_preamble = InternSet.ffi_preamble(),
         cflags = embedded_mc_cflags,
     })
     if mc_bank == nil then
@@ -286,18 +293,51 @@ end
 local function build_sharded(jobs)
     local prefix = shard_prefix_base()
     mkdir_parent(prefix .. ".sentinel")
-    os.execute("rm -f " .. shell_quote(prefix) .. ".shard_" .. "*.cfrag " .. shell_quote(prefix) .. ".shard_" .. "*.count " .. shell_quote(prefix) .. ".shard_" .. "*.status " .. shell_quote(prefix) .. ".shard_" .. "*.log")
+    os.execute("rm -f " .. shell_quote(prefix) .. ".shard_" .. "*.cfrag " .. shell_quote(prefix) .. ".shard_" .. "*.count " .. shell_quote(prefix) .. ".shard_" .. "*.payload_bytes " .. shell_quote(prefix) .. ".shard_" .. "*.patch_count " .. shell_quote(prefix) .. ".shard_" .. "*.status " .. shell_quote(prefix) .. ".shard_" .. "*.log " .. shell_quote(prefix) .. ".shard_" .. "*.out")
     local total = 0
     local payload_bytes = 0
     local patch_count = 0
     local shard_prefixes = {}
+    local launches = {}
     for i = 1, jobs do
         local shard_prefix = prefix .. ".shard_" .. tostring(i)
         shard_prefixes[#shard_prefixes + 1] = shard_prefix
-        local shard = build_shard_fragments(i, jobs, shard_prefix)
-        total = total + shard.count
-        payload_bytes = payload_bytes + shard.payload_bytes
-        patch_count = patch_count + shard.patch_count
+        local cmd = table.concat({
+            "LALIN_MC_BANK_WORKER=1",
+            "LALIN_MC_BANK_SHARD_INDEX=" .. tostring(i),
+            "LALIN_MC_BANK_SHARD_COUNT=" .. tostring(jobs),
+            "LALIN_MC_BANK_SHARD_PREFIX=" .. shell_quote(shard_prefix),
+            "luajit",
+            shell_quote(script_path),
+            shell_quote(out_c),
+            shell_quote(out_h),
+            ">",
+            shell_quote(shard_prefix .. ".out"),
+            "2>",
+            shell_quote(shard_prefix .. ".log"),
+            "&& echo 0 >",
+            shell_quote(shard_prefix .. ".status"),
+            "|| echo $? >",
+            shell_quote(shard_prefix .. ".status"),
+        }, " ")
+        launches[#launches + 1] = "(" .. cmd .. ") &"
+    end
+    launches[#launches + 1] = "wait"
+    if not command_ok(table.concat(launches, " ")) then
+        error("embedded MC bank worker wait failed", 0)
+    end
+    for i, shard_prefix in ipairs(shard_prefixes) do
+        local status = tonumber((read_file(shard_prefix .. ".status"):match("%d+")))
+        if status ~= 0 then
+            error(
+                "embedded MC bank shard " .. tostring(i) .. " failed with status " .. tostring(status) ..
+                "\n" .. bounded_text(read_file(shard_prefix .. ".log")),
+                0
+            )
+        end
+        total = total + (tonumber(read_file(shard_prefix .. ".count"):match("%d+")) or 0)
+        payload_bytes = payload_bytes + (tonumber(read_file(shard_prefix .. ".payload_bytes"):match("%d+")) or 0)
+        patch_count = patch_count + (tonumber(read_file(shard_prefix .. ".patch_count"):match("%d+")) or 0)
     end
     return shard_prefixes, total, payload_bytes, patch_count
 end

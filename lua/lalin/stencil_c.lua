@@ -497,6 +497,12 @@ local function bind_context(T)
         return "scatter"
     end
 
+    local function scatter_reduce_conflicts_materialized(conflicts)
+        return conflicts == nil
+            or conflicts == Stencil.StencilScatterReduceSequential
+            or conflicts == Stencil.StencilScatterReduceUniqueIndices
+    end
+
     local function proof_list(plan)
         local eq = plan and plan.body and plan.body.equivalence or nil
         if pvm.classof(eq) == Kernel.KernelEquivalenceProof then return eq.proofs or {} end
@@ -1193,6 +1199,9 @@ local function bind_context(T)
 
     local function scatter_reduce_n_decl(artifact)
         local shape = artifact_shape(artifact)
+        if not scatter_reduce_conflicts_materialized(shape.conflicts) then
+            error("stencil_c: unsupported scatter-reduce conflict semantics", 3)
+        end
         local desc = artifact.instance.descriptor
         local dst_name = shape.dst_name or "dst"
         local dst_access = access_named(desc, dst_name)
@@ -1332,8 +1341,11 @@ local function bind_context(T)
             C.include "math.h",
             C.typedef. ml_index [C.intptr_t],
         }
-        if opts.preamble ~= nil and opts.preamble ~= "" then
-            decls[#decls + 1] = C.raw_decl(opts.preamble)
+        for _, decl in ipairs(opts.c_decls or opts.decls or {}) do
+            if C.role(decl) ~= "decl" then
+                error("stencil_c: c_decls entries must be llbl.c declaration nodes", 2)
+            end
+            decls[#decls + 1] = decl
         end
         local seen = {}
         for _, artifact in ipairs(artifacts or {}) do

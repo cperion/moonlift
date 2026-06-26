@@ -185,7 +185,8 @@ local function bind_context(T)
         },
         indexed_write = {
             layout = "StencilLayoutIndexed",
-            supports = function(kind) return kind == "apply_n" or kind == "scan_n" end,
+            scatter_reduce_dst = true,
+            supports = function(kind) return kind == "apply_n" or kind == "scan_n" or kind == "scatter_reduce_n" end,
             dst_layout = function() return indexed_layout("dst") end,
             input_layout = function() return nil end,
             extra_inputs = function()
@@ -194,7 +195,8 @@ local function bind_context(T)
         },
         indexed_view_write = {
             layout = "StencilLayoutIndexed",
-            supports = function(kind) return kind == "apply_n" or kind == "scan_n" end,
+            scatter_reduce_dst = true,
+            supports = function(kind) return kind == "apply_n" or kind == "scan_n" or kind == "scatter_reduce_n" end,
             dst_layout = function() return indexed_layout("dst", view_layout("dst")) end,
             input_layout = function() return nil end,
             extra_inputs = function()
@@ -203,7 +205,8 @@ local function bind_context(T)
         },
         indexed_slice_write = {
             layout = "StencilLayoutIndexed",
-            supports = function(kind) return kind == "apply_n" or kind == "scan_n" end,
+            scatter_reduce_dst = true,
+            supports = function(kind) return kind == "apply_n" or kind == "scan_n" or kind == "scatter_reduce_n" end,
             dst_layout = function() return indexed_layout("dst", slice_layout("dst")) end,
             input_layout = function() return nil end,
             extra_inputs = function()
@@ -212,7 +215,8 @@ local function bind_context(T)
         },
         indexed_bytespan_write = {
             layout = "StencilLayoutIndexed",
-            supports = function(kind) return kind == "apply_n" or kind == "scan_n" end,
+            scatter_reduce_dst = true,
+            supports = function(kind) return kind == "apply_n" or kind == "scan_n" or kind == "scatter_reduce_n" end,
             dst_layout = function() return indexed_layout("dst", bytespan_layout("dst")) end,
             input_layout = function() return nil end,
             extra_inputs = function()
@@ -221,6 +225,7 @@ local function bind_context(T)
         },
         scalar_input = {
             layout = "StencilLayoutScalar",
+            supports = function(kind) return kind ~= "scatter_reduce_n" end,
             dst_layout = function() return nil end,
             input_layout = function() return Stencil.StencilLayoutScalar(nil) end,
         },
@@ -257,6 +262,16 @@ local function bind_context(T)
             end,
         },
     }
+
+    local function schedule_variants_for_kind(kind)
+        if kind == "scatter_reduce_n" then return { schedule_variants[1] } end
+        return schedule_variants
+    end
+
+    local function layout_group_supports_kind(group, kind, spec)
+        if kind == "scatter_reduce_n" then return group.scatter_reduce_dst == true end
+        return group.supports == nil or group.supports(kind, spec)
+    end
 
     local function producer_axis(step)
         return Stencil.StencilProducerAxis(Code.CodeTyIndex, nil, nil, step or 1, Stencil.StencilProducerForward)
@@ -333,10 +348,7 @@ local function bind_context(T)
     }
 
     local default_soac_order = 1
-    local default_input_count = 4
-    local default_second_soac_order = 2
-    local default_second_input_count = 4
-    local default_second_family = "sink_after_apply"
+    local default_input_count = 1
 
     local function target_bytes(opts)
         opts = opts or {}
@@ -357,7 +369,7 @@ local function bind_context(T)
         local order = tonumber(cell and cell.order) or 1
         local base = cell and (cell.kind == "reduce_n" or cell.kind == "scan_n") and 145 or 125
         local scalar_estimate = base + math.max(0, input_count - 1) * 30 + math.max(0, order - 1) * 45
-        return math.ceil(scalar_estimate * 1.5)
+        return math.ceil(scalar_estimate * 8)
     end
 
     local function cell_estimated_bytes(cell)
@@ -521,7 +533,13 @@ local function bind_context(T)
     local function soac_vocab(kind)
         if kind == "reduce_n" then return "StencilReduce" end
         if kind == "scan_n" then return "StencilScan" end
+        if kind == "scatter_reduce_n" then return "StencilScatterReduce" end
         return "StencilApply"
+    end
+
+    local function soac_derived(kind)
+        if kind == "scatter_reduce_n" then return "scatter_reduce" end
+        return kind
     end
 
     local function soac_cell(kind, group_name, producer_group_name, schedule_variant, spec, serial)
@@ -532,7 +550,7 @@ local function bind_context(T)
             vocab = soac_vocab(kind),
             layout = group.layout,
             kind = kind,
-            derived = kind,
+            derived = soac_derived(kind),
             group = group_name,
             producer_group = producer_group_name,
             schedule = schedule_variant.schedule and schedule_variant.schedule() or nil,
@@ -682,10 +700,10 @@ local function bind_context(T)
     local function append_soac_spec(out, kind, spec, serial, target, estimated_total)
         for _, group_name in ipairs(layout_group_order) do
             local group = assert(layout_groups[group_name], group_name)
-            if group.supports == nil or group.supports(kind, spec) then
+            if layout_group_supports_kind(group, kind, spec) then
                 for _, producer_group_name in ipairs(producer_group_order) do
                     if producer_group_supports(kind, producer_group_name) then
-                        for _, schedule_variant in ipairs(schedule_variants) do
+                        for _, schedule_variant in ipairs(schedule_variants_for_kind(kind)) do
                             local estimated = estimated_bytes_for_soac({ kind = kind, input_count = spec.input_count, order = spec.order })
                             if target ~= nil and estimated_total + estimated > target then
                                 return serial, estimated_total, false
@@ -705,15 +723,23 @@ local function bind_context(T)
 
     local function active_layout_count(kind, spec)
         local count = 0
+        local schedules = schedule_variants_for_kind(kind)
         for _, group_name in ipairs(layout_group_order) do
             local group = assert(layout_groups[group_name], group_name)
-            if group.supports == nil or group.supports(kind, spec) then
+            if layout_group_supports_kind(group, kind, spec) then
                 for _, producer_group_name in ipairs(producer_group_order) do
-                    if producer_group_supports(kind, producer_group_name) then count = count + 1 end
+                    if producer_group_supports(kind, producer_group_name) then count = count + #schedules end
                 end
             end
         end
         return count
+    end
+
+    local function profile_sink_kind(kind, spec, target_limit, cells, estimated)
+        local per_cell = estimated_bytes_for_soac({ kind = kind, input_count = spec.input_count, order = spec.order })
+        local total = per_cell * active_layout_count(kind, spec)
+        if target_limit ~= nil and estimated + total > target_limit then return cells, estimated, false end
+        return cells + active_layout_count(kind, spec), estimated + total, true
     end
 
     local function append_soac_order_stream(out, input_count, order, serial, target, estimated_total)
@@ -726,6 +752,9 @@ local function bind_context(T)
                 if keep_going then
                     serial, estimated_total, keep_going = append_soac_spec(out, "scan_n", spec, serial, target, estimated_total)
                 end
+                if keep_going then
+                    serial, estimated_total, keep_going = append_soac_spec(out, "scatter_reduce_n", spec, serial, target, estimated_total)
+                end
             end
             return keep_going
         end)
@@ -733,22 +762,6 @@ local function bind_context(T)
         stream_stage_specs(input_count, order, function(spec)
             spec.order = order
             serial, estimated_total, keep_going = append_soac_spec(out, "apply_n", spec, serial, target, estimated_total)
-            return keep_going
-        end)
-        return serial, estimated_total, keep_going
-    end
-
-    local function append_sink_after_apply_stream(out, input_count, serial, target, estimated_total)
-        estimated_total = estimated_total or cells_estimated_bytes(out)
-        local keep_going = true
-        stream_stage_specs(input_count, 1, function(spec)
-            if same_ty(spec.result_ty, i32) then
-                spec.order = default_second_soac_order
-                serial, estimated_total, keep_going = append_soac_spec(out, "reduce_n", spec, serial, target, estimated_total)
-                if keep_going then
-                    serial, estimated_total, keep_going = append_soac_spec(out, "scan_n", spec, serial, target, estimated_total)
-                end
-            end
             return keep_going
         end)
         return serial, estimated_total, keep_going
@@ -785,10 +798,6 @@ local function bind_context(T)
         local keep_going
         for input_count = 1, default_input_count do
             serial, estimated_total, keep_going = append_soac_order_stream(out, input_count, default_soac_order, serial, target_limit, estimated_total)
-            if keep_going == false then return end
-        end
-        for input_count = 1, default_second_input_count do
-            serial, estimated_total, keep_going = append_sink_after_apply_stream(out, input_count, serial, target_limit, estimated_total)
             if keep_going == false then return end
         end
     end
@@ -853,25 +862,6 @@ local function bind_context(T)
                 estimated_bytes = estimated_bytes_for_soac({ kind = "apply_n", input_count = 1, order = 1 }),
                 serial = "rank_window_neighbor",
             },
-            {
-                name = "rank.range1d.indexed.scatter_reduce_n.add",
-                vocab = "StencilScatterReduce",
-                layout = "StencilLayoutIndexed",
-                kind = "scatter_reduce_n",
-                derived = "scatter_reduce",
-                group = "indexed_write",
-                producer_group = "range1d",
-                input_count = 1,
-                order = 1,
-                apply_stage_count = 0,
-                expr_name = "scatter_add_x1",
-                expr = input("x1"),
-                result_ty = i32,
-                item_ty = i32,
-                index_ty = i32,
-                estimated_bytes = estimated_bytes_for_soac({ kind = "apply_n", input_count = 1, order = 1 }),
-                serial = "rank_scatter_reduce",
-            },
         }
         for i = 1, #cells do
             check_cell(cells[i])
@@ -931,28 +921,17 @@ local function bind_context(T)
                 stream_stage_specs(input_count, order - 1, function(spec)
                     if same_ty(spec.result_ty, i32) then
                         spec.order = order
-                        local per_cell = estimated_bytes_for_soac({ kind = "reduce_n", input_count = spec.input_count, order = spec.order })
-                        local total = per_cell * active_layout_count("reduce_n", spec) * #schedule_variants
-                        if target_limit ~= nil and estimated + total > target_limit then keep_going = false; return false end
-                        cells = cells + active_layout_count("reduce_n", spec) * #schedule_variants
-                        estimated = estimated + total
-                        per_cell = estimated_bytes_for_soac({ kind = "scan_n", input_count = spec.input_count, order = spec.order })
-                        total = per_cell * active_layout_count("scan_n", spec) * #schedule_variants
-                        if target_limit ~= nil and estimated + total > target_limit then keep_going = false; return false end
-                        cells = cells + active_layout_count("scan_n", spec) * #schedule_variants
-                        estimated = estimated + total
+                        cells, estimated, keep_going = profile_sink_kind("reduce_n", spec, target_limit, cells, estimated)
+                        if keep_going then cells, estimated, keep_going = profile_sink_kind("scan_n", spec, target_limit, cells, estimated) end
+                        if keep_going then cells, estimated, keep_going = profile_sink_kind("scatter_reduce_n", spec, target_limit, cells, estimated) end
                     end
-                    return true
+                    return keep_going
                 end)
                 if keep_going == false then return cells, estimated end
                 stream_stage_specs(input_count, order, function(spec)
                     spec.order = order
-                    local per_cell = estimated_bytes_for_soac({ kind = "apply_n", input_count = spec.input_count, order = spec.order })
-                    local total = per_cell * active_layout_count("apply_n", spec) * #schedule_variants
-                    if target_limit ~= nil and estimated + total > target_limit then keep_going = false; return false end
-                    cells = cells + active_layout_count("apply_n", spec) * #schedule_variants
-                    estimated = estimated + total
-                    return true
+                    cells, estimated, keep_going = profile_sink_kind("apply_n", spec, target_limit, cells, estimated)
+                    return keep_going
                 end)
                 if keep_going == false then return cells, estimated end
             end
@@ -965,49 +944,17 @@ local function bind_context(T)
         stream_stage_specs(input_count, order - 1, function(spec)
             if same_ty(spec.result_ty, i32) then
                 spec.order = order
-                local per_cell = estimated_bytes_for_soac({ kind = "reduce_n", input_count = spec.input_count, order = spec.order })
-                local total = per_cell * active_layout_count("reduce_n", spec) * #schedule_variants
-                if target_limit ~= nil and estimated + total > target_limit then keep_going = false; return false end
-                cells = cells + active_layout_count("reduce_n", spec) * #schedule_variants
-                estimated = estimated + total
-                per_cell = estimated_bytes_for_soac({ kind = "scan_n", input_count = spec.input_count, order = spec.order })
-                total = per_cell * active_layout_count("scan_n", spec) * #schedule_variants
-                if target_limit ~= nil and estimated + total > target_limit then keep_going = false; return false end
-                cells = cells + active_layout_count("scan_n", spec) * #schedule_variants
-                estimated = estimated + total
+                cells, estimated, keep_going = profile_sink_kind("reduce_n", spec, target_limit, cells, estimated)
+                if keep_going then cells, estimated, keep_going = profile_sink_kind("scan_n", spec, target_limit, cells, estimated) end
+                if keep_going then cells, estimated, keep_going = profile_sink_kind("scatter_reduce_n", spec, target_limit, cells, estimated) end
             end
-            return true
+            return keep_going
         end)
         if keep_going == false then return cells, estimated, false end
         stream_stage_specs(input_count, order, function(spec)
             spec.order = order
-            local per_cell = estimated_bytes_for_soac({ kind = "apply_n", input_count = spec.input_count, order = spec.order })
-            local total = per_cell * active_layout_count("apply_n", spec) * #schedule_variants
-            if target_limit ~= nil and estimated + total > target_limit then keep_going = false; return false end
-            cells = cells + active_layout_count("apply_n", spec) * #schedule_variants
-            estimated = estimated + total
-            return true
-        end)
-        return cells, estimated, keep_going
-    end
-
-    local function profile_sink_after_apply_stream(input_count, target_limit, cells, estimated)
-        local keep_going = true
-        stream_stage_specs(input_count, 1, function(spec)
-            if same_ty(spec.result_ty, i32) then
-                spec.order = default_second_soac_order
-                local per_cell = estimated_bytes_for_soac({ kind = "reduce_n", input_count = spec.input_count, order = spec.order })
-                local total = per_cell * active_layout_count("reduce_n", spec) * #schedule_variants
-                if target_limit ~= nil and estimated + total > target_limit then keep_going = false; return false end
-                cells = cells + active_layout_count("reduce_n", spec) * #schedule_variants
-                estimated = estimated + total
-                per_cell = estimated_bytes_for_soac({ kind = "scan_n", input_count = spec.input_count, order = spec.order })
-                total = per_cell * active_layout_count("scan_n", spec) * #schedule_variants
-                if target_limit ~= nil and estimated + total > target_limit then keep_going = false; return false end
-                cells = cells + active_layout_count("scan_n", spec) * #schedule_variants
-                estimated = estimated + total
-            end
-            return true
+            cells, estimated, keep_going = profile_sink_kind("apply_n", spec, target_limit, cells, estimated)
+            return keep_going
         end)
         return cells, estimated, keep_going
     end
@@ -1020,10 +967,15 @@ local function bind_context(T)
             cells, estimated, keep_going = profile_soac_order_stream(input_count, default_soac_order, target_limit, cells, estimated)
             if keep_going == false then return cells, estimated end
         end
-        for input_count = 1, default_second_input_count do
-            cells, estimated, keep_going = profile_sink_after_apply_stream(input_count, target_limit, cells, estimated)
-            if keep_going == false then return cells, estimated end
-        end
+        return cells, estimated
+    end
+
+    local function profile_rank_aware_coverage_cells(cells, estimated)
+        append_rank_aware_coverage_cells(function(cell)
+            cells = cells + 1
+            estimated = estimated + cell_estimated_bytes(cell)
+            return true
+        end)
         return cells, estimated
     end
 
@@ -1037,21 +989,13 @@ local function bind_context(T)
         else
             cells, estimated = profile_default_soac_cells(opts, cells, estimated)
         end
-        local second_soac_order, second_input_count, second_family
-        if not explicit then
-            second_soac_order = default_second_soac_order
-            second_input_count = default_second_input_count
-            second_family = default_second_family
-        end
+        cells, estimated = profile_rank_aware_coverage_cells(cells, estimated)
         return {
             cells = cells,
             estimated_embedded_bytes = estimated,
             estimated_bytes_per_cell = estimated_bytes_per_cell(),
             soac_order = requested_soac_order(opts),
             input_count = requested_input_count(opts, requested_soac_order(opts)),
-            second_soac_order = second_soac_order,
-            second_input_count = second_input_count,
-            second_family = second_family,
             exact_shape = exact_shape(opts),
             target_bytes = target_bytes(opts),
         }
@@ -1243,7 +1187,18 @@ local function bind_context(T)
         return out
     end
 
-    function M.preamble()
+    function M.c_decls()
+        local C = require("llbl.c")
+        local LLBL = require("llbl")
+        return {
+            C.typedef_struct [LLBL.N.Demo_Pair] {
+                LLBL.N.left [C.i32],
+                LLBL.N.right [C.i32],
+            },
+        }
+    end
+
+    function M.ffi_preamble()
         return "typedef struct { int32_t left; int32_t right; } Demo_Pair;"
     end
 

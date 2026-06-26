@@ -516,11 +516,10 @@ and benchmarked where they produce executable MC code.
   shard plus a small index C file, and links the same embedded-bank C ABI. If an
   explicit target is provided, it is a compiled MC payload cap, not an emitted C
   source-size cap. The binary build compiles generated bank C files to objects
-  in bounded `MAXPROCS` batches before one final link. The embedded bank keeps a
-  size-oriented default CFLAGS profile (`-fno-tree-vectorize`) because vectorizing
-  every interned cell expanded the default payload from about 5.7 MiB to about
-  59.7 MiB; explicit materializer/probe builds can use the performance-oriented
-  MC default.
+  in bounded `MAXPROCS` batches before one final link. The embedded bank default
+  CFLAGS are performance-oriented (`-O3 -march=native`) and leave GCC
+  vectorization enabled; size-oriented scalar probes must opt in explicitly with
+  `LALIN_MC_BANK_CFLAGS` if needed.
 - [x] Decide whether BC and MC banks must have identical logical coverage or
   whether BC is the semantic superset and MC is the fast subset. They must not
   have identical compiled-bank coverage: `copy_patch_bc` is the semantic
@@ -605,19 +604,20 @@ optimization only happens if the compiler receives the fused source.
   select expressions over the currently consumable scalar surface. Explicit
   compiled-payload targets remain available only as caller-selected probes.
 - [x] Set the default generated MC bank shape to saturated SOAC order
-  `1`/input-count `4`, plus the saturated SOAC order-2
-  `Apply -> Reduce` and `Apply -> Scan` sink subset through input-count `4`.
-  This gives a full scalar expression layer plus the high-value
-  transform-and-sink family without the full `Apply -> Apply` order-2
-  explosion. The targeted 1 MiB profile is 5,344 generated cells with an
-  estimated 1,037,312-byte payload. Actual sharded generation completed with
-  4 jobs: 5,403 embedded entries and 914,410 payload bytes.
+  `1`/input-count `1`. Fusion and wider input banks are explicit probe/expansion
+  knobs, not part of the simple default bank. The current unbounded 1x1 profile
+  reports 129,219 generated entries after `ScatterReduce` saturation. The last
+  full vectorized 1x1 run before that saturation completed with 16 worker
+  shards: 129,156 embedded entries, 86,844,681 compiled payload bytes with GCC
+  vectorization enabled, and 0 patches. A fresh measured payload should be
+  recorded after the next full-bank build.
 - [x] Replace the old linear-producer-only embedded bank shape with the
   represented producer/body/sink bank. The current bounded default includes
   `Range1D`, `RangeND`, `TiledND`, and `WindowND` producer cells over the
-  available scalar Apply/Reduce/Scan surface; `ScatterReduce` currently
-  materializes through selected scalar MC artifacts and is not part of the
-  default generated bank envelope.
+  available scalar Apply/Reduce/Scan/ScatterReduce surface. `ScatterReduce` is
+  now generated as a real SOAC sink family over indexed-write destination
+  layouts, with scalar ordered schedules only until atomic/privatized lowering
+  is implemented.
 - [x] Add typed metastencil descriptors and selection facts. A metastencil is now
   a typed DAG of artifact nodes, external/node ports, wires, fusion legality
   facts/rejects, ABI, fingerprint, cover candidates, and deterministic longest
@@ -812,7 +812,7 @@ means the fact is preserved for audit but does not yet drive lowering.
 | Schema surface | `copy_patch_bc` | `copy_patch_mc` | emitted bank / binary | Remaining work |
 | --- | --- | --- | --- | --- |
 | Descriptor producer/body/sink / vocab | validate all represented producer/body/sink descriptors; materialize current BC subset and typed-reject missing semantic cells | consume all shape-supported C stencil shapes; materialize current fast subset | record/intern selected shapes | [x] Generate MC intern set from the support matrix, not hand enumeration. |
-| Producer | materialize forward/backward `Range1D`; reject represented ND/window/tiled producers with typed facts | materialize forward/backward `Range1D`, forward `RangeND`, center-domain `WindowND`, and forward `TiledND` for generic `ApplyN`, domain/axis `ReduceN`, and axis `ScanN` | intern producer cells for generated SOAC combinations plus deliberate rank-aware cells | [x] Add deliberate emitted-bank cells for axis/window reduce and window-neighbor apply. |
+| Producer | materialize forward/backward `Range1D`; reject represented ND/window/tiled producers with typed facts | materialize forward/backward `Range1D`, forward `RangeND`, center-domain `WindowND`, and forward `TiledND` for generic `ApplyN`, domain/axis `ReduceN`, and axis `ScanN` | intern producer cells for generated SOAC combinations plus deliberate rank-specific probe cells for axis/window behavior | [x] Add deliberate emitted-bank cells for axis/window reduce and window-neighbor apply. |
 | Sink rank/scope | materialize domain reduce and `Range1D` axis-1 scan; reject non-`Range1D` producers | materialize domain reduce, axis/partial reduce, window-local reduce, and rank-N axis scan | bank records domain reduce, generated rank-N scan, and deliberate axis/window reduce cells | [x] Add emitted-bank coverage for axis/window reduce cells. |
 | Window body offsets | represented as `StencilApplyWindowInput`; BC rejects non-`Range1D` producer shapes | MC consumes boundary-aware window-relative access expressions | bank includes deliberate window-neighbor apply cell | [x] Add emitted-bank cells and BC typed-reject tests for window-relative bodies. |
 | Layout | consume contiguous, view, slice, byte-span, field, SoA, indexed, scalar | consume same through C access expressions | partial dynamic-descriptor coverage | [ ] Add embedded-bank tests for view/slice/byte-span/field/SoA descriptors. |
@@ -830,11 +830,21 @@ means the fact is preserved for audit but does not yet drive lowering.
 | Artifact fingerprint | consume before BC load | consume before MC install | record in bank entry artifacts | [x] Reject same-symbol stale bank entries before code load/install. |
 | Metastencil descriptor | consume selected covers as typed bank facts; current bounded `Apply -> Reduce` family lowers to one fused artifact | consume selected covers as typed bank facts; current bounded `Apply -> Reduce` family lowers to one fused artifact | fingerprint selected cover on the typed bank | [ ] Optional budget expansion: extend fused-cover lowering beyond the current bank family. |
 
+- [x] Remove the raw C preamble escape from the stencil C emitter. MC C source
+  now accepts only structured `llbl.c` declaration nodes through `c_decls`;
+  LuaJIT FFI declarations are a separate `ffi_preamble` boundary on the loaded
+  bank record. `llbl.c` also has a first-class `c.fnptr` type so non-scalar
+  stencil support structs no longer need raw C declarations.
 - [ ] Treat `copy_patch_bc` as the semantic coverage probe: it should either
   materialize the full supported schema surface or expose the exact missing
   materialization cell. The support matrix now names this as the policy and
   records the current producer gaps: `RangeND`, `WindowND`, and `TiledND`
   are represented schema cells that BC still typed-rejects.
+- [x] Add LuaTrace/BC materialization or a typed unsupported-cell reject for
+  `scatter_reduce_n`. LuaTrace now materializes sequential/unique
+  `scatter_reduce_n` for `Range1D`, matching the MC/C emitter. Atomic and
+  privatized scatter-reduce modes are represented in ASDL but reject before
+  emission until real atomic RMW or private-bin merge lowering exists.
 - [ ] Treat `copy_patch_mc` as the fast-path probe: it should exploit the new
   facts for scheduling, aliasing, alignment, vectorization, gather/scatter,
   select/blend, reductions, and descriptor-aware access patterns where doing so
@@ -853,7 +863,8 @@ means the fact is preserved for audit but does not yet drive lowering.
 - [x] Add the first focused materializer-consumption probe for the current
   bounded metastencil family: width-4 `Apply -> Reduce` fused MC versus direct
   MC versus handwritten GCC C. The probe confirmed selected-cover metadata is
-  consumed by the MC bank boundary and exposed the `-fno-tree-vectorize` issue.
+  consumed by the MC bank boundary; the generated MC bank default now leaves GCC
+  vectorization enabled so generated asm is a real performance signal.
 - [ ] Run the benchmarks against handwritten C compiled with `gcc -O3`, record
   the results, and interpret each gap as either bad materialization, missing
   schedule information, frontend information loss, or an expected target limit.

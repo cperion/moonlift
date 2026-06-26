@@ -712,6 +712,12 @@ local function bind_context(T)
         return ArtifactPlan.artifact_with_realized(artifact, provider or artifact.provider, realized)
     end
 
+    local function scatter_reduce_conflicts_materialized(conflicts)
+        return conflicts == nil
+            or conflicts == Stencil.StencilScatterReduceSequential
+            or conflicts == Stencil.StencilScatterReduceUniqueIndices
+    end
+
     local function emit_forward_loop(out, artifact_plan, body)
         local plan = artifact_plan.loop_plan
         local stride, group, reason = plan.domain_stride, plan.group, plan.reason
@@ -1071,6 +1077,25 @@ local function bind_context(T)
                 end
             end)
             out[#out + 1] = "    return acc"
+        elseif kind == "scatter_reduce_n" then
+            if not scatter_reduce_conflicts_materialized(shape.conflicts) then
+                error("copy_patch_luatrace: unsupported scatter-reduce conflict semantics", 3)
+            end
+            local dst_name = shape.dst_name or "dst"
+            local dst_access = assert(access[dst_name], "missing scatter-reduce destination access plan")
+            local params = { dst_name }
+            for _, a in ipairs(ArtifactPlan.descriptor_accesses(artifact_plan.descriptor)) do
+                if a.name ~= dst_name and pvm.classof(a.layout) ~= Stencil.StencilLayoutScalar then
+                    params[#params + 1] = a.name
+                end
+            end
+            params[#params + 1] = "start"
+            params[#params + 1] = "stop"
+            out[#out + 1] = fn_header(artifact, params)
+            emit_forward_loop(out, artifact_plan, function(i, indent)
+                local slot = lua_access_ref(dst_access, dst_name, i)
+                out[#out + 1] = indent .. slot .. " = " .. lua_reduce_expr(shape.reduction, slot, lua_apply_expr(shape.expr, artifact_plan.descriptor, access, i), shape.result_ty)
+            end)
         else
             error("copy_patch_luatrace: unsupported stencil shape " .. tostring(kind), 3)
         end

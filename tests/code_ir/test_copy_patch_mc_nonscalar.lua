@@ -1,6 +1,8 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
+local LLBL = require("llbl")
+local LC = require("llbl.c")
 local pvm = require("lalin.pvm")
 local Schema = require("lalin.schema")
 
@@ -89,7 +91,7 @@ local ordered = {
     artifacts.vector_identity,
 }
 
-local preamble = [[
+local ffi_preamble = [[
 typedef struct { int32_t left; int32_t right; } Demo_Pair;
 typedef struct { int32_t left; int32_t right; } HostPair;
 typedef HostPair Host_HostPair;
@@ -101,6 +103,42 @@ typedef struct { void (*fn)(void); void* ctx; } ml_closure_codesig_i32_to_i32;
 typedef void (*ml_cfuncptr_host_callback)(void);
 typedef struct { int32_t lane[4]; } ml_vector_4_i32;
 ]]
+
+local c_decls = {
+    LC.typedef_struct [LLBL.N.Demo_Pair] {
+        LLBL.N.left [LC.i32],
+        LLBL.N.right [LC.i32],
+    },
+    LC.typedef_struct [LLBL.N.HostPair] {
+        LLBL.N.left [LC.i32],
+        LLBL.N.right [LC.i32],
+    },
+    LC.typedef. Host_HostPair [LC.type.HostPair],
+    LC.typedef_struct [LLBL.N.ml_array_2_i32] {
+        LLBL.N.data [LC.array [LC.i32] [2]],
+    },
+    LC.typedef_struct [LLBL.N.ml_slice_CBackendScalar_ScalarI32] {
+        LLBL.N.data [LC.ptr [LC.i32]],
+        LLBL.N.len [LC.intptr_t],
+    },
+    LC.typedef_struct [LLBL.N.ml_view_CBackendScalar_ScalarI32] {
+        LLBL.N.data [LC.ptr [LC.i32]],
+        LLBL.N.len [LC.intptr_t],
+        LLBL.N.stride [LC.intptr_t],
+    },
+    LC.typedef_struct [LLBL.N.ml_bytespan] {
+        LLBL.N.data [LC.ptr [LC.u8]],
+        LLBL.N.len [LC.intptr_t],
+    },
+    LC.typedef_struct [LLBL.N.ml_closure_codesig_i32_to_i32] {
+        LLBL.N.fn [LC.fnptr [{}] [LC.void]],
+        LLBL.N.ctx [LC.void_ptr],
+    },
+    LC.typedef. ml_cfuncptr_host_callback [LC.fnptr [{}] [LC.void]],
+    LC.typedef_struct [LLBL.N.ml_vector_4_i32] {
+        LLBL.N.lane [LC.array [LC.i32] [4]],
+    },
+}
 
 ffi.cdef([[
 typedef struct { int32_t left; int32_t right; } Demo_Pair;
@@ -115,7 +153,11 @@ typedef void (*ml_cfuncptr_host_callback)(void);
 typedef struct { int32_t lane[4]; } ml_vector_4_i32;
 ]])
 
-local build, err, src = StencilBinary.compile(T, ordered, { stem = "test_copy_patch_mc_nonscalar", preamble = preamble })
+local build, err, src = StencilBinary.compile(T, ordered, {
+    stem = "test_copy_patch_mc_nonscalar",
+    c_decls = c_decls,
+    ffi_preamble = ffi_preamble,
+})
 assert(build ~= nil, tostring(err) .. "\n" .. tostring(src))
 assert(artifacts.ptr_copy.symbol.text ~= artifacts.named_copy.symbol.text, "non-scalar artifact symbols must include structural type identity")
 

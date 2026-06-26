@@ -42,14 +42,21 @@ local h = read_file(h_path)
 local log = read_file(dir .. "/generator.log")
 local payload = tonumber(log:match("(%d+) payload bytes"))
 local shards = list_shards(dir)
+local shard_text = {}
+for _, shard in ipairs(shards) do shard_text[#shard_text + 1] = read_file(shard) end
+local all_shards = table.concat(shard_text, "\n")
 
 assert(#shards == 4, "expected targeted sharded MC bank to emit one source per worker")
 assert(payload ~= nil and payload <= 1024 * 1024, "expected explicit target bytes to bound compiled MC payload")
 assert(c:find('#include "bank.h"', 1, true), "expected generated source to include the requested header basename")
 assert(c:find("lalin_embedded_mc_bank_shards", 1, true), "expected generated source to expose shard table")
 assert(c:find("lalin_embedded_mc_bank_count", 1, true), "expected generated source to expose aggregate count")
-assert(read_file(shards[1]):find("static const unsigned char lalin_mc_", 1, true), "expected generated MC byte arrays in shard source")
-assert(read_file(shards[1]):find("static const LalinEmbeddedMCEntry lalin_mc_shard_", 1, true), "expected generated MC entry table in shard source")
+assert(shard_text[1]:find("static const unsigned char lalin_mc_", 1, true), "expected generated MC byte arrays in shard source")
+assert(shard_text[1]:find("static const LalinEmbeddedMCEntry lalin_mc_shard_", 1, true), "expected generated MC entry table in shard source")
+assert(all_shards:find("bank_o1_", 1, true), "expected default bank profile to emit SOAC order-1 cells")
+assert(not all_shards:find("bank_o2_", 1, true), "default bank profile must not include implicit SOAC order-2 fusion cells")
+assert(all_shards:find("bank_o1_in1_", 1, true), "expected default bank profile to emit width-1 cells")
+assert(not all_shards:find("bank_o1_in2_", 1, true), "default bank profile must not include implicit width-2 cells")
 assert(h:find("LalinEmbeddedMCEntry", 1, true), "expected generated MC bank header declarations")
 assert(h:find("LalinEmbeddedMCShard", 1, true), "expected generated MC bank shard declarations")
 

@@ -12,3 +12,4 @@ experiments/lua_interpreter_vm/build/
 .cargo/
 .aider*
 experiments/lua_interpreter_vm/spongejit/build/
+museum/gps.lua

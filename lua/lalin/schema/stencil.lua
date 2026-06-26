@@ -72,6 +72,12 @@ return schema. LalinStencil {
     StencilScatterLastWriteWins,
     StencilScatterConflictUndefined,
   },
+  sum. StencilScatterReduceConflictSemantics {
+    StencilScatterReduceSequential,
+    StencilScatterReduceUniqueIndices,
+    StencilScatterReduceAtomic { variant_unique, ordering [LalinCore.AtomicOrdering], },
+    StencilScatterReducePrivatized,
+  },
   sum. StencilProducerOrder { StencilProducerForward, StencilProducerBackward, },
   product. StencilProducerAxis {
     interned,
@@ -545,6 +551,7 @@ return schema. LalinStencil {
       variant_unique,
       dst [LalinStencil.StencilAccessRef],
       reducer [LalinStencil.StencilReducer],
+      conflicts [LalinStencil.StencilScatterReduceConflictSemantics],
       result_ty [LalinCode.CodeType],
     },
   },
