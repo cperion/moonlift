@@ -655,6 +655,10 @@ local function bind_context(T)
         local cls = pvm.classof(expr)
         if cls == Value.ValueExprAdd then return Value.ReductionAdd, expr.a, expr.b, expr.ty, expr.sem end
         if cls == Value.ValueExprMul then return Value.ReductionMul, expr.a, expr.b, expr.ty, expr.sem end
+        if cls == Value.ValueExprBinary then
+            local kind = ReductionAlgebra.binary_reduction_kind(expr.op, false)
+            if kind ~= nil then return kind, expr.a, expr.b, expr.ty, expr.sem end
+        end
         return nil
     end
 
@@ -713,12 +717,33 @@ local function bind_context(T)
         return nil
     end
 
+    local function scatter_reduce_select_kind(expr, bindings, aliases)
+        if pvm.classof(expr) ~= Value.ValueExprSelect then return nil end
+        local cond = resolved_value_expr(expr.cond, bindings)
+        if pvm.classof(cond) ~= Value.ValueExprCmp then return nil end
+        local lhs_key = value_expr_key(cond.a, bindings, aliases)
+        local rhs_key = value_expr_key(cond.b, bindings, aliases)
+        local t_key = value_expr_key(expr.t, bindings, aliases)
+        local f_key = value_expr_key(expr.f, bindings, aliases)
+        if lhs_key == t_key and rhs_key == f_key then
+            return ReductionAlgebra.select_minmax_kind(cond.op, true), expr.t, expr.f
+        end
+        if lhs_key == f_key and rhs_key == t_key then
+            return ReductionAlgebra.select_minmax_kind(cond.op, false), expr.t, expr.f
+        end
+        return nil
+    end
+
     local function infer_scatter_reduce_skeleton(loop, effects, bindings, aliases, proofs)
         local store = first_effect(effects, Kernel.KernelEffectStore)
         if store == nil then return nil end
         local value = resolve_kernel_expr(store.value, bindings)
         if pvm.classof(value) ~= Kernel.KernelExprAlgebra then return nil end
         local kind, a, b, ty, sem = scatter_reduce_kind(value.expr)
+        if kind == nil then
+            kind, a, b = scatter_reduce_select_kind(value.expr, bindings, aliases)
+            ty = store.dst.elem_ty
+        end
         if kind == nil then return nil end
         local contribution = scatter_reduce_contribution(store, a, b, bindings, aliases)
         if contribution == nil then return nil end

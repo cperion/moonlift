@@ -4,7 +4,7 @@ Lalin is a LuaJIT-hosted dialect of the LLBL language. Lua is the
 metaprogramming layer. LLBL is the central extensible language workbench and
 bootstrap language: heads, roles, fragments, namespaces, origins, diagnostics,
 formatting, indexing, dialect extension, and generic regions. Lalin is the compiled
-language dialect that lowers typed programs into LuaJIT copy-patch artifacts.
+language dialect that lowers typed programs into LuaJIT copy+residual artifacts.
 
 LLBL bootstraps itself in plain Lua. `lua/llbl.lua` is the stage-0 kernel;
 `lua/llbl/bootstrap.lua` defines the stage-1 `llbl` dialect and installs the
@@ -16,11 +16,11 @@ mechanics: source/generated symbols, origins, diagnostics, fragments, regions,
 formatting docs, and language-level symbol bindings. Dialects own semantic
 meaning.
 
-The active copy-patch backends are `copy_patch_mc` for fast C-stencil machine
-code artifacts and `copy_patch_bc` for LuaTrace/LuaJIT bytecode artifacts.
-`lalin.compile` currently defaults to bytecode copy-patch; emitted LuaJIT
-artifacts default to machine-code copy-patch. The old Cranelift/Rust runtime
-path is not part of the current architecture.
+The active fast backend is `copy_patch_mc` bank stencils plus TCC residual glue.
+`copy_patch_bc` is the LuaTrace/LuaJIT bytecode artifact path. `lalin.compile`
+currently defaults to bytecode copy-patch; emitted LuaJIT artifacts default to
+machine-code copy+residual. The old Cranelift/Rust runtime path is not part of
+the current architecture.
 
 ## Build
 
@@ -95,7 +95,7 @@ Lua source
   -> LalinCode facts
   -> kernel and schedule facts
   -> LuaTrace stencil plans or C stencil plans
-  -> LuaJIT copy-patch bank
+  -> LuaJIT copy+residual artifact
   -> loaded LuaJIT module
 ```
 

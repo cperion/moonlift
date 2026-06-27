@@ -340,12 +340,16 @@ local function bind_context(T)
         local skip_from = latch and latch.from and latch.from.block or nil
         local grouped = {}
         for _, param in ipairs(header_block.params or {}) do
-            local axis_i, field, step, order = tostring(param.name or ""):match("^__lln_axis_[^_]+_(%d+)_(%a+)_step_(%d+)_order_(%a+)$")
+            local axis_i, index_name, field, step, order = tostring(param.name or ""):match("^__lln_axis_[^_]+_(%d+)_idx_([_%a][_%w]*)_(%a+)_step_(%d+)_order_(%a+)$")
+            if axis_i == nil then
+                axis_i, field, step, order = tostring(param.name or ""):match("^__lln_axis_[^_]+_(%d+)_(%a+)_step_(%d+)_order_(%a+)$")
+            end
             if axis_i ~= nil and (field == "start" or field == "stop" or field == "trip") then
                 axis_i = tonumber(axis_i)
                 grouped[axis_i] = grouped[axis_i] or { step = tonumber(step), order = order, ty = param.ty }
                 grouped[axis_i][field] = incoming_arg_for(edge_facts, graph_loop.header.block, param, skip_from)
                 grouped[axis_i].ty = grouped[axis_i].ty or param.ty
+                grouped[axis_i].index_name = grouped[axis_i].index_name or index_name
             end
         end
         local axes = {}
@@ -358,7 +362,8 @@ local function bind_context(T)
                 Value.ValueExprValue(axis.start),
                 Value.ValueExprValue(axis.stop),
                 axis.step,
-                axis.order == "backward" and Flow.FlowDomainBackward or Flow.FlowDomainForward
+                axis.order == "backward" and Flow.FlowDomainBackward or Flow.FlowDomainForward,
+                axis.index_name
             )
             i = i + 1
         end

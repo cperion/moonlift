@@ -6,7 +6,8 @@ as ordinary-looking native loops in Lalin.
 The design goal is not to add a new backend primitive. The design goal is to
 let source programs author regular loop domains and loop-local sinks, then let
 the existing `Code -> Flow -> Kernel -> Stencil` pipeline prove that the loop is
-eligible for copy-patch materialization.
+eligible for stencil materialization by the BC path, the MC bank path, or the
+emitted copy+residual artifact.
 
 ## Core Decision
 
@@ -317,7 +318,8 @@ Rejections should occur at the first layer that owns the failed claim:
 | unavailable BC/MC/bank artifact | materializer / bank |
 | requested schedule cannot be proved | schedule/proof layer |
 
-This prevents copy-patch from becoming a grab bag of source diagnostics.
+This prevents stencil materialization from becoming a grab bag of source
+diagnostics.
 
 ## Implementation Order
 
@@ -342,7 +344,7 @@ must produce the same facts and descriptors as a hand-built kernel plan.
 - Do not make `lln.loop` a general `for` or `while`.
 - Do not add `StencilLoop`.
 - Do not add `StencilFold` as an alias for reduce.
-- Do not bypass `Flow` and `Kernel` to reach copy-patch faster.
+- Do not bypass `Flow` and `Kernel` to reach stencil materialization faster.
 - Do not put source syntax names into artifact fingerprints except through the
   structural facts they author.
 

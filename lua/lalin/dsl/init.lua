@@ -559,17 +559,18 @@ local function native_loop_nd_stmt_tree(loop, domain)
     local function range_expr(axis, value)
         return Tr.ExprCast(Tr.ExprSurface, C.SurfaceCast, concrete_type(axis.ty), tree_expr(value))
     end
-    local function axis_param_name(axis_i, field, step, order)
-        return "__lln_axis_" .. tag .. "_" .. tostring(axis_i) .. "_" .. field .. "_step_" .. tostring(step) .. "_order_" .. order
+    local function axis_param_name(axis_i, field, step, order, index_name)
+        return "__lln_axis_" .. tag .. "_" .. tostring(axis_i) .. "_idx_" .. ident(index_name, "lln.loop range_nd index") .. "_" .. field .. "_step_" .. tostring(step) .. "_order_" .. order
     end
 
     local axis_specs, loop_params, body_params = {}, { Tr.BlockParam(flat_name, flat_ty) }, { Tr.BlockParam(flat_name, flat_ty) }
     local entry_args = { Tr.JumpArg(flat_name, lit(0)) }
     for i, axis in ipairs(domain.axes or {}) do
         local ty = concrete_type(axis.ty)
-        local start_name = axis_param_name(i, "start", axis.step, axis.order)
-        local stop_name = axis_param_name(i, "stop", axis.step, axis.order)
-        local trip_name = axis_param_name(i, "trip", axis.step, axis.order)
+        local index_name = ident(loop.indexes[i], "lln.loop range_nd index")
+        local start_name = axis_param_name(i, "start", axis.step, axis.order, index_name)
+        local stop_name = axis_param_name(i, "stop", axis.step, axis.order, index_name)
+        local trip_name = axis_param_name(i, "trip", axis.step, axis.order, index_name)
         local start_init = range_expr(axis, axis.start)
         local stop_init = range_expr(axis, axis.stop)
         local diff = bin(C.BinSub, stop_init, start_init)
@@ -587,7 +588,7 @@ local function native_loop_nd_stmt_tree(loop, domain)
         entry_args[#entry_args + 1] = Tr.JumpArg(stop_name, stop_init)
         entry_args[#entry_args + 1] = Tr.JumpArg(trip_name, trip)
         axis_specs[#axis_specs + 1] = {
-            index = ident(loop.indexes[i], "lln.loop range_nd index"),
+            index = index_name,
             ty = ty,
             start_name = start_name,
             stop_name = stop_name,
@@ -622,9 +623,6 @@ local function native_loop_nd_stmt_tree(loop, domain)
     end
 
     local scan_axis = resolve_scan_axis()
-    if scan_axis ~= nil and domain.kind == "tiled_nd" then
-        die("lln.scan over lln.tiled_nd is not source-semantic yet; use lln.range_nd for scans", 2)
-    end
     local scan_axis_suffix = scan_axis ~= nil and ("_scan_axis_" .. tostring(scan_axis)) or ""
     local producer_suffix = ""
     if domain.kind == "tiled_nd" then
@@ -698,17 +696,52 @@ local function native_loop_nd_stmt_tree(loop, domain)
         return nil
     end
     local function source_zero(v) return v == 0 end
-    local normalize_row_major = axis_count >= 1
     local extent_keys = {}
     for i = 1, axis_count do
-        if domain.axes[i].step ~= 1 or not source_zero(domain.axes[i].start) then normalize_row_major = false end
-        extent_keys[i] = expr_key(tree_expr(domain.axes[i].stop))
+        local axis = domain.axes[i]
+        local stop_expr = tree_expr(axis.stop)
+        extent_keys[i] = { [expr_key(stop_expr)] = true }
+        if not source_zero(axis.start) or axis.step ~= 1 then
+            local start_expr = tree_expr(axis.start)
+            local diff = bin(C.BinSub, stop_expr, start_expr)
+            local trip = diff
+            if axis.step ~= 1 then
+                trip = bin(C.BinDiv, bin(C.BinAdd, diff, tree_expr(axis.step - 1)), tree_expr(axis.step))
+            end
+            extent_keys[i][expr_key(trip)] = true
+            if type(axis.start) == "number" and type(axis.stop) == "number" and type(axis.step) == "number" then
+                local trip_num = math.floor((axis.stop - axis.start + axis.step - 1) / axis.step)
+                extent_keys[i][expr_key(tree_expr(trip_num))] = true
+            end
+        end
     end
     local function is_ref(expr, name)
         return expr_ref_name(expr) == name
     end
     local function is_extent(expr, axis_i)
-        return extent_keys[axis_i] ~= nil and expr_key(expr) == extent_keys[axis_i]
+        return extent_keys[axis_i] ~= nil and extent_keys[axis_i][expr_key(expr)] == true
+    end
+    local function same_expr(a, b)
+        return expr_key(a) == expr_key(b)
+    end
+    local function strip_axis_start(expr, axis_i)
+        local axis = domain.axes[axis_i]
+        if source_zero(axis.start) then return expr end
+        if pvm.classof(expr) ~= Tr.ExprBinary or expr.op ~= C.BinSub then return nil end
+        if not is_ref(expr.lhs, axis_specs[axis_i].index) then return nil end
+        if not same_expr(expr.rhs, tree_expr(axis.start)) then return nil end
+        return expr.lhs
+    end
+    local function is_axis_lane(expr, axis_i)
+        local axis = domain.axes[axis_i]
+        local lane = expr
+        if axis.step ~= 1 then
+            if pvm.classof(lane) ~= Tr.ExprBinary or lane.op ~= C.BinDiv then return false end
+            if not same_expr(lane.rhs, tree_expr(axis.step)) then return false end
+            lane = lane.lhs
+        end
+        lane = strip_axis_start(lane, axis_i)
+        return lane ~= nil and is_ref(lane, axis_specs[axis_i].index)
     end
     local is_row_major_prefix
     local function is_mul_prefix_extent(expr, prefix_axis)
@@ -718,12 +751,11 @@ local function native_loop_nd_stmt_tree(loop, domain)
                 or (is_row_major_prefix(expr.rhs, prefix_axis) and is_extent(expr.lhs, prefix_axis + 1)))
     end
     is_row_major_prefix = function(expr, axis_i)
-        if not normalize_row_major then return false end
-        if axis_i == 1 then return is_ref(expr, axis_specs[1].index) end
+        if axis_i == 1 then return is_axis_lane(expr, 1) end
         return pvm.classof(expr) == Tr.ExprBinary
             and expr.op == C.BinAdd
-            and ((is_mul_prefix_extent(expr.lhs, axis_i - 1) and is_ref(expr.rhs, axis_specs[axis_i].index))
-                or (is_mul_prefix_extent(expr.rhs, axis_i - 1) and is_ref(expr.lhs, axis_specs[axis_i].index)))
+            and ((is_mul_prefix_extent(expr.lhs, axis_i - 1) and is_axis_lane(expr.rhs, axis_i))
+                or (is_mul_prefix_extent(expr.rhs, axis_i - 1) and is_axis_lane(expr.lhs, axis_i)))
     end
     local function is_row_major_nd(expr)
         return is_row_major_prefix(expr, axis_count)

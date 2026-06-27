@@ -967,6 +967,7 @@ local function bind_context(T)
         if cls == Stencil.StencilLayoutFieldProjection then return layout_unit_stride(layout.parent) end
         if cls == Stencil.StencilLayoutSoAComponent then return layout_unit_stride(layout.parent) end
         if cls == Stencil.StencilLayoutAffine1D then return math.abs(tonumber(layout.scale) or 0) == 1 and layout_unit_stride(layout.parent) end
+        if cls == Stencil.StencilLayoutAffineND then return false end
         if cls == Stencil.StencilLayoutContiguous or cls == Stencil.StencilLayoutIndexed then return tonumber(layout.stride) == 1 end
         if cls == Stencil.StencilLayoutSliceDescriptor or cls == Stencil.StencilLayoutByteSpanDescriptor then return true end
         if cls == Stencil.StencilLayoutViewDescriptor then return layout.stride_const == 1 end
@@ -1338,6 +1339,7 @@ local function bind_context(T)
         if cls == Stencil.StencilLayoutFieldProjection then return layout_has_dynamic_stride(layout.parent) end
         if cls == Stencil.StencilLayoutSoAComponent then return layout_has_dynamic_stride(layout.parent) end
         if cls == Stencil.StencilLayoutAffine1D then return layout_has_dynamic_stride(layout.parent) end
+        if cls == Stencil.StencilLayoutAffineND then return layout_has_dynamic_stride(layout.parent) end
         if cls == Stencil.StencilLayoutIndexed then return layout_has_dynamic_stride(layout.parent) end
         return cls == Stencil.StencilLayoutViewDescriptor and layout.stride_const == nil
     end
@@ -1348,6 +1350,7 @@ local function bind_context(T)
         if cls == Stencil.StencilLayoutSoAComponent then return layout_has_affine_offset(layout.parent) end
         if cls == Stencil.StencilLayoutIndexed then return layout_has_affine_offset(layout.parent) end
         if cls == Stencil.StencilLayoutAffine1D then return layout.offset ~= nil or layout_has_affine_offset(layout.parent) end
+        if cls == Stencil.StencilLayoutAffineND then return layout.offset ~= nil or layout_has_affine_offset(layout.parent) end
         return false
     end
 
@@ -1410,6 +1413,7 @@ local function bind_context(T)
         local cls = pvm.classof(layout)
         if cls == Stencil.StencilLayoutFieldProjection then return layout end
         if cls == Stencil.StencilLayoutAffine1D then return field_layout(layout.parent) end
+        if cls == Stencil.StencilLayoutAffineND then return field_layout(layout.parent) end
         return nil
     end
 
@@ -1468,6 +1472,14 @@ local function bind_context(T)
             local scale_tag = scale < 0 and ("m" .. tostring(math.abs(scale))) or ("p" .. tostring(scale))
             local offset_tag = layout.offset ~= nil and "odyn" or "o0"
             return layout_suffix_for(access, layout.parent) .. "_aff1d_" .. scale_tag .. "_" .. offset_tag
+        end
+        if cls == Stencil.StencilLayoutAffineND then
+            local parts = {}
+            for _, term in ipairs(layout.terms or {}) do
+                parts[#parts + 1] = "a" .. tostring(term.axis.index)
+            end
+            local offset_tag = layout.offset ~= nil and "odyn" or "o0"
+            return layout_suffix_for(access, layout.parent) .. "_affnd_" .. table.concat(parts, "x") .. "_" .. offset_tag
         end
         if cls == Stencil.StencilLayoutSliceDescriptor then
             return "_slice"

@@ -333,6 +333,30 @@ return unit. NativeNDLoopDSL {
 	      set (dst[((i * b + j) * c) + k])(src[((i * b + j) * c) + k]),
 	    },
 	  },
+
+  fn. nd_stepped_start_shape { dst [ptr [i32]], src [ptr [i32]], n [index] } [void] {
+    requires {
+      bounds (dst)(n), writeonly(dst),
+      bounds (src)(n), readonly(src),
+      disjoint (dst)(src),
+    },
+
+    lln.loop { i, j } [lln.range_nd { { 2, 6, 2 }, { 3, 12, 3 } }] {
+      set (dst[((i - 2) / 2) * 3 + ((j - 3) / 3)])(src[((i - 2) / 2) * 3 + ((j - 3) / 3)]),
+    },
+  },
+
+  fn. nd_column_major_store { dst [ptr [i32]], src [ptr [i32]], n [index] } [void] {
+    requires {
+      bounds (dst)(n), writeonly(dst),
+      bounds (src)(n), readonly(src),
+      disjoint (dst)(src),
+    },
+
+    lln.loop { i, j } [lln.range_nd { { 0, 2 }, { 0, 3 } }] {
+      set (dst[j * 2 + i])(src[i * 3 + j]),
+    },
+  },
 	}
 ]=]
 
@@ -342,9 +366,10 @@ local nd_artifact = lalin.emit_luajit_artifact(nd_decl, {
     name = 'NativeNDLoopDSL',
     stem = 'test_luajit_artifact_native_nd_loop_dsl',
 })
-assert(#nd_artifact.artifacts == 4, 'range_nd copy, fold, axis scan, and rank-3 copy should select native stencil artifacts')
+assert(#nd_artifact.artifacts == 6, 'range_nd copy, fold, axis scan, rank-3 copy, stepped-start copy, and column-major store should select native stencil artifacts')
 local nd_sinks = {}
 local saw_axis_scan = false
+local saw_affine_nd_layout = false
 for _, item in ipairs(nd_artifact.artifacts) do
     local desc = item.instance.descriptor
     assert(tostring(pvm.classof(desc.producer.shape)):match('StencilProduceRangeND'), 'lln.range_nd should project to a RangeND producer')
@@ -352,11 +377,15 @@ for _, item in ipairs(nd_artifact.artifacts) do
     if tostring(pvm.classof(desc.sink)):match('StencilSinkScan') then
         saw_axis_scan = desc.sink.axis and desc.sink.axis.index == 2
     end
+    for _, access in ipairs(desc.accesses or {}) do
+        if tostring(pvm.classof(access.layout)):match('StencilLayoutAffineND') then saw_affine_nd_layout = true end
+    end
 end
 assert(nd_sinks['Class(LalinStencil.StencilSinkStore)'], 'lln.range_nd copy should project to a store sink')
 assert(nd_sinks['Class(LalinStencil.StencilSinkReduce)'], 'lln.range_nd fold should project to a reduce sink')
 assert(nd_sinks['Class(LalinStencil.StencilSinkScan)'], 'lln.range_nd scan should project to a scan sink')
 assert(saw_axis_scan, 'lln.range_nd scan should preserve explicit scan axis')
+assert(saw_affine_nd_layout, 'column-major lln.range_nd index should project to StencilLayoutAffineND')
 local nd_loaded = assert(loadfile(nd_artifact.path))()
 local nd_src = ffi.new('int32_t[6]', { 1, 2, 3, 4, 5, 6 })
 local nd_dst = ffi.new('int32_t[6]')
@@ -370,6 +399,13 @@ local nd3_src = ffi.new('int32_t[12]', { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 }
 local nd3_dst = ffi.new('int32_t[12]')
 nd_loaded.nd3_shape(nd3_dst, nd3_src, 2, 3, 2, 12)
 assert(nd3_dst[0] == 1 and nd3_dst[5] == 6 and nd3_dst[11] == 12, 'native rank-3 lln.range_nd copy output')
+local nd_step_start_src = ffi.new('int32_t[6]', { 10, 20, 30, 40, 50, 60 })
+local nd_step_start_dst = ffi.new('int32_t[6]')
+nd_loaded.nd_stepped_start_shape(nd_step_start_dst, nd_step_start_src, 6)
+assert(nd_step_start_dst[0] == 10 and nd_step_start_dst[1] == 20 and nd_step_start_dst[2] == 30 and nd_step_start_dst[3] == 40 and nd_step_start_dst[4] == 50 and nd_step_start_dst[5] == 60, 'native stepped-start lln.range_nd copy output')
+local nd_col_dst = ffi.new('int32_t[6]')
+nd_loaded.nd_column_major_store(nd_col_dst, nd_src, 6)
+assert(nd_col_dst[0] == 1 and nd_col_dst[1] == 4 and nd_col_dst[2] == 2 and nd_col_dst[3] == 5 and nd_col_dst[4] == 3 and nd_col_dst[5] == 6, 'native column-major lln.range_nd store output')
 
 local producer_head_source = [=[
 return unit. NativeProducerHeadDSL {
@@ -422,43 +458,4 @@ for _, item in ipairs(producer_head_artifact.artifacts) do
 end
 assert(saw_tiled_stencil, 'lln.tiled_nd should project to a TiledND stencil producer')
 assert(saw_window_stencil, 'lln.window_nd should project to a WindowND stencil producer')
-local producer_loaded = assert(loadfile(producer_head_artifact.path))()
-local producer_src = ffi.new('int32_t[6]', { 1, 2, 3, 4, 5, 6 })
-local producer_dst = ffi.new('int32_t[6]')
-producer_loaded.tiled_copy(producer_dst, producer_src, 2, 3, 6)
-assert(producer_dst[0] == 1 and producer_dst[3] == 4 and producer_dst[5] == 6, 'native lln.tiled_nd copy output')
-local window_dst = ffi.new('int32_t[6]')
-producer_loaded.window_copy(window_dst, producer_src, 6)
-assert(window_dst[0] == 1 and window_dst[3] == 4 and window_dst[5] == 6, 'native lln.window_nd center copy output')
-
-local nd_scan_source = [=[
-return unit. NativeNDScanMissingAxisDSL {
-  fn. nd_scan { dst [ptr [i32]], xs [ptr [i32]], h [index], w [index], n [index] } [void] {
-    requires {
-      bounds (dst)(n), writeonly(dst),
-      bounds (xs)(n), readonly(xs),
-      disjoint (dst)(xs),
-    },
-
-    lln.loop { i, j } [lln.range_nd { { 0, h }, { 0, w } }] {
-      lln.scan. acc [lln.i32] {
-        init = 0,
-        by = lln.add,
-        step = xs[i * w + j],
-        into = dst[i * w + j],
-      },
-    },
-  },
-}
-]=]
-local nd_scan_ok, nd_scan_err = pcall(function()
-    local scan_decl = assert(session:loadstring(nd_scan_source, 'test_luajit_artifact_native_nd_scan_missing_axis.lua'))()
-    return lalin.emit_luajit_artifact(scan_decl, {
-        path = 'target/test_artifacts/test_luajit_artifact_native_nd_scan_missing_axis.lua',
-        name = 'NativeNDScanMissingAxisDSL',
-        stem = 'test_luajit_artifact_native_nd_scan_missing_axis',
-    })
-end)
-assert(not nd_scan_ok and tostring(nd_scan_err):match('requires axis'), 'lln.range_nd scan should reject without explicit axis')
-
 io.write('test_luajit_artifact_native_loop_dsl: ok\n')

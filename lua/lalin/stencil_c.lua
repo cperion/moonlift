@@ -588,28 +588,46 @@ local function bind_context(T)
 
     local access_c_expr
 
-    local function access_offset_c_expr(access, index, access_by_name)
+    local function value_expr_c_expr(expr)
+        local cls = pvm.classof(expr)
+        if cls == Value.ValueExprConst and pvm.classof(expr.const) == Code.CodeConstLiteral then
+            local lit = expr.const.literal
+            if pvm.classof(lit) == Core.LitInt then return tonumber(lit.raw) or 0 end
+        end
+        error("stencil_c: AffineND layout currently requires constant coefficients", 3)
+    end
+
+    local function access_offset_c_expr(access, index, access_by_name, ctx)
         local top = access.layout
         local cls = pvm.classof(top)
         if cls == Stencil.StencilLayoutFieldProjection then
-            return access_offset_c_expr({ layout = top.parent, name = access.name }, index, access_by_name)
+            return access_offset_c_expr({ layout = top.parent, name = access.name }, index, access_by_name, ctx)
         end
         if cls == Stencil.StencilLayoutSoAComponent then
-            return access_offset_c_expr({ layout = top.parent, name = access.name }, index, access_by_name)
+            return access_offset_c_expr({ layout = top.parent, name = access.name }, index, access_by_name, ctx)
         end
         if cls == Stencil.StencilLayoutIndexed then
             local index_name = top.index.name
             local index_access = access_by_name and access_by_name[index_name] or { layout = Stencil.StencilLayoutContiguous(1), name = index_name }
-            local idx = access_c_expr(index_access, index_name, index, access_by_name)
+            local idx = access_c_expr(index_access, index_name, index, access_by_name, ctx)
             local stride = tonumber(top.stride) or 1
             local logical = stride == 1 and idx or idx * stride
-            return access_offset_c_expr({ layout = top.parent, name = access.name }, logical, access_by_name)
+            return access_offset_c_expr({ layout = top.parent, name = access.name }, logical, access_by_name, ctx)
         end
         if cls == Stencil.StencilLayoutAffine1D then
             local scale = tonumber(top.scale) or 1
             local offset = top.offset ~= nil and cn(affine_offset_param_name(access)) or 0
             local logical = scale == 1 and (offset + index) or (offset + index * scale)
-            return access_offset_c_expr({ layout = top.parent, name = access.name }, logical, access_by_name)
+            return access_offset_c_expr({ layout = top.parent, name = access.name }, logical, access_by_name, ctx)
+        end
+        if cls == Stencil.StencilLayoutAffineND then
+            if ctx == nil or ctx.axis_values == nil then error("stencil_c: AffineND layout requires producer loop context", 3) end
+            local logical = top.offset ~= nil and cn(affine_offset_param_name(access)) or 0
+            for _, term in ipairs(top.terms or {}) do
+                local axis_value = assert(ctx.axis_values[term.axis.index], "stencil_c: missing AffineND axis value")
+                logical = logical + axis_value * value_expr_c_expr(term.coeff)
+            end
+            return access_offset_c_expr({ layout = top.parent, name = access.name }, logical, access_by_name, ctx)
         end
         if cls == Stencil.StencilLayoutViewDescriptor then
             local stride = top.stride_const or cn(stride_param_name(access))
@@ -619,13 +637,13 @@ local function bind_context(T)
         return index
     end
 
-    access_c_expr = function(access, base, index, access_by_name)
+    access_c_expr = function(access, base, index, access_by_name, ctx)
         local base_expr = cn(base)
         local top = access.layout
         if pvm.classof(top) == Stencil.StencilLayoutFieldProjection then
-            return base_expr[access_offset_c_expr({ layout = top.parent, name = access.name }, index, access_by_name)][sanitize(top.field_name)]
+            return base_expr[access_offset_c_expr({ layout = top.parent, name = access.name }, index, access_by_name, ctx)][sanitize(top.field_name)]
         end
-        return base_expr[access_offset_c_expr(access, index, access_by_name)]
+        return base_expr[access_offset_c_expr(access, index, access_by_name, ctx)]
     end
 
     local function field_layout_for_param(layout)
@@ -633,6 +651,7 @@ local function bind_context(T)
         if cls == Stencil.StencilLayoutFieldProjection then return layout end
         if cls == Stencil.StencilLayoutIndexed then return field_layout_for_param(layout.parent) end
         if cls == Stencil.StencilLayoutAffine1D then return field_layout_for_param(layout.parent) end
+        if cls == Stencil.StencilLayoutAffineND then return field_layout_for_param(layout.parent) end
         return nil
     end
 
@@ -764,7 +783,7 @@ local function bind_context(T)
             if in_bounds ~= nil then bounds[#bounds + 1] = in_bounds end
         end
         local index = range_nd_linear_index_from_coords(ctx.producer, coords)
-        local value = access_c_expr(access, name, index, access_by_name)
+        local value = access_c_expr(access, name, index, access_by_name, ctx)
         if #bounds == 0 then return value end
         local in_bounds = all_c_node(bounds)
         local has_zero = false
@@ -859,7 +878,7 @@ local function bind_context(T)
             local name = expr.access.name
             local access = access_by_name[name] or access_named(desc, name)
             if pvm.classof(access.layout) == Stencil.StencilLayoutScalar then return cn(name) end
-            return access_c_expr(access, name, index, access_by_name)
+            return access_c_expr(access, name, index, access_by_name, ctx)
         end
         if cls == Stencil.StencilApplyWindowInput then
             return c_window_input_expr(expr, desc, access_by_name, ctx)
@@ -952,7 +971,7 @@ local function bind_context(T)
         local function assign_stmts(i, ctx)
             return {
                 C.assign(
-                    access_c_expr(dst_access, dst_name, i, access_by_name),
+                    access_c_expr(dst_access, dst_name, i, access_by_name, ctx),
                     c_apply_expr(shape.expr, desc, access_by_name, i, ctx)
                 ),
             }

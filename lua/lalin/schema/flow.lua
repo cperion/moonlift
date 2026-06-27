@@ -21,6 +21,7 @@ return schema. LalinFlow {
     stop [optional [LalinValue.ValueExpr]],
     step [number],
     order [LalinFlow.FlowDomainOrder],
+    index_name [optional [str]],
   },
   sum. FlowWindowBoundary {
     FlowWindowBoundaryReject,

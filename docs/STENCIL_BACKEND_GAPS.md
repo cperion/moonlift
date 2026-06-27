@@ -1,8 +1,10 @@
-# Stencil Backend Completeness Gaps
+# Stencil Backend / Copy+Residual Completeness Gaps
 
-This file tracks the remaining work needed before the LuaJIT copy-patch stencil
-backend can honestly be called complete. The current backend is complete for a
-useful scalar subset, but not for the full schema space.
+This file tracks the remaining work needed before the LuaJIT stencil backend can
+honestly be called complete. The active fast emitted artifact is copy+residual:
+`copy_patch_mc` installs GCC-built bank stencils, and TCC compiles residual glue
+that calls those bank stencils. The current backend is complete for a useful
+scalar subset, but not for the full schema space.
 
 ## Current Implemented Core
 
@@ -341,8 +343,9 @@ Open gate question:
 ## Producer And Scheduling Gaps
 
 Producer-shape completion is the current gate before returning to the other
-open backend checkboxes. The goal is not "a 1D backend"; the backends remain
-`copy_patch_bc`, `copy_patch_mc`, and the emitted bank/binary path. The gate is
+open backend checkboxes. The goal is not "a 1D backend"; the materialization
+paths remain `copy_patch_bc`, `copy_patch_mc`, and emitted copy+residual
+artifacts. The gate is
 to make every represented producer shape either fully executable across the
 appropriate materializers or rejected with typed, stable facts at the exact
 unsupported boundary.
@@ -545,13 +548,14 @@ and benchmarked where they produce executable MC code.
 - [ ] Add tests that static binary startup rejects or reports missing MC bank
   entries cleanly when a selected fast artifact is absent.
 
-## Copy-Patch Metastencil / Fusion Track
+## Copy+Residual Metastencil / Fusion Track
 
 This is a tracked architecture tangent, not a reason to stop the current
 materializer fact-consumption pass. The core choice is to build fused
-copy-patch artifacts as C/LLB.C source-level metastencils and let GCC see the
+MC bank artifacts as C/LLB.C source-level metastencils and let GCC see the
 combined body, not to concatenate already compiled machine-code bytes. Cross-op
-optimization only happens if the compiler receives the fused source.
+optimization only happens if the compiler receives the fused source. The emitted
+copy+residual artifact can still use TCC glue around the resulting bank entry.
 
 - [x] Record the primitive-basis decision: the production hand-coded stencil
   family collapses to four primitives: `Apply`, `Reduce`, `Scan`, and
@@ -780,13 +784,22 @@ optimization only happens if the compiler receives the fused source.
     into stencil producers.
 - [ ] Reconcile the remaining frontend-to-rich-backend gaps against the current
   backend surface:
-  - [ ] ND affine indexing beyond compact zero-based row-major: non-zero starts,
-    non-unit producer steps, column-major/non-row-major expressions, and general
-    affine layout recognition.
-  - [ ] Source-level window-neighbor syntax that lowers to typed
+  - [ ] ND affine indexing beyond compact row-major: non-zero starts and
+    non-unit producer steps are recognized for row-major compact source indices
+    like `((i - start) / step) * trip + ...`; fixed-shape column-major
+    expressions such as `j * 2 + i` now lower to typed `StencilLayoutAffineND`
+    and execute through MC/C. Dynamic coefficients such as `j * h + i`,
+    broader affine normalization, and BC/LuaTrace coverage remain open.
+  - [x] Source-level window-neighbor syntax that lowers to typed
     `StencilApplyWindowInput` instead of only testing direct descriptors.
-  - [ ] Decide and implement source semantics for `lln.scan` over `lln.tiled_nd`;
-    it is still deliberately rejected.
+    Inside `lln.window_nd`, ordinary 1D neighbor indexing such as `xs[i - 1]`
+    is recognized as a window-relative input and materialized by MC.
+  - [x] Decide and implement source semantics for `lln.scan` over `lln.tiled_nd`.
+    It is an axis scan over the logical domain, with prefix state scoped by the
+    non-scan axes; tile shape is a traversal/materialization policy, not a
+    prefix-reset scope. `test_luajit_artifact_tiled_scan_dsl` executes the
+    source path, while missing axis selection remains rejected in a focused
+    test.
   - [x] Feed source-level select/blend bodies into generic `ApplyN`.
     `test_luajit_artifact_from_dsl` now lowers `select (lhs[i] :gt (0))(lhs[i])(rhs[i])`
     to a `StencilApplySelect` descriptor and executes it.
@@ -801,10 +814,14 @@ optimization only happens if the compiler receives the fused source.
     control flow and needs a pure-predicate normalization/design before it can
     become `StencilPredAnd`/`StencilPredOr`.
   - [x] Scatter-reduce can consume generic `ApplyN` contribution bodies from
-    source for the covered `add` RMW family; `dst[idx[i]] += src[i] + rhs[i]`
-    is now selected and executed.
-  - [ ] Generalize source scatter-reduce recognition beyond add/mul-style RMW
-    and lane-load-shaped destination recurrence.
+    source for the current reducer vocabulary. Immediate RMW forms over
+    `add`, `mul`, bitwise `and`/`or`/`xor`, and select-shaped `min`/`max` are
+    selected and executed; `dst[idx[i]] += src[i] + rhs[i]` proves the sink
+    receives a typed binary contribution body, not only a single lane load.
+  - [ ] Generalize source scatter-reduce recognition beyond immediate
+    lane-load-shaped destination recurrence: nested reducer wrappers,
+    user-authored conflict/atomic/privatized modes, and richer index/update
+    facts still need source syntax or checker inference.
   - [ ] Feed the full schedule/proof surface from source contracts: alignment,
     exact/multiple trip count, vector schedule hints, and proof-origin controls.
 - [ ] Add end-to-end DSL tests for every supported vocab, not only direct
@@ -837,12 +854,13 @@ optimization only happens if the compiler receives the fused source.
 - [ ] Decide whether `StencilProviderC` still represents source C stencils or
   whether the provider names should become `copy_patch_bc`/`copy_patch_mc`
   aligned.
-- [ ] Rename or document `StencilArtifactPlan` if its role is now copy-patch
+- [ ] Rename or document `StencilArtifactPlan` if its role is now stencil bank
   artifact construction rather than generic C artifact planning.
 - [ ] Decide whether descriptors are runtime ABI facts, artifact identity facts,
   or both; currently they serve both roles.
-- [ ] Add documentation for the relation between BC fallback, MC fast path, and
-  the embedded banks in the single-binary runtime.
+- [x] Document the fast emitted artifact as copy+residual: `copy_patch_mc`
+  installs GCC-built bank stencils, TCC compiles only the residual glue, and
+  `copy_patch_bc` remains the bytecode/semantic path.
 
 ## After Schema Closure Meta-Tasks
 
@@ -870,7 +888,7 @@ Legend: `consume` means the fact changes emitted code, install behavior, or
 plan shape; `reject` means the path returns a typed unsupported cell; `record`
 means the fact is preserved for audit but does not yet drive lowering.
 
-| Schema surface | `copy_patch_bc` | `copy_patch_mc` | emitted bank / binary | Remaining work |
+| Schema surface | `copy_patch_bc` | `copy_patch_mc` | emitted copy+residual artifact | Remaining work |
 | --- | --- | --- | --- | --- |
 | Descriptor producer/body/sink / vocab | validate all represented producer/body/sink descriptors; materialize current BC subset and typed-reject missing semantic cells | consume all shape-supported C stencil shapes; materialize current fast subset | record/intern selected shapes | [x] Generate MC intern set from the support matrix, not hand enumeration. |
 | Producer | materialize forward/backward `Range1D` plus forward `RangeND`; reject represented window/tiled producers with typed facts | materialize forward/backward `Range1D`, forward `RangeND`, center-domain `WindowND`, and forward `TiledND` for generic `ApplyN`, domain/axis `ReduceN`, and axis `ScanN` | intern producer cells for generated SOAC combinations plus deliberate rank-specific probe cells for axis/window behavior | [x] Add deliberate emitted-bank cells for axis/window reduce and window-neighbor apply. |

@@ -728,6 +728,8 @@ function M.emit_luajit_artifact(decl, path_or_opts, name, opts)
         patch_values = opts.patch_values,
         bc_patch_bindings = opts.bc_patch_bindings,
         copy_patch = copy_patch,
+        native_residual = opts.native_residual,
+        tcc_residual = opts.tcc_residual,
     })
     if source == nil then error(err or "emit_luajit_artifact failed", 2) end
 

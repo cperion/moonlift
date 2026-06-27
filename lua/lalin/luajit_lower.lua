@@ -88,7 +88,7 @@ local function bind_context(T)
     end
 
     local function stencil_axis(axis)
-        return Stencil.StencilProducerAxis(axis.index_ty, axis.start, axis.stop, axis.step, stencil_order(axis.order))
+        return Stencil.StencilProducerAxis(axis.index_ty, axis.start, axis.stop, axis.step, stencil_order(axis.order), axis.index_name)
     end
 
     local function stencil_boundary(boundary)
@@ -593,7 +593,7 @@ local function bind_context(T)
 
     local function layout_data_value(layout)
         local cls = pvm.classof(layout)
-        if cls == Stencil.StencilLayoutAffine1D then return layout_data_value(layout.parent) end
+        if cls == Stencil.StencilLayoutAffine1D or cls == Stencil.StencilLayoutAffineND then return layout_data_value(layout.parent) end
         if cls == Stencil.StencilLayoutSoAComponent or cls == Stencil.StencilLayoutFieldProjection then return layout_data_value(layout.parent) end
         if cls == Stencil.StencilLayoutViewDescriptor or cls == Stencil.StencilLayoutSliceDescriptor or cls == Stencil.StencilLayoutByteSpanDescriptor then return layout.data end
         return nil
@@ -678,6 +678,15 @@ local function bind_context(T)
             and pvm.classof(expr.const) == Code.CodeConstLiteral
             and pvm.classof(expr.const.literal) == Core.LitInt
             and tonumber(expr.const.literal.raw) == raw
+    end
+
+    local function expr_int_const(expr)
+        if pvm.classof(expr) == Value.ValueExprConst
+            and pvm.classof(expr.const) == Code.CodeConstLiteral
+            and pvm.classof(expr.const.literal) == Core.LitInt then
+            return tonumber(expr.const.literal.raw)
+        end
+        return nil
     end
 
     local function bound_algebra_expr(bindings, value)
@@ -812,6 +821,95 @@ local function bind_context(T)
         return expr.a
     end
 
+    local function index_const_expr(n)
+        return Value.ValueExprConst(Code.CodeConstLiteral(Code.CodeTyIndex, Core.LitInt(tostring(n))))
+    end
+
+    local function producer_shape_for_loop(ctx, loop_fact)
+        local producer_fact = ctx and ctx.producer_facts and loop_fact and loop_fact.domain and ctx.producer_facts[flow_domain_key(loop_fact.domain)] or nil
+        return producer_fact and producer_fact.producer and StencilArtifactPlan.producer_shape(producer_fact.producer) or nil
+    end
+
+    local function axis_expr_candidates(ctx, graph_loop, shape, bindings)
+        local out = {}
+        for axis_i, axis in ipairs(shape and shape.axes or {}) do
+            local name = axis.index_name
+            if name ~= nil then
+                local candidates = {}
+                local pat = "dsl_" .. tostring(name) .. "_"
+                for text in pairs(ctx.defs or {}) do
+                    if tostring(text):find(pat, 1, true) then
+                        local expr = value_expr_from_code(ctx, Code.CodeValueId(text))
+                        if expr ~= nil then candidates[#candidates + 1] = expr end
+                    end
+                end
+                out[axis_i] = candidates
+            end
+        end
+        return out
+    end
+
+    local function affine_nd_layout_for_index(ctx, expr, graph_loop, loop_fact, bindings, parent_layout)
+        local shape = producer_shape_for_loop(ctx, loop_fact)
+        if pvm.classof(shape) ~= Stencil.StencilProduceRangeND then return nil end
+        local axis_candidates = axis_expr_candidates(ctx, graph_loop, shape, bindings)
+        local function strip(v)
+            v = resolved_algebra_expr(ctx, v, bindings)
+            while pvm.classof(v) == Value.ValueExprCast do v = resolved_algebra_expr(ctx, v.value, bindings) end
+            if pvm.classof(v) == Value.ValueExprMul then
+                if expr_is_int_const(v.a, 1) then return strip(v.b) end
+                if expr_is_int_const(v.b, 1) then return strip(v.a) end
+            end
+            return v
+        end
+        local function axis_index(v)
+            v = strip(v)
+            for i, candidates in pairs(axis_candidates) do
+                for _, candidate in ipairs(candidates) do
+                    if value_expr_key(ctx, graph_loop, v, bindings) == value_expr_key(ctx, graph_loop, candidate, bindings) then return i end
+                end
+            end
+            return nil
+        end
+        local terms = {}
+        local function add_term(axis_i, coeff)
+            terms[axis_i] = (terms[axis_i] or 0) + coeff
+        end
+        local function walk(v, sign)
+            v = strip(v)
+            local c = expr_int_const(v)
+            if c ~= nil then return c * sign end
+            local ai = axis_index(v)
+            if ai ~= nil then add_term(ai, sign); return 0 end
+            local cls = pvm.classof(v)
+            if cls == Value.ValueExprAdd then return walk(v.a, sign) + walk(v.b, sign) end
+            if cls == Value.ValueExprSub then return walk(v.a, sign) + walk(v.b, -sign) end
+            if cls == Value.ValueExprMul then
+                local ca, cb = expr_int_const(strip(v.a)), expr_int_const(strip(v.b))
+                if ca ~= nil then
+                    local bi = axis_index(v.b)
+                    if bi ~= nil then add_term(bi, sign * ca); return 0 end
+                end
+                if cb ~= nil then
+                    local ai2 = axis_index(v.a)
+                    if ai2 ~= nil then add_term(ai2, sign * cb); return 0 end
+                end
+            end
+            return nil
+        end
+        local offset = walk(expr, 1)
+        if offset == nil then return nil end
+        local list = {}
+        for axis_i = 1, #(shape.axes or {}) do
+            local coeff = terms[axis_i]
+            if coeff ~= nil and coeff ~= 0 then
+                list[#list + 1] = Stencil.StencilAffineAxisTerm(Stencil.StencilAxisRef(axis_i), index_const_expr(coeff))
+            end
+        end
+        if #list == 0 then return nil end
+        return Stencil.StencilLayoutAffineND(parent_layout, list, offset ~= 0 and index_const_expr(offset) or nil)
+    end
+
     local function is_zero_const(expr)
         return pvm.classof(expr) == Value.ValueExprConst
             and pvm.classof(expr.const) == Code.CodeConstLiteral
@@ -903,6 +1001,42 @@ local function bind_context(T)
     end
 
     local function enrich_apply_n_class(ctx, class, graph_loop, loop_fact, bindings)
+        local producer_fact = ctx and ctx.producer_facts and loop_fact and loop_fact.domain and ctx.producer_facts[flow_domain_key(loop_fact.domain)] or nil
+        local producer_shape = producer_fact and producer_fact.producer and StencilArtifactPlan.producer_shape(producer_fact.producer) or nil
+        local window_1d = producer_shape ~= nil and pvm.classof(producer_shape) == Stencil.StencilProduceWindowND and #(producer_shape.axes or {}) == 1
+        local function strip_casts(expr)
+            expr = resolved_algebra_expr(ctx, expr, bindings)
+            if expr ~= nil and pvm.classof(expr) == Value.ValueExprValue then
+                expr = value_expr_from_code(ctx, expr.value) or expr
+            end
+            while expr ~= nil and pvm.classof(expr) == Value.ValueExprCast do expr = resolved_algebra_expr(ctx, expr.value, bindings) end
+            return expr
+        end
+        local function window_offset_for_index(index)
+            if not window_1d then return nil end
+            local expr = strip_casts(index)
+            if expr == nil then return nil end
+            if pvm.classof(expr) == Value.ValueExprMul then
+                if expr_int_const(strip_casts(expr.a)) ~= nil then expr = strip_casts(expr.b)
+                elseif expr_int_const(strip_casts(expr.b)) ~= nil then expr = strip_casts(expr.a) end
+            end
+            if expr == nil then return nil end
+            if expr_is_primary(ctx, expr, graph_loop, loop_fact, bindings) then return 0 end
+            local cls = pvm.classof(expr)
+            if cls == Value.ValueExprAdd then
+                local c = expr_int_const(strip_casts(expr.a))
+                if c ~= nil and expr_is_primary(ctx, expr.b, graph_loop, loop_fact, bindings) then return c end
+                c = expr_int_const(strip_casts(expr.b))
+                if c ~= nil and expr_is_primary(ctx, expr.a, graph_loop, loop_fact, bindings) then return c end
+            elseif cls == Value.ValueExprSub then
+                local c = expr_int_const(strip_casts(expr.b))
+                if c ~= nil and expr_is_primary(ctx, expr.a, graph_loop, loop_fact, bindings) then return -c end
+                c = expr_int_const(strip_casts(expr.a))
+                if c ~= nil and expr_is_primary(ctx, expr.b, graph_loop, loop_fact, bindings) then return nil end
+            end
+            return nil
+        end
+        local window_by_input = {}
         for _, input in ipairs(class.inputs or {}) do
             if input.scalar_value ~= nil then
                 input.index_primary = true
@@ -914,6 +1048,21 @@ local function bind_context(T)
                 input.ty = fact.elem_ty
                 input.layout = fact.layout
                 input.index_primary = expr_is_primary(ctx, input.index, graph_loop, loop_fact, bindings)
+                if not input.index_primary then
+                    local affine_layout = affine_nd_layout_for_index(ctx, input.index, graph_loop, loop_fact, bindings, input.layout)
+                    if affine_layout ~= nil then
+                        input.layout = affine_layout
+                        input.index_primary = true
+                    end
+                end
+                if not input.index_primary then
+                    local offset = window_offset_for_index(input.index)
+                    if offset ~= nil then
+                        input.index_primary = true
+                        input.window_offsets = { Stencil.StencilWindowOffset(Stencil.StencilAxisRef(1), offset) }
+                        window_by_input[input.name] = input.window_offsets
+                    end
+                end
                 if not input.index_primary then
                     local idx = index_lane_for(input.index, bindings)
                     if idx ~= nil then
@@ -934,6 +1083,23 @@ local function bind_context(T)
                 end
             end
         end
+        local rewrite_expr
+        rewrite_expr = function(expr)
+            local cls = pvm.classof(expr)
+            if cls == Stencil.StencilApplyInput then
+                local offsets = window_by_input[expr.access.name]
+                if offsets ~= nil then return Stencil.StencilApplyWindowInput(expr.access, offsets) end
+                return expr
+            end
+            if cls == Stencil.StencilApplyUnary then return Stencil.StencilApplyUnary(expr.op, rewrite_expr(expr.arg), expr.result_ty, expr.int_semantics, expr.float_mode) end
+            if cls == Stencil.StencilApplyBinary then return Stencil.StencilApplyBinary(expr.op, rewrite_expr(expr.left), rewrite_expr(expr.right), expr.result_ty, expr.int_semantics, expr.float_mode) end
+            if cls == Stencil.StencilApplyCast then return Stencil.StencilApplyCast(expr.op, rewrite_expr(expr.arg), expr.from, expr.to) end
+            if cls == Stencil.StencilApplyPredicate then return Stencil.StencilApplyPredicate(expr.pred, rewrite_expr(expr.arg), expr.result_ty) end
+            if cls == Stencil.StencilApplyCompare then return Stencil.StencilApplyCompare(expr.cmp, rewrite_expr(expr.left), rewrite_expr(expr.right), expr.result_ty) end
+            if cls == Stencil.StencilApplySelect then return Stencil.StencilApplySelect(expr.pred, rewrite_expr(expr.cond), rewrite_expr(expr.then_expr), rewrite_expr(expr.else_expr), expr.result_ty) end
+            return expr
+        end
+        if next(window_by_input) ~= nil then class.expr = rewrite_expr(class.expr) end
         return class
     end
 
@@ -1037,6 +1203,13 @@ local function bind_context(T)
                 store_index_is_primary = true
             end
         end
+        if not store_index_is_primary and dst_layout ~= nil then
+            local affine_layout = affine_nd_layout_for_index(ctx, store.index, graph_loop, loop_fact, bindings, dst_layout)
+            if affine_layout ~= nil then
+                dst_layout = affine_layout
+                store_index_is_primary = true
+            end
+        end
         local class, class_reason = enrich_stencil_class(ctx, classified, graph_loop, loop_fact, bindings, dst_base, store.dst.elem_ty)
         if class == nil then return nil, class_reason end
         local selection_ctx = {
@@ -1072,7 +1245,7 @@ local function bind_context(T)
         local cls = pvm.classof(layout)
         if cls == Stencil.StencilLayoutFieldProjection then return dynamic_stride_layout(layout.parent) end
         if cls == Stencil.StencilLayoutSoAComponent then return dynamic_stride_layout(layout.parent) end
-        if cls == Stencil.StencilLayoutAffine1D then return dynamic_stride_layout(layout.parent) end
+        if cls == Stencil.StencilLayoutAffine1D or cls == Stencil.StencilLayoutAffineND then return dynamic_stride_layout(layout.parent) end
         if cls == Stencil.StencilLayoutViewDescriptor and layout.stride_const == nil then return layout end
         return nil
     end
@@ -1083,6 +1256,7 @@ local function bind_context(T)
         if cls == Stencil.StencilLayoutSoAComponent then return dynamic_affine_offset_layout(layout.parent) end
         if cls == Stencil.StencilLayoutIndexed then return dynamic_affine_offset_layout(layout.parent) end
         if cls == Stencil.StencilLayoutAffine1D and layout.offset ~= nil then return layout end
+        if cls == Stencil.StencilLayoutAffineND and layout.offset ~= nil then return layout end
         return nil
     end
 
@@ -1332,6 +1506,13 @@ local function bind_context(T)
             local offset = reverse_affine_offset(ctx, effect.index, graph_loop, loop_fact, bindings)
             if offset ~= nil then
                 dst_layout = Stencil.StencilLayoutAffine1D(dst_layout, -1, offset)
+                store_index_is_primary = true
+            end
+        end
+        if not store_index_is_primary and dst_layout ~= nil then
+            local affine_layout = affine_nd_layout_for_index(ctx, effect.index, graph_loop, loop_fact, bindings, dst_layout)
+            if affine_layout ~= nil then
+                dst_layout = affine_layout
                 store_index_is_primary = true
             end
         end

@@ -118,6 +118,14 @@ local function bind_context(T)
         error("luajit_backend: unknown copy_patch materializer " .. mode, 3)
     end
 
+    local function native_residual_mode(opts)
+        opts = opts or {}
+        if copy_patch_mode(opts) == "bc" then return nil end
+        if opts.native_residual ~= nil then return opts.native_residual end
+        if opts.tcc_residual ~= nil then return opts.tcc_residual end
+        return "tcc"
+    end
+
     local function artifact_with_provider(artifact, opts)
         if copy_patch_mode(opts) == "bc" then
             return CopyPatchLuaTrace.bc_artifact(artifact)
@@ -246,9 +254,12 @@ local function bind_context(T)
         opts = opts or {}
         local realized, realize_err, realize_source = api.realize_artifacts(artifacts or {}, opts)
         if realized == nil then return nil, realize_err, realize_source end
+        local native_residual = native_residual_mode(opts)
+        if realized.kind ~= "MCStencilBankRealization" then native_residual = nil end
         local compiled, emit_err, source = Emit.compile_module(lj_module, {
             chunk_name = opts.chunk_name or "lalin_luajit_backend",
             stencil_symbols = realized.symbols,
+            native_residual = native_residual,
         })
         if compiled == nil then return nil, emit_err, source end
         return {
@@ -285,14 +296,15 @@ local function bind_context(T)
         end
         local module_source = Emit.emit_module(lj_module, {
             chunk_name = opts.chunk_name or "lalin_luajit_artifact",
+            native_residual = native_residual_mode(opts),
         })
         local source = table.concat({
             mode == "bc"
                 and "-- Generated Lalin LuaJIT LuaTrace BC copy-patch artifact.\n"
-                or "-- Generated Lalin LuaJIT MC copy-patch artifact.\n",
+                or "-- Generated Lalin LuaJIT MC copy+residual artifact.\n",
             mode == "bc"
                 and "-- Stencil descriptors are emitted below as LuaJIT BC stencils.\n"
-                or "-- Native MC stencil bytes are embedded below as data and installed before the runtime module loads.\n",
+                or "-- Native MC stencil bytes are embedded below as data; TCC residual glue calls installed bank stencils.\n",
             stencil_source,
             module_source,
         })

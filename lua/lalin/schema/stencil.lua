@@ -86,6 +86,7 @@ return schema. LalinStencil {
     stop [optional [LalinValue.ValueExpr]],
     step [number],
     order [LalinStencil.StencilProducerOrder],
+    index_name [optional [str]],
   },
   product. StencilAxisRef { interned, index [number], },
   sum. StencilWindowBoundary {
@@ -104,6 +105,11 @@ return schema. LalinStencil {
     interned,
     axis [LalinStencil.StencilAxisRef],
     offset [number],
+  },
+  product. StencilAffineAxisTerm {
+    interned,
+    axis [LalinStencil.StencilAxisRef],
+    coeff [LalinValue.ValueExpr],
   },
   sum. StencilProducerShape {
     StencilProduceRange1D {
@@ -170,6 +176,12 @@ return schema. LalinStencil {
       variant_unique,
       parent [LalinStencil.StencilAccessLayout],
       scale [number],
+      offset [optional [LalinValue.ValueExpr]],
+    },
+    StencilLayoutAffineND {
+      variant_unique,
+      parent [LalinStencil.StencilAccessLayout],
+      terms [many [LalinStencil.StencilAffineAxisTerm]],
       offset [optional [LalinValue.ValueExpr]],
     },
     StencilLayoutFieldProjection {

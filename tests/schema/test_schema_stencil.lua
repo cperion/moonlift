@@ -346,6 +346,14 @@ local pred_op = Stencil.StencilApplyPredicate(pred, input_xs, Code.CodeTyBool8)
 local cmp_op = Stencil.StencilApplyCompare(Core.CmpLt, input_lhs, input_rhs, Code.CodeTyBool8)
 local indexed = Stencil.StencilLayoutIndexed(Stencil.StencilLayoutContiguous(1), Stencil.StencilAccessRef("idx"), i32, 1)
 local affine_layout = Stencil.StencilLayoutAffine1D(Stencil.StencilLayoutContiguous(1), -1, init)
+local affine_nd_layout = Stencil.StencilLayoutAffineND(
+    Stencil.StencilLayoutContiguous(1),
+    {
+        Stencil.StencilAffineAxisTerm(Stencil.StencilAxisRef(1), init),
+        Stencil.StencilAffineAxisTerm(Stencil.StencilAxisRef(2), Value.ValueExprConst(Code.CodeConstLiteral(Code.CodeTyIndex, Core.LitInt("2")))),
+    },
+    nil
+)
 local slice_layout = Stencil.StencilLayoutSliceDescriptor(
     Code.CodeValueId("v:slice"),
     Code.CodeValueId("v:slice_data"),
@@ -380,6 +388,8 @@ assert(cmp_op.cmp == Core.CmpLt)
 assert(indexed.index_ty == i32)
 assert(affine_layout.scale == -1)
 assert(affine_layout.offset == init)
+assert(pvm.classof(affine_nd_layout) == Stencil.StencilLayoutAffineND)
+assert(affine_nd_layout.terms[2].axis.index == 2)
 assert(slice_layout.len == Code.CodeValueId("v:slice_len"))
 assert(view_layout.stride == Code.CodeValueId("v:view_stride"))
 assert(view_layout.stride_const == 2)

@@ -473,6 +473,174 @@ return unit. CopyPatchRegression {
     },
   },
 
+  fn. scatter_reduce_mul_i32 { dst [ptr [i32]], src [ptr [i32]], idx [ptr [i32]], n [i32] } [void] {
+    requires {
+      bounds (dst)(n),
+      bounds (src)(n), readonly(src),
+      bounds (idx)(n), readonly(idx),
+      disjoint (dst)(src), disjoint (dst)(idx), disjoint (src)(idx),
+    },
+
+    entry. start {} { jump. loop { i = 0 }, },
+
+    block. loop { i [i32] } {
+      when (i :lt (n)) {
+        jump. body { i = i },
+      },
+
+      jump. done {},
+    },
+
+    block. body { i [i32] } {
+      set (dst[idx[i]])(dst[idx[i]] * src[i]),
+      jump. loop { i = i + 1 },
+    },
+
+    block. done {} {
+      ret (),
+    },
+  },
+
+  fn. scatter_reduce_and_i32 { dst [ptr [i32]], src [ptr [i32]], idx [ptr [i32]], n [i32] } [void] {
+    requires {
+      bounds (dst)(n),
+      bounds (src)(n), readonly(src),
+      bounds (idx)(n), readonly(idx),
+      disjoint (dst)(src), disjoint (dst)(idx), disjoint (src)(idx),
+    },
+
+    entry. start {} { jump. loop { i = 0 }, },
+
+    block. loop { i [i32] } {
+      when (i :lt (n)) {
+        jump. body { i = i },
+      },
+
+      jump. done {},
+    },
+
+    block. body { i [i32] } {
+      set (dst[idx[i]])(band (dst[idx[i]])(src[i])),
+      jump. loop { i = i + 1 },
+    },
+
+    block. done {} {
+      ret (),
+    },
+  },
+
+  fn. scatter_reduce_or_i32 { dst [ptr [i32]], src [ptr [i32]], idx [ptr [i32]], n [i32] } [void] {
+    requires {
+      bounds (dst)(n),
+      bounds (src)(n), readonly(src),
+      bounds (idx)(n), readonly(idx),
+      disjoint (dst)(src), disjoint (dst)(idx), disjoint (src)(idx),
+    },
+
+    entry. start {} { jump. loop { i = 0 }, },
+
+    block. loop { i [i32] } {
+      when (i :lt (n)) {
+        jump. body { i = i },
+      },
+
+      jump. done {},
+    },
+
+    block. body { i [i32] } {
+      set (dst[idx[i]])(bor (dst[idx[i]])(src[i])),
+      jump. loop { i = i + 1 },
+    },
+
+    block. done {} {
+      ret (),
+    },
+  },
+
+  fn. scatter_reduce_xor_i32 { dst [ptr [i32]], src [ptr [i32]], idx [ptr [i32]], n [i32] } [void] {
+    requires {
+      bounds (dst)(n),
+      bounds (src)(n), readonly(src),
+      bounds (idx)(n), readonly(idx),
+      disjoint (dst)(src), disjoint (dst)(idx), disjoint (src)(idx),
+    },
+
+    entry. start {} { jump. loop { i = 0 }, },
+
+    block. loop { i [i32] } {
+      when (i :lt (n)) {
+        jump. body { i = i },
+      },
+
+      jump. done {},
+    },
+
+    block. body { i [i32] } {
+      set (dst[idx[i]])(bxor (dst[idx[i]])(src[i])),
+      jump. loop { i = i + 1 },
+    },
+
+    block. done {} {
+      ret (),
+    },
+  },
+
+  fn. scatter_reduce_min_i32 { dst [ptr [i32]], src [ptr [i32]], idx [ptr [i32]], n [i32] } [void] {
+    requires {
+      bounds (dst)(n),
+      bounds (src)(n), readonly(src),
+      bounds (idx)(n), readonly(idx),
+      disjoint (dst)(src), disjoint (dst)(idx), disjoint (src)(idx),
+    },
+
+    entry. start {} { jump. loop { i = 0 }, },
+
+    block. loop { i [i32] } {
+      when (i :lt (n)) {
+        jump. body { i = i },
+      },
+
+      jump. done {},
+    },
+
+    block. body { i [i32] } {
+      set (dst[idx[i]])(min (dst[idx[i]])(src[i])),
+      jump. loop { i = i + 1 },
+    },
+
+    block. done {} {
+      ret (),
+    },
+  },
+
+  fn. scatter_reduce_max_i32 { dst [ptr [i32]], src [ptr [i32]], idx [ptr [i32]], n [i32] } [void] {
+    requires {
+      bounds (dst)(n),
+      bounds (src)(n), readonly(src),
+      bounds (idx)(n), readonly(idx),
+      disjoint (dst)(src), disjoint (dst)(idx), disjoint (src)(idx),
+    },
+
+    entry. start {} { jump. loop { i = 0 }, },
+
+    block. loop { i [i32] } {
+      when (i :lt (n)) {
+        jump. body { i = i },
+      },
+
+      jump. done {},
+    },
+
+    block. body { i [i32] } {
+      set (dst[idx[i]])(max (dst[idx[i]])(src[i])),
+      jump. loop { i = i + 1 },
+    },
+
+    block. done {} {
+      ret (),
+    },
+  },
+
   fn. in_place_neg_i32 { dst [ptr [i32]], n [i32] } [void] {
     requires { bounds (dst)(n) },
 
@@ -680,7 +848,7 @@ local artifact = lalin.emit_luajit_artifact(decl, {
 })
 
 assert(artifact.kind == 'LuaJITSourceArtifact')
-assert(#artifact.artifacts == 24, 'expected selected stencil artifact for each DSL loop')
+assert(#artifact.artifacts == 30, 'expected selected stencil artifact for each DSL loop')
 assert(artifact.source:match('__ml_check_stencil_target'), 'expected generated target guard')
 
 local expected_counts = {
@@ -696,7 +864,7 @@ local expected_counts = {
     zip_compare = 1,
     gather = 1,
     scatter = 1,
-    scatter_reduce = 2,
+    scatter_reduce = 8,
     apply_reduce = 1,
     map_reduce = 1,
     zip_reduce = 1,
@@ -880,6 +1048,30 @@ assert(out[0] == 13 and out[1] == 0 and out[2] == 6 and out[3] == 0 and out[4] =
 for i = 0, 5 do out[i] = 0 end
 loaded.scatter_reduce_add_zip_i32(out, src, rhs, dup_idx, 6)
 assert(out[0] == 6 and out[1] == 0 and out[2] == 27 and out[3] == 0 and out[4] == 0 and out[5] == 13, 'scatter-reduce zip add mismatch')
+
+for i = 0, 5 do out[i] = 1 end
+loaded.scatter_reduce_mul_i32(out, src, dup_idx, 6)
+assert(out[0] == 40 and out[1] == 1 and out[2] == 0 and out[3] == 1 and out[4] == 1 and out[5] == 2, 'scatter-reduce mul mismatch')
+
+for i = 0, 5 do out[i] = -1 end
+loaded.scatter_reduce_and_i32(out, src, dup_idx, 6)
+assert(out[0] == 0 and out[1] == -1 and out[2] == 0 and out[3] == -1 and out[4] == -1 and out[5] == 2, 'scatter-reduce and mismatch')
+
+for i = 0, 5 do out[i] = 0 end
+loaded.scatter_reduce_or_i32(out, src, dup_idx, 6)
+assert(out[0] == bit.bor(5, 8) and out[1] == 0 and out[2] == bit.bor(bit.bor(-3, 0), 9) and out[3] == 0 and out[4] == 0 and out[5] == 2, 'scatter-reduce or mismatch')
+
+for i = 0, 5 do out[i] = 0 end
+loaded.scatter_reduce_xor_i32(out, src, dup_idx, 6)
+assert(out[0] == bit.bxor(5, 8) and out[1] == 0 and out[2] == bit.bxor(bit.bxor(-3, 0), 9) and out[3] == 0 and out[4] == 0 and out[5] == 2, 'scatter-reduce xor mismatch')
+
+for i = 0, 5 do out[i] = 2147483647 end
+loaded.scatter_reduce_min_i32(out, src, dup_idx, 6)
+assert(out[0] == 5 and out[1] == 2147483647 and out[2] == -3 and out[3] == 2147483647 and out[4] == 2147483647 and out[5] == 2, 'scatter-reduce min mismatch')
+
+for i = 0, 5 do out[i] = -2147483648 end
+loaded.scatter_reduce_max_i32(out, src, dup_idx, 6)
+assert(out[0] == 8 and out[1] == -2147483648 and out[2] == 9 and out[3] == -2147483648 and out[4] == -2147483648 and out[5] == 2, 'scatter-reduce max mismatch')
 
 local inplace = ffi.new('int32_t[6]', { 5, -3, 8, 0, 9, 2 })
 loaded.in_place_neg_i32(inplace, 6)

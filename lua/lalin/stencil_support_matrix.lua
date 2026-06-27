@@ -60,6 +60,7 @@ local function bind_context(T)
         StencilLayoutContiguous = { status = "supported", scope = "generated ApplyN/ReduceN/ScanN basis layout" },
         StencilLayoutIndexed = { status = "supported", scope = "generated ApplyN/ReduceN/ScanN basis layout with explicit index access reference" },
         StencilLayoutAffine1D = { status = "supported", scope = "generated ApplyN/ReduceN/ScanN/ScatterReduceN basis layout for affine 1D access remapping" },
+        StencilLayoutAffineND = { status = "partial", scope = "MC/C ApplyN over RangeND with constant axis coefficients; dynamic coefficients and BC coverage remain open" },
         StencilLayoutFieldProjection = { status = "supported", scope = "generated ApplyN/ReduceN/ScanN basis layout with record-pointer ABI projection" },
         StencilLayoutSoAComponent = { status = "supported", scope = "generated ApplyN/ReduceN/ScanN basis layout over component buffers" },
         StencilLayoutSliceDescriptor = { status = "supported", scope = "generated ApplyN/ReduceN/ScanN basis layout" },

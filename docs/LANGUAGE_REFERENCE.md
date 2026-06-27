@@ -225,7 +225,7 @@ Common statements:
 ```lua
 lln.let. x [lln.i32] (1)
 lln.var. acc [lln.i32] (0)
-lln.set (acc)(acc + x)
+set (acc)(acc + x)
 lln.ret (acc)
 lln.trap ()
 ```
@@ -361,6 +361,105 @@ lln.fn. sum { xs [lln.ptr [lln.i32]], n [lln.index] } [lln.i32] {
 Contracts feed lowering and diagnostics. If the backend needs a fact, it should
 be represented explicitly.
 
+## Native Loops And Stencil-Shaped Work
+
+`lln.loop` is the source head for regular native loop domains. It is not a
+general `for` or `while`: it authors structured facts that flow through
+`Code -> Flow -> Kernel -> Stencil`.
+
+One-dimensional range:
+
+```lua
+lln.fn. sum { xs [lln.ptr [lln.i32]], n [lln.index] } [lln.i32] {
+  lln.requires {
+    lln.bounds (xs)(n),
+    lln.readonly(xs),
+  },
+
+  lln.loop. i [lln.range { 0, n }] [lln.i32] {
+    lln.fold. acc [lln.i32] {
+      init = 0,
+      by = lln.add,
+      step = xs[i],
+    },
+  },
+}
+```
+
+Stores and pointwise bodies:
+
+```lua
+lln.loop. i [lln.range { 0, n }] {
+  set (dst[i])(lhs[i] + rhs[i]),
+}
+```
+
+`select` lowers to a branchless apply body when the condition and arms are
+stencil-pure:
+
+```lua
+lln.loop. i [lln.range { 0, n }] {
+  set (dst[i])(select (lhs[i] :gt (0))(lhs[i])(rhs[i])),
+}
+```
+
+N-dimensional ranges use a product of induction variables:
+
+```lua
+lln.loop { i, j } [lln.range_nd { { 0, h }, { 0, w } }] {
+  set (dst[i * w + j])(src[i * w + j]),
+}
+```
+
+The current frontend recognizes compact row-major affine indexing, non-zero
+starts and non-unit producer steps for that compact form, and fixed-coefficient
+affine expressions such as `j * 2 + i` as typed affine layouts. Broader dynamic
+affine normalization remains a backend gap.
+
+Window domains expose neighbor reads in the body:
+
+```lua
+lln.loop { i } [lln.window_nd {
+  axes = { { 0, n } },
+  windows = { { 1, 1, boundary = "clamp" } },
+}] {
+  set (dst[i])(xs[i - 1] + xs[i] + xs[i + 1]),
+}
+```
+
+`lln.scan` over `lln.tiled_nd` is an axis scan over the logical domain. Tile
+shape is a traversal/materialization policy; it does not reset prefix state by
+itself.
+
+```lua
+lln.loop { i, j } [lln.tiled_nd {
+  axes = { { 0, h }, { 0, w } },
+  tiles = { 4, 8 },
+}] {
+  lln.scan. acc [lln.i32] {
+    init = 0,
+    by = lln.add,
+    axis = 2,
+    step = xs[i * w + j],
+    into = dst[i * w + j],
+  },
+}
+```
+
+Scatter-reduce is recognized from immediate indexed read-modify-write forms for
+the current reducer vocabulary:
+
+```lua
+lln.loop. i [lln.range { 0, n }] {
+  set (bins[idx[i]])(bins[idx[i]] + src[i])
+}
+```
+
+Contracts such as `bounds`, `readonly`, `writeonly`, and `disjoint` are consumed
+by these paths. Unsupported loop shapes should be rejected through typed facts
+or fall back through the semantic path; they should not silently become
+element-level FFI code.
+
 ## Ownership
 
 `owned T` values must be discharged or transferred exactly once. They cannot be
@@ -436,8 +535,23 @@ local artifact = lalin.emit_luajit_artifact(decls, {
 artifact:write()
 ```
 
-The artifact path uses the LuaTrace BC copy-patch backend described in
-`docs/ARCHITECTURE.md`.
+`lalin.compile` uses the LuaTrace BC copy-patch path by default. It is the
+portable semantic path and does not require the native stencil toolchain.
+
+`lalin.emit_luajit_artifact` defaults to the fast copy+residual path:
+
+```text
+typed stencil plans
+  -> copy_patch_mc bank stencils
+  -> embedded/installed MC bytes
+  -> TCC residual glue
+  -> loaded LuaJIT module
+```
+
+The residual glue calls installed bank stencils at coarse function boundaries.
+It is not an element-level FFI lowering strategy. For debugging or direct
+copy-patch comparison, pass `native_residual = false` to
+`lalin.emit_luajit_artifact`.
 
 ## Non-Negotiable Rules
 

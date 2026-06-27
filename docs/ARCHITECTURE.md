@@ -8,7 +8,7 @@ meaning through heads, roles, fragments, namespaces, origins, diagnostics,
 formatting, indexing, regions, protocols, processes, and language composition.
 Lalin is the compiled dialect in that language. It consumes LLBL regions and typed
 values, checks native semantics, and lowers the resulting program into LuaJIT
-copy-patch artifacts.
+artifacts.
 
 The main path is intentionally small:
 
@@ -21,13 +21,13 @@ Lua source
   -> LalinCode facts
   -> kernel and schedule facts
   -> LuaTrace stencil plans or C stencil plans
-  -> LuaJIT copy-patch bank
+  -> LuaJIT copy+residual artifact
   -> loaded LuaJIT module
 ```
 
 There is no Cranelift/Rust runtime path in the active architecture. C emission
-and native copy-patch MC banks are the fast artifact path and remain useful for
-validation, benchmarking, and optional artifact generation.
+and native MC banks are the fast artifact path and remain useful for validation,
+benchmarking, and optional artifact generation.
 
 ## Language Layers
 
@@ -180,17 +180,28 @@ reductions, alias facts, or safety conditions.
 
 ## Backend Model
 
-The active backend architecture is copy-patch. Emitted LuaJIT artifacts default
-to `copy_patch_mc`; `lalin.compile` defaults to `copy_patch_bc`.
+The active fast backend architecture is copy+residual. Emitted LuaJIT artifacts
+default to `copy_patch_mc` bank stencils plus TCC residual glue; `lalin.compile`
+defaults to `copy_patch_bc`.
+
+This split is intentional:
+
+- `copy_patch_mc` owns the hot stencil bodies. They are generated as C through
+  the LLBL C dialect, compiled by GCC/compatible C compilers, extracted into the
+  MC bank, and installed as executable bytes.
+- The residual JIT owns glue around selected bank stencils. It is compiled by
+  TCC and should stay at coarse function/stencil boundaries; it must not become
+  an element-by-element FFI strategy.
+- `copy_patch_bc` remains the bytecode semantic path and fallback/probe surface.
 
 LuaTrace lowering emits trusted LuaJIT-shaped templates from typed stencil
 plans. LuaJIT compiles those templates into bytecode. The BC bank stores
 compiled prototypes plus patch metadata. At materialization time, Lalin patches
 declared holes and loads the resulting module.
 
-Native binary copy-patch stencils are a parallel materialization strategy for
-C-compiled copy-patch MC banks. They use the same descriptor and schedule semantics
-but a different artifact installer.
+Native binary stencils are C-compiled `copy_patch_mc` bank entries. The emitted
+artifact installs those bank bytes, then the residual JIT compiles thin TCC
+wrappers that call the installed bank stencils at coarse function boundaries.
 
 The backend must consume semantic facts honestly:
 
@@ -209,7 +220,7 @@ ASDL, the schema is incomplete and must be fixed before lowering is extended.
 The C path is an optional projection and measurement tool. It is useful for:
 
 - checking semantic equivalence against a simple generated target
-- generating native copy-patch MC banks ahead of time
+- generating native MC banks ahead of time
 - comparing LuaJIT and C compiler performance
 - making target ABI decisions explicit
 
@@ -241,6 +252,8 @@ lua/lalin/frontend_pipeline.lua
 lua/lalin/luajit_backend.lua LuaTrace/LuaJIT backend facade
 lua/lalin/copy_patch_luatrace.lua LuaTrace stencil lowering
 lua/lalin/copy_patch_bc.lua LuaJIT BC bank
+lua/lalin/copy_patch_mc.lua MC bank extraction and installation
+lua/lalin/c_tcc.lua TCC residual compiler binding
 lua/llpvm/                   LLPVM language member
 lua/ui/                      UI kernel and widgets
 ```

@@ -113,6 +113,14 @@ local function bind_context(T)
         unsupported(decl, "C declaration")
     end
 
+    local function sig_index(module)
+        local out = {}
+        for _, sig in ipairs(module.sigs or {}) do
+            if sig.id ~= nil then out[sig.id.text] = sig end
+        end
+        return out
+    end
+
     local binop = {
         [Core.BinAdd] = "+",
         [Core.BinSub] = "-",
@@ -727,6 +735,146 @@ local function bind_context(T)
         line(out, n, "end")
     end
 
+    local function native_c_string(s)
+        return string.format("%q", tostring(s))
+    end
+
+    local function native_c_name(prefix, name)
+        return "__lalin_native_" .. prefix .. "_" .. sanitize(name)
+    end
+
+    local function native_param_decl(param)
+        return ctype_spelling(param.ty.abi) .. " " .. id_name(param.value)
+    end
+
+    local function native_expr(e)
+        local cls = pvm.classof(e)
+        if cls == LJ.LJExprValue then return id_name(e.value) end
+        if cls == LJ.LJExprLiteral then return literal_expr(e) end
+        if cls == LJ.LJExprCast then
+            return "((" .. ctype_spelling(e.to.abi) .. ")(" .. native_expr(e.value) .. "))"
+        end
+        if cls == LJ.LJExprCDataCast then
+            return "((" .. ctype_spelling(e.ty) .. ")(" .. native_expr(e.value) .. "))"
+        end
+        unsupported(e, "native residual expression")
+    end
+
+    local function c_signature_parts(symbol, c_signature)
+        local sig = tostring(c_signature or "")
+        local ret, params = sig:match("^%s*(.-)%s*%(%s*%*%s*%)%s*%((.*)%)%s*$")
+        if ret == nil then
+            local direct_ret, direct_name, direct_params = sig:match("^%s*(.-)%s+([_%a][_%w]*)%s*%((.*)%)%s*;?%s*$")
+            if direct_ret ~= nil and direct_name == symbol then
+                ret, params = direct_ret, direct_params
+            end
+        end
+        if ret == nil then error("luajit_emit: cannot derive C prototype from stencil signature " .. sig, 3) end
+        return ret, params
+    end
+
+    local function native_symbol_addr_token(symbol)
+        return "__LALIN_STENCIL_ADDR_" .. sanitize(symbol) .. "__"
+    end
+
+    local function machine_by_id(func)
+        local out = {}
+        for _, machine in ipairs(func.machines or {}) do out[machine.id.text] = machine end
+        return out
+    end
+
+    local function native_residual_candidate(func)
+        if pvm.classof(func.body) ~= LJ.LJBodyMachine then return nil end
+        local term = func.body.terminal
+        if pvm.classof(term) ~= LJ.LJTerminalFirst or term.default ~= nil then return nil end
+        local machine = machine_by_id(func)[func.body.machine.text]
+        local kind = machine and machine.kind or nil
+        local cls = pvm.classof(kind)
+        if cls == LJ.LJMachineStencilCall or cls == LJ.LJMachineStencilEffect then return kind, cls end
+        return nil
+    end
+
+    local function native_wrapper_result_type(func, sig, kind, kind_cls)
+        if kind_cls == LJ.LJMachineStencilEffect then return "void" end
+        local result = kind.result_ty or (sig and sig.result)
+        if result == nil then return "void" end
+        return ctype_spelling(result.abi)
+    end
+
+    local function native_wrapper_source(func, sig, kind, kind_cls)
+        local wrapper = native_c_name("fn", func.name)
+        local ret = native_wrapper_result_type(func, sig, kind, kind_cls)
+        local params = {}
+        for i = 1, #func.params do params[i] = native_param_decl(func.params[i]) end
+        local args = {}
+        for i = 1, #kind.args do args[i] = native_expr(kind.args[i]) end
+        local symbol = kind.artifact.symbol.text
+        local stencil_ret, stencil_params = c_signature_parts(symbol, kind.artifact.c_signature)
+        local stencil_callee = "((" .. stencil_ret .. " (*)(" .. stencil_params .. "))((uintptr_t)" .. native_symbol_addr_token(symbol) .. "))"
+        local out = {
+            ret .. " " .. wrapper .. "(" .. (#params > 0 and table.concat(params, ", ") or "void") .. ") {",
+        }
+        if kind_cls == LJ.LJMachineStencilEffect then
+            out[#out + 1] = "  " .. stencil_callee .. "(" .. table.concat(args, ", ") .. ");"
+            out[#out + 1] = "}"
+        elseif ret == "void" then
+            out[#out + 1] = "  " .. stencil_callee .. "(" .. table.concat(args, ", ") .. ");"
+            out[#out + 1] = "}"
+        else
+            out[#out + 1] = "  return " .. stencil_callee .. "(" .. table.concat(args, ", ") .. ");"
+            out[#out + 1] = "}"
+        end
+        return table.concat(out, "\n"), wrapper, symbol
+    end
+
+    local function native_func_pointer_ctype(func, sig, kind, kind_cls)
+        local ret = native_wrapper_result_type(func, sig, kind, kind_cls)
+        local params = {}
+        for i = 1, #func.params do params[i] = ctype_spelling(func.params[i].ty.abi) end
+        return ret .. " (*)(" .. (#params > 0 and table.concat(params, ", ") or "void") .. ")"
+    end
+
+    local function emit_native_residuals(out, module, opts)
+        if not (opts.native_residual == true or opts.native_residual == "tcc" or opts.tcc_residual == true) then return end
+        local sigs = sig_index(module)
+        local c_units, replacements, host_symbols = {}, {}, {}
+        local seen_symbols = {}
+        for _, func in ipairs(module.funcs or {}) do
+            local kind, kind_cls = native_residual_candidate(func)
+            if kind ~= nil then
+                local sig = sigs[func.sig.text]
+                local source, wrapper, stencil_symbol = native_wrapper_source(func, sig, kind, kind_cls)
+                c_units[#c_units + 1] = source
+                replacements[#replacements + 1] = {
+                    func_name = func_name(func.name),
+                    wrapper = wrapper,
+                    ctype = native_func_pointer_ctype(func, sig, kind, kind_cls),
+                }
+                seen_symbols[stencil_symbol] = true
+            end
+        end
+        if #replacements == 0 then return end
+        for symbol in pairs(seen_symbols) do host_symbols[#host_symbols + 1] = symbol end
+        table.sort(host_symbols)
+        c_units[#c_units + 1] = ""
+        table.insert(c_units, 1, "#include <stdint.h>")
+        line(out, 0, "local __lalin_native_residual_sessions = {}")
+        line(out, 0, "do")
+        line(out, 1, "local __c_tcc = require('lalin.c_tcc')")
+        line(out, 1, "local __native_source = " .. native_c_string(table.concat(c_units, "\n\n") .. "\n"))
+        for _, symbol in ipairs(host_symbols) do
+            line(out, 1, "if __lalin_luajit_stencil_symbols[" .. lua_string(symbol) .. "] == nil then error(" .. lua_string("missing LalinStencil symbol " .. symbol) .. ", 0) end")
+            line(out, 1, "__native_source = __native_source:gsub(" .. lua_string(native_symbol_addr_token(symbol)) .. ", string.format('0x%xULL', tonumber(ffi.cast('uintptr_t', __lalin_luajit_stencil_symbols[" .. lua_string(symbol) .. "]))))")
+        end
+        line(out, 1, "local __session, __err = __c_tcc.compile(__native_source, { libraries = { 'm' } })")
+        line(out, 1, "if not __session then error((__err and __err.message) or 'native residual TCC compile failed', 0) end")
+        line(out, 1, "__lalin_native_residual_sessions[#__lalin_native_residual_sessions + 1] = __session")
+        for _, replacement in ipairs(replacements) do
+            line(out, 1, replacement.func_name .. " = assert(__session:symbol(" .. lua_string(replacement.wrapper) .. ", " .. lua_string(replacement.ctype) .. "))")
+        end
+        line(out, 0, "end")
+    end
+
     local function emit_module(module, opts)
         opts = opts or {}
         local out = {}
@@ -760,6 +908,7 @@ local function bind_context(T)
             line(out, 0, "local " .. func_name(module.funcs[i].name))
         end
         for i = 1, #(module.funcs or {}) do emit_func(out, 0, module.funcs[i]) end
+        emit_native_residuals(out, module, opts)
         line(out, 0, "return {")
         for i = 1, #(module.funcs or {}) do
             local f = module.funcs[i]
