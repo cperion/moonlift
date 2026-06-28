@@ -1,5 +1,5 @@
 -- lalin.syntax.type_value
--- Projects evaluated Lua type values into the active parsed-module context.
+-- Projects evaluated Lua type values into the active compilation-unit context.
 
 local pvm = require("lalin.pvm")
 

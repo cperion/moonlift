@@ -18,7 +18,7 @@ local function wrap_ast(ast, ctx, opts)
   local refs = {}
   for _, r in ipairs(ctx.refs or {}) do refs[#refs + 1] = r end
   local outputs = {}
-  if ast.name and (ast.tag == "DeclFunc" or ast.tag == "DeclStruct" or ast.tag == "DeclUnion" or ast.tag == "DeclRegion" or ast.tag == "DeclModule") then
+  if ast.name and (ast.tag == "DeclFunc" or ast.tag == "DeclStruct" or ast.tag == "DeclUnion" or ast.tag == "DeclRegion") then
     outputs[1] = { name = ast.name }
   end
   local lua_binding = ctx.lua_binding
@@ -58,8 +58,6 @@ function LalinSyntax.parse_entry(lex, entry, ctx)
     ast = Decl.parse_union(lex, ctx, ctx.entry_token)
   elseif entry == "region" then
     ast = Decl.parse_region(lex, ctx, ctx.entry_token)
-  elseif entry == "module" then
-    ast = Decl.parse_module(lex, ctx, ctx.entry_token)
   elseif entry == "expr" then
     ast = Decl.parse_expr_fragment(lex, ctx)
   elseif entry == "stmt" or entry == "quote" then
@@ -88,10 +86,10 @@ function LalinSyntax.register()
   local spec = {
     name = "lalin",
     owner = "lalin",
-    entrypoints = { "fn", "struct", "union", "region", "module", "quote", "expr", "stmt" },
+    entrypoints = { "fn", "struct", "union", "region", "quote", "expr", "stmt" },
     direct_entrypoints = nil, -- callers choose whether to activate bare entrypoints.
     keywords = {
-      "fn", "region", "struct", "union", "module", "requires", "ensures",
+      "fn", "region", "struct", "union", "requires", "ensures",
       "do", "end", "if", "then", "elseif", "else", "loop", "in",
       "grid", "tiled", "window", "return", "jump", "emit", "entry", "block",
       "let", "var", "fold", "scan", "by", "over", "step", "into",
@@ -253,10 +251,34 @@ function LalinSyntax.to_module(parsed_decls, name, T)
     error("parsed_to_module: unsupported decl tag " .. tostring(parsed.tag), 2)
   end
 
-  -- Accept single decl or array
-  local items = parsed_decls
-  if items.tag then items = { items } end
-  for _, d in ipairs(items or {}) do
+  local function is_parsed_decl(value)
+    return type(value) == "table" and type(value.tag) == "string" and value.tag:match("^Decl") ~= nil
+  end
+
+  local function collect_parsed_decls(value)
+    if is_parsed_decl(value) then return { value } end
+    if type(value) ~= "table" then return {} end
+    local out = {}
+    for i = 1, #value do
+      if not is_parsed_decl(value[i]) then
+        error("parsed_to_module: positional entries must be parsed declarations", 2)
+      end
+      out[#out + 1] = value[i]
+    end
+    for k, v in pairs(value) do
+      if type(k) ~= "number" and is_parsed_decl(v) then
+        if type(k) == "string" and v.name == nil then
+          v.public_name = v.public_name or k
+          v.debug_name = v.debug_name or k
+          v.name = k
+        end
+        out[#out + 1] = v
+      end
+    end
+    return out
+  end
+
+  for _, d in ipairs(collect_parsed_decls(parsed_decls)) do
     decls[#decls + 1] = decl_to_item(d)
   end
 

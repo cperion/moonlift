@@ -153,25 +153,6 @@ function Decl.parse_region(lex, ctx, entry_start)
   return Ast.node("DeclRegion", { name = name.value, inputs = inputs, exits = exits, blocks = blocks }, Ast.origin(lex, start, lex.last, "parsed:decl"))
 end
 
-function Decl.parse_module(lex, ctx, entry_start)
-  local start = entry_start or ctx.entry_token
-  local name = nil
-  if lex:peek().kind == "name" and lex:peek().value ~= "do" then name = lex:next().value end
-  optional_do(lex)
-  local items = {}
-  while not lex:at_eof() and lex:peek().value ~= "end" do
-    local t = lex:peek()
-    if t.value == "fn" then lex:next(); items[#items + 1] = Decl.parse_fn(lex, ctx, t)
-    elseif t.value == "struct" then lex:next(); items[#items + 1] = Decl.parse_struct(lex, ctx, t)
-    elseif t.value == "union" then lex:next(); items[#items + 1] = Decl.parse_union(lex, ctx, t)
-    elseif t.value == "region" then lex:next(); items[#items + 1] = Decl.parse_region(lex, ctx, t)
-    else lex:error_at(t, "expected declaration in Lalin module") end
-    lex:skip_separators()
-  end
-  lex:expect("end")
-  return Ast.node("DeclModule", { name = name, items = items }, Ast.origin(lex, start, lex.last, "parsed:decl"))
-end
-
 function Decl.parse_expr_fragment(lex, ctx)
   local start = ctx.entry_token
   local expr = Expr.parse(lex, ctx)

@@ -93,6 +93,16 @@ for k in pairs(generated_module) do
 end
 assert(type(generated_key) == "string" and generated_key:match("^__lln_fn_"), "codegen should assign generated compiler names")
 assert(generated_module[generated_key](21) == 42, "generated compiler names should be executable")
+local inferred_unit = lalin.syntax.to_module({
+  double = generated_name[1],
+}, "loader_table_to_unit")
+assert(inferred_unit.items[1].func.name == "double", "syntax.to_module should infer internal units from keyed Lua tables")
+
+local module_ok = lalin.loadstring([[
+module Demo
+end
+]], "@removed_module.lln")
+assert(module_ok == nil, "parsed `module` was hard-yanked from the .lln source surface")
 
 local ok, import_err = pcall(function()
     return lalin.loadstring([[import "lalin.syntax"]], "@bad.lln")

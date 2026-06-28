@@ -86,8 +86,9 @@ The returned Lua value is the public API. Lalin does not add `module`, `export`,
 or user-facing import declarations on top of Lua.
 
 Parsed declarations are first-class Lua values. A `.lln` chunk may return
-declarations, ordinary Lua values, or a compiled runtime module. `lalin.compile`
-accepts a parsed declaration or an array of parsed declarations:
+declarations, ordinary Lua values, or a compiled runtime API table.
+`lalin.compile` accepts a parsed declaration, an array of declarations, or a Lua
+API table containing declarations:
 
 ```lua
 local lalin = require("lalin")
@@ -101,9 +102,9 @@ local chunk = assert(lalin.loadstring([[
 ]], "@add.lln"))
 
 local parsed_decls = chunk()
-local module = lalin.compile("add", parsed_decls)
+local compiled = lalin.compile("add", parsed_decls)
 
-print(module.add(3, 4))
+print(compiled.add(3, 4))
 ```
 
 The lower-level `llbl.syntax` mixed-source driver remains infrastructure for
@@ -158,7 +159,7 @@ return {
 }
 ```
 
-The returned table is the module API. There is no separate Lalin import/export
+The returned table is the Lua API. There is no separate Lalin import/export
 system layered on top of Lua.
 
 ### Declaration Values
@@ -185,7 +186,7 @@ records obvious Lua context such as `local add = fn(...)` and table fields such
 as `{ add = fn(...) }`; Lalin uses that as the declaration's public/debug name.
 If no Lua slot name exists, Lalin assigns a generated compiler name such as
 `__lln_fn_1`. Codegen uses that internal name for symbols, while Lua tables stay
-the user-facing module model.
+the user-facing API model.
 
 ```lln
 return {
@@ -327,7 +328,7 @@ letter_or_underscore (letter_or_digit_or_underscore)*
 Keywords include:
 
 ```text
-fn struct union region module
+fn struct union region
 requires ensures
 do end if then elseif else
 loop in grid tiled window
@@ -1002,12 +1003,12 @@ The default executable backend is LuaJIT artifact generation with MC
 copy+compile residual materialization.
 
 ```text
-typed Lalin module
+inferred Lalin compilation unit
   -> LuaJIT IR projection
   -> stencil descriptors
   -> residual_mc bank stencil
   -> optional TCC residual glue
-  -> loaded module
+  -> loaded Lua API table
 ```
 
 If MC materialization needs a prebuilt bank that is not available, the default
@@ -1287,7 +1288,6 @@ The formatter currently prints the Lua/LLBL DSL surface.
 | `struct Name ... end` | implemented |
 | `union Name ... end` | implemented |
 | `region name(params; exits) ... end` | parser implemented; integration is narrower than function/struct/union |
-| `module Name ... end` | internal parser surface only; not the public module model |
 | `let` / `var` | implemented |
 | assignment | implemented |
 | `return` | implemented |
