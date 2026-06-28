@@ -128,23 +128,52 @@ return unit. SourceShapeNDAffineBench {
 
 local session = lalin.use { scope = "env" }
 
-local function compile_once(copy_patch, serial, source, name, stem_prefix)
-    local decl = assert(session:loadstring(source, "bench_lalin_source_shapes.lua"))()
-    return lalin.emit_luajit_artifact(decl, {
-        path = "target/luajit_bench/" .. stem_prefix .. "_" .. copy_patch .. "_" .. tostring(serial) .. ".lua",
+local function load_decl(source)
+    return assert(session:loadstring(source, "bench_lalin_source_shapes.lua"))()
+end
+
+local function plan_source(source, name, stem_prefix, copy_patch)
+    local decl = load_decl(source)
+    return lalin.plan_luajit_artifact(decl, {
         name = name,
-        stem = stem_prefix .. "_" .. copy_patch .. "_" .. tostring(serial),
+        stem = stem_prefix .. "_" .. copy_patch .. "_plan",
         copy_patch = copy_patch,
         native_residual = native_residual and copy_patch == "mc" or nil,
     })
 end
 
-local function measure_compile(copy_patch, source, name, stem_prefix)
+local function build_setup_mc_bank(plan, stem_prefix)
+    if #(plan.artifacts or {}) == 0 then return nil end
+    local bank, err = plan.backend.build_mc_bank(plan.artifacts, {
+        stem = stem_prefix .. "_mc_bank_setup",
+    })
+    assert(bank ~= nil, tostring(err))
+    return bank
+end
+
+local mc_plan_main = plan_source(main_source, "SourceShapeBench", "source_shapes_main", "mc")
+local bc_plan_main = plan_source(main_source, "SourceShapeBench", "source_shapes_main", "bc")
+local mc_plan_nd = plan_source(nd_source, "SourceShapeNDAffineBench", "source_shapes_nd", "mc")
+local mc_bank_main = build_setup_mc_bank(mc_plan_main, "source_shapes_main")
+local mc_bank_nd = build_setup_mc_bank(mc_plan_nd, "source_shapes_nd")
+
+local function compile_once(plan, copy_patch, serial, name, stem_prefix, mc_bank)
+    return lalin.emit_luajit_plan_artifact(plan, {
+        path = "target/luajit_bench/" .. stem_prefix .. "_" .. copy_patch .. "_" .. tostring(serial) .. ".lua",
+        name = name,
+        stem = stem_prefix .. "_" .. copy_patch .. "_" .. tostring(serial),
+        copy_patch = copy_patch,
+        mc_bank = copy_patch == "mc" and mc_bank or nil,
+        native_residual = native_residual and copy_patch == "mc" or nil,
+    })
+end
+
+local function measure_compile(plan, copy_patch, name, stem_prefix, mc_bank)
     local times, last = {}, nil
     for i = 1, compile_samples do
         collectgarbage()
         local t0 = Measure.now()
-        last = compile_once(copy_patch, i, source, name, stem_prefix)
+        last = compile_once(plan, copy_patch, i, name, stem_prefix, mc_bank)
         times[i] = Measure.now() - t0
     end
     return times, last
@@ -152,9 +181,9 @@ end
 
 os.execute("mkdir -p target/luajit_bench")
 
-local mc_compile, mc_artifact = measure_compile("mc", main_source, "SourceShapeBench", "source_shapes_main")
-local bc_compile, bc_artifact = measure_compile("bc", main_source, "SourceShapeBench", "source_shapes_main")
-local nd_mc_compile, nd_mc_artifact = measure_compile("mc", nd_source, "SourceShapeNDAffineBench", "source_shapes_nd")
+local mc_compile, mc_artifact = measure_compile(mc_plan_main, "mc", "SourceShapeBench", "source_shapes_main", mc_bank_main)
+local bc_compile, bc_artifact = measure_compile(bc_plan_main, "bc", "SourceShapeBench", "source_shapes_main")
+local nd_mc_compile, nd_mc_artifact = measure_compile(mc_plan_nd, "mc", "SourceShapeNDAffineBench", "source_shapes_nd", mc_bank_nd)
 local mc = assert(loadfile(mc_artifact.path))()
 local bc = assert(loadfile(bc_artifact.path))()
 local nd_mc = assert(loadfile(nd_mc_artifact.path))()

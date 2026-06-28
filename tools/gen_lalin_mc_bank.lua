@@ -106,18 +106,6 @@ local function c_string(s)
     return string.format("%q", tostring(s))
 end
 
-local function patch_kind(kind)
-    if kind == LJ.LJMCPatchAbs32 then return "abs32" end
-    if kind == LJ.LJMCPatchAbs64 then return "abs64" end
-    if kind == LJ.LJMCPatchSymbol32 then return "symbol32" end
-    if kind == LJ.LJMCPatchSymbol64 then return "symbol64" end
-    if kind == LJ.LJMCPatchPc32 then return "pc32" end
-    if kind == LJ.LJMCPatchRel32 then return "rel32" end
-    if kind == LJ.LJMCPatchLocalAbs32 then return "local_abs32" end
-    if kind == LJ.LJMCPatchLocalAbs64 then return "local_abs64" end
-    return tostring(kind)
-end
-
 local function emit_header()
     return table.concat({
         "#ifndef LALIN_EMBEDDED_MC_BANK_H",
@@ -126,22 +114,11 @@ local function emit_header()
         "#include <stddef.h>",
         "#include \"lua.h\"",
         "",
-        "typedef struct LalinEmbeddedMCPatch {",
-        "  size_t offset;",
-        "  const char *kind;",
-        "  const char *reloc_type;",
-        "  const char *symbol;",
-        "  int ordinal;",
-        "  long long addend;",
-        "} LalinEmbeddedMCPatch;",
-        "",
         "typedef struct LalinEmbeddedMCEntry {",
         "  const char *symbol;",
         "  const char *c_signature;",
         "  const unsigned char *data;",
         "  size_t size;",
-        "  const LalinEmbeddedMCPatch *patches;",
-        "  size_t patch_count;",
         "} LalinEmbeddedMCEntry;",
         "",
         "typedef const LalinEmbeddedMCEntry *(*LalinEmbeddedMCShardEntriesFn)(void);",
@@ -166,40 +143,22 @@ local function bank_fragments(mc_bank)
     local arrays = {}
     local entries = {}
     local payload_bytes = 0
-    local patch_count = 0
     for _, entry in ipairs(mc_bank.entries or {}) do
         local sym = "lalin_mc_" .. sanitize(entry.symbol)
         payload_bytes = payload_bytes + #(entry.binary or "")
-        patch_count = patch_count + #(entry.patches or {})
         arrays[#arrays + 1] = "static const unsigned char " .. sym .. "_bytes[] = {"
         arrays[#arrays + 1] = bytes_array(entry.binary)
         arrays[#arrays + 1] = "};"
-        arrays[#arrays + 1] = "static const LalinEmbeddedMCPatch " .. sym .. "_patches[] = {"
-        for _, patch in ipairs(entry.patches or {}) do
-            arrays[#arrays + 1] = string.format(
-                "  { %d, %s, %s, %s, %d, %d },",
-                tonumber(patch.offset) or 0,
-                c_string(patch_kind(patch.kind)),
-                c_string(patch.reloc_type),
-                c_string(patch.symbol),
-                tonumber(patch.ordinal) or -1,
-                tonumber(patch.addend) or 0
-            )
-        end
-        arrays[#arrays + 1] = "};"
         arrays[#arrays + 1] = ""
         entries[#entries + 1] = string.format(
-            "  { %s, %s, %s_bytes, sizeof(%s_bytes), %s_patches, sizeof(%s_patches) / sizeof(%s_patches[0]) },",
+            "  { %s, %s, %s_bytes, sizeof(%s_bytes) },",
             c_string(entry.symbol),
             c_string(entry.c_signature),
-            sym,
-            sym,
-            sym,
             sym,
             sym
         )
     end
-    return table.concat(arrays, "\n"), table.concat(entries, "\n"), #(mc_bank.entries or {}), payload_bytes, patch_count
+    return table.concat(arrays, "\n"), table.concat(entries, "\n"), #(mc_bank.entries or {}), payload_bytes
 end
 
 local function build_bank(artifacts, stem, dir)
@@ -243,7 +202,6 @@ local function build_shard_fragments(shard_index, shard_count, prefix)
     write_file(entries_path, "")
     local total = 0
     local payload_bytes = 0
-    local patch_count = 0
     InternSet.artifact_batches({
         shard_index = shard_index,
         shard_count = shard_count,
@@ -253,25 +211,22 @@ local function build_shard_fragments(shard_index, shard_count, prefix)
             "lalin_embedded_mc_bank_shard_" .. tostring(shard_index) .. "_batch_" .. tostring(batch_index),
             prefix .. ".build/batch_" .. tostring(batch_index)
         )
-        local arrays, entries, count, batch_payload_bytes, batch_patch_count = bank_fragments(mc_bank)
+        local arrays, entries, count, batch_payload_bytes = bank_fragments(mc_bank)
         append_text(arrays_path, arrays)
         append_text(arrays_path, "\n")
         append_text(entries_path, entries)
         append_text(entries_path, "\n")
         total = total + count
         payload_bytes = payload_bytes + batch_payload_bytes
-        patch_count = patch_count + batch_patch_count
         collectgarbage("collect")
         return true
     end)
     write_file(prefix .. ".count", tostring(total) .. "\n")
     write_file(prefix .. ".payload_bytes", tostring(payload_bytes) .. "\n")
-    write_file(prefix .. ".patch_count", tostring(patch_count) .. "\n")
     io.stderr:write(
         "embedded shard ", tostring(shard_index), "/", tostring(shard_count),
         ": ", tostring(total), " Lalin MC bank entries, ",
-        tostring(payload_bytes), " payload bytes, ",
-        tostring(patch_count), " patches\n"
+        tostring(payload_bytes), " payload bytes\n"
     )
     return {
         prefix = prefix,
@@ -279,7 +234,6 @@ local function build_shard_fragments(shard_index, shard_count, prefix)
         entries_path = entries_path,
         count = total,
         payload_bytes = payload_bytes,
-        patch_count = patch_count,
     }
 end
 
@@ -293,10 +247,9 @@ end
 local function build_sharded(jobs)
     local prefix = shard_prefix_base()
     mkdir_parent(prefix .. ".sentinel")
-    os.execute("rm -f " .. shell_quote(prefix) .. ".shard_" .. "*.cfrag " .. shell_quote(prefix) .. ".shard_" .. "*.count " .. shell_quote(prefix) .. ".shard_" .. "*.payload_bytes " .. shell_quote(prefix) .. ".shard_" .. "*.patch_count " .. shell_quote(prefix) .. ".shard_" .. "*.status " .. shell_quote(prefix) .. ".shard_" .. "*.log " .. shell_quote(prefix) .. ".shard_" .. "*.out")
+    os.execute("rm -f " .. shell_quote(prefix) .. ".shard_" .. "*.cfrag " .. shell_quote(prefix) .. ".shard_" .. "*.count " .. shell_quote(prefix) .. ".shard_" .. "*.payload_bytes " .. shell_quote(prefix) .. ".shard_" .. "*.status " .. shell_quote(prefix) .. ".shard_" .. "*.log " .. shell_quote(prefix) .. ".shard_" .. "*.out")
     local total = 0
     local payload_bytes = 0
-    local patch_count = 0
     local shard_prefixes = {}
     local launches = {}
     for i = 1, jobs do
@@ -337,9 +290,8 @@ local function build_sharded(jobs)
         end
         total = total + (tonumber(read_file(shard_prefix .. ".count"):match("%d+")) or 0)
         payload_bytes = payload_bytes + (tonumber(read_file(shard_prefix .. ".payload_bytes"):match("%d+")) or 0)
-        patch_count = patch_count + (tonumber(read_file(shard_prefix .. ".patch_count"):match("%d+")) or 0)
     end
-    return shard_prefixes, total, payload_bytes, patch_count
+    return shard_prefixes, total, payload_bytes
 end
 
 local function detected_jobs()
@@ -422,14 +374,13 @@ if jobs < 1 then jobs = 1 end
 jobs = math.floor(jobs)
 os.execute("rm -f " .. shell_quote(output_c_stem()) .. "_shard_" .. "*.c")
 
-local shard_prefixes, count, payload_bytes, patch_count = build_sharded(jobs)
+local shard_prefixes, count, payload_bytes = build_sharded(jobs)
 
 write_file(out_h, emit_header())
 write_source_from_shards(out_c, shard_prefixes)
 io.stderr:write(
     "embedded ", tostring(count), " Lalin MC bank entries, ",
-    tostring(payload_bytes or 0), " payload bytes, ",
-    tostring(patch_count or 0), " patches"
+    tostring(payload_bytes or 0), " payload bytes"
 )
 if jobs > 1 then io.stderr:write(" using ", tostring(jobs), " jobs") end
 io.stderr:write("\n")

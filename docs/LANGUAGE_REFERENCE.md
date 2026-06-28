@@ -48,6 +48,8 @@ lalin.loadfile(path)
 lalin.dofile(path, ...)
 lalin.eval(src [, name], ...)
 lalin.compile(name_or_decls [, decls_or_opts [, opts]])
+lalin.plan_luajit_artifact(decl [, opts])
+lalin.emit_luajit_plan_artifact(plan [, opts])
 lalin.emit_luajit_artifact(decl [, opts])
 lalin.emit_c_artifact(decl [, opts])
 lalin.format(value [, opts])
@@ -530,6 +532,7 @@ Emit a LuaJIT artifact:
 local artifact = lalin.emit_luajit_artifact(decls, {
   name = "Demo",
   path = "target/artifacts/demo.lua",
+  copy_patch = "bc",
 })
 
 artifact:write()
@@ -550,8 +553,31 @@ typed stencil plans
 
 The residual glue calls installed bank stencils at coarse function boundaries.
 It is not an element-level FFI lowering strategy. For debugging or direct
-copy-patch comparison, pass `native_residual = false` to
-`lalin.emit_luajit_artifact`.
+bank-call comparison, pass `native_residual = false` to
+`lalin.emit_luajit_artifact`. The generated banks are no-hole artifacts:
+selection picks an already materialized entry, and residual glue links calls to
+that entry.
+
+The MC path requires an already selected and built `MCStencilBank`; it does not
+build one during artifact emission. Use the explicit planning split when
+driving the native path from Lua:
+
+```lua
+local plan = lalin.plan_luajit_artifact(decls, {
+  name = "Demo",
+  copy_patch = "mc",
+})
+
+local bank = assert(plan.backend.build_mc_bank(plan.artifacts, {
+  stem = "demo_aot_bank",
+}))
+
+local artifact = lalin.emit_luajit_plan_artifact(plan, {
+  name = "Demo",
+  path = "target/artifacts/demo.lua",
+  mc_bank = bank,
+})
+```
 
 ## Non-Negotiable Rules
 

@@ -747,16 +747,87 @@ local function bind_context(T)
         return ctype_spelling(param.ty.abi) .. " " .. id_name(param.value)
     end
 
-    local function native_expr(e)
+    local native_expr
+    local native_place_expr
+
+    local native_binop = {
+        [Core.BinAdd] = "+",
+        [Core.BinSub] = "-",
+        [Core.BinMul] = "*",
+        [Core.BinDiv] = "/",
+        [Core.BinRem] = "%",
+        [Core.BinBitAnd] = "&",
+        [Core.BinBitOr] = "|",
+        [Core.BinBitXor] = "^",
+        [Core.BinShl] = "<<",
+        [Core.BinLShr] = ">>",
+        [Core.BinAShr] = ">>",
+    }
+
+    local native_cmpop = {
+        [Core.CmpEq] = "==",
+        [Core.CmpNe] = "!=",
+        [Core.CmpLt] = "<",
+        [Core.CmpLe] = "<=",
+        [Core.CmpGt] = ">",
+        [Core.CmpGe] = ">=",
+    }
+
+    local function native_ptr_offset_expr(e)
+        local offset = tonumber(e.const_offset or 0) or 0
+        local elem = tonumber(e.elem_size or 1) or 1
+        local terms = { native_expr(e.base), "(" .. native_expr(e.index) .. ")" }
+        if offset ~= 0 then
+            if elem ~= 0 and offset % elem == 0 then
+                terms[#terms + 1] = tostring(offset / elem)
+            else
+                unsupported(e, "native residual byte-granular pointer offset")
+            end
+        end
+        return "(" .. table.concat(terms, " + ") .. ")"
+    end
+
+    native_place_expr = function(p)
+        local cls = pvm.classof(p)
+        if cls == LJ.LJPlaceValue then return id_name(p.value) end
+        if cls == LJ.LJPlaceDeref then return "(*(" .. native_expr(p.addr) .. "))" end
+        if cls == LJ.LJPlaceField then return "(" .. native_place_expr(p.base) .. ")." .. sanitize(p.name) end
+        if cls == LJ.LJPlaceIndex then return "(" .. native_place_expr(p.base) .. ")[" .. native_expr(p.index) .. "]" end
+        unsupported(p, "native residual place")
+    end
+
+    native_expr = function(e)
         local cls = pvm.classof(e)
         if cls == LJ.LJExprValue then return id_name(e.value) end
         if cls == LJ.LJExprLiteral then return literal_expr(e) end
+        if cls == LJ.LJExprUnary then
+            if e.op == Core.UnaryNeg then return "(-(" .. native_expr(e.value) .. "))" end
+            if e.op == Core.UnaryNot then return "(!(" .. native_expr(e.value) .. "))" end
+            if e.op == Core.UnaryBitNot then return "(~(" .. native_expr(e.value) .. "))" end
+            unsupported(e.op, "native residual unary op")
+        end
+        if cls == LJ.LJExprIntBinary or cls == LJ.LJExprFloatBinary then
+            local op = native_binop[e.op]
+            if op == nil then unsupported(e.op, "native residual binary op") end
+            return "((" .. native_expr(e.lhs) .. ") " .. op .. " (" .. native_expr(e.rhs) .. "))"
+        end
+        if cls == LJ.LJExprCompare then
+            local op = native_cmpop[e.op]
+            if op == nil then unsupported(e.op, "native residual compare op") end
+            return "((" .. native_expr(e.lhs) .. ") " .. op .. " (" .. native_expr(e.rhs) .. "))"
+        end
+        if cls == LJ.LJExprSelect then
+            return "((" .. native_expr(e.cond) .. ") ? (" .. native_expr(e.then_value) .. ") : (" .. native_expr(e.else_value) .. "))"
+        end
         if cls == LJ.LJExprCast then
             return "((" .. ctype_spelling(e.to.abi) .. ")(" .. native_expr(e.value) .. "))"
         end
         if cls == LJ.LJExprCDataCast then
             return "((" .. ctype_spelling(e.ty) .. ")(" .. native_expr(e.value) .. "))"
         end
+        if cls == LJ.LJExprAddrOfPlace then return "(&(" .. native_place_expr(e.place) .. "))" end
+        if cls == LJ.LJExprPtrOffset then return native_ptr_offset_expr(e) end
+        if cls == LJ.LJExprLoad then return native_place_expr(e.place) end
         unsupported(e, "native residual expression")
     end
 
@@ -858,13 +929,14 @@ local function bind_context(T)
         table.sort(host_symbols)
         c_units[#c_units + 1] = ""
         table.insert(c_units, 1, "#include <stdint.h>")
-        line(out, 0, "local __lalin_native_residual_sessions = {}")
+        line(out, 0, "local __lalin_native_residual_sessions = debug.getregistry().__lalin_native_residual_sessions")
+        line(out, 0, "if __lalin_native_residual_sessions == nil then __lalin_native_residual_sessions = {}; debug.getregistry().__lalin_native_residual_sessions = __lalin_native_residual_sessions end")
         line(out, 0, "do")
         line(out, 1, "local __c_tcc = require('lalin.c_tcc')")
         line(out, 1, "local __native_source = " .. native_c_string(table.concat(c_units, "\n\n") .. "\n"))
         for _, symbol in ipairs(host_symbols) do
             line(out, 1, "if __lalin_luajit_stencil_symbols[" .. lua_string(symbol) .. "] == nil then error(" .. lua_string("missing LalinStencil symbol " .. symbol) .. ", 0) end")
-            line(out, 1, "__native_source = __native_source:gsub(" .. lua_string(native_symbol_addr_token(symbol)) .. ", string.format('0x%xULL', tonumber(ffi.cast('uintptr_t', __lalin_luajit_stencil_symbols[" .. lua_string(symbol) .. "]))))")
+            line(out, 1, "__native_source = __native_source:gsub(" .. lua_string(native_symbol_addr_token(symbol)) .. ", tostring(ffi.cast('uintptr_t', __lalin_luajit_stencil_symbols[" .. lua_string(symbol) .. "])))")
         end
         line(out, 1, "local __session, __err = __c_tcc.compile(__native_source, { libraries = { 'm' } })")
         line(out, 1, "if not __session then error((__err and __err.message) or 'native residual TCC compile failed', 0) end")

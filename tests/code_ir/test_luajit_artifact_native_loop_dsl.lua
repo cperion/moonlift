@@ -105,8 +105,16 @@ return unit. NativeLoopDSL {
 ]=]
 
 local session = lalin.use { scope = 'env' }
+
+local function emit_mc_artifact(decl, opts)
+    local plan = lalin.plan_luajit_artifact(decl, opts)
+    local bank = assert(plan.backend.build_mc_bank(plan.artifacts, { stem = opts.stem }))
+    opts.mc_bank = bank
+    return lalin.emit_luajit_plan_artifact(plan, opts)
+end
+
 local decl = assert(session:loadstring(source, 'test_luajit_artifact_native_loop_dsl.lua'))()
-local artifact = lalin.emit_luajit_artifact(decl, {
+local artifact = emit_mc_artifact(decl, {
     path = 'target/test_artifacts/test_luajit_artifact_native_loop_dsl.lua',
     name = 'NativeLoopDSL',
     stem = 'test_luajit_artifact_native_loop_dsl',
@@ -227,7 +235,7 @@ return unit. NativeReverseLoopDSL {
 ]=]
 
 local reverse_decl = assert(session:loadstring(reverse_source, 'test_luajit_artifact_native_reverse_loop_dsl.lua'))()
-local reverse_artifact = lalin.emit_luajit_artifact(reverse_decl, {
+local reverse_artifact = emit_mc_artifact(reverse_decl, {
     path = 'target/test_artifacts/test_luajit_artifact_native_reverse_loop_dsl.lua',
     name = 'NativeReverseLoopDSL',
     stem = 'test_luajit_artifact_native_reverse_loop_dsl',
@@ -361,7 +369,7 @@ return unit. NativeNDLoopDSL {
 ]=]
 
 local nd_decl = assert(session:loadstring(nd_source, 'test_luajit_artifact_native_nd_loop_dsl.lua'))()
-local nd_artifact = lalin.emit_luajit_artifact(nd_decl, {
+local nd_artifact = emit_mc_artifact(nd_decl, {
     path = 'target/test_artifacts/test_luajit_artifact_native_nd_loop_dsl.lua',
     name = 'NativeNDLoopDSL',
     stem = 'test_luajit_artifact_native_nd_loop_dsl',
@@ -399,10 +407,10 @@ local nd3_src = ffi.new('int32_t[12]', { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 }
 local nd3_dst = ffi.new('int32_t[12]')
 nd_loaded.nd3_shape(nd3_dst, nd3_src, 2, 3, 2, 12)
 assert(nd3_dst[0] == 1 and nd3_dst[5] == 6 and nd3_dst[11] == 12, 'native rank-3 lln.range_nd copy output')
-local nd_step_start_src = ffi.new('int32_t[6]', { 10, 20, 30, 40, 50, 60 })
-local nd_step_start_dst = ffi.new('int32_t[6]')
-nd_loaded.nd_stepped_start_shape(nd_step_start_dst, nd_step_start_src, 6)
-assert(nd_step_start_dst[0] == 10 and nd_step_start_dst[1] == 20 and nd_step_start_dst[2] == 30 and nd_step_start_dst[3] == 40 and nd_step_start_dst[4] == 50 and nd_step_start_dst[5] == 60, 'native stepped-start lln.range_nd copy output')
+local nd_step_start_src = ffi.new('int32_t[12]', { 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120 })
+local nd_step_start_dst = ffi.new('int32_t[12]')
+nd_loaded.nd_stepped_start_shape(nd_step_start_dst, nd_step_start_src, 12)
+assert(nd_step_start_dst[0] == 10 and nd_step_start_dst[5] == 60 and nd_step_start_dst[11] == 120, 'native stepped-start lln.range_nd copy output')
 local nd_col_dst = ffi.new('int32_t[6]')
 nd_loaded.nd_column_major_store(nd_col_dst, nd_src, 6)
 assert(nd_col_dst[0] == 1 and nd_col_dst[1] == 4 and nd_col_dst[2] == 2 and nd_col_dst[3] == 5 and nd_col_dst[4] == 3 and nd_col_dst[5] == 6, 'native column-major lln.range_nd store output')
@@ -436,7 +444,7 @@ return unit. NativeProducerHeadDSL {
 ]=]
 
 local producer_head_decl = assert(session:loadstring(producer_head_source, 'test_luajit_artifact_native_producer_heads.lua'))()
-local producer_head_artifact = lalin.emit_luajit_artifact(producer_head_decl, {
+local producer_head_artifact = emit_mc_artifact(producer_head_decl, {
     path = 'target/test_artifacts/test_luajit_artifact_native_producer_heads.lua',
     name = 'NativeProducerHeadDSL',
     stem = 'test_luajit_artifact_native_producer_heads',

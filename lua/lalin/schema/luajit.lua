@@ -600,33 +600,11 @@ return schema. LalinLuaJIT {
     protection [LalinLuaJIT.LJMCProtectionPolicy],
   },
 
-  sum. LJMCPatchKind {
-    LJMCPatchAbs32,
-    LJMCPatchAbs64,
-    LJMCPatchSymbol32,
-    LJMCPatchSymbol64,
-    LJMCPatchPc32,
-    LJMCPatchRel32,
-    LJMCPatchLocalAbs32,
-    LJMCPatchLocalAbs64,
-  },
-
-  product. LJMCPatchRecord {
-    interned,
-    offset [number],
-    kind [LalinLuaJIT.LJMCPatchKind],
-    reloc_type [optional [str]],
-    symbol [optional [str]],
-    ordinal [optional [number]],
-    addend [number],
-  },
-
   product. LJMCStencilEntry {
     symbol [str],
     section [str],
     binary [str],
     c_signature [str],
-    patches [many [LalinLuaJIT.LJMCPatchRecord]],
     artifact [LalinStencil.StencilArtifact],
   },
 
@@ -655,45 +633,12 @@ return schema. LalinLuaJIT {
     ffi [bool],
   },
 
-  sum. LJBCPatchKind {
-    LJBCPatchBytesExact,
-    LJBCPatchStringConstantExact,
-  },
-
-  sum. LJBCPatchValue {
-    LJBCPatchBytes {
-      variant_unique,
-      bytes [str],
-    },
-    LJBCPatchString {
-      variant_unique,
-      text [str],
-    },
-  },
-
-  product. LJBCPatchRecord {
-    interned,
-    field. name [str],
-    offset [number],
-    width [number],
-    kind [LalinLuaJIT.LJBCPatchKind],
-    expected [str],
-    reason [str],
-  },
-
-  product. LJBCPatchBinding {
-    interned,
-    field. name [str],
-    field. value [LalinLuaJIT.LJBCPatchValue],
-  },
-
   product. LJBCStencilEntry {
     field. id [LalinLuaJIT.LJBCStencilId],
     symbol [str],
     chunk_name [str],
     source [str],
     bytecode [str],
-    patches [many [LalinLuaJIT.LJBCPatchRecord]],
     plan [optional [LalinLuaTrace.LTFunction]],
     artifact [optional [LalinStencil.StencilArtifact]],
   },

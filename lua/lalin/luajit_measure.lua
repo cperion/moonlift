@@ -99,7 +99,7 @@ function M.measure_case(case)
             value = case.fn()
         end
         values[i] = value
-        times[i] = M.now() - t0
+        times[i] = (M.now() - t0) / rounds
     end
     end)
     jit.attach(cb)

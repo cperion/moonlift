@@ -194,14 +194,19 @@ This split is intentional:
   an element-by-element FFI strategy.
 - `copy_patch_bc` remains the bytecode semantic path and fallback/probe surface.
 
-LuaTrace lowering emits trusted LuaJIT-shaped templates from typed stencil
-plans. LuaJIT compiles those templates into bytecode. The BC bank stores
-compiled prototypes plus patch metadata. At materialization time, Lalin patches
-declared holes and loads the resulting module.
+LuaTrace lowering emits trusted LuaJIT-shaped functions from typed stencil
+plans. LuaJIT compiles those functions into bytecode. The BC bank stores exact
+compiled prototypes with artifact fingerprints; materialization loads the
+selected bytecode entry without bytecode holes.
 
-Native binary stencils are C-compiled `copy_patch_mc` bank entries. The emitted
-artifact installs those bank bytes, then the residual JIT compiles thin TCC
-wrappers that call the installed bank stencils at coarse function boundaries.
+Native binary stencils are C-compiled `copy_patch_mc` bank entries with no
+runtime holes. The emitted artifact installs those bank bytes, then the residual
+JIT compiles thin TCC wrappers that call the installed bank stencils at coarse
+function boundaries.
+Artifact emission does not perform an ad hoc MC bank build; native emission is
+plan -> prebuilt bank -> residual glue. The direct API enforces this by requiring
+`mc_bank` for `copy_patch = "mc"`, while `copy_patch = "bc"` may still build a
+local bytecode bank because BC is the semantic artifact itself.
 
 The backend must consume semantic facts honestly:
 

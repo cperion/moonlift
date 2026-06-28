@@ -671,8 +671,9 @@ copy+residual artifact can still use TCC glue around the resulting bank entry.
 - [x] Probe unbounded SOAC order-1. Order-1/input-count-1 profiles at 4,955
   cells with an estimated 615,270-byte payload. Order-1/input-count-3 profiles
   at 24,761 cells with an estimated 4,044,000-byte payload and actual bank
-  generation completed in 15.38 seconds with 16 jobs: 24,761 entries,
-  2,178,242 payload bytes, 10 patches, and 256 MiB max RSS.
+	  generation completed in 15.38 seconds with 16 jobs: 24,761 entries,
+	  2,178,242 payload bytes, and 256 MiB max RSS. MC banks are now no-hole
+	  artifacts, so patch counts are no longer tracked.
 - [ ] Replace the recursive eager expression-construction profile with a true
   lazy metastencil enumerator if unbounded SOAC order-3/input-count-3 must
   complete without a caller-provided payload target.

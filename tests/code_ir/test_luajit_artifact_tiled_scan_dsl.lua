@@ -33,10 +33,16 @@ return unit. NativeTiledScanDSL {
 
 local session = lalin.use { scope = 'env' }
 local decl = assert(session:loadstring(source, 'test_luajit_artifact_tiled_scan_dsl.lua'))()
-local artifact = lalin.emit_luajit_artifact(decl, {
+local plan = lalin.plan_luajit_artifact(decl, {
+    name = 'NativeTiledScanDSL',
+    stem = 'test_luajit_artifact_tiled_scan_dsl',
+})
+local bank = assert(plan.backend.build_mc_bank(plan.artifacts, { stem = 'test_luajit_artifact_tiled_scan_dsl' }))
+local artifact = lalin.emit_luajit_plan_artifact(plan, {
     path = 'target/test_artifacts/test_luajit_artifact_tiled_scan_dsl.lua',
     name = 'NativeTiledScanDSL',
     stem = 'test_luajit_artifact_tiled_scan_dsl',
+    mc_bank = bank,
 })
 
 assert(#artifact.artifacts == 1, 'tiled_nd scan source should select one native stencil artifact')

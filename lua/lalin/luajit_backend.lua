@@ -215,7 +215,6 @@ local function bind_context(T)
                 stem = opts.stem,
                 id = opts.bc_bank_id,
                 target = opts.bc_target,
-                patch_bindings = opts.bc_patch_bindings,
                 env = opts.bc_env,
             })
             if realized ~= nil and fallback_reason ~= nil then
@@ -235,7 +234,6 @@ local function bind_context(T)
         end
         local realized, err, source = StencilBank.realize_mc_artifacts(artifacts, {
             mc_bank = mc_bank,
-            patch_values = opts.patch_values,
             install_policy = opts.install_policy,
         })
         if realized == nil and opts.allow_bc_fallback then return realize_bc(err) end

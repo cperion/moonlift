@@ -90,12 +90,20 @@ return unit. SoABench {
 
 local session = lalin.use { scope = "env" }
 local decl = assert(session:loadstring(source, "bench_luajit_stencil_soa.lua"))()
-local artifact = lalin.emit_luajit_artifact(decl, {
-    path = "target/luajit_bench/bench_luajit_stencil_soa_artifact.lua",
+local plan = lalin.plan_luajit_artifact(decl, {
     name = "SoABench",
+    stem = "bench_luajit_stencil_soa",
+})
+local bank = assert(plan.backend.build_mc_bank(plan.artifacts, {
     stem = "bench_luajit_stencil_soa",
     cc = cc,
     cflags = stencil_cflags,
+}))
+local artifact = lalin.emit_luajit_plan_artifact(plan, {
+    path = "target/luajit_bench/bench_luajit_stencil_soa_artifact.lua",
+    name = "SoABench",
+    stem = "bench_luajit_stencil_soa",
+    mc_bank = bank,
 })
 local compiled = assert(loadfile(artifact.path))()
 

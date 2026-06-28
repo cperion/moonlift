@@ -1396,7 +1396,6 @@ local function bind_context(T)
                 symbol = symbol,
                 chunk_name = "@lalin_luajit_bc_stencil/" .. tostring(symbol),
                 source = bc_stencil_source(artifact),
-                holes = opts.holes,
                 artifact = artifact,
             }
             if entry == nil then return nil, err end
@@ -1409,12 +1408,6 @@ local function bind_context(T)
         })
         if bank == nil then return nil, err end
         return bank
-    end
-
-    local function bindings_for_symbol(opts, symbol)
-        local bindings = opts and (opts.patch_bindings or opts.bc_patch_bindings) or nil
-        if bindings == nil then return nil end
-        return bindings[symbol] or bindings
     end
 
     function api.realize_bc_artifacts(artifacts, opts)
@@ -1447,7 +1440,7 @@ local function bind_context(T)
                     return nil, "copy_patch_bc: artifact fingerprint mismatch for " .. tostring(symbol)
                 end
             end
-            local fn, err = BCBank.load_symbol(bank, symbol, bindings_for_symbol(opts, symbol), {
+            local fn, err = BCBank.load_symbol(bank, symbol, {
                 chunk_name = "@lalin_luajit_bc_stencil/load/" .. tostring(symbol),
                 env = env,
             })

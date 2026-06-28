@@ -40,7 +40,6 @@ local function compile_artifacts(artifacts, opts)
         mc_bank = bank,
         preamble = opts.preamble,
         ffi_preamble = opts.ffi_preamble,
-        patch_values = opts.patch_values,
     })
     if realization == nil then return nil, realize_err, source end
     return { kind = "MCStencilBenchmarkBuild", bank = bank, realization = realization, symbols = realization.symbols, source = source }, nil, source

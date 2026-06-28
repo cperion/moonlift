@@ -8,7 +8,6 @@ function M.compile(T, artifacts, opts)
     local realization, realize_err = Bank.realize_mc_artifacts(artifacts, {
         mc_bank = bank,
         ffi_preamble = opts.ffi_preamble,
-        patch_values = opts.patch_values,
     })
     if realization == nil then return nil, realize_err, source end
     return {

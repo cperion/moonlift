@@ -635,15 +635,9 @@ function M.emit_c_artifact(decl, path_or_opts, name, opts)
     return artifact
 end
 
-function M.emit_luajit_artifact(decl, path_or_opts, name, opts)
-    if type(path_or_opts) == "table" and opts == nil then
-        opts = path_or_opts
-        path_or_opts = nil
-    end
+local function prepare_luajit_artifact(decl, name, opts)
     opts = opts or {}
-    local path = path_or_opts or opts.path
     name = name or opts.name or "lalin_luajit"
-
     local function sanitize(s)
         s = tostring(s or "x"):gsub("[^%w_]", "_")
         if s == "" then s = "x" end
@@ -695,52 +689,15 @@ function M.emit_luajit_artifact(decl, path_or_opts, name, opts)
         error("emit_luajit_artifact rejected module: " .. tostring(rejects[1].reason or rejects[1]), 2)
     end
 
-    local mc_bank = opts.mc_bank
-    local bc_bank = opts.bc_bank
-    if mc_bank == nil and #(artifacts or {}) > 0 and copy_patch == "mc" then
-        local bank_opts = opts.mc_bank_opts or {}
-        bank_opts.stem = bank_opts.stem or opts.stem or sanitize(name)
-        bank_opts.dir = bank_opts.dir or opts.mc_bank_dir
-        bank_opts.c_decls = bank_opts.c_decls or opts.c_decls or opts.decls
-        bank_opts.ffi_preamble = bank_opts.ffi_preamble or opts.ffi_preamble
-        bank_opts.cc = bank_opts.cc or opts.cc
-        bank_opts.cflags = bank_opts.cflags or opts.cflags
-        bank_opts.arch = bank_opts.arch or opts.arch
-        bank_opts.os = bank_opts.os or opts.os
-        bank_opts.abi = bank_opts.abi or opts.abi
-        bank_opts.pointer_bits = bank_opts.pointer_bits or opts.pointer_bits
-        bank_opts.endian = bank_opts.endian or opts.endian
-        mc_bank = assert(Backend.build_mc_bank(artifacts, bank_opts))
-    end
-    if bc_bank == nil and #(artifacts or {}) > 0 and copy_patch == "bc" then
-        bc_bank = assert(Backend.build_bc_bank(artifacts, {
-            stem = opts.stem or sanitize(name),
-            id = opts.bc_bank_id,
-            target = opts.bc_target,
-        }))
-    end
-
-    local source, err = Backend.emit_lua_artifact(lj_module, artifacts, {
-        mc_bank = mc_bank,
-        bc_bank = bc_bank,
-        path = path,
-        chunk_name = opts.chunk_name or name,
-        patch_values = opts.patch_values,
-        bc_patch_bindings = opts.bc_patch_bindings,
-        copy_patch = copy_patch,
-        native_residual = opts.native_residual,
-        tcc_residual = opts.tcc_residual,
-    })
-    if source == nil then error(err or "emit_luajit_artifact failed", 2) end
-
-    local artifact = {
-        kind = "LuaJITSourceArtifact",
-        source = source,
-        path = path,
+    return {
+        kind = "LuaJITArtifactPlan",
         name = name,
-        unit = module_ast,
+        copy_patch = copy_patch,
+        sanitize = sanitize,
+        module_ast = module_ast,
         checked = checked,
         code_result = code_result,
+        backend = Backend,
         lj_module = lj_module,
         facts = facts,
         stencil_plan = facts.stencil_plan or facts.stencil,
@@ -748,12 +705,68 @@ function M.emit_luajit_artifact(decl, path_or_opts, name, opts)
         exec_plan = facts.exec_plan or facts.exec,
         artifacts = artifacts,
         rejects = rejects,
+    }
+end
+
+function M.plan_luajit_artifact(decl, opts)
+    opts = opts or {}
+    return prepare_luajit_artifact(decl, opts.name or "lalin_luajit", opts)
+end
+
+function M.emit_luajit_plan_artifact(plan, path_or_opts, name, opts)
+    if type(path_or_opts) == "table" and opts == nil then
+        opts = path_or_opts
+        path_or_opts = nil
+    end
+    opts = opts or {}
+    local path = path_or_opts or opts.path
+    name = name or opts.name or plan.name or "lalin_luajit"
+
+    local mc_bank = opts.mc_bank
+    local bc_bank = opts.bc_bank
+    if mc_bank == nil and #(plan.artifacts or {}) > 0 and plan.copy_patch == "mc" then
+        error("emit_luajit_plan_artifact: copy_patch='mc' requires a prebuilt MCStencilBank; ad hoc bank builds are not part of the JIT path", 2)
+    end
+    if bc_bank == nil and #(plan.artifacts or {}) > 0 and plan.copy_patch == "bc" then
+        bc_bank = assert(plan.backend.build_bc_bank(plan.artifacts, {
+            stem = opts.stem or plan.sanitize(name),
+            id = opts.bc_bank_id,
+            target = opts.bc_target,
+        }))
+    end
+
+    local source, err = plan.backend.emit_lua_artifact(plan.lj_module, plan.artifacts, {
+        mc_bank = mc_bank,
+        bc_bank = bc_bank,
+        path = path,
+        chunk_name = opts.chunk_name or name,
+        copy_patch = plan.copy_patch,
+        native_residual = opts.native_residual,
+        tcc_residual = opts.tcc_residual,
+    })
+    if source == nil then error(err or "emit_luajit_plan_artifact failed", 2) end
+
+    local artifact = {
+        kind = "LuaJITSourceArtifact",
+        source = source,
+        path = path,
+        name = name,
+        unit = plan.module_ast,
+        checked = plan.checked,
+        code_result = plan.code_result,
+        lj_module = plan.lj_module,
+        facts = plan.facts,
+        stencil_plan = plan.stencil_plan,
+        luajit_stencil_machines = plan.luajit_stencil_machines,
+        exec_plan = plan.exec_plan,
+        artifacts = plan.artifacts,
+        rejects = plan.rejects,
         mc_bank = mc_bank,
         bc_bank = bc_bank,
     }
     function artifact:write(write_path)
         write_path = write_path or self.path
-        assert(write_path, "emit_luajit_artifact artifact:write requires a path")
+        assert(write_path, "emit_luajit_plan_artifact artifact:write requires a path")
         local dir = tostring(write_path):match("^(.*)/[^/]+$")
         if dir ~= nil and dir ~= "" then os.execute("mkdir -p '" .. dir:gsub("'", "'\\''") .. "'") end
         local f = assert(io.open(write_path, "wb"))
@@ -763,6 +776,19 @@ function M.emit_luajit_artifact(decl, path_or_opts, name, opts)
         return self
     end
     return artifact
+end
+
+function M.emit_luajit_artifact(decl, path_or_opts, name, opts)
+    if type(path_or_opts) == "table" and opts == nil then
+        opts = path_or_opts
+        path_or_opts = nil
+    end
+    opts = opts or {}
+    local path = path_or_opts or opts.path
+    name = name or opts.name or "lalin_luajit"
+
+    local plan = prepare_luajit_artifact(decl, name, opts)
+    return M.emit_luajit_plan_artifact(plan, path, name, opts)
 end
 
 

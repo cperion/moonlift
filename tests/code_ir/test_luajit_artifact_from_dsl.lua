@@ -841,10 +841,16 @@ return unit. CopyPatchRegression {
 
 local session = lalin.use { scope = 'env' }
 local decl = assert(session:loadstring(source, 'test_luajit_artifact_from_dsl.lua'))()
-local artifact = lalin.emit_luajit_artifact(decl, {
+local plan = lalin.plan_luajit_artifact(decl, {
+    name = 'CopyPatchRegression',
+    stem = 'test_luajit_artifact_from_dsl',
+})
+local bank = assert(plan.backend.build_mc_bank(plan.artifacts, { stem = 'test_luajit_artifact_from_dsl' }))
+local artifact = lalin.emit_luajit_plan_artifact(plan, {
     path = 'target/test_artifacts/test_luajit_artifact_from_dsl.lua',
     name = 'CopyPatchRegression',
     stem = 'test_luajit_artifact_from_dsl',
+    mc_bank = bank,
 })
 
 assert(artifact.kind == 'LuaJITSourceArtifact')
