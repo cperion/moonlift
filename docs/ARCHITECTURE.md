@@ -45,7 +45,7 @@ The `llbl` member is the identity element of language composition. Composing a
 language with `llbl.core_language()` returns the other language when no rename or
 preference override is requested. Every language therefore shares the same bare
 substrate by default: symbol creation, source/generated symbol provenance,
-origin tracking, diagnostics, fragments, GPS regions, the formatting document
+origin tracking, diagnostics, fragments, regions, the formatting document
 model, and language export ownership.
 
 The identity-owned service surface is:
