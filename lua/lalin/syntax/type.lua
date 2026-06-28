@@ -4,33 +4,35 @@ local Ast = require("lalin.syntax.ast")
 
 local Type = {}
 
-local function parse_name_path(lex)
-  local first = lex:expect_name("type name")
-  local parts = { first.value }
-  while lex:next_if(".") do
-    parts[#parts + 1] = lex:expect_name("type path segment").value
+local lua_keywords = {
+  ["and"] = true, ["break"] = true, ["do"] = true, ["else"] = true,
+  ["elseif"] = true, ["end"] = true, ["false"] = true, ["for"] = true,
+  ["function"] = true, ["if"] = true, ["in"] = true, ["local"] = true,
+  ["nil"] = true, ["not"] = true, ["or"] = true, ["repeat"] = true,
+  ["return"] = true, ["then"] = true, ["true"] = true, ["until"] = true,
+  ["while"] = true,
+}
+
+local function extract_refs(src)
+  local refs, seen = {}, {}
+  for name in tostring(src):gmatch("[%a_][%w_]*") do
+    if not lua_keywords[name] and not seen[name] then
+      seen[name] = true
+      refs[#refs + 1] = name
+    end
   end
-  return parts, first, lex.last
+  return refs
 end
 
 function Type.parse(lex, ctx)
   local start = lex:peek()
-  local parts = parse_name_path(lex)
-  local name = table.concat(parts, ".")
-  local args = nil
-  if lex:next_if("[") then
-    args = {}
-    if not lex:next_if("]") then
-      repeat
-        args[#args + 1] = Type.parse(lex, ctx)
-      until not lex:next_if(",")
-      lex:expect("]")
-    end
+  if start.value == "[" then
+    local raw, open, close = lex:consume_balanced_from_open("[", "]")
+    local refs = extract_refs(raw)
+    for _, r in ipairs(refs) do if ctx and ctx.add_ref then ctx:add_ref(r) end end
+    return Ast.node("HostEscape", { source = raw, refs = refs, kind = "type" }, Ast.origin(lex, open, close, "parsed:type_escape"))
   end
-  return Ast.node(args and "TypeApply" or "TypeName", {
-    name = name,
-    args = args,
-  }, Ast.origin(lex, start, lex.last, "parsed:type"))
+  lex:error_at(start, "type positions evaluate Lua type values with `[ ... ]`")
 end
 
 function Type.parse_field(lex, ctx)
@@ -45,9 +47,13 @@ function Type.parse_field(lex, ctx)
     name = start.value
     anonymous = false
   end
-  lex:expect(":")
   local ty = Type.parse(lex, ctx)
   return Ast.node("Field", { name = name, type = ty, anonymous = anonymous }, Ast.origin(lex, t, lex.last, "parsed:field"))
+end
+
+function Type.parse_anonymous_field(lex, ctx)
+  local start = lex:peek()
+  return Ast.node("Field", { name = "", type = Type.parse(lex, ctx), anonymous = true }, Ast.origin(lex, start, lex.last, "parsed:field"))
 end
 
 function Type.parse_params(lex, ctx)

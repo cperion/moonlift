@@ -40,10 +40,24 @@ local function active_languages(opts)
   return out
 end
 
+local function default_env()
+  return require("lalin.dsl").make_env { no_namespaces = true }
+end
+
+local function merge_env(user_env)
+  local base = default_env()
+  if user_env == nil then return base end
+  local out = {}
+  for k, v in pairs(base) do out[k] = v end
+  for k, v in pairs(user_env) do out[k] = v end
+  return out
+end
+
 local function compile_opts(opts)
   opts = copy_opts(opts)
   opts.active_languages = active_languages(opts)
   opts.allow_import = false
+  opts.env = merge_env(opts.env)
   return opts
 end
 

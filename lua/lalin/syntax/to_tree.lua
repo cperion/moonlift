@@ -16,6 +16,16 @@ local function bind_context(T)
   local C, Ty, B, Tr = T.LalinCore, T.LalinType, T.LalinBind, T.LalinTree
 
   local ToTree = {}
+  local TypeValue = require("lalin.syntax.type_value")(T)
+  local stmt_list_tag = {}
+
+  local function stmt_list(items)
+    return { [stmt_list_tag] = true, items = items or {} }
+  end
+
+  local function is_stmt_list(value)
+    return type(value) == "table" and value[stmt_list_tag] == true
+  end
 
   local binop_map = {
     add = C.BinAdd, sub = C.BinSub, mul = C.BinMul, div = C.BinDiv,
@@ -105,7 +115,14 @@ local function bind_context(T)
 
     elseif tag == "HostEscape" then
       if parsed.resolved then
-        return ToTree.literal(parsed.value)
+        local value = parsed.value
+        if type(value) == "table" then
+          local value_cls = pvm.classof(value)
+          if value_cls then return value end
+          if value.tag == "ExprFragment" then return ToTree.expr(value.expr) end
+          if value.tag then return ToTree.expr(value) end
+        end
+        return ToTree.literal(value)
       end
       return Tr.ExprLit(Tr.ExprSurface, C.LitNil)
 
@@ -134,43 +151,23 @@ local function bind_context(T)
     error("parsed_to_tree: unsupported expression tag " .. tostring(tag) .. " in " .. tostring(parsed.name or ""), 2)
   end
 
-  -- Convert a parsed type node to LalinType.Type
-  local scalars = {
-    void = C.ScalarVoid, bool = C.ScalarBool,
-    i8 = C.ScalarI8, i16 = C.ScalarI16,
-    i32 = C.ScalarI32, i64 = C.ScalarI64,
-    u8 = C.ScalarU8, u16 = C.ScalarU16,
-    u32 = C.ScalarU32, u64 = C.ScalarU64,
-    f32 = C.ScalarF32, f64 = C.ScalarF64,
-    index = C.ScalarIndex, rawptr = C.ScalarRawPtr,
-  }
-  local type_ctors = {
-    ptr = function(args)
-      return Ty.TPtr(args[1] or Ty.TScalar(C.ScalarVoid))
-    end,
-    array = function(args)
-      return Ty.TArray(Ty.ArrayLenStatic(0), args[1] or Ty.TScalar(C.ScalarVoid))
-    end,
-  }
+  -- Convert a parsed type node to LalinType.Type. Public parsed type positions
+  -- are always host escapes: `[i32]`, `[ptr [i32]]`, `[some_lua_type]`.
   function ToTree.parsed_type(ptype)
     if not ptype then return Ty.TScalar(C.ScalarVoid) end
-    if ptype.tag == "TypeName" then
-      if scalars[ptype.name] then
-        return Ty.TScalar(scalars[ptype.name])
+    local cls = pvm.classof(ptype)
+    if cls then return ptype end
+    if ptype.tag == "HostEscape" then
+      if not ptype.resolved then error("parsed_to_tree: unresolved type host escape", 2) end
+      local value = ptype.value
+      local projected = TypeValue.type(value)
+      if projected ~= nil then return projected end
+      if type(value) == "table" and value.tag then
+        return ToTree.parsed_type(value)
       end
-      return Ty.TNamed(Ty.TypeRefPath(C.Path({ C.Name(ptype.name) })))
-    elseif ptype.tag == "TypeApply" then
-      local ctor = type_ctors[ptype.name]
-      if ctor then
-        local args = {}
-        for i, a in ipairs(ptype.args or {}) do
-          args[i] = ToTree.parsed_type(a)
-        end
-        return ctor(args)
-      end
-      return Ty.TNamed(Ty.TypeRefPath(C.Path({ C.Name(ptype.name) })))
+      error("parsed_to_tree: type host escape produced unsupported value " .. tostring(value), 2)
     end
-    return Ty.TScalar(C.ScalarVoid)
+    error("parsed_to_tree: unsupported parsed type tag " .. tostring(ptype.tag) .. "; type positions use `[ ... ]`", 2)
   end
 
   --- Convert a plain Lua value to a LalinTree expression literal.
@@ -209,8 +206,31 @@ local function bind_context(T)
       return Tr.PlaceDot(Tr.PlaceSurface, ToTree.place(parsed.base), parsed.name)
     elseif tag == "Paren" then
       return ToTree.place(parsed.value)
+    elseif tag == "HostEscape" then
+      if not parsed.resolved then error("parsed_to_tree: unresolved place host escape", 2) end
+      return ToTree.place(parsed.value)
     end
     error("parsed_to_tree: unsupported place tag " .. tostring(tag), 2)
+  end
+
+  function ToTree.stmt_splice(value)
+    if type(value) ~= "table" then
+      error("parsed_to_tree: statement splice expected statement fragment, got " .. type(value), 2)
+    end
+    local cls = pvm.classof(value)
+    if cls then return value end
+    if value.tag == "StmtFragment" then return stmt_list(ToTree.stmts(value.body)) end
+    if value.tag then return ToTree.stmt(value) end
+    local out = {}
+    for _, stmt in ipairs(value) do
+      local converted = ToTree.stmt_splice(stmt)
+      if is_stmt_list(converted) then
+        for _, item in ipairs(converted.items) do out[#out + 1] = item end
+      else
+        out[#out + 1] = converted
+      end
+    end
+    return stmt_list(out)
   end
 
   --- Convert a parsed statement node to a LalinTree.Stmt.
@@ -247,24 +267,16 @@ local function bind_context(T)
         parsed.init and ToTree.expr(parsed.init) or ToTree.literal(0))
 
     elseif tag == "StmtExpr" then
+      if parsed.expr and parsed.expr.tag == "HostEscape" and parsed.expr.resolved then
+        return ToTree.stmt_splice(parsed.expr.value)
+      end
       return Tr.StmtExpr(Tr.StmtSurface, ToTree.expr(parsed.expr))
 
     elseif tag == "StmtIf" then
-      local then_body = {}
-      for i, s in ipairs(parsed.then_body or {}) do
-        then_body[i] = ToTree.stmt(s)
-      end
-      local else_body = {}
-      if parsed.else_body then
-        for i, s in ipairs(parsed.else_body) do
-          else_body[i] = ToTree.stmt(s)
-        end
-      end
+      local then_body = ToTree.stmts(parsed.then_body or {})
+      local else_body = parsed.else_body and ToTree.stmts(parsed.else_body) or {}
       for _, elseif_block in ipairs(parsed.elseif_blocks or {}) do
-        local inner_body = {}
-        for i, s in ipairs(elseif_block.body or {}) do
-          inner_body[i] = ToTree.stmt(s)
-        end
+        local inner_body = ToTree.stmts(elseif_block.body or {})
         else_body = {
           Tr.StmtIf(Tr.StmtSurface, ToTree.expr(elseif_block.cond), inner_body, else_body),
         }
@@ -297,8 +309,11 @@ local function bind_context(T)
     elseif tag == "StmtEmit" then
       return Tr.StmtExpr(Tr.StmtSurface, ToTree.expr(parsed.callee))
 
+    elseif tag == "StmtFragment" then
+      return stmt_list(ToTree.stmts(parsed.body))
+
     elseif tag == "StmtFold" or tag == "StmtScan" then
-      error("parsed_to_tree: " .. tostring(tag) .. " may only appear directly inside a parsed for/range loop", 2)
+      error("parsed_to_tree: " .. tostring(tag) .. " may only appear directly inside a parsed loop", 2)
     end
 
     error("parsed_to_tree: unsupported statement tag " .. tostring(tag), 2)
@@ -307,8 +322,13 @@ local function bind_context(T)
   --- Convert an array of parsed statement nodes.
   function ToTree.stmts(list)
     local out = {}
-    for i, s in ipairs(list or {}) do
-      out[i] = ToTree.stmt(s)
+    for _, s in ipairs(list or {}) do
+      local converted = ToTree.stmt(s)
+      if is_stmt_list(converted) then
+        for _, item in ipairs(converted.items) do out[#out + 1] = item end
+      else
+        out[#out + 1] = converted
+      end
     end
     return out
   end

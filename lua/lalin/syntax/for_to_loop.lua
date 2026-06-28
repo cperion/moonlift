@@ -171,8 +171,10 @@ local function bind_context(T)
 
     local body_src, sink = split_sink(parsed.body)
     local result_ty = parsed.result_type and to_tree.parsed_type(parsed.result_type) or nil
+    if result_ty == nil and sink ~= nil and sink.tag == "StmtFold" then
+      result_ty = to_tree.parsed_type(sink.type)
+    end
     if result_ty ~= nil and sink == nil then error("parsed ND loop result type requires a fold or scan sink", 2) end
-    if sink ~= nil and sink.tag == "StmtFold" and result_ty == nil then error("parsed fold requires a loop result type", 2) end
     if sink ~= nil and sink.tag == "StmtScan" and axis_count > 1 and sink.axis == nil then error("parsed scan over ND loop requires `over`", 2) end
 
     local flat_name = "__lln_flat_" .. tag
@@ -475,11 +477,11 @@ local function bind_context(T)
 
     -- Build loop body: original body statements + tail jump back to loop header
     local body_src, sink = split_sink(parsed.body)
+    if result_ty == nil and sink ~= nil and sink.tag == "StmtFold" then
+      result_ty = to_tree.parsed_type(sink.type)
+    end
     if result_ty ~= nil and sink == nil then
       error("parsed for loop result type requires a fold or scan sink", 2)
-    end
-    if sink ~= nil and sink.tag == "StmtFold" and result_ty == nil then
-      error("parsed fold requires a loop result type", 2)
     end
     local body_stmts = to_tree.stmts(body_src)
     local index_ref = Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(index))

@@ -21,6 +21,7 @@ local function wrap_ast(ast, ctx, opts)
   if ast.name and (ast.tag == "DeclFunc" or ast.tag == "DeclStruct" or ast.tag == "DeclUnion" or ast.tag == "DeclRegion" or ast.tag == "DeclModule") then
     outputs[1] = { name = ast.name }
   end
+  local lua_binding = ctx.lua_binding
   return Constructor.new {
     owner = "lalin",
     kind = ast.tag,
@@ -28,6 +29,7 @@ local function wrap_ast(ast, ctx, opts)
     channel = opts.channel or "parsed:lalin",
     refs = refs,
     outputs = outputs,
+    lua_binding = lua_binding,
     origin = ast.origin,
     ast = ast,
     build = function(env)
@@ -35,6 +37,11 @@ local function wrap_ast(ast, ctx, opts)
       -- the exact point where Lua lexical values become Lalin constants,
       -- fragments, types, or diagnostics in a full Lalin adapter.
       local copy = ast -- AST is intentionally shared; callsites normally build once.
+      if copy.name == nil and copy.tag == "DeclFunc" and lua_binding and lua_binding.name then
+        copy.name = lua_binding.name
+        copy.public_name = copy.public_name or lua_binding.name
+        copy.debug_name = copy.debug_name or lua_binding.name
+      end
       Ast.resolve_host_escapes(copy, env)
       return copy
     end,
@@ -108,51 +115,45 @@ function LalinSyntax.to_module(parsed_decls, name, T)
     require("lalin.schema_projection")(T)
   end
   local to_tree = require("lalin.syntax.to_tree")(T)
+  local TypeValue = require("lalin.syntax.type_value")(T)
   local Tr, C, B = T.LalinTree, T.LalinCore, T.LalinBind
 
   name = name or "parsed"
   local decls = {}
+  local anon_id = 0
 
-  -- Convert parsed type (e.g. "i32", "ptr[i32]", "array(f64, 4)") to LalinType.Type
+  local function sanitize_ident(s)
+    s = tostring(s or ""):gsub("[^%w_]", "_")
+    if s == "" then return nil end
+    if s:match("^%d") then s = "_" .. s end
+    return s
+  end
+
+  local function compiler_name(parsed)
+    if parsed.name ~= nil and parsed.name ~= "" then return parsed.name end
+    local public = sanitize_ident(parsed.public_name or parsed.debug_name)
+    anon_id = anon_id + 1
+    if public ~= nil then return "__lln_" .. public .. "_" .. tostring(anon_id) end
+    return "__lln_fn_" .. tostring(anon_id)
+  end
+
+  -- Convert parsed type escapes (`[i32]`, `[ptr [i32]]`, `[some_lua_type]`)
+  -- to LalinType.Type values in the active compiler context.
   local function parsed_type(ptype)
     if not ptype then return T.LalinType.TScalar(C.ScalarVoid) end
-    local Ty = T.LalinType
-    local scalars = {
-      void = C.ScalarVoid, bool = C.ScalarBool,
-      i8 = C.ScalarI8, i16 = C.ScalarI16,
-      i32 = C.ScalarI32, i64 = C.ScalarI64,
-      u8 = C.ScalarU8, u16 = C.ScalarU16,
-      u32 = C.ScalarU32, u64 = C.ScalarU64,
-      f32 = C.ScalarF32, f64 = C.ScalarF64,
-      index = C.ScalarIndex, rawptr = C.ScalarRawPtr,
-    }
-    -- Known type constructors with special ASDL representation
-    local type_ctors = {
-      ptr = function(args)
-        return Ty.TPtr(args[1] or Ty.TScalar(C.ScalarVoid))
-      end,
-      array = function(args)
-        return Ty.TArray(Ty.ArrayLenStatic(0), args[1] or Ty.TScalar(C.ScalarVoid))
-      end,
-    }
-    if ptype.tag == "TypeName" then
-      if scalars[ptype.name] then
-        return Ty.TScalar(scalars[ptype.name])
+    local cls = pvm.classof(ptype)
+    if cls then return ptype end
+    if ptype.tag == "HostEscape" then
+      if not ptype.resolved then error("parsed_to_module: unresolved type host escape", 2) end
+      local value = ptype.value
+      local projected = TypeValue.type(value)
+      if projected ~= nil then return projected end
+      if type(value) == "table" and value.tag then
+        return parsed_type(value)
       end
-      return Ty.TNamed(Ty.TypeRefPath(C.Path({ C.Name(ptype.name) })))
-    elseif ptype.tag == "TypeApply" then
-      local ctor = type_ctors[ptype.name]
-      if ctor then
-        local args = {}
-        for i, a in ipairs(ptype.args or {}) do
-          args[i] = parsed_type(a)
-        end
-        return ctor(args)
-      end
-      -- Fallback: treat as named application
-      return Ty.TNamed(Ty.TypeRefPath(C.Path({ C.Name(ptype.name) })))
+      error("parsed_to_module: type host escape produced unsupported value " .. tostring(value), 2)
     end
-    return Ty.TScalar(C.ScalarVoid)
+    error("parsed_to_module: unsupported parsed type tag " .. tostring(ptype.tag) .. "; type positions use `[ ... ]`", 2)
   end
 
   -- Helper: convert a single parsed decl to a Tr.Item for the module.
@@ -208,6 +209,7 @@ function LalinSyntax.to_module(parsed_decls, name, T)
   local function decl_to_item(parsed)
     if not parsed then return nil end
     if parsed.tag == "DeclFunc" then
+      local fname = compiler_name(parsed)
       local params = {}
       for i, p in ipairs(parsed.params or {}) do
         params[i] = T.LalinType.Param(p.name, parsed_type(p.type))
@@ -228,8 +230,8 @@ function LalinSyntax.to_module(parsed_decls, name, T)
         body = { Tr.StmtReturnVoid(Tr.StmtSurface) }
       end
       local func_spec = #contracts > 0
-        and Tr.FuncLocalContract(parsed.name, params, result_ty, contracts, body)
-        or Tr.FuncLocal(parsed.name, params, result_ty, body)
+        and Tr.FuncLocalContract(fname, params, result_ty, contracts, body)
+        or Tr.FuncLocal(fname, params, result_ty, body)
       return Tr.ItemFunc(func_spec)
     elseif parsed.tag == "DeclStruct" then
       local fields = {}

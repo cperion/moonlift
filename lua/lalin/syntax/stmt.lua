@@ -210,19 +210,14 @@ function Stmt.parse(lex, ctx)
     local index = indexes[1]
     lex:expect("in")
     local producer, args = parse_loop_domain(lex, ctx)
-    local result_type = nil
-    if lex:next_if(":") then
-      result_type = Type.parse(lex, ctx)
-    end
     lex:expect("do")
     local body = Stmt.parse_block(lex, ctx, { "end" })
     lex:expect("end")
-    return Ast.node("StmtForRange", { index = index, indexes = indexes, producer = producer, args = args, result_type = result_type, body = body }, Ast.origin(lex, start, lex.last, "parsed:loop"))
+    return Ast.node("StmtForRange", { index = index, indexes = indexes, producer = producer, args = args, result_type = nil, body = body }, Ast.origin(lex, start, lex.last, "parsed:loop"))
 
   elseif t.value == "fold" then
     local start = lex:next()
     local name = lex:expect_name("fold accumulator").value
-    lex:expect(":")
     local ty = Type.parse(lex, ctx)
     lex:expect("=")
     local init = Expr.parse(lex, ctx)
@@ -235,7 +230,6 @@ function Stmt.parse(lex, ctx)
   elseif t.value == "scan" then
     local start = lex:next()
     local name = lex:expect_name("scan accumulator").value
-    lex:expect(":")
     local ty = Type.parse(lex, ctx)
     lex:expect("=")
     local init = Expr.parse(lex, ctx)
@@ -262,7 +256,6 @@ function Stmt.parse(lex, ctx)
     local start = lex:next()
     local mutable = start.value == "var"
     local name = lex:expect_name("local name")
-    lex:expect(":")
     local ty = Type.parse(lex, ctx)
     local init = nil
     if lex:next_if("=") then init = Expr.parse(lex, ctx) end

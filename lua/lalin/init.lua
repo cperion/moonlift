@@ -90,13 +90,25 @@ end
 local function parsed_decls_from(value)
     if is_lalin_parsed_decl(value) then return { value } end
     if type(value) ~= "table" then return nil end
-    local n = #value
-    if n == 0 then return nil end
     local out = {}
+    local n = #value
     for i = 1, n do
         if not is_lalin_parsed_decl(value[i]) then return nil end
-        out[i] = value[i]
+        out[#out + 1] = value[i]
     end
+    for k, v in pairs(value) do
+        if type(k) ~= "number" then
+            if is_lalin_parsed_decl(v) then
+                if type(k) == "string" and v.name == nil then
+                    v.public_name = v.public_name or k
+                    v.debug_name = v.debug_name or k
+                    v.name = k
+                end
+                out[#out + 1] = v
+            end
+        end
+    end
+    if #out == 0 then return nil end
     return out
 end
 

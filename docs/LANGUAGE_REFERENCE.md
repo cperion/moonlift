@@ -35,9 +35,11 @@ Important rules:
 - LLBL is the workbench; Lalin is the compiled language member.
 - Lua owns genericity.
 - Lalin receives monomorphic values.
-- Types are values in the underlying system; parsed syntax is a source spelling
-  for those type values.
-- Type arguments use `[]`, never angle brackets.
+- Types are Lua values.
+- Typed binders use `name[lua_type]` or `name [lua_type]`; the bracket
+  expression must evaluate to a Lalin type value.
+- Type constructors are Lua values too. Use `ptr [i32]`, `array [i32] [4]`,
+  `view [i32]`, and similar constructor calls inside the outer type escape.
 - Every block path terminates.
 - Region protocols are explicit named exits.
 - Backend facts are explicit ASDL facts.
@@ -52,7 +54,7 @@ module system. Use Lua `require`, return Lua values, and compose public APIs wit
 tables.
 
 ```lln
-local add = fn add(a: i32, b: i32): i32
+local add = fn(a [i32], b [i32]) [i32]
   return a + b
 end
 
@@ -92,7 +94,7 @@ local lalin = require("lalin")
 
 local chunk = assert(lalin.loadstring([[
   return {
-    fn add(a: i32, b: i32): i32
+    add = fn(a [i32], b [i32]) [i32]
       return a + b
     end
   }
@@ -106,6 +108,208 @@ print(module.add(3, 4))
 
 The lower-level `llbl.syntax` mixed-source driver remains infrastructure for
 Lua-hosted syntax islands and tooling, not the standard `.lln` loading surface.
+
+---
+
+## Parsed Metaprogramming
+
+LLBL metaprogramming is not string substitution. A `.lln` file is a Lua value
+chunk that contains parsed-channel islands. The syntax driver rewrites each
+island into an LLBL constructor invocation with:
+
+- `owner`: the dialect that owns the island, such as `lalin`
+- `role`: the semantic role, such as declaration, expression, or statement
+- `channel`: the delivery channel, such as `parsed:lalin` or `parsed:expr`
+- `origin`: source span/provenance for diagnostics and tooling
+- `refs`: Lua lexical names captured by host escapes
+
+The constructor is invoked when the Lua chunk evaluates. At that point the
+captured Lua environment is available, host escapes are resolved, and the result
+is an ordinary Lua value carrying parsed Lalin structure.
+
+The core rule is:
+
+```text
+Lua builds values.
+LLBL channels deliver syntax islands as values with roles and origins.
+The Lalin dialect gives those values typed/backend meaning.
+```
+
+### Lua Around Islands
+
+Use ordinary Lua for files, tables, `require`, conditionals, helper functions,
+and public APIs. Use parsed Lalin islands for object-language declarations and
+fragments:
+
+```lln
+local factor = 4
+
+local scale = fn(dst [ptr [i32]], src [ptr [i32]], n [index]) [void]
+  requires bounds(dst)(n), writeonly(dst), bounds(src)(n), readonly(src)
+  requires disjoint(dst)(src)
+  loop i in 0 .. n do
+    dst[i] = src[i] * [factor]
+  end
+end
+
+return {
+  scale = scale,
+  factor = factor,
+}
+```
+
+The returned table is the module API. There is no separate Lalin import/export
+system layered on top of Lua.
+
+### Declaration Values
+
+Parsed declarations are Lua values. They can be collected, returned, filtered,
+or passed to `lalin.compile`:
+
+```lln
+local decls = {}
+
+decls[#decls + 1] = fn(a [i32], b [i32]) [i32]
+  return a + b
+end
+
+decls[#decls + 1] = fn(a [i32], b [i32]) [i32]
+  return a - b
+end
+
+return decls
+```
+
+Anonymous source declarations are still named before backend lowering. LLBL
+records obvious Lua context such as `local add = fn(...)` and table fields such
+as `{ add = fn(...) }`; Lalin uses that as the declaration's public/debug name.
+If no Lua slot name exists, Lalin assigns a generated compiler name such as
+`__lln_fn_1`. Codegen uses that internal name for symbols, while Lua tables stay
+the user-facing module model.
+
+```lln
+return {
+  add = fn(a [i32], b [i32]) [i32]
+    return a + b
+  end,
+}
+```
+
+Compile them from Lua:
+
+```lua
+local lalin = require("lalin")
+local decls = assert(lalin.loadfile("arith.lln"))()
+local arith = lalin.compile("arith", decls)
+```
+
+### Host Escapes
+
+Host escapes use `[lua_expr]`. They evaluate `lua_expr` in the lexical Lua
+environment captured by the syntax constructor.
+
+In expression position, a host escape can splice:
+
+- primitive literals: numbers, booleans, strings, `nil`
+- parsed expression fragments
+- parsed expression AST values
+- already-constructed LalinTree expression values
+
+```lln
+local factor = 3
+local bias = 5
+
+local scaled = expr x * [factor] + [bias] end
+
+local scale_one = fn(x [i32]) [i32]
+  return [scaled]
+end
+```
+
+In statement position, a host escape can splice:
+
+- a parsed statement fragment
+- a parsed statement AST value
+- an array of statement fragments/statements
+- already-constructed LalinTree statement values
+
+```lln
+local factor = 3
+
+local scale_step = stmt
+  dst[i] = src[i] * [factor]
+end
+
+local scale = fn(dst [ptr [i32]], src [ptr [i32]], n [index]) [void]
+  requires bounds(dst)(n), writeonly(dst), bounds(src)(n), readonly(src)
+  requires disjoint(dst)(src)
+  loop i in 0 .. n do
+    [scale_step]
+  end
+end
+```
+
+In type position, the brackets are the type mechanism. The Lua expression must
+evaluate to a Lalin type value:
+
+- built-in scalar type values such as `i32`, `f64`, or `index`
+- constructor results such as `ptr [i32]`, `array [i32] [4]`, or `view [i32]`
+- named type values such as `named("Pair")`
+- values produced by Lua helper functions, factories, or required packages
+
+```lln
+local elem_ty = i32
+local ptr_elem_ty = ptr [elem_ty]
+
+local scale = fn(dst [ptr_elem_ty], src [ptr_elem_ty], n [index]) [void]
+  requires bounds(dst)(n), writeonly(dst), bounds(src)(n), readonly(src)
+  requires disjoint(dst)(src)
+  loop i in 0 .. n do
+    dst[i] = src[i]
+  end
+end
+```
+
+### Fragments
+
+The parsed channel has `expr` and `stmt` entrypoints. They produce role-bearing
+Lua values with parsed origins, not text snippets:
+
+```lln
+local rhs = expr x + 1 end
+
+local store = stmt
+  dst[i] = [rhs]
+end
+```
+
+Fragments can close over Lua values through their own host escapes and can be
+spliced into later parsed islands. This is the parsed-channel analogue of LLBL
+role-tagged fragments in the Lua DSL.
+
+### Requiring `.lln` Packages
+
+`.lln` packages compose through Lua `require` and returned values:
+
+```lln
+local cfg = require("scale_config")
+
+local scale = fn(dst [ptr [i32]], src [ptr [i32]], n [index]) [void]
+  requires bounds(dst)(n), writeonly(dst), bounds(src)(n), readonly(src)
+  requires disjoint(dst)(src)
+  loop i in 0 .. n do
+    dst[i] = src[i] * [cfg.factor]
+  end
+end
+
+return {
+  scale = scale,
+  cfg = cfg,
+}
+```
+
+This is still LLBL: Lua carries package values, LLBL carries language islands,
+and Lalin owns the meaning of those islands.
 
 ---
 
@@ -140,7 +344,24 @@ Comments and general Lua file structure are handled by the `.lln` syntax loader.
 
 ## Types
 
-Types are written after `:` in bindings and inside `[]` for type constructors.
+Typed binders use bracket application: `name[type_value]` or `name [type_value]`.
+Function results, casts, and `sizeof` use the same bracketed type value form.
+
+The expression inside the brackets is evaluated by Lua and must produce a Lalin
+type value:
+
+```lln
+[i32]
+[ptr [i32]]
+[array [i32] [4]]
+[view [i32]]
+[named("Pair")]
+```
+
+There is no separate parsed type grammar. `i32` is not a parsed keyword in type
+position; it is a Lua value supplied by the `.lln` environment. `ptr [i32]` is a
+Lua bracket-call on the `ptr` type constructor. The outer binder brackets are
+also Lua-like bracket application, so both `x[i32]` and `x [i32]` are accepted.
 
 ### Scalar Types
 
@@ -155,36 +376,33 @@ Types are written after `:` in bindings and inside `[]` for type constructors.
 
 ### Compound Types
 
-```lua
-ptr[i32]
-array[i32]
-MyStruct
-some.module.TypeName
+```lln
+[ptr [i32]]
+[array [i32] [4]]
+[slice [u8]]
+[view [f32]]
+[named("MyStruct")]
+[pkg.SomeType]
 ```
 
-The parser accepts dotted type paths and type constructor application:
-
-```lua
-pkg.Buffer[u8]
-```
-
-The currently special-cased constructors in parsed-to-tree conversion are
-`ptr[...]` and `array[...]`. Other names become named type references.
+Any Lua expression is legal between the brackets if it evaluates to a type
+value. For named Lalin declarations, use `named("TypeName")` or return/pass a
+type value from another Lua package.
 
 ### Function Signatures
 
 Functions declare parameter products and a single result type:
 
-```lua
-fn distance2(x: f32, y: f32): f32
+```lln
+local distance2 = fn(x [f32], y [f32]) [f32]
   return x * x + y * y
 end
 ```
 
 Use `void` for functions that do not return a value:
 
-```lua
-fn clear(dst: ptr[i32], n: index): void
+```lln
+local clear = fn(dst [ptr [i32]], n [index]) [void]
   loop i in 0 .. n do
     dst[i] = 0
   end
@@ -197,21 +415,22 @@ end
 
 ### Functions
 
-```lua
-fn add(a: i32, b: i32): i32
+```lln
+local add = fn(a [i32], b [i32]) [i32]
   return a + b
 end
 ```
 
-Functions are lowered to typed function items. Parameters are immutable values.
-Mutable local state is introduced with `var`.
+Functions are Lua values at source level and typed function items after Lalin
+normalization. Parameters are immutable values. Mutable local state is
+introduced with `var`.
 
 ### Structs
 
-```lua
+```lln
 struct Pair
-  left: i32
-  right: i32
+  left [i32]
+  right [i32]
 end
 ```
 
@@ -223,9 +442,9 @@ p.right
 
 ### Unions
 
-```lua
+```lln
 union OptionI32
-  Some(value: i32)
+  Some(value [i32])
   None
 end
 ```
@@ -237,8 +456,8 @@ Variants may have named payload fields or no payload.
 Lalin does not add a user-facing module declaration. A `.lln` file is a Lua
 value chunk. Return the declarations or runtime values the caller should see:
 
-```lua
-local add = fn add(a: i32, b: i32): i32
+```lln
+local add = fn(a [i32], b [i32]) [i32]
   return a + b
 end
 
@@ -257,7 +476,7 @@ Statement blocks end at `end`, `elseif`, or `else` depending on context.
 
 `requires` records semantic facts for typechecking and backend planning:
 
-```lua
+```lln
 requires bounds(dst)(n), bounds(src)(n), disjoint(dst)(src)
 requires readonly(src), writeonly(dst)
 ```
@@ -269,9 +488,9 @@ proofs, alias proofs, kernel planning, and stencil selection.
 
 `let` introduces an immutable local binding:
 
-```lua
-let x: i32 = 1
-let y: i32 = x + 2
+```lln
+let x [i32] = 1
+let y [i32] = x + 2
 ```
 
 If an initializer is omitted, the current conversion supplies a zero literal.
@@ -281,8 +500,8 @@ Prefer writing the initializer explicitly.
 
 `var` introduces mutable local storage:
 
-```lua
-var acc: i32 = 0
+```lln
+var acc [i32] = 0
 acc = acc + 1
 ```
 
@@ -340,7 +559,7 @@ loop is not where arbitrary code goes. A loop body must remain admissible as
 domain work: stores, fold/scan sinks, pure scalar/index computation, simple
 predicates, and analyzable memory indexing.
 
-```lua
+```lln
 loop i in 0 .. n do
   dst[i] = src[i]
 end
@@ -348,7 +567,7 @@ end
 
 With an explicit step:
 
-```lua
+```lln
 loop i in 0 .. n .. 2 do
   dst[i] = 0
 end
@@ -359,27 +578,27 @@ implementation detail. Semantically, source `loop` is a domain loop. If the
 compiler cannot form a valid producer/sink model, it should reject the loop with
 a loop diagnostic rather than treating it as arbitrary imperative control.
 
-Loops can carry a reducer or inclusive scan sink. A reducing loop declares its
-result type after the producer and places one `fold` statement directly in the
-loop body:
+Loops can carry a reducer or inclusive scan sink. A reducing loop places one
+`fold` statement directly in the loop body; the fold accumulator type is the
+reduction result type:
 
-```lua
-fn dot(lhs: ptr[i32], rhs: ptr[i32], n: index): i32
+```lln
+local dot = fn(lhs [ptr [i32]], rhs [ptr [i32]], n [index]) [i32]
   requires bounds(lhs)(n), readonly(lhs), bounds(rhs)(n), readonly(rhs)
-  loop i in 0 .. n: i32 do
-    fold acc: i32 = 0 by add step lhs[i] * rhs[i]
+  loop i in 0 .. n do
+    fold acc [i32] = 0 by add step lhs[i] * rhs[i]
   end
 end
 ```
 
 A scan loop writes each inclusive accumulator value into a destination:
 
-```lua
-fn prefix_sum(dst: ptr[i32], xs: ptr[i32], n: index): void
+```lln
+local prefix_sum = fn(dst [ptr [i32]], xs [ptr [i32]], n [index]) [void]
   requires bounds(dst)(n), writeonly(dst), bounds(xs)(n), readonly(xs)
   requires disjoint(dst)(xs)
   loop i in 0 .. n do
-    scan acc: i32 = 0 by add step xs[i] into dst[i]
+    scan acc [i32] = 0 by add step xs[i] into dst[i]
   end
 end
 ```
@@ -390,7 +609,7 @@ end
 Parsed loops also support multi-axis producers. The loop index list must match
 the producer axis count:
 
-```lua
+```lln
 loop i, j in grid(0 .. h, 0 .. w) do
   dst[i * w + j] = src[i * w + j]
 end
@@ -398,15 +617,15 @@ end
 
 Tiled producers add tile metadata:
 
-```lua
+```lln
 loop i, j in tiled grid(0 .. h, 0 .. w) by 2, 2 do
-  scan acc: i32 = 0 by add over j step xs[i * w + j] into dst[i * w + j]
+  scan acc [i32] = 0 by add over j step xs[i * w + j] into dst[i * w + j]
 end
 ```
 
 Window producers add neighbor metadata:
 
-```lua
+```lln
 loop i in window(0 .. n, before = 1, after = 1, boundary = clamp) do
   dst[i] = xs[i - 1]
 end
@@ -578,7 +797,7 @@ pair.right = 42
 
 ### Cast
 
-```lua
+```lln
 as [i32](x)
 as [f64](count)
 ```
@@ -588,8 +807,8 @@ selects the concrete machine cast.
 
 ### Sizeof
 
-```lua
-sizeof [Pair]
+```lln
+sizeof [named("Pair")]
 sizeof [i32]
 ```
 
@@ -599,10 +818,10 @@ sizeof [i32]
 
 Host escapes splice Lua values into parsed syntax at construction time:
 
-```lua
+```lln
 local scale = 4
 
-local copy_scale = fn copy_scale(dst: ptr[i32], src: ptr[i32], n: index): void
+local copy_scale = fn(dst [ptr [i32]], src [ptr [i32]], n [index]) [void]
   loop i in 0 .. n do
     dst[i] = src[i] * [scale]
   end
@@ -610,8 +829,8 @@ end
 ```
 
 The expression inside `[...]` is evaluated in the Lua environment captured at
-the syntax site. The resulting Lua value is converted into a Lalin literal when
-possible.
+the syntax site. In expression position, primitive Lua values become Lalin
+literals and expression fragments/ASDL expressions are spliced directly.
 
 ---
 
@@ -637,7 +856,7 @@ A region has:
 
 Shape:
 
-```lua
+```lln
 region name(inputs; exits)
   entry start(...)
     ...
@@ -651,8 +870,8 @@ end
 
 Example:
 
-```lua
-region clamp_region(x: i32, lo: i32, hi: i32; done(result: i32))
+```lln
+region clamp_region(x [i32], lo [i32], hi [i32]; done(result [i32]))
   entry start()
     if x < lo then
       jump done(result = lo)
@@ -667,20 +886,10 @@ region clamp_region(x: i32, lo: i32, hi: i32; done(result: i32))
 end
 ```
 
-Continuation exits can be written with a colon:
+Continuation exits use direct payload application:
 
-```lua
-region r(x: i32; done: (result: i32), fail: ())
-  entry start()
-    jump done(result = x)
-  end
-end
-```
-
-or without it:
-
-```lua
-region r(x: i32; done(result: i32))
+```lln
+region r(x [i32]; done(result [i32]))
   entry start()
     jump done(result = x)
   end
@@ -689,9 +898,9 @@ end
 
 Payload fields may be named or anonymous:
 
-```lua
-done(result: i32)
-done(i32)
+```lln
+done(result [i32])
+done([i32])
 ```
 
 Parsed region parsing is implemented. The most mature end-to-end path today is
@@ -705,7 +914,7 @@ Contracts describe semantic facts the compiler is allowed to rely on.
 
 Common contracts:
 
-```lua
+```lln
 requires bounds(xs)(n)
 requires bounds(dst)(n), bounds(src)(n)
 requires readonly(xs)
@@ -740,8 +949,8 @@ ordinary block code, but source `loop` is the domain/stencil-facing construct.
 
 A parsed 1D domain loop:
 
-```lua
-fn copy_scale(dst: ptr[i32], src: ptr[i32], n: index): void
+```lln
+local copy_scale = fn(dst [ptr [i32]], src [ptr [i32]], n [index]) [void]
   requires bounds(dst)(n), bounds(src)(n), disjoint(dst)(src)
 
   loop i in 0 .. n do
@@ -1073,7 +1282,8 @@ The formatter currently prints the Lua/LLBL DSL surface.
 
 | Construct | Status |
 |---|---|
-| `fn name(params): result ... end` | implemented |
+| `local name = fn(params) [result] ... end` | implemented |
+| `fn name(params) [result] ... end` | implemented as explicit direct declaration |
 | `struct Name ... end` | implemented |
 | `union Name ... end` | implemented |
 | `region name(params; exits) ... end` | parser implemented; integration is narrower than function/struct/union |

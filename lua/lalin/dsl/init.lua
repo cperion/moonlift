@@ -2338,6 +2338,10 @@ local function make_env(opts)
     env.func_type = env.fnptr
     env.closure = ctor("closure", function(params_) return ctor("closure_result", function(result) return Ty.TClosure(type_list(params_), concrete_type(result)) end) end)
     env.closure_type = env.closure
+    env.named = function(name)
+        if type(name) == "string" then return Ty.TNamed(Ty.TypeRefPath(path(name))) end
+        return Ty.TNamed(Ty.TypeRefPath(path(symbol_text(name, "named type"))))
+    end
     env.lease = ctor("lease", function(ty) return Ty.TLease(concrete_type(ty), Ty.LeaseOriginUnknown) end)
     env.owned = ctor("owned", function(ty) return Ty.TOwned(concrete_type(ty)) end)
     for name, access_kind in pairs(access) do
@@ -2363,7 +2367,7 @@ local LALIN_NAMESPACE_KEYS = {
     "add", "sub", "mul", "div", "rem", "band", "bor", "bxor", "min", "max",
     "is_null", "ctor", "bounds", "disjoint", "same_len", "window_bounds",
     "soa_component", "as", "bitcast", "null", "sizeof", "alignof", "N", "ptr", "view", "slice",
-    "array", "fnptr", "func_type", "closure", "closure_type", "lease", "owned",
+    "array", "fnptr", "func_type", "closure", "closure_type", "named", "lease", "owned",
 }
 
 function M.namespace(opts)

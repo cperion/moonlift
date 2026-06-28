@@ -52,6 +52,60 @@ local function previous_word(source, start_i)
   return nil
 end
 
+local function separated_by_statement_boundary(source, left_finish, right_start)
+  if not left_finish or not right_start then return true end
+  local gap = source:sub(left_finish + 1, right_start - 1)
+  return gap:match("[\n\r;]") ~= nil
+end
+
+local function infer_lua_binding(lex, source)
+  local pos = lex.pos
+  local eq = lex.tokens[pos - 1]
+  if not eq or eq.value ~= "=" then return nil end
+
+  local lhs = lex.tokens[pos - 2]
+  if not lhs or lhs.kind ~= "name" or not valid_ident(lhs.value) then return nil end
+
+  local before = lex.tokens[pos - 3]
+  local function in_table_field()
+    local depth = 0
+    for i = pos - 3, 1, -1 do
+      local t = lex.tokens[i]
+      if t.value == "}" then
+        depth = depth + 1
+      elseif t.value == "{" then
+        if depth == 0 then return true end
+        depth = depth - 1
+      elseif depth == 0 and t.value == ";" then
+        return false
+      end
+    end
+    return false
+  end
+
+  if before and before.value == "local" then
+    return { name = lhs.value, kind = "local" }
+  end
+
+  if before then
+    if before.value == "{" or before.value == "," then
+      if in_table_field() then
+        return { name = lhs.value, kind = "table_field" }
+      end
+      return nil
+    end
+    if before.value == "." or before.value == "[" then
+      return nil
+    end
+    local keyword_boundary = before.kind == "name" and (before.value == "then" or before.value == "do" or before.value == "else" or before.value == "repeat")
+    if not keyword_boundary and not separated_by_statement_boundary(source, before.finish, lhs.start) then
+      return nil
+    end
+  end
+
+  return { name = lhs.value, kind = "assignment" }
+end
+
 local function is_expression_context(source, start_i)
   local c = previous_significant(source, start_i)
   if not c then return false end
@@ -161,6 +215,7 @@ function Driver.compile(source, chunkname, opts)
 
       if spec then
         local island_start = t
+        local lua_binding = infer_lua_binding(lex, source)
         local entry_tok
         if namespaced then
           lex:next() -- namespace token
@@ -171,10 +226,12 @@ function Driver.compile(source, chunkname, opts)
 
         pieces[#pieces + 1] = source:sub(cursor, island_start.start - 1)
         local ctx = make_ctx(chunkname, source, island_start, entry_tok)
+        ctx.lua_binding = lua_binding
         local desc = descriptor_from(spec, entry, lex, ctx)
         desc.refs = unique_refs(desc.refs or ctx.refs)
         desc.owner = desc.owner or spec.owner or spec.name
         desc.entry = desc.entry or entry
+        desc.lua_binding = desc.lua_binding or ctx.lua_binding
         desc.origin = desc.origin or ctx:origin(lex, island_start, lex.last, "parsed:" .. tostring(entry))
 
         local ctor = Constructor.new(desc)

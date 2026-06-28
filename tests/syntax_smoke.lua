@@ -2,16 +2,16 @@ package.path = "../lua/?.lua;../lua/?/init.lua;" .. package.path
 
 local lalin = require("lalin")
 
-local src = [[
+local src = [=[
 local scale = 4
-local copy_scale = fn copy_scale(dst: ptr[i32], src: ptr[i32], n: index): void
+local copy_scale = fn(dst [ptr [i32]], src [ptr [i32]], n [index]) [void]
   requires bounds(dst)(n), bounds(src)(n), disjoint(dst)(src)
   loop i in 0 .. n do
     dst[i] = src[i] * [scale]
   end
 end
 return copy_scale
-]]
+]=]
 
 local chunk, compiled_or_err, compiled_if_err = lalin.loadstring(src, "@smoke.lln")
 if not chunk then

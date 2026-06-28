@@ -13,15 +13,20 @@ end
 
 function Decl.parse_fn(lex, ctx, entry_start)
   local start = entry_start or ctx.entry_token
-  local name = lex:expect_name("function name")
+  local name = nil
+  if lex:peek().kind == "name" and lex:peek(1).value == "(" then
+    name = lex:next().value
+  elseif lex:peek().value ~= "(" then
+    lex:error_at(lex:peek(), "expected function name or parameter list")
+  end
   local params = Type.parse_params(lex, ctx)
-  local result = Ast.node("TypeName", { name = "void" }, Ast.origin(lex, name, name, "parsed:type"))
-  if lex:next_if(":") then result = Type.parse(lex, ctx) end
+  local result = nil
+  if lex:peek().value == "[" then result = Type.parse(lex, ctx) end
   optional_do(lex)
   local body = Stmt.parse_block(lex, ctx, { "end" })
   lex:expect("end")
   return Ast.node("DeclFunc", {
-    name = name.value,
+    name = name,
     params = params,
     result = result,
     body = body,
@@ -69,26 +74,25 @@ local function parse_entry_block(lex, ctx)
   }, Ast.origin(lex, start, lex.last, "parsed:region_block"))
 end
 
--- Parse a continuation exit entry:  name(fields)  or  name: (fields)
--- The payload tuple may contain named fields (result: i32) or bare types (i32).
+-- Parse a continuation exit entry:  name(fields)
+-- The payload tuple may contain named fields (result [i32]) or bare types ([i32]).
 local function parse_one_exit(lex, ctx)
   local name = lex:expect_name("continuation name")
-  lex:next_if(":")
   local fields = {}
   if lex:peek().value == "(" then
     lex:next() -- (
     if not lex:next_if(")") then
-      local t = lex:peek()
-      local t1 = lex:peek(1)
-      if t.kind == "name" and t1 and t1.value == ":" then
-        -- Named fields: (result: i32, ...)
-        repeat
+      repeat
+        local t = lex:peek()
+        local t1 = lex:peek(1)
+        if t.kind == "name" and t1 and t1.value == "[" then
           fields[#fields + 1] = Type.parse_field(lex, ctx)
-        until not lex:next_if(",")
-      else
-        -- Bare type: (i32) — wrap as anonymous field
-        fields[1] = Ast.node("Field", { name = "", type = Type.parse(lex, ctx) })
-      end
+        elseif t.value == "[" then
+          fields[#fields + 1] = Type.parse_anonymous_field(lex, ctx)
+        else
+          lex:error_at(t, "expected continuation field `name [type]` or anonymous `[type]`")
+        end
+      until not lex:next_if(",")
       lex:expect(")")
     end
   end

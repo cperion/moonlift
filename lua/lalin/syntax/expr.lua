@@ -93,18 +93,14 @@ local function atom(lex, ctx)
       return Ast.node("Literal", { kind = "nil" }, Ast.origin(lex, t, t, "parsed:literal"))
     elseif t.value == "as" then
       -- as [type] (expr)  — type conversion
-      lex:expect("[")
       local ty_node = Type.parse(lex, ctx)
-      lex:expect("]")
       lex:expect("(")
       local value = Expr.parse(lex, ctx)
       lex:expect(")")
       return Ast.node("Cast", { ty = ty_node, value = value, cast = "surface" }, Ast.origin(lex, t, lex.last, "parsed:cast"))
     elseif t.value == "sizeof" then
       -- sizeof [type]  — type size query
-      lex:expect("[")
       local ty_node = Type.parse(lex, ctx)
-      lex:expect("]")
       return Ast.node("SizeOf", { ty = ty_node }, Ast.origin(lex, t, lex.last, "parsed:sizeof"))
     elseif t.value == "_" then
       -- LLBL-owned sentinel.  Lookahead decides form:
