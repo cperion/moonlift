@@ -47,18 +47,18 @@ long checklist below remains the full audit.
 - [x] ASDL sum parents provide nil-returning default methods to variants, so
       unsupported leaf behavior can be expressed by absence instead of dispatch.
 - [x] `lua/lalin/tree_typecheck_rules.lua` is deleted.
-- [x] `lua/lalin/tree_type_methods.lua` installs direct schema-context methods.
-- [x] `lua/lalin/tree_layout_methods.lua` installs direct schema-context methods.
-- [x] `lua/lalin/tree_expr_methods.lua` installs direct schema-context methods
+- [x] `lua/lalin/tree_typecheck_type.lua` installs direct schema-context methods.
+- [x] `lua/lalin/tree_typecheck_layout.lua` installs direct schema-context methods.
+- [x] `lua/lalin/tree_typecheck_expr.lua` installs direct schema-context methods
       for the current expression rewrite slice.
-- [x] `lua/lalin/tree_fact_methods.lua` installs direct schema-context methods
+- [x] `lua/lalin/tree_typecheck_fact.lua` installs direct schema-context methods
       for explicit module facts.
 - [x] `TypeModuleFacts` and related typed input/result products exist in
       `lua/lalin/schema/tree.lua`.
 - [x] `tree_typecheck.lua` no longer stores variant, handle, or function-effect
       facts in hidden raw fields on `LalinBind.Env`.
-- [x] `tree_typecheck.lua` now carries explicit `TypeModuleFacts` in
-      `TypeCheckEnv`.
+- [x] `tree_typecheck.lua` now carries explicit `TypeModuleFacts` in typed
+      input products instead of hidden environment fields.
 - [x] `ItemType` validation now delegates to `TypeDecl*` methods instead of
       dispatching on the concrete type declaration class.
 - [x] `IndexBase` element typing now delegates to `IndexBase*` methods instead
@@ -84,19 +84,53 @@ long checklist below remains the full audit.
 - [x] `TypeIssueInvalidUnary` carries a typed `TypeUnaryIssueReason` ASDL sum;
       unary diagnostic explanation lives on the issue/reason ASDL methods and
       `explain_type_issue` no longer dispatches on issue `kind`.
-- [ ] Broader switch-key handling outside `tree_typecheck.lua` still uses plain
-      Lua tables/strings; add an ASDL switch-key sum before rewriting that
-      surface.
-- [ ] Finish replacing `TypeCheckEnv` driver plumbing with narrower typed input
-      products already added to the schema.
-- [ ] Move statement/place/control behavior out of `tree_typecheck.lua` and onto
+- [x] `Func*` and `Item*` typecheck methods now receive typed
+      `TypeFuncInput`/`TypeItemInput` products instead of loose
+      `module_env, facts` pairs.
+- [x] Region signature validation now lives on `Region` as a typed method using
+      `TypeItemInput`, instead of a free helper taking loose module facts.
+- [x] Switch arms now carry typed `SwitchKey` ASDL leaves
+      (`SwitchKeyInt`/`SwitchKeyBool`/`SwitchKeyName`/`SwitchKeyExpr`) and
+      switch-key decisions use the `SwitchKeyDecision` ASDL sum instead of
+      plain Lua `kind` tables or raw-key strings.
+- [x] `TypeCheckEnv` is removed from the ASDL schema and active typecheck path;
+      driver plumbing now uses `TypeValueScope`, `TypeExprInput`,
+      `TypePlaceInput`, `TypeStmtInput`, and `TypeControlInput` products.
+- [x] Move statement/place/control behavior out of `tree_typecheck.lua` and onto
       concrete ASDL classes.
-- [ ] Remove remaining class-inspection branches from rewritten typecheck code
+      - [x] `lua/lalin/tree_typecheck_stmt.lua` owns `StmtReturnValue`,
+            `StmtReturnVoid`, `StmtExpr`, `StmtLet`, `StmtVar`, `StmtIf`,
+            `StmtSet`, atomics, `StmtAssert`, `StmtSwitch`, `StmtJump`,
+            `StmtJumpCont`, yields, `StmtControl`, `StmtTrap`, control block
+            typing, and `TypeStmtInput:typecheck_tree_stmt_body`.
+      - [x] `TypeControlInput` is an ASDL product carrying the typed statement
+            input and region id; control typing no longer uses a loose table.
+      - [x] `tree_typecheck.lua` no longer exports expression/place/statement/
+            control/function/item/module facade helpers; callers use ASDL
+            methods or the real stage API `check_module`.
+- [x] Remove remaining class-inspection branches from rewritten typecheck code
       by adding missing leaf methods or schema products first.
-- [ ] Rename method module filenames to the final semantic-stage names once the
+      - [x] Rewritten typecheck method files and touched typecheck tests are
+            clean for `schema.isa`, `classof`, `.kind`, and equivalent checks.
+      - [x] Typecheck tests assert semantic ASDL predicates instead of inspecting
+            concrete classes.
+- [x] Rename method module filenames to the final semantic-stage names once the
       typecheck split is stable.
-- [ ] Rewrite `tree_to_code_rules.lua` next after the typecheck rewrite is no
-      longer carrying old dispatch behavior.
+      - [x] Typecheck-owned method modules now use `tree_typecheck_*` names:
+            `tree_typecheck_type`, `tree_typecheck_layout`,
+            `tree_typecheck_fact`, `tree_typecheck_expr`, and
+            `tree_typecheck_stmt`.
+- [x] Rewrite `tree_to_code_rules.lua` after the typecheck rewrite stopped
+      carrying old dispatch behavior.
+      - [x] Deleted `lua/lalin/tree_to_code_rules.lua`.
+      - [x] Deleted `tests/frontend/test_tree_to_code_rules.lua`.
+      - [x] Added `tests/frontend/test_tree_to_code_methods.lua`.
+      - [x] `lua/lalin/tree_to_code.lua` installs lowering behavior directly on
+            ASDL classes for expressions, places, statements, function/item
+            forms, contract facts, view/index lowering, constant globals, and
+            module registration.
+      - [x] Production `tree_to_code.lua` is clean for `asdl.classof`,
+            `schema.isa`, `.kind`, selector-table, and rule-module dispatch.
 
 ## Goal
 
@@ -394,8 +428,8 @@ just because it works on one fixture; it must fit this shape.
 - [ ] There is no default `ctx` parameter.
 - [ ] Example signatures:
       `function T.LalinCore.LitInt:typecheck_tree_literal() ... end`
-      `function T.LalinBind.ValueRefName:typecheck_tree_ref(type_env) ... end`
-      `function T.LalinTree.StmtReturnValue:typecheck_tree_stmt(type_state) ... end`
+      `function T.LalinBind.ValueRefName:typecheck_tree_ref(input) ... end`
+      `function T.LalinTree.StmtReturnValue:typecheck_tree_stmt(input) ... end`
 - [ ] The node is always `self`.
 - [ ] Any non-node argument must be a named typed semantic product, not a bag of
       unrelated state.
@@ -551,43 +585,82 @@ These are the current freeform rule/dispatch modules to eliminate or shrink.
   - [x] Move module fact collection to explicit ASDL methods and
         `TypeModuleFacts`.
   - [x] Remove hidden raw fact fields from the typecheck driver.
-  - [ ] Move remaining statement/place/control behavior onto concrete ASDL methods.
-  - [ ] Reduce `tree_typecheck.lua` to stage entrypoints and typed orchestration.
-- [ ] `lua/lalin/tree_to_code_rules.lua`
-  - [ ] Move tree-to-code lowering for expressions onto expression classes.
-  - [ ] Move place lowering onto place classes.
-  - [ ] Move statement lowering onto statement classes.
-  - [ ] Delete external tree-to-code rule dispatch tables.
-- [ ] `lua/lalin/code_kernel_plan_rules.lua`
-  - [ ] Move kernel classification behavior onto relevant `LalinCode`,
+  - [x] Move remaining statement/place/control behavior onto concrete ASDL methods.
+  - [x] Reduce `tree_typecheck.lua` to stage entrypoints and typed orchestration.
+- [x] `lua/lalin/tree_to_code_rules.lua`
+  - [x] Move tree-to-code lowering for expressions onto expression classes.
+  - [x] Move place lowering onto place classes.
+  - [x] Move statement lowering onto statement classes.
+  - [x] Delete external tree-to-code rule dispatch tables.
+- [x] `lua/lalin/code_kernel_plan_rules.lua`
+  - [x] Move kernel classification behavior onto relevant `LalinCode`,
         `LalinKernel`, and `LalinFlow` classes.
-  - [ ] Keep graph-wide analysis as orchestration only.
-- [ ] `lua/lalin/code_schedule_plan_rules.lua`
-  - [ ] Move schedule legality/selection behavior onto schedule/target/stencil
+  - [x] Keep graph-wide analysis as orchestration only.
+- [x] `lua/lalin/code_schedule_plan_rules.lua`
+  - [x] Move schedule legality/selection behavior onto schedule/target/stencil
         classes.
-- [ ] `lua/lalin/code_lower_plan_rules.lua`
-  - [ ] Move lower-plan behavior onto lower-plan and exec strategy classes.
-- [ ] `lua/lalin/lower_strategy_emit_rules.lua`
-  - [ ] Move strategy emission behavior onto lower strategy classes.
-- [ ] `lua/lalin/exec_plan_rules.lua`
-  - [ ] Move exec fragment planning onto exec/stencil/residual classes.
-- [ ] `lua/lalin/luajit_lower_rules.lua`
-  - [ ] Move LuaJIT lowering behavior onto code/LJ/stencil classes.
-- [ ] `lua/lalin/stencil_rules.lua`
-  - [ ] Split pure vocabulary legality from lowering behavior.
-  - [ ] Attach stencil expression/sink legality to stencil classes.
-  - [ ] Keep global saturation vocabulary as data, not rule-table control flow.
+- [x] `lua/lalin/code_lower_plan_rules.lua`
+  - [x] Move lower-plan behavior onto lower-plan and exec strategy classes.
+- [x] `lua/lalin/lower_strategy_emit_rules.lua`
+  - [x] Move strategy emission behavior onto lower strategy classes.
+- [x] `lua/lalin/exec_plan_rules.lua`
+  - [x] Move exec fragment planning onto exec/stencil/residual classes.
+- [x] `lua/lalin/luajit_lower_rules.lua`
+  - [x] Add typed LuaJIT kernel and skeleton lowering selection ASDL.
+  - [x] Add typed `StencilMachineSkeletonPlan` and skeleton reduction wrappers.
+  - [x] Move LuaJIT kernel/skeleton lowering selection onto direct ASDL
+        methods in `lua/lalin/luajit_lower.lua`.
+  - [x] Delete `tests/code_ir/test_luajit_lower_rules.lua`.
+  - [x] Add `tests/code_ir/test_luajit_lower_methods.lua`.
+- [x] `lua/lalin/stencil_rules.lua`
+  - [x] Move stencil-machine planning schema out of `LalinLuaJIT` and into
+        `LalinStencilMachine`.
+  - [x] Delete the public `stencil_rules` module/export name and relation
+        runner surface.
+  - [x] Replace legacy stencil selection `{ kind, vocab, op, info, args }`
+        tables with `StencilMachineSelected` ASDL leaves.
+  - [x] Replace selected-info bags with explicit
+        `StencilMachineSelectionInfo` ASDL values.
+  - [x] Split pure vocabulary legality from lowering behavior.
+  - [x] Attach stencil expression/sink legality to stencil classes.
+  - [x] Keep global saturation vocabulary as data, not rule-table control flow.
+  - [x] Replace raw expression binding/seen tables with
+        `StencilMachineExprBindings` and `StencilMachineExprFactInput`.
+  - [x] Move stencil expression fact construction onto `KernelExpr` and
+        `ValueExpr` ASDL leaf methods.
+  - [x] Return typed `StencilMachineStorePlan` and
+        `StencilMachineReducePlan` values instead of ad hoc plan tables.
 
 ## Major Lowering Modules To Refactor Around Methods
 
 - [ ] `lua/lalin/tree_typecheck.lua`
   - [ ] remains orchestration and context
   - [ ] stops owning per-class semantics
+  - [x] Remove duplicate unsafe list helper that bypassed nil-tolerant
+        collection.
+  - [x] Move `TypeValueScope` and `TypeStmtInput` methods into
+        `tree_typecheck_fact.lua`.
+  - [x] Move contract typing onto `FuncContract` leaf methods.
+  - [x] Add missing expression/index leaf methods in
+        `tree_typecheck_expr.lua` for unary, logic, machine casts,
+        address/deref/len, and index expressions.
+  - [x] Move unary, binary, logic, deref, len, and index type behavior onto
+        operator/type leaf methods.
+  - [x] Remove dead operator/cast/atomic helper dispatch from the coordinator.
 - [ ] `lua/lalin/tree_to_code.lua`
   - [ ] remains module/function lowering driver
   - [ ] delegates typed operations to node methods
 - [ ] `lua/lalin/code_to_back.lua`
   - [ ] methodize type, place, expr, inst lowering
+  - [x] Core literal, Code const, binary/unary/compare/cast/intrinsic, atomic
+        ordering, and atomic RMW Back opcode selection live on ASDL leaf
+        methods instead of helper dispatch.
+  - [x] `CodePlace` address formation and address-of lowering delegate to
+        concrete place methods instead of dispatching on place class.
+  - [ ] Move `CodeInstKind` lowering out of the instruction driver ladder and
+        onto concrete instruction-kind methods.
+  - [ ] Move `CodeTermKind` lowering out of the terminator driver ladder and
+        onto concrete terminator-kind methods.
 - [ ] `lua/lalin/code_to_c.lua`
   - [ ] methodize C backend projection
 - [ ] `lua/lalin/lower_to_back.lua`
@@ -595,7 +668,8 @@ These are the current freeform rule/dispatch modules to eliminate or shrink.
 - [ ] `lua/lalin/lower_to_c.lua`
   - [ ] methodize semantic-to-C lowering
 - [ ] `lua/lalin/luajit_lower.lua`
-  - [ ] methodize code/LJ/stencil lowering where class-specific
+  - [x] methodize kernel/skeleton stencil lowering selection
+  - [ ] methodize remaining code/LJ/stencil lowering where class-specific
   - [ ] keep artifact selection orchestration separate
 - [ ] `lua/lalin/luajit_emit.lua`
   - [ ] methodize LJ expression/place/stmt emission or create explicit emitter
@@ -631,13 +705,13 @@ These are the current freeform rule/dispatch modules to eliminate or shrink.
   - [x] multiple context isolation
 - [ ] Rewrite rule tests as behavior tests:
   - [x] `tests/frontend/test_tree_typecheck_rules.lua`
-  - [ ] `tests/frontend/test_tree_to_code_rules.lua`
-  - [ ] `tests/code_ir/test_code_kernel_plan_rules.lua`
-  - [ ] `tests/code_ir/test_code_schedule_plan_rules.lua`
-  - [ ] `tests/code_ir/test_code_lower_plan_rules.lua`
-  - [ ] `tests/code_ir/test_lower_strategy_emit_rules.lua`
-  - [ ] `tests/code_ir/test_exec_plan_rules.lua`
-  - [ ] `tests/code_ir/test_luajit_lower_rules.lua`
+  - [x] `tests/frontend/test_tree_to_code_methods.lua`
+  - [x] `tests/code_ir/test_code_kernel_plan_methods.lua`
+  - [x] `tests/code_ir/test_code_schedule_plan_methods.lua`
+  - [x] `tests/code_ir/test_code_lower_plan_methods.lua`
+  - [x] `tests/code_ir/test_lower_strategy_emit_methods.lua`
+  - [x] `tests/code_ir/test_exec_plan_methods.lua`
+  - [x] `tests/code_ir/test_luajit_lower_methods.lua`
 - [ ] Keep end-to-end tests as the main safety net:
   - [ ] parsed source to artifact
   - [ ] DSL to artifact
@@ -700,8 +774,8 @@ These are the current freeform rule/dispatch modules to eliminate or shrink.
 - [ ] 4. Remove `M.pvm` and public PVM docs.
 - [ ] 5. Isolate or retire UI/top-level `pvm` usage.
 - [x] 6. Add ASDL direct method support.
-- [ ] 7. Finish `tree_typecheck.lua` method rewrite after deleting `tree_typecheck_rules.lua`.
-- [ ] 8. Migrate `tree_to_code_rules.lua`.
+- [x] 7. Finish `tree_typecheck.lua` method rewrite after deleting `tree_typecheck_rules.lua`.
+- [x] 8. Migrate `tree_to_code_rules.lua`.
 - [ ] 9. Migrate code/kernel/schedule/lower/exec rule modules.
 - [ ] 10. Migrate LuaJIT/C/backend lowering emitters.
 - [ ] 11. Delete rule modules as each reaches zero real ownership.

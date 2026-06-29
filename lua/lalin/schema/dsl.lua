@@ -16,9 +16,7 @@ local BUILTINS = {
     number = true,
     boolean = true,
     ["nil"] = true,
-    table = true,
     ["function"] = true,
-    any = true,
 }
 
 local BUILTIN_ALIASES = {
@@ -426,8 +424,6 @@ local Lang = llbl.dialect "LalinSchema" {
     g.helper .str { value = M.type("string") },
     g.helper .bool { value = M.type("boolean") },
     g.helper .number { value = M.type("number") },
-    g.helper .any { value = M.type("any") },
-    g.helper .table_ty { value = M.type("table") },
     g.helper .function_ty { value = M.type("function") },
     g.helper .nil_ty { value = M.type("nil") },
     g.helper .interned { value = M.interned },
@@ -479,8 +475,6 @@ function M.namespace(opts)
         str = env.str,
         bool = env.bool,
         number = env.number,
-        any = env.any,
-        table_ty = env.table_ty,
         function_ty = env.function_ty,
         nil_ty = env.nil_ty,
         interned = env.interned,
@@ -509,8 +503,8 @@ end
 
 local FIELD_CAPTURE_RESERVED = {
     schema = true, product = true, sum = true, alias = true, field = true,
-    str = true, bool = true, number = true, any = true,
-    table_ty = true, function_ty = true, nil_ty = true,
+    str = true, bool = true, number = true,
+    function_ty = true, nil_ty = true,
     interned = true, unique = true, variant_unique = true,
     many = true, optional = true, ref = true, id = true, map = true,
     llbl = true, N = true, spread = true, _ = true, process = true, process_opts = true,
@@ -539,7 +533,6 @@ local function type_doc(ty, f)
     if ty.kind == "builtin" then
         if ty.name == "string" then return f:text("str") end
         if ty.name == "boolean" then return f:text("bool") end
-        if ty.name == "table" then return f:text("table_ty") end
         if ty.name == "function" then return f:text("function_ty") end
         if ty.name == "nil" then return f:text("nil_ty") end
         return f:text(ty.name)

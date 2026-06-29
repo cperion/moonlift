@@ -18,18 +18,18 @@ local Tr = T.LalinTree
 local i32 = Ty.TScalar(C.ScalarI32)
 local fn_ty = Ty.TFunc({ i32 }, i32)
 local closure_ty = Ty.TClosure({ i32 }, i32)
-local key1 = "1"
-local key2 = "2"
-local expr_key = ""
+local key1 = Tr.SwitchKeyInt("1")
+local key2 = Tr.SwitchKeyInt("2")
+local expr_key = Tr.SwitchKeyExpr(Tr.ExprRef(Tr.ExprTyped(i32), B.ValueRefName("switch_key")))
 
-local function assert_keys_equal(a, b)
-    assert(a.kind == b.kind)
-    if a.reason then assert(a.reason == b.reason) end
+local function assert_switch_decision(value, class, reason)
+    assert(asdl.classof(value) == class)
+    if reason then assert(value.reason == reason) end
 end
 
-assert_keys_equal(S.keys({ key1, key2 }), { kind = "const_keys", keys = { key1, key2 } })
-assert_keys_equal(S.keys({ expr_key }), { kind = "expr_keys", keys = { expr_key } })
-assert_keys_equal(S.keys({ key1, expr_key }), { kind = "compare_fallback", keys = { key1, expr_key }, reason = "mixed const and expression switch keys" })
+assert_switch_decision(S.keys({ key1, key2 }), Tr.SwitchConstKeys)
+assert_switch_decision(S.keys({ expr_key }), Tr.SwitchExprKeys)
+assert_switch_decision(S.keys({ key1, expr_key }), Tr.SwitchCompareFallback, "mixed const and expression switch keys")
 
 local direct_binding = B.Binding(C.Id("f"), "f", fn_ty, B.BindingClassGlobalFunc("Demo", "f"))
 local direct_expr = Tr.ExprRef(Tr.ExprTyped(fn_ty), B.ValueRefBinding(direct_binding))

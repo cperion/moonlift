@@ -22,9 +22,53 @@ local function bind_context(T)
     local CodeEffectFacts = require("lalin.code_effect_facts")(T)
     local CodeKernelPlan = require("lalin.code_kernel_plan")(T)
     local KernelEmitSupport = require("lalin.kernel_emit_support")(T)
-    local CodeSchedulePlanRules = require("lalin.code_schedule_plan_rules")(T)
 
     local api = {}
+
+    local function capability_executable(capability)
+        return capability ~= nil and capability.executable == true
+    end
+
+    local function capability_rejects(capability)
+        return capability and capability.rejects or {}
+    end
+
+    function Schedule.SchedulePlanInput:select_kernel_schedule()
+        if self.vector_kind ~= nil and capability_executable(self.vector_capability) then
+            return Schedule.ScheduleSelectionPlanned(self.vector_kind, self.vector_capability, {})
+        end
+        if self.vector_kind ~= nil and (not capability_executable(self.vector_capability)) and capability_executable(self.scalar_capability) then
+            return Schedule.ScheduleSelectionPlanned(self.scalar_kind, self.scalar_capability, capability_rejects(self.vector_capability))
+        end
+        if self.vector_kind == nil and capability_executable(self.scalar_capability) then
+            return Schedule.ScheduleSelectionPlanned(self.scalar_kind, self.scalar_capability, {})
+        end
+        return Schedule.ScheduleSelectionNoPlan(capability_rejects(self.scalar_capability))
+    end
+
+    function Schedule.SchedulePlanSelection:schedule_plan_is_planned() return false end
+    function Schedule.ScheduleSelectionPlanned:schedule_plan_is_planned() return true end
+    function Schedule.SchedulePlanSelection:schedule_plan_is_no_plan() return false end
+    function Schedule.ScheduleSelectionNoPlan:schedule_plan_is_no_plan() return true end
+
+    function Schedule.SchedulePlanSelection:to_kernel_schedule(kid, plan, proofs_for_selection)
+        error("code_schedule_plan: unsupported schedule selection", 2)
+    end
+
+    function Schedule.ScheduleSelectionNoPlan:to_kernel_schedule(kid, plan, proofs_for_selection)
+        return Schedule.ScheduleNoPlan(kid, self.rejects)
+    end
+
+    function Schedule.ScheduleSelectionPlanned:to_kernel_schedule(kid, plan, proofs_for_selection)
+        local capability = assert(self.capability, "planned schedule selection has no emitter capability")
+        return Schedule.SchedulePlanned(
+            Schedule.ScheduleId("schedule:" .. sanitize(kid.text) .. ":" .. sanitize(capability.kind)),
+            kid,
+            self.schedule,
+            proofs_for_selection(plan, capability),
+            self.rejected_alternatives or {}
+        )
+    end
 
     local function default_target()
         return Back.BackTargetModel(Back.BackTargetNative, {})
@@ -108,27 +152,8 @@ local function bind_context(T)
         end
         local scalar_kind = scalar_or_closed_kind_for(plan)
         local scalar_cap = vector_cap and vector_cap.executable and nil or KernelEmitSupport.classify(plan, scalar_kind, target, flow)
-        local selection, err = CodeSchedulePlanRules:run("select_kernel_schedule", { schedule = {
-            has_vector_schedule = vector_kind ~= nil,
-            vector_executable = vector_cap ~= nil and vector_cap.executable or false,
-            vector_kind = vector_kind,
-            vector_capability = vector_cap,
-            vector_rejects = vector_cap and vector_cap.rejects or {},
-            scalar_executable = scalar_cap ~= nil and scalar_cap.executable or false,
-            scalar_kind = scalar_kind,
-            scalar_capability = scalar_cap,
-            scalar_rejects = scalar_cap and scalar_cap.rejects or {},
-        } }, "selection", "no Kernel schedule selected")
-        assert(selection ~= nil, tostring(err))
-        if selection.kind == "no_plan" then return Schedule.ScheduleNoPlan(kid, selection.rejects) end
-        local capability = assert(selection.capability, "planned schedule selection has no emitter capability")
-        return Schedule.SchedulePlanned(
-            Schedule.ScheduleId("schedule:" .. sanitize(kid.text) .. ":" .. sanitize(capability.kind)),
-            kid,
-            selection.schedule_kind,
-            proofs_for(plan, capability),
-            selection.rejected_alternatives or {}
-        )
+        local selection = Schedule.SchedulePlanInput(vector_kind, vector_cap, scalar_kind, scalar_cap):select_kernel_schedule()
+        return selection:to_kernel_schedule(kid, plan, proofs_for)
     end
 
     local function plan(module, kernels, flow, value, mem, effect, target)

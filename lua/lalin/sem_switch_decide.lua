@@ -1,129 +1,110 @@
-local schema = require("lalin.schema_runtime")
-local function single(value) return { value } end
-local function as_list(values) return values end
-local function only(values)
-    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
-    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
-    return values[1]
-end
-local function append_all(out, values)
-    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
-    return out
-end
-local function concat_all(lists)
-    local out = {}
-    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
-    return out
-end
-local function concat2(a, b)
-    local out = {}
-    append_all(out, a)
-    append_all(out, b)
-    return out
-end
-local function concat3(a, b, c)
-    local out = {}
-    append_all(out, a)
-    append_all(out, b)
-    append_all(out, c)
-    return out
-end
-local function flat_map(fn, values, n)
-    local out = {}
-    n = n or #(values or {})
-    for i = 1, n do append_all(out, fn(values[i])) end
-    return out
-end
-
 local function bind_context(T)
-    local Sem = T.LalinSem
     local Tr = T.LalinTree
 
-    local stmt_arm_key
-    local expr_arm_key
-    local decide_stmt_switch
-    local decide_expr_switch
-
-    local function key_kind(key)
-        if key == "" then return "expr" end
-        return "const"
+    local function append_key(keys, key)
+        local out = {}
+        for i = 1, #(keys or {}) do out[i] = keys[i] end
+        out[#out + 1] = key
+        return out
     end
 
-    function stmt_arm_key(node, ...)
-        local cls = schema.classof(node)
-        if schema.isa(node, Tr.SwitchStmtArm) then
-            return (function(arm)
- return single(arm.raw_key)
-            end)(node, ...)
-        else
-            error("phase lalin_sem_stmt_switch_arm_key: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
-        end
+    function Tr.SwitchKeyInt:sem_switch_initial_decision()
+        return Tr.SwitchConstKeys({ self })
     end
 
-    function expr_arm_key(node, ...)
-        local cls = schema.classof(node)
-        if schema.isa(node, Tr.SwitchExprArm) then
-            return (function(arm)
- return single(arm.raw_key)
-            end)(node, ...)
-        else
-            error("phase lalin_sem_expr_switch_arm_key: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
-        end
+    function Tr.SwitchKeyBool:sem_switch_initial_decision()
+        return Tr.SwitchConstKeys({ self })
+    end
+
+    function Tr.SwitchKeyName:sem_switch_initial_decision()
+        return Tr.SwitchConstKeys({ self })
+    end
+
+    function Tr.SwitchKeyExpr:sem_switch_initial_decision()
+        return Tr.SwitchExprKeys({ self })
+    end
+
+    function Tr.SwitchKeyInt:sem_switch_after_const_keys(decision)
+        return Tr.SwitchConstKeys(append_key(decision.keys, self))
+    end
+
+    function Tr.SwitchKeyBool:sem_switch_after_const_keys(decision)
+        return Tr.SwitchConstKeys(append_key(decision.keys, self))
+    end
+
+    function Tr.SwitchKeyName:sem_switch_after_const_keys(decision)
+        return Tr.SwitchConstKeys(append_key(decision.keys, self))
+    end
+
+    function Tr.SwitchKeyExpr:sem_switch_after_const_keys(decision)
+        return Tr.SwitchCompareFallback(append_key(decision.keys, self), "mixed const and expression switch keys")
+    end
+
+    function Tr.SwitchKeyInt:sem_switch_after_expr_keys(decision)
+        return Tr.SwitchCompareFallback(append_key(decision.keys, self), "mixed const and expression switch keys")
+    end
+
+    function Tr.SwitchKeyBool:sem_switch_after_expr_keys(decision)
+        return Tr.SwitchCompareFallback(append_key(decision.keys, self), "mixed const and expression switch keys")
+    end
+
+    function Tr.SwitchKeyName:sem_switch_after_expr_keys(decision)
+        return Tr.SwitchCompareFallback(append_key(decision.keys, self), "mixed const and expression switch keys")
+    end
+
+    function Tr.SwitchKeyExpr:sem_switch_after_expr_keys(decision)
+        return Tr.SwitchExprKeys(append_key(decision.keys, self))
+    end
+
+    function Tr.SwitchKey:sem_switch_after_compare_fallback(decision)
+        return Tr.SwitchCompareFallback(append_key(decision.keys, self), decision.reason)
+    end
+
+    function Tr.SwitchConstKeys:sem_switch_add_key(key)
+        return key:sem_switch_after_const_keys(self)
+    end
+
+    function Tr.SwitchExprKeys:sem_switch_add_key(key)
+        return key:sem_switch_after_expr_keys(self)
+    end
+
+    function Tr.SwitchCompareFallback:sem_switch_add_key(key)
+        return key:sem_switch_after_compare_fallback(self)
+    end
+
+    function Tr.SwitchStmtArm:sem_switch_arm_key()
+        return self.key
+    end
+
+    function Tr.SwitchExprArm:sem_switch_arm_key()
+        return self.key
     end
 
     local function decide_keys(keys)
-        local has_const = false
-        local has_expr = false
+        local decision = nil
         for i = 1, #keys do
-            local kind = key_kind(keys[i])
-            if kind == "const" then has_const = true end
-            if kind == "expr" then has_expr = true end
+            decision = decision and decision:sem_switch_add_key(keys[i]) or keys[i]:sem_switch_initial_decision()
         end
-        if has_expr and has_const then
-            return { kind = "compare_fallback", keys = keys, reason = "mixed const and expression switch keys" }
-        end
-        if has_expr then
-            return { kind = "expr_keys", keys = keys }
-        end
-        return { kind = "const_keys", keys = keys }
+        return decision or Tr.SwitchConstKeys({})
     end
 
-    function decide_stmt_switch(node, ...)
-        local cls = schema.classof(node)
-        if schema.isa(node, Tr.StmtSwitch) then
-            return (function(stmt)
-
-            local keys = {}
-            for i = 1, #stmt.arms do keys[#keys + 1] = only(stmt_arm_key(stmt.arms[i])) end
-            return single(decide_keys(keys))
-            end)(node, ...)
-        else
-            error("phase lalin_sem_stmt_switch_decide: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
-        end
+    function Tr.StmtSwitch:sem_switch_decision()
+        local keys = {}
+        for i = 1, #self.arms do keys[#keys + 1] = self.arms[i]:sem_switch_arm_key() end
+        return decide_keys(keys)
     end
 
-    function decide_expr_switch(node, ...)
-        local cls = schema.classof(node)
-        if schema.isa(node, Tr.ExprSwitch) then
-            return (function(expr)
-
-            local keys = {}
-            for i = 1, #expr.arms do keys[#keys + 1] = only(expr_arm_key(expr.arms[i])) end
-            return single(decide_keys(keys))
-            end)(node, ...)
-        else
-            error("phase lalin_sem_expr_switch_decide: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
-        end
+    function Tr.ExprSwitch:sem_switch_decision()
+        local keys = {}
+        for i = 1, #self.arms do keys[#keys + 1] = self.arms[i]:sem_switch_arm_key() end
+        return decide_keys(keys)
     end
 
     return {
-        key_kind = key_kind,
         decide_keys = decide_keys,
-        decide_stmt_switch = decide_stmt_switch,
-        decide_expr_switch = decide_expr_switch,
         keys = function(keys) return decide_keys(keys) end,
-        stmt = function(stmt) return only(decide_stmt_switch(stmt)) end,
-        expr = function(expr) return only(decide_expr_switch(expr)) end,
+        stmt = function(stmt) return stmt:sem_switch_decision() end,
+        expr = function(expr) return expr:sem_switch_decision() end,
     }
 end
 

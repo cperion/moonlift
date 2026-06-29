@@ -20,7 +20,7 @@ local result = Typecheck.check_module(Tr.Module(Tr.ModuleSurface, { Tr.ItemFunc(
 local saw = false
 for i = 1, #result.issues do
     local issue = result.issues[i]
-    if asdl.classof(issue) == Tr.TypeIssueExpected and issue.site:match("array length") then saw = true end
+    if issue:typecheck_tree_is_array_length_expected() then saw = true end
 end
 assert(saw, "ArrayLenExpr should be rejected during typechecking")
 assert(Coverage.classification("LalinType.ArrayLen", "ArrayLenExpr").status == "language_rejected")

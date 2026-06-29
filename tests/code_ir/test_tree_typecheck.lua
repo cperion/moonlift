@@ -47,13 +47,13 @@ local module = Tr.Module(Tr.ModuleSurface, {
 
 local checked = TC.check_module(module)
 assert(#checked.issues == 0)
-assert(asdl.classof(checked.module.h) == Tr.ModuleTyped)
+assert(checked.module.h:typecheck_tree_is_typed_module())
 local typed_func = checked.module.items[1].func
 local typed_region = typed_func.body[1].region
 local typed_jump = typed_region.entry.body[2]
 assert(typed_jump.h == Tr.StmtSurface)
-assert(asdl.classof(typed_jump.args[1].value.h) == Tr.ExprTyped)
-assert(asdl.classof(typed_region.entry.body[1].cond.h) == Tr.ExprTyped)
+assert(typed_jump.args[1].value.h:typecheck_tree_is_typed_expr())
+assert(typed_region.entry.body[1].cond.h:typecheck_tree_is_typed_expr())
 
 local compiled = lalin.compile("TreeTypecheckSmoke", module)
 local f = compiled.sum_typechecked

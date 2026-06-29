@@ -35,10 +35,6 @@ local function flat_map(fn, values, n)
     return out
 end
 
-local function append_all(out, xs)
-    for i = 1, #xs do out[#out + 1] = xs[i] end
-end
-
 local function clone_values(values)
     local out = {}
     for i = 1, #values do out[#out + 1] = values[i] end
@@ -60,21 +56,16 @@ local function bind_context(T)
 
     local module_type_api = require("lalin.tree_module_type")(T)
     local control_api = require("lalin.tree_control_facts")(T)
-    require("lalin.tree_type_methods")(T)
-    require("lalin.tree_layout_methods")(T)
-    require("lalin.tree_fact_methods")(T)
+    require("lalin.tree_typecheck_type")(T)
+    require("lalin.tree_typecheck_layout")(T)
+    require("lalin.tree_typecheck_fact")(T)
     local type_view
     local type_index_base
     local type_place
     local type_expr
     local type_expr_expect
-    local type_stmt
-    local type_stmt_body
-    local type_control_stmt_region
-    local type_control_expr_region
     local type_func
     local type_item
-    local type_module
 
     local function void_ty() return Ty.TScalar(C.ScalarVoid) end
     local function bool_ty() return Ty.TScalar(C.ScalarBool) end
@@ -124,31 +115,6 @@ local function bind_context(T)
         return view:typecheck_tree_elem()
     end
 
-    local function env_with_values(env, values)
-        return B.Env(env.module_name, values, env.types, env.layouts)
-    end
-
-    local function env_add_value(env, entry)
-        local values = clone_values(env.values)
-        values[#values + 1] = entry
-        return env_with_values(env, values)
-    end
-
-    local function ctx_with_env(ctx, env)
-        return Tr.TypeCheckEnv(env, ctx.facts, ctx.return_ty, ctx.yield)
-    end
-
-    local function ctx_with_yield(ctx, yield)
-        return Tr.TypeCheckEnv(ctx.env, ctx.facts, ctx.return_ty, yield)
-    end
-
-    local function env_lookup_value(env, name)
-        for i = #env.values, 1, -1 do
-            if env.values[i].name == name then return env.values[i].binding end
-        end
-        return nil
-    end
-
     local function type_eq(a, b)
         return a == b
     end
@@ -188,114 +154,8 @@ local function bind_context(T)
         return expected:typecheck_tree_arg_matches_actual(env, actual)
     end
 
-    local function named_ref(ty)
-        return ty:typecheck_tree_named_ref()
-    end
-
-    local function path_leaf(ref)
-        return ref:typecheck_tree_ref_leaf()
-    end
-
-    local function field_layout_for(env, ty, field_name)
-        ty = canonical_type(env, ty)
-        local ref = named_ref(ty)
-        if ref == nil then return nil end
-        for i = 1, #env.layouts do
-            local layout = env.layouts[i]
-            if layout:typecheck_tree_matches_ref(ref) then return layout:typecheck_tree_field_layout(field_name) end
-        end
-        return nil
-    end
-
-    local function is_bool(ty)
-        return ty:typecheck_tree_is_bool()
-    end
-
-    local function is_numeric_scalar(ty)
-        return ty:typecheck_tree_is_numeric_scalar()
-    end
-
-    local function is_integer_scalar(ty)
-        return ty:typecheck_tree_is_integer_scalar()
-    end
-
-    local function is_float_scalar(ty)
-        return ty:typecheck_tree_is_float_scalar()
-    end
-
-    local int_scalar_info = {
-        [C.ScalarBool] = { bits = 1, signed = false },
-        [C.ScalarI8] = { bits = 8, signed = true },
-        [C.ScalarI16] = { bits = 16, signed = true },
-        [C.ScalarI32] = { bits = 32, signed = true },
-        [C.ScalarI64] = { bits = 64, signed = true },
-        [C.ScalarU8] = { bits = 8, signed = false },
-        [C.ScalarU16] = { bits = 16, signed = false },
-        [C.ScalarU32] = { bits = 32, signed = false },
-        [C.ScalarU64] = { bits = 64, signed = false },
-        [C.ScalarIndex] = { bits = 64, signed = true },
-    }
-
-    local float_scalar_bits = {
-        [C.ScalarF32] = 32,
-        [C.ScalarF64] = 64,
-    }
-
-    local function semantic_cast_op(src_ty, dst_ty)
-        local src, dst = scalar_kind(src_ty), scalar_kind(dst_ty)
-        if src == nil or dst == nil then return C.MachineCastBitcast end
-        if src == dst then return C.MachineCastIdentity end
-        local si, di = int_scalar_info[src], int_scalar_info[dst]
-        if si ~= nil and di ~= nil then
-            if di.bits < si.bits then return C.MachineCastIreduce end
-            if di.bits > si.bits then return si.signed and C.MachineCastSextend or C.MachineCastUextend end
-            return C.MachineCastIdentity
-        end
-        local sf, df = float_scalar_bits[src], float_scalar_bits[dst]
-        if sf ~= nil and df ~= nil then
-            if df > sf then return C.MachineCastFpromote end
-            if df < sf then return C.MachineCastFdemote end
-            return C.MachineCastIdentity
-        end
-        if si ~= nil and df ~= nil then return si.signed and C.MachineCastSToF or C.MachineCastUToF end
-        if sf ~= nil and di ~= nil then return di.signed and C.MachineCastFToS or C.MachineCastFToU end
-        return C.MachineCastBitcast
-    end
-
-    local function surface_cast_to_machine_op(surface_op, src_ty, dst_ty)
-        if surface_op == C.SurfaceCast then return semantic_cast_op(src_ty, dst_ty) end
-        if surface_op == C.SurfaceTrunc then return C.MachineCastIreduce end
-        if surface_op == C.SurfaceZExt then return C.MachineCastUextend end
-        if surface_op == C.SurfaceSExt then return C.MachineCastSextend end
-        if surface_op == C.SurfaceBitcast then return C.MachineCastBitcast end
-        if surface_op == C.SurfaceSatCast then return C.MachineCastBitcast end
-        return C.MachineCastBitcast
-    end
-
-    local function is_atomic_value_type(ty)
-        return ty:typecheck_tree_is_atomic_value_type()
-    end
-
-    local function check_atomic_value_type(site, ty, issues)
-        if not is_atomic_value_type(ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary(Tr.TypeUnaryAtomicInvalidValue(site), ty) end
-    end
-
-    local function check_atomic_rmw_value_type(op, ty, issues)
-        check_atomic_value_type("atomic_rmw", ty, issues)
-        if op == C.AtomicRmwXchg then return end
-        if ty:typecheck_tree_rejects_atomic_rmw_arithmetic() then issues[#issues + 1] = Tr.TypeIssueInvalidUnary(Tr.TypeUnaryAtomicRmwPointerOp, ty); return end
-        if is_bool(ty) and (op == C.AtomicRmwAdd or op == C.AtomicRmwSub) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary(Tr.TypeUnaryAtomicRmwBoolAddSub, ty) end
-    end
-
-    local function result_expr(expr, ty, issues)
-        return Tr.TypeExprResult(expr, ty, issues or {})
-    end
-
-    local function result_place(place, ty, issues)
-        return Tr.TypePlaceResult(place, ty, issues or {})
-    end
-
-    require("lalin.tree_expr_methods")(T)
+    require("lalin.tree_typecheck_expr")(T)
+    require("lalin.tree_typecheck_stmt")(T)
 
     function Tr.ExprHeader:typecheck_tree_typed_ty()
         return nil
@@ -321,12 +181,12 @@ local function bind_context(T)
         return h:typecheck_tree_typed_ty()
     end
 
-    local function merge_env_layouts(env, extra_layout_env)
+    local function merged_layouts(scope, extra_layout_env)
         local extra = extra_layout_env and extra_layout_env.layouts
-        if extra == nil or #extra == 0 then return env end
-        local layouts = clone_values(env.layouts)
+        if extra == nil or #extra == 0 then return scope.layouts end
+        local layouts = clone_values(scope.layouts)
         for i = 1, #extra do layouts[#layouts + 1] = extra[i] end
-        return B.Env(env.module_name, env.values, env.types, layouts)
+        return layouts
     end
 
     local function array_len_const(len)
@@ -358,22 +218,6 @@ local function bind_context(T)
         return v and (v.text or v.name) or tostring(v)
     end
 
-    local function type_value_scope_from_env(env)
-        return Tr.TypeValueScope(env.module_name, env.values, env.types, env.layouts, empty_type_module_facts())
-    end
-
-    local function type_value_scope_from_state(type_state)
-        return Tr.TypeValueScope(type_state.env.module_name, type_state.env.values, type_state.env.types, type_state.env.layouts, type_state.facts)
-    end
-
-    local function type_expr_input_from_state(type_state)
-        return Tr.TypeExprInput(type_value_scope_from_state(type_state))
-    end
-
-    local function type_expected_expr_input_from_state(type_state, expected)
-        return Tr.TypeExpectedExprInput(type_value_scope_from_state(type_state), expected)
-    end
-
     local function is_void_type(ty)
         return ty:typecheck_tree_is_void_type()
     end
@@ -386,15 +230,15 @@ local function bind_context(T)
         return handle_ty:typecheck_tree_handle_repr_type()
     end
 
-    local function find_handle_def(ctx, name)
-        for i = 1, #(ctx.facts.handles or {}) do
-            if ctx.facts.handles[i].name == name then return ctx.facts.handles[i] end
+    local function find_handle_def(scope, name)
+        for i = 1, #(scope.facts.handles or {}) do
+            if scope.facts.handles[i].name == name then return scope.facts.handles[i] end
         end
         return nil
     end
 
-    local function find_handle_def_for_type(ctx, ty)
-        return ty:typecheck_tree_handle_def(ctx)
+    local function find_handle_def_for_type(scope, ty)
+        return ty:typecheck_tree_handle_def(scope.facts)
     end
 
     local function lease_target_type(ty)
@@ -431,14 +275,14 @@ local function bind_context(T)
         return false
     end
 
-    local function check_handle_resolution_signature(ctx, params, payload_params, issues, site)
+    local function check_handle_resolution_signature(scope, params, payload_params, issues, site)
         local handle_defs = {}
         local domain_params = {}
         local preserving_domain_params = {}
-        local all_defs = ctx.facts.handles or {}
+        local all_defs = scope.facts.handles or {}
         for i = 1, #(params or {}) do
-            local pty = canonical_type(ctx.env, params[i].ty)
-            local def = find_handle_def_for_type(ctx, pty)
+            local pty = canonical_type(scope, params[i].ty)
+            local def = find_handle_def_for_type(scope, pty)
             if def and def.target then handle_defs[#handle_defs + 1] = def end
             for j = 1, #all_defs do
                 local hdef = all_defs[j]
@@ -450,7 +294,7 @@ local function bind_context(T)
         end
         if #handle_defs == 0 then return end
         for i = 1, #(payload_params or {}) do
-            local info = lease_payload_info(canonical_type(ctx.env, payload_params[i].ty))
+            local info = lease_payload_info(canonical_type(scope, payload_params[i].ty))
             if info ~= nil then
                 local matched = nil
                 for j = 1, #handle_defs do
@@ -477,9 +321,9 @@ local function bind_context(T)
         end
     end
 
-    local function find_variant(ctx, type_name, variant_name)
-        for i = 1, #(ctx.facts.variants or {}) do
-            local def = ctx.facts.variants[i]
+    local function find_variant(scope, type_name, variant_name)
+        for i = 1, #(scope.facts.variants or {}) do
+            local def = scope.facts.variants[i]
             if def.type_name == type_name then
                 for j = 1, #(def.variants or {}) do
                     if def.variants[j].name == variant_name then return def, def.variants[j] end
@@ -490,12 +334,12 @@ local function bind_context(T)
         return nil, nil
     end
 
-    local function variant_def_for_value_ty(ctx, ty)
-        return ty:typecheck_tree_variant_def(ctx.facts)
+    local function variant_def_for_value_ty(scope, ty)
+        return ty:typecheck_tree_variant_def(scope.facts)
     end
 
-    local function bind_env_for_variant(ctx, region_id, variant, requested_binds)
-        local env = ctx.env
+    local function bind_scope_for_variant(scope, region_id, variant, requested_binds)
+        local out_scope = scope
         local binds = {}
         if requested_binds ~= nil and #requested_binds > 0 then
             for i = 1, #requested_binds do
@@ -514,37 +358,37 @@ local function bind_context(T)
         end
         for i = 1, #binds do
             local b = B.Binding(C.Id("variant:" .. tostring(region_id or "switch") .. ":" .. variant.name .. ":" .. binds[i].name), binds[i].name, binds[i].ty, B.BindingClassLocalValue)
-            env = env_add_value(env, B.ValueEntry(b.name, b))
+            out_scope = out_scope:typecheck_tree_add_value(B.ValueEntry(b.name, b))
         end
-        return env, binds
+        return out_scope, binds
     end
 
-    local function live_lease_tys(ctx)
+    local function live_lease_tys(scope)
         local out = {}
-        for i = #ctx.env.values, 1, -1 do
-            local ty = canonical_type(ctx.env, ctx.env.values[i].binding.ty)
+        for i = #scope.values, 1, -1 do
+            local ty = canonical_type(scope, scope.values[i].binding.ty)
             ty:typecheck_tree_append_live_lease(out)
         end
         return out
     end
 
-    local function callee_effect_def(type_state, callee_expr)
+    local function callee_effect_def(scope, callee_expr)
         local binding_name = callee_expr:typecheck_tree_binding_name()
         if binding_name == nil then return nil end
-        for i = 1, #(type_state.facts.effects or {}) do
-            if type_state.facts.effects[i].name == binding_name then return type_state.facts.effects[i] end
+        for i = 1, #(scope.facts.effects or {}) do
+            if scope.facts.effects[i].name == binding_name then return scope.facts.effects[i] end
         end
         return nil
     end
 
-    local function call_may_invalidate_while_lease_live(ctx, callee_expr, param_tys, typed_args)
-        local leases = live_lease_tys(ctx)
+    local function call_may_invalidate_while_lease_live(scope, callee_expr, param_tys, typed_args)
+        local leases = live_lease_tys(scope)
         if #leases == 0 then return nil end
-        local effect = callee_effect_def(ctx, callee_expr)
+        local effect = callee_effect_def(scope, callee_expr)
         local preserve = effect and effect.preserve or {}
         local explicit_invalidate = effect and effect.invalidate or {}
         for i = 1, #(param_tys or {}) do
-            local pty = canonical_type(ctx.env, param_tys[i])
+            local pty = canonical_type(scope, param_tys[i])
             if pty:typecheck_tree_call_may_invalidate_live_lease_param() then
                 local pname = effect and effect.params and effect.params[i] and effect.params[i].name
                 local preserves_param = pname and contains_name(preserve, pname)
@@ -561,79 +405,28 @@ local function bind_context(T)
         return nil
     end
 
-    type_expr_expect = function(expr, type_state, expected)
-        return expr:typecheck_tree_expr_expected(type_expected_expr_input_from_state(type_state, expected))
-    end
-
-    local function callable_result(fn_ty)
-        return fn_ty:typecheck_tree_callable_result()
+    type_expr_expect = function(expr, stmt_input, expected)
+        return expr:typecheck_tree_expr_expected(stmt_input:typecheck_tree_expected_expr_input(expected))
     end
 
     local function check_expected(site, expected, actual, issues)
         if not type_eq(expected, actual) then issues[#issues + 1] = Tr.TypeIssueExpected(site, expected, actual) end
     end
 
-    local function type_binary_op(op, lhs_ty, rhs_ty, issues)
-        if op == C.BinAdd then
-            local ty = lhs_ty:typecheck_tree_bin_add(rhs_ty)
-            if ty ~= nil then return ty end
-        end
-        if op == C.BinSub then
-            local ty = lhs_ty:typecheck_tree_bin_sub(rhs_ty)
-            if ty ~= nil then return ty end
-        end
-        if not type_eq(lhs_ty, rhs_ty) then
-            issues[#issues + 1] = Tr.TypeIssueInvalidBinary(tostring(op), lhs_ty, rhs_ty)
-            return lhs_ty
-        end
-        if op == C.BinAdd or op == C.BinSub or op == C.BinMul or op == C.BinDiv or op == C.BinRem then
-            if is_numeric_scalar(lhs_ty) then return lhs_ty end
-        else
-            if is_integer_scalar(lhs_ty) then return lhs_ty end
-        end
-        issues[#issues + 1] = Tr.TypeIssueInvalidBinary(tostring(op), lhs_ty, rhs_ty)
-        return lhs_ty
-    end
-
-    local function type_compare_op(op, lhs_ty, rhs_ty, issues)
-        if not type_eq(lhs_ty, rhs_ty) then issues[#issues + 1] = Tr.TypeIssueInvalidCompare(tostring(op), lhs_ty, rhs_ty) end
-        return bool_ty()
-    end
-
     function type_view(node, ...)
         return node:typecheck_tree_view(...)
-    end
-
-    function Tr.IndexBase:typecheck_tree_elem()
-        return void_ty()
-    end
-
-    function Tr.IndexBaseView:typecheck_tree_elem()
-        return self.view.elem
-    end
-
-    function Tr.IndexBasePlace:typecheck_tree_elem()
-        return self.elem
-    end
-
-    function Tr.IndexBaseExpr:typecheck_tree_elem()
-        return void_ty()
-    end
-
-    local function index_base_elem(base)
-        return base:typecheck_tree_elem()
     end
 
     function type_index_base(node, ...)
         return node:typecheck_tree_index_base(...)
     end
 
-    function type_place(node, ...)
-        return node:typecheck_tree_place(...)
+    function type_place(node, input)
+        return node:typecheck_tree_place(input)
     end
 
-    function type_expr(node, type_state)
-        return node:typecheck_tree_expr(type_expr_input_from_state(type_state))
+    function type_expr(node, input)
+        return node:typecheck_tree_expr(input)
     end
 
     local function jump_args_by_name(args)
@@ -652,28 +445,20 @@ local function bind_context(T)
         return entries
     end
 
-    local function env_with_block_params(env, region_id, label, params, is_entry)
-        local out = env
+    local function scope_with_block_params(scope, region_id, label, params, is_entry)
+        local out = scope
         local entries = block_param_bindings(region_id, label, params, is_entry)
-        for i = 1, #entries do out = env_add_value(out, entries[i]) end
+        for i = 1, #entries do out = out:typecheck_tree_add_value(entries[i]) end
         return out
     end
 
-    function type_stmt(node, ...)
-        return node:typecheck_tree_stmt(...)
-    end
-
-    function type_control_stmt_region(node, ...)
-        return node:typecheck_tree_control_stmt_region(...)
-    end
-
-    function type_control_expr_region(node, ...)
-        return node:typecheck_tree_control_expr_region(...)
-    end
-
-    local function type_contracts(contracts, ctx)
+    local function type_contracts(contracts, input)
         local out, issues = {}, {}
-        for i = 1, #contracts do local c, ci = type_contract(contracts[i], ctx); out[#out + 1] = c; append_all(issues, ci) end
+        for i = 1, #contracts do
+            local c, ci = contracts[i]:typecheck_tree_contract(input)
+            out[#out + 1] = c
+            append_all(issues, ci)
+        end
         return out, issues
     end
 
@@ -683,96 +468,99 @@ local function bind_context(T)
         if type_contains_lease(func.result) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary(Tr.TypeUnaryLeaseEscapeDurable, func.result) end
     end
 
-    local function check_region_signature(region, module_env, facts, issues)
-        local ctx = Tr.TypeCheckEnv(module_env, facts, Ty.TScalar(C.ScalarVoid), Tr.TypeYieldNone)
-        for i = 1, #(region.params or {}) do
-            check_type_policy(region.params[i].ty, issues, "region param " .. tostring(region.params[i].name))
+    function Tr.Region:typecheck_tree_signature_issues(input)
+        local issues = {}
+        for i = 1, #(self.params or {}) do
+            check_type_policy(self.params[i].ty, issues, "region param " .. tostring(self.params[i].name))
         end
-        for i = 1, #(region.conts or {}) do
-            local cont = region.conts[i]
+        for i = 1, #(self.conts or {}) do
+            local cont = self.conts[i]
             for j = 1, #(cont.params or {}) do
                 local param = cont.params[j]
                 check_type_policy(param.ty, issues, "continuation " .. tostring(cont.name) .. " param " .. tostring(param.name))
             end
-            check_handle_resolution_signature(ctx, region.params, cont.params, issues, "region " .. tostring(cont.name))
+            check_handle_resolution_signature(input.scope, self.params, cont.params, issues, "region " .. tostring(cont.name))
         end
+        return issues
     end
 
-    local function canonical_func(self, module_env)
-        return schema.with(self, { params = canonical_params(module_env, self.params), result = canonical_type(module_env, self.result) })
+    local function canonical_func(self, scope)
+        return schema.with(self, { params = canonical_params(scope, self.params), result = canonical_type(scope, self.result) })
     end
 
-    local function canonical_block_params(module_env, params)
+    local function canonical_block_params(scope, params)
         local out = {}
-        for i = 1, #(params or {}) do out[i] = schema.with(params[i], { ty = canonical_type(module_env, params[i].ty) }) end
+        for i = 1, #(params or {}) do out[i] = schema.with(params[i], { ty = canonical_type(scope, params[i].ty) }) end
         return out
     end
 
-    local function canonical_entry_params(module_env, params)
+    local function canonical_entry_params(scope, params)
         local out = {}
-        for i = 1, #(params or {}) do out[i] = schema.with(params[i], { ty = canonical_type(module_env, params[i].ty) }) end
+        for i = 1, #(params or {}) do out[i] = schema.with(params[i], { ty = canonical_type(scope, params[i].ty) }) end
         return out
     end
 
-    local function canonical_region(module_env, region)
-        local params = canonical_params(module_env, region.params or {})
+    local function canonical_region(scope, region)
+        local params = canonical_params(scope, region.params or {})
         local conts = {}
-        for i = 1, #(region.conts or {}) do conts[i] = schema.with(region.conts[i], { params = canonical_block_params(module_env, region.conts[i].params) }) end
-        local entry = schema.with(region.entry, { params = canonical_entry_params(module_env, region.entry.params) })
+        for i = 1, #(region.conts or {}) do conts[i] = schema.with(region.conts[i], { params = canonical_block_params(scope, region.conts[i].params) }) end
+        local entry = schema.with(region.entry, { params = canonical_entry_params(scope, region.entry.params) })
         local blocks = {}
-        for i = 1, #(region.blocks or {}) do blocks[i] = schema.with(region.blocks[i], { params = canonical_block_params(module_env, region.blocks[i].params) }) end
+        for i = 1, #(region.blocks or {}) do blocks[i] = schema.with(region.blocks[i], { params = canonical_block_params(scope, region.blocks[i].params) }) end
         return schema.with(region, { params = params, conts = conts, entry = entry, blocks = blocks })
     end
 
-    local function type_plain_func(self, module_env, facts)
-        local func = canonical_func(self, module_env)
-        local ctx = Tr.TypeCheckEnv(env_with_params(module_env, func.name, func.params), facts, func.result, Tr.TypeYieldNone)
-        local body = type_stmt_body(func.body, ctx)
+    local function type_plain_func(self, input)
+        local func = canonical_func(self, input.scope)
+        local func_scope = input.scope:typecheck_tree_add_params(func.name, func.params)
+        local stmt_input = func_scope:typecheck_tree_stmt_input(func.result, Tr.TypeYieldNone)
+        local body = stmt_input:typecheck_tree_stmt_body(func.body)
         local issues = {}; check_func_types(func, issues); append_all(issues, body.issues)
         check_owned_function(func.name, func.params, body.stmts, issues)
         return Tr.TypeFuncResult(schema.with(func, { body = body.stmts }), issues)
     end
 
-    local function type_contract_func(self, module_env, facts)
-        local func = canonical_func(self, module_env)
-        local ctx = Tr.TypeCheckEnv(env_with_params(module_env, func.name, func.params), facts, func.result, Tr.TypeYieldNone)
-        local contracts, issues = type_contracts(func.contracts, ctx)
+    local function type_contract_func(self, input)
+        local func = canonical_func(self, input.scope)
+        local func_scope = input.scope:typecheck_tree_add_params(func.name, func.params)
+        local stmt_input = func_scope:typecheck_tree_stmt_input(func.result, Tr.TypeYieldNone)
+        local contracts, issues = type_contracts(func.contracts, stmt_input)
         check_func_types(func, issues)
-        local body = type_stmt_body(func.body, ctx)
+        local body = stmt_input:typecheck_tree_stmt_body(func.body)
         append_all(issues, body.issues)
         check_owned_function(func.name, func.params, body.stmts, issues)
         return Tr.TypeFuncResult(schema.with(func, { contracts = contracts, body = body.stmts }), issues)
     end
 
-    function Tr.FuncLocal:typecheck_tree_func(module_env, facts)
-        return type_plain_func(self, module_env, facts)
+    function Tr.FuncLocal:typecheck_tree_func(input)
+        return type_plain_func(self, input)
     end
 
-    function Tr.FuncExport:typecheck_tree_func(module_env, facts)
-        return type_plain_func(self, module_env, facts)
+    function Tr.FuncExport:typecheck_tree_func(input)
+        return type_plain_func(self, input)
     end
 
-    function Tr.FuncLocalContract:typecheck_tree_func(module_env, facts)
-        return type_contract_func(self, module_env, facts)
+    function Tr.FuncLocalContract:typecheck_tree_func(input)
+        return type_contract_func(self, input)
     end
 
-    function Tr.FuncExportContract:typecheck_tree_func(module_env, facts)
-        return type_contract_func(self, module_env, facts)
+    function Tr.FuncExportContract:typecheck_tree_func(input)
+        return type_contract_func(self, input)
     end
 
     function type_func(node, ...)
         return node:typecheck_tree_func(...)
     end
 
-    function Tr.ItemFunc:typecheck_tree_item(module_env, facts)
-        local r = type_func(self.func, module_env, facts)
+    function Tr.ItemFunc:typecheck_tree_item(input)
+        local r = type_func(self.func, Tr.TypeFuncInput(input.scope))
         return Tr.TypeItemResult({ Tr.ItemFunc(r.func) }, r.issues)
     end
 
-    function Tr.ItemConst:typecheck_tree_item(module_env, facts)
-        local ty = canonical_type(module_env, self.c.ty)
-        local type_state = Tr.TypeCheckEnv(module_env, facts, ty, Tr.TypeYieldNone)
-        local value = type_expr(self.c.value, type_state)
+    function Tr.ItemConst:typecheck_tree_item(input)
+        local ty = canonical_type(input.scope, self.c.ty)
+        local expr_input = input.scope:typecheck_tree_expr_input()
+        local value = type_expr(self.c.value, expr_input)
         local issues = {}
         check_type_policy(ty, issues, "const")
         append_all(issues, value.issues)
@@ -782,10 +570,10 @@ local function bind_context(T)
         return Tr.TypeItemResult({ Tr.ItemConst(schema.with(self.c, { ty = ty, value = value.expr })) }, issues)
     end
 
-    function Tr.ItemStatic:typecheck_tree_item(module_env, facts)
-        local ty = canonical_type(module_env, self.s.ty)
-        local type_state = Tr.TypeCheckEnv(module_env, facts, ty, Tr.TypeYieldNone)
-        local value = type_expr(self.s.value, type_state)
+    function Tr.ItemStatic:typecheck_tree_item(input)
+        local ty = canonical_type(input.scope, self.s.ty)
+        local expr_input = input.scope:typecheck_tree_expr_input()
+        local value = type_expr(self.s.value, expr_input)
         local issues = {}
         check_type_policy(ty, issues, "static")
         append_all(issues, value.issues)
@@ -872,17 +660,18 @@ local function bind_context(T)
         return Tr.TypeItemResult({ self }, issues)
     end
 
-    function Tr.ItemRegion:typecheck_tree_item(module_env, facts)
-        local region = canonical_region(module_env, self.region)
-        local issues = {}
-        check_region_signature(region, module_env, facts, issues)
-        local type_state = Tr.TypeCheckEnv(env_with_params(module_env, "region:" .. tostring(region.name), region.params), facts, Ty.TScalar(C.ScalarVoid), Tr.TypeYieldNone)
+    function Tr.ItemRegion:typecheck_tree_item(input)
+        local region = canonical_region(input.scope, self.region)
+        local issues = region:typecheck_tree_signature_issues(input)
+        local region_scope = input.scope:typecheck_tree_add_params("region:" .. tostring(region.name), region.params)
+        local stmt_input = region_scope:typecheck_tree_stmt_input(Ty.TScalar(C.ScalarVoid), Tr.TypeYieldNone)
         local region_id = "region:" .. tostring(region.name)
-        local typed_entry, entry_issues = type_entry_block(region_id, region.entry, type_state, Tr.TypeYieldVoid)
+        local control_input = Tr.TypeControlInput(stmt_input:typecheck_tree_with_yield(Tr.TypeYieldVoid), region_id)
+        local typed_entry, entry_issues = region.entry:typecheck_tree_control_entry(control_input)
         append_all(issues, entry_issues)
         local typed_blocks = {}
         for i = 1, #(region.blocks or {}) do
-            local b, bi = type_control_block(region_id, region.blocks[i], type_state, Tr.TypeYieldVoid)
+            local b, bi = region.blocks[i]:typecheck_tree_control_block(control_input)
             typed_blocks[#typed_blocks + 1] = b
             append_all(issues, bi)
         end
@@ -1485,21 +1274,19 @@ local function bind_context(T)
     local function type_module_with_layout_env(module, extra_layout_env, target, collector, analysis_ctx)
         local base_env = module_type_api.env(module, target)
         local facts = module:typecheck_tree_module_facts(Tr.TypeModuleFactsInput(base_env.module_name))
-        local module_env = merge_env_layouts(base_env, extra_layout_env)
+        local module_scope = Tr.TypeValueScope(base_env.module_name, base_env.values, base_env.types, base_env.layouts, facts)
+        module_scope = module_scope:typecheck_tree_with_layouts(merged_layouts(module_scope, extra_layout_env))
         local items = {}
         local issues = {}
+        local input = Tr.TypeItemInput(module_scope)
         for i = 1, #module.items do
             local item = module.items[i]
-            local r = type_item(item, module_env, facts)
+            local r = type_item(item, input)
             append_all(items, r.items)
             append_all(issues, r.issues)
             emit_item_issues(collector, analysis_ctx or {}, item, r.issues)
         end
-        return Tr.TypeModuleResult(Tr.Module(Tr.ModuleTyped(module_env.module_name), items), issues)
-    end
-
-    function type_module(node, ...)
-        return node:typecheck_tree_module(...)
+        return Tr.TypeModuleResult(Tr.Module(Tr.ModuleTyped(module_scope.module_name), items), issues)
     end
 
     function Tr.Module:typecheck_tree_module(extra_layout_env, target, collector, analysis_ctx)
@@ -1507,15 +1294,6 @@ local function bind_context(T)
     end
 
     return {
-        expr = type_expr,
-        place = type_place,
-        stmt = type_stmt,
-        stmt_body = type_stmt_body,
-        control_stmt_region = type_control_stmt_region,
-        control_expr_region = type_control_expr_region,
-        func = type_func,
-        item = type_item,
-        module = type_module,
         check_module = function(module, opts)
             opts = opts or {}
             local collector = opts.collector

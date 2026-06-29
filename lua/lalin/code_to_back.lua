@@ -49,123 +49,141 @@ local function bind_context(T)
         return Back.BackShapeScalar(s)
     end
 
-    local function literal(lit)
-        local cls = asdl.classof(lit)
-        if cls == Core.LitInt then return Back.BackLitInt(lit.raw) end
-        if cls == Core.LitFloat then return Back.BackLitFloat(lit.raw) end
-        if cls == Core.LitBool then return Back.BackLitBool(lit.value) end
-        if lit == Core.LitNil or cls == Core.LitNil then return Back.BackLitNull end
-        unsupported(lit)
+    function Core.Literal:lower_core_literal_to_back()
+        unsupported(self)
+    end
+    function Core.LitInt:lower_core_literal_to_back()
+        return Back.BackLitInt(self.raw)
+    end
+    function Core.LitFloat:lower_core_literal_to_back()
+        return Back.BackLitFloat(self.raw)
+    end
+    function Core.LitBool:lower_core_literal_to_back()
+        return Back.BackLitBool(self.value)
+    end
+    function Core.LitNil:lower_core_literal_to_back()
+        return Back.BackLitNull
     end
 
-    local function const_literal(k)
-        local cls = asdl.classof(k)
-        if cls == Code.CodeConstLiteral then return literal(k.literal) end
-        if cls == Code.CodeConstNull then return Back.BackLitNull end
-        if cls == Code.CodeConstUndef then return Back.BackLitInt("0") end
-        unsupported(k)
+    function Code.CodeConst:lower_code_const_to_back_literal()
+        unsupported(self)
+    end
+    function Code.CodeConstLiteral:lower_code_const_to_back_literal()
+        return self.literal:lower_core_literal_to_back()
+    end
+    function Code.CodeConstNull:lower_code_const_to_back_literal()
+        return Back.BackLitNull
+    end
+    function Code.CodeConstUndef:lower_code_const_to_back_literal()
+        return Back.BackLitInt("0")
     end
 
-    local function int_op(op)
-        if op == Core.BinAdd then return Back.BackIntAdd end
-        if op == Core.BinSub then return Back.BackIntSub end
-        if op == Core.BinMul then return Back.BackIntMul end
-        if op == Core.BinDiv then return Back.BackIntSDiv end
-        if op == Core.BinRem then return Back.BackIntSRem end
-        return nil
+    function Core.BinaryOp:lower_code_binary_to_back_int_op() return nil end
+    function Core.BinAdd:lower_code_binary_to_back_int_op() return Back.BackIntAdd end
+    function Core.BinSub:lower_code_binary_to_back_int_op() return Back.BackIntSub end
+    function Core.BinMul:lower_code_binary_to_back_int_op() return Back.BackIntMul end
+    function Core.BinDiv:lower_code_binary_to_back_int_op() return Back.BackIntSDiv end
+    function Core.BinRem:lower_code_binary_to_back_int_op() return Back.BackIntSRem end
+
+    function Core.BinaryOp:lower_code_binary_to_back_bit_op() return nil end
+    function Core.BinBitAnd:lower_code_binary_to_back_bit_op() return Back.BackBitAnd end
+    function Core.BinBitOr:lower_code_binary_to_back_bit_op() return Back.BackBitOr end
+    function Core.BinBitXor:lower_code_binary_to_back_bit_op() return Back.BackBitXor end
+
+    function Core.BinaryOp:lower_code_binary_to_back_shift_op() return nil end
+    function Core.BinShl:lower_code_binary_to_back_shift_op() return Back.BackShiftLeft end
+    function Core.BinLShr:lower_code_binary_to_back_shift_op() return Back.BackShiftLogicalRight end
+    function Core.BinAShr:lower_code_binary_to_back_shift_op() return Back.BackShiftArithmeticRight end
+
+    function Core.AtomicOrdering:lower_code_atomic_ordering_to_back()
+        unsupported(self)
+    end
+    function Core.AtomicSeqCst:lower_code_atomic_ordering_to_back()
+        return Back.BackAtomicSeqCst
     end
 
-    local function bit_op(op)
-        if op == Core.BinBitAnd then return Back.BackBitAnd end
-        if op == Core.BinBitOr then return Back.BackBitOr end
-        if op == Core.BinBitXor then return Back.BackBitXor end
-        return nil
+    function Core.AtomicRmwOp:lower_code_atomic_rmw_op_to_back()
+        unsupported(self)
+    end
+    function Core.AtomicRmwAdd:lower_code_atomic_rmw_op_to_back() return Back.BackAtomicRmwAdd end
+    function Core.AtomicRmwSub:lower_code_atomic_rmw_op_to_back() return Back.BackAtomicRmwSub end
+    function Core.AtomicRmwAnd:lower_code_atomic_rmw_op_to_back() return Back.BackAtomicRmwAnd end
+    function Core.AtomicRmwOr:lower_code_atomic_rmw_op_to_back() return Back.BackAtomicRmwOr end
+    function Core.AtomicRmwXor:lower_code_atomic_rmw_op_to_back() return Back.BackAtomicRmwXor end
+    function Core.AtomicRmwXchg:lower_code_atomic_rmw_op_to_back() return Back.BackAtomicRmwXchg end
+
+    function Core.BinaryOp:lower_code_binary_to_back_float_op() return nil end
+    function Core.BinAdd:lower_code_binary_to_back_float_op() return Back.BackFloatAdd end
+    function Core.BinSub:lower_code_binary_to_back_float_op() return Back.BackFloatSub end
+    function Core.BinMul:lower_code_binary_to_back_float_op() return Back.BackFloatMul end
+    function Core.BinDiv:lower_code_binary_to_back_float_op() return Back.BackFloatDiv end
+
+    function Core.UnaryOp:lower_code_unary_to_back_op() return nil end
+    function Core.UnaryNeg:lower_code_unary_to_back_op() return Back.BackUnaryIneg end
+    function Core.UnaryBitNot:lower_code_unary_to_back_op() return Back.BackUnaryBnot end
+    function Core.UnaryNot:lower_code_unary_to_back_op() return Back.BackUnaryBoolNot end
+
+    function Code.CodeType:lower_code_type_to_back_cmp_op(cmp)
+        return cmp:lower_code_compare_to_back_int_op()
+    end
+    function Code.CodeTyInt:lower_code_type_to_back_cmp_op(cmp)
+        return self.signedness == Code.CodeUnsigned and cmp:lower_code_compare_to_back_unsigned_op() or cmp:lower_code_compare_to_back_int_op()
+    end
+    function Code.CodeTyIndex:lower_code_type_to_back_cmp_op(cmp)
+        return cmp:lower_code_compare_to_back_unsigned_op()
+    end
+    function Code.CodeTyFloat:lower_code_type_to_back_cmp_op(cmp)
+        return cmp:lower_code_compare_to_back_float_op()
     end
 
-    local function shift_op(op)
-        if op == Core.BinShl then return Back.BackShiftLeft end
-        if op == Core.BinLShr then return Back.BackShiftLogicalRight end
-        if op == Core.BinAShr then return Back.BackShiftArithmeticRight end
-        return nil
-    end
+    function Core.CmpOp:lower_code_compare_to_back_int_op() unsupported(self) end
+    function Core.CmpOp:lower_code_compare_to_back_unsigned_op() return self:lower_code_compare_to_back_int_op() end
+    function Core.CmpOp:lower_code_compare_to_back_float_op() unsupported(self) end
+    function Core.CmpEq:lower_code_compare_to_back_int_op() return Back.BackIcmpEq end
+    function Core.CmpNe:lower_code_compare_to_back_int_op() return Back.BackIcmpNe end
+    function Core.CmpLt:lower_code_compare_to_back_int_op() return Back.BackSIcmpLt end
+    function Core.CmpLe:lower_code_compare_to_back_int_op() return Back.BackSIcmpLe end
+    function Core.CmpGt:lower_code_compare_to_back_int_op() return Back.BackSIcmpGt end
+    function Core.CmpGe:lower_code_compare_to_back_int_op() return Back.BackSIcmpGe end
+    function Core.CmpLt:lower_code_compare_to_back_unsigned_op() return Back.BackUIcmpLt end
+    function Core.CmpLe:lower_code_compare_to_back_unsigned_op() return Back.BackUIcmpLe end
+    function Core.CmpGt:lower_code_compare_to_back_unsigned_op() return Back.BackUIcmpGt end
+    function Core.CmpGe:lower_code_compare_to_back_unsigned_op() return Back.BackUIcmpGe end
+    function Core.CmpEq:lower_code_compare_to_back_float_op() return Back.BackFCmpEq end
+    function Core.CmpNe:lower_code_compare_to_back_float_op() return Back.BackFCmpNe end
+    function Core.CmpLt:lower_code_compare_to_back_float_op() return Back.BackFCmpLt end
+    function Core.CmpLe:lower_code_compare_to_back_float_op() return Back.BackFCmpLe end
+    function Core.CmpGt:lower_code_compare_to_back_float_op() return Back.BackFCmpGt end
+    function Core.CmpGe:lower_code_compare_to_back_float_op() return Back.BackFCmpGe end
 
-    local function atomic_ordering(ordering)
-        if ordering == Core.AtomicSeqCst then return Back.BackAtomicSeqCst end
-        unsupported(ordering)
-    end
+    function Core.MachineCastOp:lower_code_cast_to_back_op() unsupported(self) end
+    function Core.MachineCastBitcast:lower_code_cast_to_back_op() return Back.BackBitcast end
+    function Core.MachineCastIdentity:lower_code_cast_to_back_op() return Back.BackBitcast end
+    function Core.MachineCastIreduce:lower_code_cast_to_back_op() return Back.BackIreduce end
+    function Core.MachineCastSextend:lower_code_cast_to_back_op() return Back.BackSextend end
+    function Core.MachineCastUextend:lower_code_cast_to_back_op() return Back.BackUextend end
+    function Core.MachineCastFpromote:lower_code_cast_to_back_op() return Back.BackFpromote end
+    function Core.MachineCastFdemote:lower_code_cast_to_back_op() return Back.BackFdemote end
+    function Core.MachineCastSToF:lower_code_cast_to_back_op() return Back.BackSToF end
+    function Core.MachineCastUToF:lower_code_cast_to_back_op() return Back.BackUToF end
+    function Core.MachineCastFToS:lower_code_cast_to_back_op() return Back.BackFToS end
+    function Core.MachineCastFToU:lower_code_cast_to_back_op() return Back.BackFToU end
 
-    local function atomic_rmw_op(op)
-        if op == Core.AtomicRmwAdd then return Back.BackAtomicRmwAdd end
-        if op == Core.AtomicRmwSub then return Back.BackAtomicRmwSub end
-        if op == Core.AtomicRmwAnd then return Back.BackAtomicRmwAnd end
-        if op == Core.AtomicRmwOr then return Back.BackAtomicRmwOr end
-        if op == Core.AtomicRmwXor then return Back.BackAtomicRmwXor end
-        if op == Core.AtomicRmwXchg then return Back.BackAtomicRmwXchg end
-        unsupported(op)
-    end
+    function Core.Intrinsic:lower_code_intrinsic_to_back_op() return nil end
+    function Core.IntrinsicPopcount:lower_code_intrinsic_to_back_op() return Back.BackIntrinsicPopcount end
+    function Core.IntrinsicClz:lower_code_intrinsic_to_back_op() return Back.BackIntrinsicClz end
+    function Core.IntrinsicCtz:lower_code_intrinsic_to_back_op() return Back.BackIntrinsicCtz end
+    function Core.IntrinsicBswap:lower_code_intrinsic_to_back_op() return Back.BackIntrinsicBswap end
+    function Core.IntrinsicSqrt:lower_code_intrinsic_to_back_op() return Back.BackIntrinsicSqrt end
+    function Core.IntrinsicAbs:lower_code_intrinsic_to_back_op() return Back.BackIntrinsicAbs end
+    function Core.IntrinsicFloor:lower_code_intrinsic_to_back_op() return Back.BackIntrinsicFloor end
+    function Core.IntrinsicCeil:lower_code_intrinsic_to_back_op() return Back.BackIntrinsicCeil end
+    function Core.IntrinsicTruncFloat:lower_code_intrinsic_to_back_op() return Back.BackIntrinsicTruncFloat end
+    function Core.IntrinsicRound:lower_code_intrinsic_to_back_op() return Back.BackIntrinsicRound end
 
-    local function float_op(op)
-        if op == Core.BinAdd then return Back.BackFloatAdd end
-        if op == Core.BinSub then return Back.BackFloatSub end
-        if op == Core.BinMul then return Back.BackFloatMul end
-        if op == Core.BinDiv then return Back.BackFloatDiv end
-        return nil
-    end
-
-    local function unary_op(op)
-        if op == Core.UnaryNeg then return Back.BackUnaryIneg end
-        if op == Core.UnaryFNeg then return Back.BackUnaryFneg end
-        if op == Core.UnaryBitNot then return Back.BackUnaryBnot end
-        if op == Core.UnaryNot then return Back.BackUnaryBoolNot end
-        return nil
-    end
-
-    local function cmp_op(op, ty)
-        local cls = asdl.classof(ty)
-        local unsigned = ty == Code.CodeTyIndex or (cls == Code.CodeTyInt and ty.signedness == Code.CodeUnsigned)
-        local float = cls == Code.CodeTyFloat
-        if op == Core.CmpEq then return float and Back.BackFCmpEq or Back.BackIcmpEq end
-        if op == Core.CmpNe then return float and Back.BackFCmpNe or Back.BackIcmpNe end
-        if op == Core.CmpLt then return float and Back.BackFCmpLt or (unsigned and Back.BackUIcmpLt or Back.BackSIcmpLt) end
-        if op == Core.CmpLe then return float and Back.BackFCmpLe or (unsigned and Back.BackUIcmpLe or Back.BackSIcmpLe) end
-        if op == Core.CmpGt then return float and Back.BackFCmpGt or (unsigned and Back.BackUIcmpGt or Back.BackSIcmpGt) end
-        if op == Core.CmpGe then return float and Back.BackFCmpGe or (unsigned and Back.BackUIcmpGe or Back.BackSIcmpGe) end
-        unsupported(op)
-    end
-
-    local function cast_op(op)
-        if op == Core.CastBitcast or op == Core.MachineCastBitcast or op == Core.MachineCastIdentity then return Back.BackBitcast end
-        if op == Core.CastTrunc or op == Core.MachineCastIreduce then return Back.BackIreduce end
-        if op == Core.CastSExt or op == Core.MachineCastSextend then return Back.BackSextend end
-        if op == Core.CastZExt or op == Core.MachineCastUextend then return Back.BackUextend end
-        if op == Core.CastFPExt or op == Core.MachineCastFpromote then return Back.BackFpromote end
-        if op == Core.CastFPTrunc or op == Core.MachineCastFdemote then return Back.BackFdemote end
-        if op == Core.CastSIToFP or op == Core.MachineCastSToF then return Back.BackSToF end
-        if op == Core.CastUIToFP or op == Core.MachineCastUToF then return Back.BackUToF end
-        if op == Core.CastFPToSI or op == Core.MachineCastFToS then return Back.BackFToS end
-        if op == Core.CastFPToUI or op == Core.MachineCastFToU then return Back.BackFToU end
-        unsupported(op)
-    end
-
-    local function intrinsic_op(op)
-        if op == Core.IntrinsicPopcount then return Back.BackIntrinsicPopcount end
-        if op == Core.IntrinsicClz then return Back.BackIntrinsicClz end
-        if op == Core.IntrinsicCtz then return Back.BackIntrinsicCtz end
-        if op == Core.IntrinsicBswap then return Back.BackIntrinsicBswap end
-        if op == Core.IntrinsicSqrt then return Back.BackIntrinsicSqrt end
-        if op == Core.IntrinsicAbs then return Back.BackIntrinsicAbs end
-        if op == Core.IntrinsicFloor then return Back.BackIntrinsicFloor end
-        if op == Core.IntrinsicCeil then return Back.BackIntrinsicCeil end
-        if op == Core.IntrinsicTruncFloat then return Back.BackIntrinsicTruncFloat end
-        if op == Core.IntrinsicRound then return Back.BackIntrinsicRound end
-        return nil
-    end
-
-    local function rotate_op(op)
-        if op == Core.IntrinsicRotl then return Back.BackRotateLeft end
-        if op == Core.IntrinsicRotr then return Back.BackRotateRight end
-        return nil
-    end
+    function Core.Intrinsic:lower_code_intrinsic_to_back_rotate_op() return nil end
+    function Core.IntrinsicRotl:lower_code_intrinsic_to_back_rotate_op() return Back.BackRotateLeft end
+    function Core.IntrinsicRotr:lower_code_intrinsic_to_back_rotate_op() return Back.BackRotateRight end
 
     local function int_semantics(ctx, k)
         local fact = ctx.value_int_semantics_by_value and ctx.value_int_semantics_by_value[k.dst.text]
@@ -324,47 +342,77 @@ local function bind_context(T)
         return Back.BackPtrBoundsUnknown
     end
 
-    local function addr_from_place(ctx, place, info)
-        local cls = asdl.classof(place)
-        if cls == Code.CodePlaceDeref then
-            return Back.BackAddress(Back.BackAddrValue(bid(place.addr)), zero(ctx), Back.BackProvUnknown, back_bounds(info))
-        elseif cls == Code.CodePlaceGlobal then
-            return Back.BackAddress(Back.BackAddrData(data_id(place.global)), zero(ctx), Back.BackProvData(data_id(place.global)), Back.BackPtrInBounds("global"))
-        elseif cls == Code.CodePlaceData then
-            return Back.BackAddress(Back.BackAddrData(data_id(place.data)), zero(ctx), Back.BackProvData(data_id(place.data)), Back.BackPtrInBounds("data"))
-        elseif cls == Code.CodePlaceLocal then
-            local ty_cls = asdl.classof(place.ty)
-            if CodeAggregateAbi.is_view(place.ty) or CodeAggregateAbi.is_slice(place.ty) or CodeAggregateAbi.is_byte_span(place.ty) then
-                local stack = ctx.local_stack_slots and ctx.local_stack_slots[place.local_id.text]
-                if stack == nil then error("code_to_back: descriptor local has no materialized storage " .. place.local_id.text, 3) end
-                return Back.BackAddress(Back.BackAddrStack(stack.slot), zero(ctx), Back.BackProvStack(stack.slot), back_bounds(info))
-            end
-            if ty_cls == Code.CodeTyNamed or ty_cls == Code.CodeTyArray or ty_cls == Code.CodeTyClosure then
-                local addr = ctx.aggregate_local_addr and ctx.aggregate_local_addr[place.local_id.text]
-                if addr == nil then error("code_to_back: aggregate local has no materialized address " .. place.local_id.text, 3) end
-                return Back.BackAddress(Back.BackAddrValue(addr), zero(ctx), Back.BackProvUnknown, back_bounds(info))
-            end
-            local stack = ctx.local_stack_slots and ctx.local_stack_slots[place.local_id.text]
-            if stack ~= nil then
-                return Back.BackAddress(Back.BackAddrStack(stack.slot), zero(ctx), Back.BackProvStack(stack.slot), back_bounds(info))
-            end
-        elseif cls == Code.CodePlaceField then
-            local base = addr_from_place(ctx, place.base, info)
-            local ptr = Back.BackValId("code_to_back.field." .. tostring(ctx.next_tmp or 0) .. "." .. tostring(place.offset or 0))
-            ctx.next_tmp = (ctx.next_tmp or 0) + 1
-            local bounds = back_bounds(info)
-            local idx0 = const_index(ctx, 0)
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdPtrOffset(ptr, base.base, idx0, 1, place.offset or 0, Back.BackProvDerived("field"), bounds)
-            return Back.BackAddress(Back.BackAddrValue(ptr), zero(ctx), Back.BackProvDerived("field"), bounds)
-        elseif cls == Code.CodePlaceIndex then
-            local base = addr_from_place(ctx, place.base, info)
-            local ptr = Back.BackValId("code_to_back.addr." .. place.index.text)
-            local index = index_value(ctx, place.index)
-            local bounds = back_bounds(info)
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdPtrOffset(ptr, base.base, index, place.elem_size, 0, Back.BackProvDerived("index"), bounds)
-            return Back.BackAddress(Back.BackAddrValue(ptr), zero(ctx), Back.BackProvDerived("index"), bounds)
+    function Code.CodePlace:lower_code_place_to_back_addr(ctx, info)
+        unsupported(self)
+    end
+    function Code.CodePlaceDeref:lower_code_place_to_back_addr(ctx, info)
+        return Back.BackAddress(Back.BackAddrValue(bid(self.addr)), zero(ctx), Back.BackProvUnknown, back_bounds(info))
+    end
+    function Code.CodePlaceGlobal:lower_code_place_to_back_addr(ctx, info)
+        return Back.BackAddress(Back.BackAddrData(data_id(self.global)), zero(ctx), Back.BackProvData(data_id(self.global)), Back.BackPtrInBounds("global"))
+    end
+    function Code.CodePlaceData:lower_code_place_to_back_addr(ctx, info)
+        return Back.BackAddress(Back.BackAddrData(data_id(self.data)), zero(ctx), Back.BackProvData(data_id(self.data)), Back.BackPtrInBounds("data"))
+    end
+    function Code.CodePlaceLocal:lower_code_place_to_back_addr(ctx, info)
+        if CodeAggregateAbi.is_view(self.ty) or CodeAggregateAbi.is_slice(self.ty) or CodeAggregateAbi.is_byte_span(self.ty) then
+            local stack = ctx.local_stack_slots and ctx.local_stack_slots[self.local_id.text]
+            if stack == nil then error("code_to_back: descriptor local has no materialized storage " .. self.local_id.text, 3) end
+            return Back.BackAddress(Back.BackAddrStack(stack.slot), zero(ctx), Back.BackProvStack(stack.slot), back_bounds(info))
         end
-        unsupported(place)
+        local ty_cls = asdl.classof(self.ty)
+        if ty_cls == Code.CodeTyNamed or ty_cls == Code.CodeTyArray or ty_cls == Code.CodeTyClosure then
+            local addr = ctx.aggregate_local_addr and ctx.aggregate_local_addr[self.local_id.text]
+            if addr == nil then error("code_to_back: aggregate local has no materialized address " .. self.local_id.text, 3) end
+            return Back.BackAddress(Back.BackAddrValue(addr), zero(ctx), Back.BackProvUnknown, back_bounds(info))
+        end
+        local stack = ctx.local_stack_slots and ctx.local_stack_slots[self.local_id.text]
+        if stack ~= nil then
+            return Back.BackAddress(Back.BackAddrStack(stack.slot), zero(ctx), Back.BackProvStack(stack.slot), back_bounds(info))
+        end
+        unsupported(self)
+    end
+    function Code.CodePlaceField:lower_code_place_to_back_addr(ctx, info)
+        local base = self.base:lower_code_place_to_back_addr(ctx, info)
+        local ptr = Back.BackValId("code_to_back.field." .. tostring(ctx.next_tmp or 0) .. "." .. tostring(self.offset or 0))
+        ctx.next_tmp = (ctx.next_tmp or 0) + 1
+        local bounds = back_bounds(info)
+        local idx0 = const_index(ctx, 0)
+        ctx.cmds[#ctx.cmds + 1] = Back.CmdPtrOffset(ptr, base.base, idx0, 1, self.offset or 0, Back.BackProvDerived("field"), bounds)
+        return Back.BackAddress(Back.BackAddrValue(ptr), zero(ctx), Back.BackProvDerived("field"), bounds)
+    end
+    function Code.CodePlaceIndex:lower_code_place_to_back_addr(ctx, info)
+        local base = self.base:lower_code_place_to_back_addr(ctx, info)
+        local ptr = Back.BackValId("code_to_back.addr." .. self.index.text)
+        local index = index_value(ctx, self.index)
+        local bounds = back_bounds(info)
+        ctx.cmds[#ctx.cmds + 1] = Back.CmdPtrOffset(ptr, base.base, index, self.elem_size, 0, Back.BackProvDerived("index"), bounds)
+        return Back.BackAddress(Back.BackAddrValue(ptr), zero(ctx), Back.BackProvDerived("index"), bounds)
+    end
+
+    function Code.CodePlace:lower_code_place_addr_of_to_back(ctx, dst, info)
+        local addr = self:lower_code_place_to_back_addr(ctx, info)
+        local ptr = address_to_ptr_value(ctx, addr, "code_to_back.addr_of")
+        ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(dst), ptr)
+    end
+    function Code.CodePlaceGlobal:lower_code_place_addr_of_to_back(ctx, dst, info)
+        ctx.cmds[#ctx.cmds + 1] = Back.CmdDataAddr(bid(dst), data_id(self.global))
+    end
+    function Code.CodePlaceData:lower_code_place_addr_of_to_back(ctx, dst, info)
+        ctx.cmds[#ctx.cmds + 1] = Back.CmdDataAddr(bid(dst), data_id(self.data))
+    end
+    function Code.CodePlaceLocal:lower_code_place_addr_of_to_back(ctx, dst, info)
+        local addr = self:lower_code_place_to_back_addr(ctx, info)
+        if asdl.classof(addr.base) == Back.BackAddrStack and asdl.classof(addr.byte_offset) == Back.BackValId then
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdStackAddr(bid(dst), addr.base.slot)
+        else
+            local ptr = address_to_ptr_value(ctx, addr, "code_to_back.addr_of")
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(dst), ptr)
+        end
+    end
+
+    local function addr_from_place(ctx, place, info)
+        return place:lower_code_place_to_back_addr(ctx, info)
     end
 
     local function data_init(ctx, init, data)
@@ -373,7 +421,7 @@ local function bind_context(T)
             ctx.cmds[#ctx.cmds + 1] = Back.CmdDataInitZero(data, init.offset, init.size)
         elseif cls == Code.CodeDataScalar then
             local s = scalar(init.ty); if s == nil then unsupported(init.ty) end
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdDataInit(data, init.offset, s, literal(init.literal))
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdDataInit(data, init.offset, s, init.literal:lower_core_literal_to_back())
         elseif cls == Code.CodeDataBytes then
             for i = 1, #init.bytes do
                 ctx.cmds[#ctx.cmds + 1] = Back.CmdDataInit(data, init.offset + i - 1, Back.BackU8, Back.BackLitInt(tostring(init.bytes:byte(i))))
@@ -383,46 +431,57 @@ local function bind_context(T)
         end
     end
 
-    local function inst_dst_type(ctx, k)
-        local cls = asdl.classof(k)
-        if cls == Code.CodeInstConst then return k.dst, k.const.ty end
-        if cls == Code.CodeInstAlias then return k.dst, k.ty end
-        if cls == Code.CodeInstUnary then return k.dst, k.ty end
-        if cls == Code.CodeInstBinary then return k.dst, k.ty end
-        if cls == Code.CodeInstFloatBinary then return k.dst, k.ty end
-        if cls == Code.CodeInstCompare then return k.dst, Code.CodeTyBool8 end
-        if cls == Code.CodeInstCast then return k.dst, k.to end
-        if cls == Code.CodeInstIntrinsic then return k.dst, k.ty end
-        if cls == Code.CodeInstSelect then return k.dst, k.ty end
-        if cls == Code.CodeInstAddrOf then return k.dst, k.ptr_ty end
-        if cls == Code.CodeInstGlobalRef then return k.dst, k.ptr_ty end
-        if cls == Code.CodeInstPtrOffset then return k.dst, k.ptr_ty end
-        if cls == Code.CodeInstLoad or cls == Code.CodeInstAtomicLoad or cls == Code.CodeInstAtomicRmw or cls == Code.CodeInstAtomicCas then return k.dst, k.access.ty end
-        if cls == Code.CodeInstAggregate or cls == Code.CodeInstArray or cls == Code.CodeInstClosure or cls == Code.CodeInstVariantCtor then return k.dst, k.ty end
-        if cls == Code.CodeInstVariantTag then return k.dst, k.tag_ty end
-        if cls == Code.CodeInstVariantPayload then return k.dst, k.variant.payload_ty end
-        if cls == Code.CodeInstViewMake then return k.dst, Code.CodeTyView(k.elem_ty) end
-        if cls == Code.CodeInstViewData then
-            local vty = ctx.value_types and ctx.value_types[k.view.text] or nil
-            if asdl.classof(vty) == Code.CodeTyLease then vty = vty.base end
-            return k.dst, Code.CodeTyDataPtr(asdl.classof(vty) == Code.CodeTyView and vty.elem or nil)
-        end
-        if cls == Code.CodeInstViewLen or cls == Code.CodeInstViewStride then return k.dst, Code.CodeTyIndex end
-        if cls == Code.CodeInstSliceMake then return k.dst, Code.CodeTySlice(k.elem_ty) end
-        if cls == Code.CodeInstSliceData then
-            local sty = ctx.value_types and ctx.value_types[k.slice.text] or nil
-            if asdl.classof(sty) == Code.CodeTyLease then sty = sty.base end
-            return k.dst, Code.CodeTyDataPtr(asdl.classof(sty) == Code.CodeTySlice and sty.elem or nil)
-        end
-        if cls == Code.CodeInstSliceLen then return k.dst, Code.CodeTyIndex end
-        if cls == Code.CodeInstByteSpanMake then return k.dst, Code.CodeTyByteSpan end
-        if cls == Code.CodeInstByteSpanData then return k.dst, Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned)) end
-        if cls == Code.CodeInstByteSpanLen then return k.dst, Code.CodeTyIndex end
-        if cls == Code.CodeInstCall then
-            local sig = k.sig and ctx.sigs[k.sig.text] or nil
-            if sig and sig.results[1] then return k.dst, sig.results[1] end
-        end
+    function Code.CodeInstKind:lower_code_inst_dst_type(ctx)
         return nil, nil
+    end
+    function Code.CodeInstConst:lower_code_inst_dst_type(ctx) return self.dst, self.const.ty end
+    function Code.CodeInstAlias:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
+    function Code.CodeInstUnary:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
+    function Code.CodeInstBinary:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
+    function Code.CodeInstFloatBinary:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
+    function Code.CodeInstCompare:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTyBool8 end
+    function Code.CodeInstCast:lower_code_inst_dst_type(ctx) return self.dst, self.to end
+    function Code.CodeInstIntrinsic:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
+    function Code.CodeInstSelect:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
+    function Code.CodeInstAddrOf:lower_code_inst_dst_type(ctx) return self.dst, self.ptr_ty end
+    function Code.CodeInstGlobalRef:lower_code_inst_dst_type(ctx) return self.dst, self.ptr_ty end
+    function Code.CodeInstPtrOffset:lower_code_inst_dst_type(ctx) return self.dst, self.ptr_ty end
+    function Code.CodeInstLoad:lower_code_inst_dst_type(ctx) return self.dst, self.access.ty end
+    function Code.CodeInstAtomicLoad:lower_code_inst_dst_type(ctx) return self.dst, self.access.ty end
+    function Code.CodeInstAtomicRmw:lower_code_inst_dst_type(ctx) return self.dst, self.access.ty end
+    function Code.CodeInstAtomicCas:lower_code_inst_dst_type(ctx) return self.dst, self.access.ty end
+    function Code.CodeInstAggregate:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
+    function Code.CodeInstArray:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
+    function Code.CodeInstClosure:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
+    function Code.CodeInstVariantCtor:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
+    function Code.CodeInstVariantTag:lower_code_inst_dst_type(ctx) return self.dst, self.tag_ty end
+    function Code.CodeInstVariantPayload:lower_code_inst_dst_type(ctx) return self.dst, self.variant.payload_ty end
+    function Code.CodeInstViewMake:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTyView(self.elem_ty) end
+    function Code.CodeInstViewData:lower_code_inst_dst_type(ctx)
+        local vty = ctx.value_types and ctx.value_types[self.view.text] or nil
+        if asdl.classof(vty) == Code.CodeTyLease then vty = vty.base end
+        return self.dst, Code.CodeTyDataPtr(asdl.classof(vty) == Code.CodeTyView and vty.elem or nil)
+    end
+    function Code.CodeInstViewLen:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTyIndex end
+    function Code.CodeInstViewStride:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTyIndex end
+    function Code.CodeInstSliceMake:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTySlice(self.elem_ty) end
+    function Code.CodeInstSliceData:lower_code_inst_dst_type(ctx)
+        local sty = ctx.value_types and ctx.value_types[self.slice.text] or nil
+        if asdl.classof(sty) == Code.CodeTyLease then sty = sty.base end
+        return self.dst, Code.CodeTyDataPtr(asdl.classof(sty) == Code.CodeTySlice and sty.elem or nil)
+    end
+    function Code.CodeInstSliceLen:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTyIndex end
+    function Code.CodeInstByteSpanMake:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTyByteSpan end
+    function Code.CodeInstByteSpanData:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned)) end
+    function Code.CodeInstByteSpanLen:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTyIndex end
+    function Code.CodeInstCall:lower_code_inst_dst_type(ctx)
+        local sig = self.sig and ctx.sigs[self.sig.text] or nil
+        if sig and sig.results[1] then return self.dst, sig.results[1] end
+        return nil, nil
+    end
+
+    local function inst_dst_type(ctx, k)
+        return k:lower_code_inst_dst_type(ctx)
     end
 
     local function view_component_id(view, field)
@@ -720,7 +779,7 @@ local function bind_context(T)
         local cls = asdl.classof(k)
         if cls == Code.CodeInstConst then
             local s = scalar(k.const.ty); if s == nil then unsupported(k.const.ty) end
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdConst(bid(k.dst), s, const_literal(k.const))
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdConst(bid(k.dst), s, k.const:lower_code_const_to_back_literal())
         elseif cls == Code.CodeInstAlias then
             if is_view_ty(k.ty) then
                 local dsts, srcs = component_values(k.dst, k.ty), component_values(k.src, k.ty)
@@ -731,25 +790,25 @@ local function bind_context(T)
                 ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), bid(k.src))
             end
         elseif cls == Code.CodeInstUnary then
-            local op = unary_op(k.op); if op == nil then unsupported(k.op) end
+            local op = k.op:lower_code_unary_to_back_op(); if op == nil then unsupported(k.op) end
             ctx.cmds[#ctx.cmds + 1] = Back.CmdUnary(bid(k.dst), op, shape(k.ty), bid(k.value))
         elseif cls == Code.CodeInstBinary then
             local s = scalar(k.ty); if s == nil then unsupported(k.ty) end
-            local iop, bop, sop = int_op(k.op), bit_op(k.op), shift_op(k.op)
+            local iop, bop, sop = k.op:lower_code_binary_to_back_int_op(), k.op:lower_code_binary_to_back_bit_op(), k.op:lower_code_binary_to_back_shift_op()
             local lhs, rhs = value_as(ctx, k.lhs, k.ty), value_as(ctx, k.rhs, k.ty)
             if iop then ctx.cmds[#ctx.cmds + 1] = Back.CmdIntBinary(bid(k.dst), iop, s, int_semantics(ctx, k), lhs, rhs)
             elseif bop then ctx.cmds[#ctx.cmds + 1] = Back.CmdBitBinary(bid(k.dst), bop, s, lhs, rhs)
             elseif sop then ctx.cmds[#ctx.cmds + 1] = Back.CmdShift(bid(k.dst), sop, s, lhs, rhs)
             else unsupported(k.op) end
         elseif cls == Code.CodeInstFloatBinary then
-            local s = scalar(k.ty); local op = float_op(k.op); if not s or not op then unsupported(k) end
+            local s = scalar(k.ty); local op = k.op:lower_code_binary_to_back_float_op(); if not s or not op then unsupported(k) end
             ctx.cmds[#ctx.cmds + 1] = Back.CmdFloatBinary(bid(k.dst), op, s, float_semantics(ctx, k), bid(k.lhs), bid(k.rhs))
         elseif cls == Code.CodeInstCompare then
             local lhs, rhs = value_as(ctx, k.lhs, k.operand_ty), value_as(ctx, k.rhs, k.operand_ty)
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdCompare(bid(k.dst), cmp_op(k.op, k.operand_ty), shape(k.operand_ty), lhs, rhs)
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdCompare(bid(k.dst), k.operand_ty:lower_code_type_to_back_cmp_op(k.op), shape(k.operand_ty), lhs, rhs)
         elseif cls == Code.CodeInstCast then
             local s = scalar(k.to); if s == nil then unsupported(k.to) end
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdCast(bid(k.dst), cast_op(k.op), s, bid(k.value))
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdCast(bid(k.dst), k.op:lower_code_cast_to_back_op(), s, bid(k.value))
         elseif cls == Code.CodeInstIntrinsic then
             if k.op == Core.IntrinsicTrap then
                 ctx.cmds[#ctx.cmds + 1] = Back.CmdTrap
@@ -757,12 +816,12 @@ local function bind_context(T)
                 local s = scalar(k.ty); if s == nil then unsupported(k.ty) end
                 if k.dst == nil or #k.args ~= 3 then unsupported(k) end
                 ctx.cmds[#ctx.cmds + 1] = Back.CmdFma(bid(k.dst), s, Back.BackFloatStrict, bid(k.args[1]), bid(k.args[2]), bid(k.args[3]))
-            elseif rotate_op(k.op) ~= nil then
+            elseif k.op:lower_code_intrinsic_to_back_rotate_op() ~= nil then
                 local s = scalar(k.ty); if s == nil then unsupported(k.ty) end
                 if k.dst == nil or #k.args ~= 2 then unsupported(k) end
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdRotate(bid(k.dst), rotate_op(k.op), s, bid(k.args[1]), bid(k.args[2]))
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdRotate(bid(k.dst), k.op:lower_code_intrinsic_to_back_rotate_op(), s, bid(k.args[1]), bid(k.args[2]))
             else
-                local op = intrinsic_op(k.op); if op == nil then unsupported(k.op) end
+                local op = k.op:lower_code_intrinsic_to_back_op(); if op == nil then unsupported(k.op) end
                 local s = scalar(k.ty); if s == nil then unsupported(k.ty) end
                 if k.dst == nil or #k.args < 1 then unsupported(k) end
                 ctx.cmds[#ctx.cmds + 1] = Back.CmdIntrinsic(bid(k.dst), op, Back.BackShapeScalar(s), { bid(k.args[1]) })
@@ -770,18 +829,7 @@ local function bind_context(T)
         elseif cls == Code.CodeInstSelect then
             ctx.cmds[#ctx.cmds + 1] = Back.CmdSelect(bid(k.dst), shape(k.ty), bid(k.cond), bid(k.then_value), bid(k.else_value))
         elseif cls == Code.CodeInstAddrOf then
-            local pcls = asdl.classof(k.place)
-            if pcls == Code.CodePlaceGlobal then ctx.cmds[#ctx.cmds + 1] = Back.CmdDataAddr(bid(k.dst), data_id(k.place.global))
-            elseif pcls == Code.CodePlaceData then ctx.cmds[#ctx.cmds + 1] = Back.CmdDataAddr(bid(k.dst), data_id(k.place.data))
-            else
-                local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
-                if pcls == Code.CodePlaceLocal and asdl.classof(addr.base) == Back.BackAddrStack and asdl.classof(addr.byte_offset) == Back.BackValId then
-                    ctx.cmds[#ctx.cmds + 1] = Back.CmdStackAddr(bid(k.dst), addr.base.slot)
-                else
-                    local ptr = address_to_ptr_value(ctx, addr, "code_to_back.addr_of")
-                    ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), ptr)
-                end
-            end
+            k.place:lower_code_place_addr_of_to_back(ctx, k.dst, ctx.mem_backend_by_inst[i.id.text])
         elseif cls == Code.CodeInstGlobalRef then
             local rcls = asdl.classof(k.ref)
             if rcls == Code.CodeGlobalRefFunc then ctx.cmds[#ctx.cmds + 1] = Back.CmdFuncAddr(bid(k.dst), func_id(k.ref.func))
@@ -978,21 +1026,21 @@ local function bind_context(T)
         elseif cls == Code.CodeInstAtomicLoad then
             local s = scalar(k.access.ty); if s == nil then unsupported(k.access.ty) end
             local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicLoad(bid(k.dst), s, addr, memory_info(ctx, k.access, i.id), atomic_ordering(k.ordering))
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicLoad(bid(k.dst), s, addr, memory_info(ctx, k.access, i.id), k.ordering:lower_code_atomic_ordering_to_back())
         elseif cls == Code.CodeInstAtomicStore then
             local s = scalar(k.access.ty); if s == nil then unsupported(k.access.ty) end
             local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicStore(s, addr, bid(k.value), memory_info(ctx, k.access, i.id), atomic_ordering(k.ordering))
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicStore(s, addr, bid(k.value), memory_info(ctx, k.access, i.id), k.ordering:lower_code_atomic_ordering_to_back())
         elseif cls == Code.CodeInstAtomicRmw then
             local s = scalar(k.access.ty); if s == nil then unsupported(k.access.ty) end
             local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicRmw(bid(k.dst), atomic_rmw_op(k.op), s, addr, bid(k.value), memory_info(ctx, k.access, i.id), atomic_ordering(k.ordering))
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicRmw(bid(k.dst), k.op:lower_code_atomic_rmw_op_to_back(), s, addr, bid(k.value), memory_info(ctx, k.access, i.id), k.ordering:lower_code_atomic_ordering_to_back())
         elseif cls == Code.CodeInstAtomicCas then
             local s = scalar(k.access.ty); if s == nil then unsupported(k.access.ty) end
             local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicCas(bid(k.dst), s, addr, bid(k.expected), bid(k.replacement), memory_info(ctx, k.access, i.id), atomic_ordering(k.ordering))
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicCas(bid(k.dst), s, addr, bid(k.expected), bid(k.replacement), memory_info(ctx, k.access, i.id), k.ordering:lower_code_atomic_ordering_to_back())
         elseif cls == Code.CodeInstAtomicFence then
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicFence(atomic_ordering(k.ordering))
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicFence(k.ordering:lower_code_atomic_ordering_to_back())
         elseif cls == Code.CodeInstCall then
             check_call_effects(ctx, i.id)
             local target_cls = asdl.classof(k.target)

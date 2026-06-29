@@ -52,11 +52,9 @@ local function bind_context(T)
     end
 
     local function attach_schedule(info, kernel_plan, schedules)
-        info = info or {}
         local sched = kernel_plan and schedules[kernel_plan.id.text] or nil
         if sched ~= nil then
-            info.kernel_schedule = sched
-            info.schedule = sched.kind
+            return asdl.with(info, { kernel_schedule = sched, schedule = sched.kind })
         end
         return info
     end

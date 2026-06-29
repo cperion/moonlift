@@ -25,10 +25,104 @@ local function bind_context(T)
     local CodeValueFacts = require("lalin.code_value_facts")(T)
     local CodeMemFacts = require("lalin.code_mem_facts")(T)
     local CodeEffectFacts = require("lalin.code_effect_facts")(T)
-    local CodeKernelPlanRules = require("lalin.code_kernel_plan_rules")(T)
     local ReductionAlgebra = require("lalin.reduction_algebra")(T)
 
     local api = {}
+
+    function Flow.FlowTripCount:kernel_plan_closed_form_trip_unknown_proof() return false end
+    function Flow.FlowTripCountUnknown:kernel_plan_closed_form_trip_unknown_proof() return true end
+
+    function Kernel.KernelLoopPlanInput:select_kernel_loop_plan()
+        if not self.counted then
+            return Kernel.KernelLoopNoPlan(self.not_counted_rejects)
+        end
+        if not self.has_func_id then
+            return Kernel.KernelLoopNoPlan(self.no_owner_rejects)
+        end
+        if #(self.rejects or {}) > 0 then
+            return Kernel.KernelLoopNoPlan(self.rejects)
+        end
+        if self.has_func and self.closed_form ~= nil then
+            return Kernel.KernelLoopPlanClosedForm(self.closed_form, self.trip_count:kernel_plan_closed_form_trip_unknown_proof())
+        end
+        if self.has_func and self.reduction ~= nil then
+            return Kernel.KernelLoopPlanReduction(self.reduction)
+        end
+        if self.has_func and self.skeleton_result ~= nil then
+            return Kernel.KernelLoopPlanSkeleton(self.skeleton_result)
+        end
+        return Kernel.KernelLoopPlanOriginalControl
+    end
+
+    function Kernel.KernelLoopPlanSelection:kernel_plan_is_no_plan() return false end
+    function Kernel.KernelLoopNoPlan:kernel_plan_is_no_plan() return true end
+    function Kernel.KernelLoopPlanSelection:kernel_plan_is_closed_form() return false end
+    function Kernel.KernelLoopPlanClosedForm:kernel_plan_is_closed_form() return true end
+    function Kernel.KernelLoopPlanSelection:kernel_plan_is_reduction() return false end
+    function Kernel.KernelLoopPlanReduction:kernel_plan_is_reduction() return true end
+    function Kernel.KernelLoopPlanSelection:kernel_plan_is_skeleton() return false end
+    function Kernel.KernelLoopPlanSkeleton:kernel_plan_is_skeleton() return true end
+    function Kernel.KernelLoopPlanSelection:kernel_plan_is_original_control() return false end
+    function Kernel.KernelLoopPlanOriginalControl:kernel_plan_is_original_control() return true end
+
+    function Kernel.KernelLoopPlanSelection:add_selected_loop_plan(plans, subject, state)
+        local body = Kernel.KernelBody(
+            Kernel.KernelDomainFlow(state.domain, state.trip_count, state.counter),
+            state.lanes,
+            state.bindings,
+            state.effects,
+            Kernel.KernelResultOriginalControl("semantic loop kernel preserves original control by default"),
+            Kernel.KernelEquivalenceProof(state.proofs)
+        )
+        plans[#plans + 1] = Kernel.KernelPlanned(Kernel.KernelId("kernel:" .. sanitize(subject.loop.text)), subject, body)
+    end
+
+    function Kernel.KernelLoopNoPlan:add_selected_loop_plan(plans, subject, state)
+        plans[#plans + 1] = Kernel.KernelNoPlan(subject, self.rejects)
+    end
+
+    function Kernel.KernelLoopPlanClosedForm:add_selected_loop_plan(plans, subject, state)
+        state.proofs[#state.proofs + 1] = Kernel.KernelProofValue(self.closed_form.proof, "closed form fact justifies kernel result")
+        if self.add_trip_unknown_proof then
+            -- The current closed-form expression encodes start/stop/step directly, so
+            -- keep the plan but make the proof dependence explicit rather than claiming
+            -- an exact FlowTripCountExact fact that Flow does not provide yet.
+            state.proofs[#state.proofs + 1] = Kernel.KernelProofFlow(state.domain, "closed-form expression uses counted start/stop/step directly; FlowTripCountExact is unavailable")
+        end
+        local body = Kernel.KernelBody(
+            Kernel.KernelDomainFlow(state.domain, state.trip_count, state.counter),
+            state.lanes,
+            state.bindings,
+            state.effects,
+            Kernel.KernelResultClosedForm(self.closed_form),
+            Kernel.KernelEquivalenceProof(state.proofs)
+        )
+        plans[#plans + 1] = Kernel.KernelPlanned(Kernel.KernelId("kernel:" .. sanitize(subject.loop.text)), subject, body)
+    end
+
+    function Kernel.KernelLoopPlanReduction:add_selected_loop_plan(plans, subject, state)
+        local body = Kernel.KernelBody(
+            Kernel.KernelDomainFlow(state.domain, state.trip_count, state.counter),
+            state.lanes,
+            state.bindings,
+            state.effects,
+            Kernel.KernelResultReduction(self.reduction),
+            Kernel.KernelEquivalenceProof(state.proofs)
+        )
+        plans[#plans + 1] = Kernel.KernelPlanned(Kernel.KernelId("kernel:" .. sanitize(subject.loop.text)), subject, body)
+    end
+
+    function Kernel.KernelLoopPlanSkeleton:add_selected_loop_plan(plans, subject, state)
+        local body = Kernel.KernelBody(
+            Kernel.KernelDomainFlow(state.domain, state.trip_count, state.counter),
+            state.lanes,
+            state.bindings,
+            state.effects,
+            self.result,
+            Kernel.KernelEquivalenceProof(state.proofs)
+        )
+        plans[#plans + 1] = Kernel.KernelPlanned(Kernel.KernelId("kernel:" .. sanitize(subject.loop.text)), subject, body)
+    end
 
     local function graph_loop_func(graph)
         local out = {}
@@ -81,8 +175,14 @@ local function bind_context(T)
         return access_by_id, object_by_access, backend_by_access
     end
 
+    function Mem.MemAccessKind:kernel_plan_is_write_access() return false end
+    function Mem.MemStore:kernel_plan_is_write_access() return true end
+    function Mem.MemAtomicStore:kernel_plan_is_write_access() return true end
+    function Mem.MemAtomicRmw:kernel_plan_is_write_access() return true end
+    function Mem.MemAtomicCas:kernel_plan_is_write_access() return true end
+
     local function is_write_access(kind)
-        return kind == Mem.MemStore or kind == Mem.MemAtomicStore or kind == Mem.MemAtomicRmw or kind == Mem.MemAtomicCas
+        return kind:kernel_plan_is_write_access()
     end
 
     local function block_set(blocks)
@@ -399,29 +499,52 @@ local function bind_context(T)
         return const_int_expr(expr) == -1
     end
 
-    local function reduction_update_matches(expr, reduction, aliases)
-        if asdl.classof(expr) ~= Kernel.KernelExprAlgebra then return false end
-        local v = expr.expr
-        local cls = asdl.classof(v)
+    function Value.ReductionKind:kernel_plan_update_matches_expr(expr, reduction, aliases)
+        return false
+    end
+    function Value.ReductionAdd:kernel_plan_update_matches_expr(expr, reduction, aliases)
+        return expr:kernel_plan_matches_add_update(reduction, aliases)
+    end
+    function Value.ReductionMul:kernel_plan_update_matches_expr(expr, reduction, aliases)
+        return expr:kernel_plan_matches_mul_update(reduction, aliases)
+    end
+    function Kernel.KernelExpr:kernel_plan_matches_add_update(reduction, aliases) return false end
+    function Kernel.KernelExpr:kernel_plan_matches_mul_update(reduction, aliases) return false end
+    function Kernel.KernelExprAlgebra:kernel_plan_matches_add_update(reduction, aliases)
+        return self.expr:kernel_plan_matches_add_update(reduction, aliases)
+    end
+    function Kernel.KernelExprAlgebra:kernel_plan_matches_mul_update(reduction, aliases)
+        return self.expr:kernel_plan_matches_mul_update(reduction, aliases)
+    end
+    function Value.ValueExpr:kernel_plan_matches_add_update(reduction, aliases) return false end
+    function Value.ValueExpr:kernel_plan_matches_mul_update(reduction, aliases) return false end
+    function Value.ValueExprAdd:kernel_plan_matches_add_update(reduction, aliases)
         local acc = reduction.accumulator
         local contrib = reduction.contribution
-        if reduction.kind == Value.ReductionAdd and cls == Value.ValueExprAdd then
-            return (value_expr_is_value(v.a, acc, aliases) and same_value_expr(v.b, contrib, aliases))
-                or (value_expr_is_value(v.b, acc, aliases) and same_value_expr(v.a, contrib, aliases))
-        end
-        if reduction.kind == Value.ReductionMul and cls == Value.ValueExprMul then
-            return (value_expr_is_value(v.a, acc, aliases) and same_value_expr(v.b, contrib, aliases))
-                or (value_expr_is_value(v.b, acc, aliases) and same_value_expr(v.a, contrib, aliases))
-        end
-        return false
+        return (value_expr_is_value(self.a, acc, aliases) and same_value_expr(self.b, contrib, aliases))
+            or (value_expr_is_value(self.b, acc, aliases) and same_value_expr(self.a, contrib, aliases))
+    end
+    function Value.ValueExprMul:kernel_plan_matches_mul_update(reduction, aliases)
+        local acc = reduction.accumulator
+        local contrib = reduction.contribution
+        return (value_expr_is_value(self.a, acc, aliases) and same_value_expr(self.b, contrib, aliases))
+            or (value_expr_is_value(self.b, acc, aliases) and same_value_expr(self.a, contrib, aliases))
+    end
+
+    local function reduction_update_matches(expr, reduction, aliases)
+        return reduction.kind:kernel_plan_update_matches_expr(expr, reduction, aliases)
     end
 
     local function loop_primary_induction(loop)
         for _, induction in ipairs(loop and loop.inductions or {}) do
-            if induction.kind == Flow.FlowPrimaryInduction then return induction.value end
+            local value = induction.kind:kernel_plan_primary_induction_value(induction)
+            if value ~= nil then return value end
         end
         return nil
     end
+
+    function Flow.FlowInductionKind:kernel_plan_primary_induction_value(induction) return nil end
+    function Flow.FlowPrimaryInduction:kernel_plan_primary_induction_value(induction) return induction.value end
 
     local function value_expr_binding(value, bindings)
         if value == nil or bindings == nil then return nil end
@@ -924,41 +1047,34 @@ local function bind_context(T)
         for _, loop in ipairs(flow and flow.loops or {}) do
             local subject = Kernel.KernelSubjectLoop(loop.loop)
             local func_id = loop_func[loop.loop.text]
-            local function select(loop_input)
-                local selection, err = CodeKernelPlanRules:run("select_loop_kernel_plan", { loop = loop_input }, "selection", "no Kernel loop plan selected")
-                assert(selection ~= nil, tostring(err))
-                return selection
-            end
             if loop.counted == nil then
-                local selection = select({
-                    counted = false,
-                    has_func_id = func_id ~= nil,
-                    has_func = false,
-                    has_rejects = false,
-                    has_closed_form = false,
-                    has_reduction = false,
-                    has_skeleton_result = false,
-                    closed_form_trip_unknown = false,
-                    not_counted_rejects = { Kernel.KernelRejectNoFacts(subject, "loop is not a counted Flow domain") },
-                    no_owner_rejects = { Kernel.KernelRejectNoFacts(subject, "graph loop has no function owner") },
-                    rejects = {},
-                })
-                plans[#plans + 1] = Kernel.KernelNoPlan(subject, selection.rejects)
+                local selection = Kernel.KernelLoopPlanInput(
+                    false,
+                    func_id ~= nil,
+                    false,
+                    {},
+                    { Kernel.KernelRejectNoFacts(subject, "loop is not a counted Flow domain") },
+                    { Kernel.KernelRejectNoFacts(subject, "graph loop has no function owner") },
+                    nil,
+                    nil,
+                    nil,
+                    Flow.FlowTripCountUnknown("uncounted loop")
+                ):select_kernel_loop_plan()
+                selection:add_selected_loop_plan(plans, subject)
             elseif func_id == nil then
-                local selection = select({
-                    counted = true,
-                    has_func_id = false,
-                    has_func = false,
-                    has_rejects = false,
-                    has_closed_form = false,
-                    has_reduction = false,
-                    has_skeleton_result = false,
-                    closed_form_trip_unknown = false,
-                    not_counted_rejects = { Kernel.KernelRejectNoFacts(subject, "loop is not a counted Flow domain") },
-                    no_owner_rejects = { Kernel.KernelRejectNoFacts(subject, "graph loop has no function owner") },
-                    rejects = {},
-                })
-                plans[#plans + 1] = Kernel.KernelNoPlan(subject, selection.rejects)
+                local selection = Kernel.KernelLoopPlanInput(
+                    true,
+                    false,
+                    false,
+                    {},
+                    { Kernel.KernelRejectNoFacts(subject, "loop is not a counted Flow domain") },
+                    { Kernel.KernelRejectNoFacts(subject, "graph loop has no function owner") },
+                    nil,
+                    nil,
+                    nil,
+                    Flow.FlowTripCountUnknown("ownerless loop")
+                ):select_kernel_loop_plan()
+                selection:add_selected_loop_plan(plans, subject)
             else
                 local func = funcs[func_id.text]
                 local domain = Flow.FlowDomainLoop(loop.loop)
@@ -1009,54 +1125,20 @@ local function bind_context(T)
                     proofs[#proofs + 1] = Kernel.KernelProofValue(reduction.proof, "reduction fact justifies kernel fold")
                 end
                 local trip = trip_counts[loop.loop.text] or Flow.FlowTripCountUnknown("no semantic trip-count fact")
-                local selection = select({
-                    counted = true,
-                    has_func_id = true,
-                    has_func = func ~= nil,
-                    has_rejects = #rejects > 0,
-                    has_closed_form = #closed_forms > 0,
-                    has_reduction = #reductions > 0,
-                    has_skeleton_result = skeleton ~= nil and skeleton.result ~= nil,
-                    closed_form = closed_forms[1],
-                    reduction = reductions[1],
-                    skeleton_result = skeleton and skeleton.result or nil,
-                    closed_form_trip_unknown = #closed_forms > 0 and asdl.classof(trip) == Flow.FlowTripCountUnknown,
-                    not_counted_rejects = { Kernel.KernelRejectNoFacts(subject, "loop is not a counted Flow domain") },
-                    no_owner_rejects = { Kernel.KernelRejectNoFacts(subject, "graph loop has no function owner") },
-                    rejects = rejects,
-                })
-                if selection.kind == "no_plan" then
-                    plans[#plans + 1] = Kernel.KernelNoPlan(subject, selection.rejects)
-                else
-                    local result
-                    if selection.result_kind == "closed_form" then
-                        local closed_form = assert(selection.closed_form, "closed-form kernel selection has no closed-form fact")
-                        result = Kernel.KernelResultClosedForm(closed_form)
-                        proofs[#proofs + 1] = Kernel.KernelProofValue(closed_form.proof, "closed form fact justifies kernel result")
-                        if selection.add_trip_unknown_proof then
-                            -- The current closed-form expression encodes start/stop/step directly, so
-                            -- keep the plan but make the proof dependence explicit rather than claiming
-                            -- an exact FlowTripCountExact fact that Flow does not provide yet.
-                            proofs[#proofs + 1] = Kernel.KernelProofFlow(domain, "closed-form expression uses counted start/stop/step directly; FlowTripCountExact is unavailable")
-                        end
-                    elseif selection.result_kind == "reduction" then
-                        result = Kernel.KernelResultReduction(assert(selection.reduction, "reduction kernel selection has no reduction fact"))
-                    elseif selection.result_kind == "skeleton" then
-                        result = assert(selection.skeleton_result, "skeleton kernel selection has no result")
-                    else
-                        result = Kernel.KernelResultOriginalControl("semantic loop kernel preserves original control by default")
-                    end
-                    local counter = loop.inductions and loop.inductions[1] and loop.inductions[1].value or nil
-                    local body = Kernel.KernelBody(
-                        Kernel.KernelDomainFlow(domain, trip, counter),
-                        lanes,
-                        body_bindings,
-                        effects,
-                        result,
-                        Kernel.KernelEquivalenceProof(proofs)
-                    )
-                    plans[#plans + 1] = Kernel.KernelPlanned(Kernel.KernelId("kernel:" .. sanitize(loop.loop.text)), subject, body)
-                end
+                local selection = Kernel.KernelLoopPlanInput(
+                    true,
+                    true,
+                    func ~= nil,
+                    rejects,
+                    { Kernel.KernelRejectNoFacts(subject, "loop is not a counted Flow domain") },
+                    { Kernel.KernelRejectNoFacts(subject, "graph loop has no function owner") },
+                    closed_forms[1],
+                    reductions[1],
+                    skeleton and skeleton.result or nil,
+                    trip
+                ):select_kernel_loop_plan()
+                local counter = loop.inductions and loop.inductions[1] and loop.inductions[1].value or nil
+                selection:add_selected_loop_plan(plans, subject, Kernel.KernelLoopPlanBuild(domain, trip, counter, lanes, body_bindings, effects, proofs))
             end
         end
 

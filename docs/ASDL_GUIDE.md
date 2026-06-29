@@ -1,0 +1,310 @@
+# Lalin ASDL Guide
+
+This guide is the working doctrine for ASDL modeling in Lalin compiler code.
+It is intentionally stricter than Terra's public ASDL examples. Lalin uses the
+Terra-style ASDL runtime pattern, but compiler semantics must be schema-owned,
+typed, and leaf-method driven.
+
+## Core Rule
+
+ASDL is the semantic model. Lua methods explain ASDL behavior; they do not create
+a second untyped model beside it.
+
+Lalin uses ASDL to make compiler Lua type-safe. Lua is still the implementation
+language, but ASDL is the boundary that keeps compiler state, facts, decisions,
+and IR from becoming arbitrary tables. Sidestepping ASDL in a compiler-scale
+codebase recreates table soup: meanings move into conventions, bugs hide in
+missing fields, and dispatch spreads through helpers instead of living on the
+types that own it.
+
+This matches ASDL's historical purpose. ASDL was created to describe compiler
+IR and syntax trees with a rich algebraic type vocabulary while still targeting
+low-level implementation languages. In practice it gives languages like C, and
+for Lalin Lua, the missing product/sum discipline needed to build large compiler
+systems without reducing every semantic object to an untyped record.
+
+When compiler code needs to classify a value, choose an alternative, remember a
+fact, pass state, return a decision, or route to behavior, first ask what ASDL
+type is missing. Add that product, union, leaf, field, projection, facet, or
+result before writing implementation code.
+
+## Products And Unions
+
+Use products for records with named fields:
+
+```lua
+product. ScheduleEmitterCapability {
+  interned,
+  kind [str],
+  executable [bool],
+  reason [str],
+  rejects [many [LalinSchedule.ScheduleReject]],
+}
+```
+
+Use unions for alternatives:
+
+```lua
+sum. SchedulePlanSelection {
+  ScheduleSelectionNoPlan {
+    variant_unique,
+    rejects [many [LalinSchedule.ScheduleReject]],
+  },
+  ScheduleSelectionPlanned {
+    variant_unique,
+    schedule [LalinSchedule.ScheduleKind],
+    capability [LalinSchedule.ScheduleEmitterCapability],
+    rejected_alternatives [many [LalinSchedule.ScheduleReject]],
+  },
+}
+```
+
+Do not encode alternatives as string tags, boolean flags, optional clusters, or
+one product with many nullable fields.
+
+## Leaf Methods Are Dispatch
+
+For a union operation, install the method on each concrete union leaf that owns
+the behavior. Calling the method is the dispatch.
+
+Correct:
+
+```lua
+function Tree.ExprCall:typecheck(input)
+  return Tree.TypeExprResult(...)
+end
+
+function Tree.ExprInt:typecheck(input)
+  return Tree.TypeExprResult(...)
+end
+```
+
+Wrong:
+
+```lua
+local handlers = {
+  ExprCall = function(expr, input) ... end,
+  ExprInt = function(expr, input) ... end,
+}
+
+function typecheck_expr(expr, input)
+  return handlers[expr.kind](expr, input)
+end
+```
+
+Parent union methods are only shared defaults or explicit delegation contracts.
+They must not inspect child classes, `kind` strings, action names, tags, or
+selector tables to choose behavior.
+
+## Object Wiring Is The Good Part
+
+ASDL objects make compiler Lua sane because the semantic entrypoint is attached
+to the value that owns the meaning. If the root thing is a `CompilationUnit`
+ASDL value and the result should be compiled code, the clear Lua shape is:
+
+```lua
+local artifact = unit:compile(input)
+```
+
+The call is ordinary Lua object wiring, but the receiver and result are ASDL.
+`CompilationUnit:compile` calls methods on child ASDL values. Those children
+call methods on their children. Each step constructs typed ASDL products/unions
+for the next semantic layer. The compiler becomes a tower of typed values and
+owned methods instead of a pile of external passes guessing node shapes.
+
+This is why leaf ownership matters. The object method gives Lua a simple local
+interface, while ASDL keeps the data and dispatch type-safe. The method chain
+should read like:
+
+```lua
+module:lower_to_code(...)
+func:lower_to_code(...)
+stmt:lower_to_code(...)
+expr:lower_to_code(...)
+```
+
+Each method returns declared ASDL results, not loose tables. The root method is
+then easy to call from the rest of Lua, and the internal compiler remains typed.
+
+## Methods Are Ideally Pure
+
+An ASDL semantic method should be a pure function whenever possible:
+
+```lua
+result = receiver:operation(input)
+```
+
+The receiver is an ASDL value. The input is an ASDL value. The result is an ASDL
+value. The method should not mutate the receiver, mutate child nodes, write
+hidden fields, update side tables, depend on ambient globals, or smuggle facts
+through external caches.
+
+If the method needs accumulated facts, pass a typed ASDL input product and return
+a typed ASDL result product/union. If it derives a new world, return a projection
+or facet. If it rejects, return a typed reject/diagnostic. Side effects belong at
+explicit runtime or IO boundaries, not in ordinary compiler semantics.
+
+## Constructors Compose ASDL
+
+ASDL constructors in migrated compiler semantics must consume other ASDL values
+and primitive scalar fields declared by the schema.
+
+Do not pass ad hoc Lua records into ASDL constructors to smuggle untyped state
+through a typed node:
+
+```lua
+-- Wrong: capability is an untyped Lua record.
+Schedule.ScheduleSelectionPlanned(kind, {
+  executable = true,
+  kind = "scalar",
+  rejects = {},
+}, {})
+```
+
+Define the payload as ASDL and pass the ASDL value:
+
+```lua
+local capability = Schedule.ScheduleEmitterCapability(
+  "scalar",
+  true,
+  "supported by current semantic emitters",
+  {}
+)
+return Schedule.ScheduleSelectionPlanned(kind, capability, {})
+```
+
+If a constructor argument is conceptually a record, decision, capability, fact,
+context, buffer, payload, or result, define that thing as an ASDL product or
+union.
+
+## Inputs And Results
+
+Semantic method inputs and results must be explicit ASDL products or other named
+ASDL values.
+
+Do not pass:
+
+- generic `ctx`, `env`, `state`, or option bags
+- hidden Lua fields
+- loose Lua tables
+- ad hoc `{ ok = ... }`, `{ kind = ... }`, or `{ tag = ... }` result records
+- multiple Lua return values for a semantic operation
+
+If an operation can succeed, fail, reject, choose, classify, explain, or lower,
+define an ASDL result product or union for that operation.
+
+## No Any, No Table Type
+
+Lalin ASDL must not provide `any`, `table`, `table_ty`, userdata-like escape
+hatches, or equivalent catch-all field types for compiler semantics.
+
+If a value cannot be typed precisely, the schema is incomplete. Stop and model
+the missing shape.
+
+## No Side Tables
+
+Side tables are not semantic state. A Lua table keyed by ASDL nodes, symbols,
+classes, tags, handles, or strings is forbidden when it carries compiler facts,
+decisions, diagnostics, lowering results, type facts, layout facts, control-flow
+facts, or backend facts.
+
+Move those facts into ASDL:
+
+- a product field when the fact is intrinsic to that phase value
+- a projection when a phase derives a new shape
+- a facet when several semantic planes align to a shared spine
+- a result union when the fact is an operation outcome
+
+## No Nil Passthrough
+
+Do not let `nil` mean success, failure, absence, unknown, unsupported, default,
+unchanged, no-op, or "keep going" by convention.
+
+Use `optional [T]` only for a real nullable field whose absence is local and
+obvious. If nil represents a semantic alternative or decision, define a union
+leaf such as `Missing`, `Rejected`, `Unsupported`, `Unchanged`, or a more precise
+domain name.
+
+A method may return nil only when the parent ASDL method contract explicitly
+says "operation not supported by this leaf" and the caller handles exactly that
+contract.
+
+## Smells
+
+These are architecture bugs, not shortcuts:
+
+- manual variant dispatch with `schema.classof`, `.kind`, `.tag`, strings, or
+  `if/elseif` chains
+- handler maps, visitor tables, rule tables, or selector tables
+- side maps keyed by nodes, symbols, classes, handles, or strings
+- stringly typed modes, actions, capabilities, or result kinds
+- boolean protocol flags such as `ok`, `done`, `valid`, `has_x`, or `enabled`
+  standing in for a result union
+- optional soup: nullable fields, mode strings, and boolean switches in one
+  product to represent alternatives
+- large mutable contexts, even if wrapped as one ASDL product
+- ASDL constructors accepting Lua records as payloads
+- hidden fields on ASDL values
+- compatibility shims that convert ASDL into old `{ kind = ... }` tables
+- parent methods that inspect leaf shape and choose behavior
+- catch-all variants such as `Other`, `Custom`, `Opaque`, `Unknown`, `Raw`, or
+  `UserData` unless they are terminal diagnostic/rejection leaves with precise
+  reasons
+- parallel arrays that should be one list of ASDL products
+- mutating ASDL nodes after construction instead of deriving a projection,
+  facet, or result
+
+## Source And Lower Phases
+
+Source ASDL and lower ASDL have different jobs.
+
+Source schemas model authored language facts: user-visible entities, domain
+variants, containment, references, and typed source forms.
+
+Lower schemas model consumed decisions: resolved names, type facts, layout,
+control, schedules, machine plans, backend artifacts, diagnostics, and reject
+reasons.
+
+Do not bloat source nodes with later-phase facts. Create a lower projection,
+spine, facet, or result type.
+
+## Entity, Variant, Projection, Spine, Facet
+
+Use this vocabulary when deciding what schema shape is missing:
+
+- Entity: a stable user/compiler-visible thing with identity.
+- Variant: a real domain alternative; model it as an ASDL union.
+- Projection: a derived phase shape.
+- Spine: a shared alignment/header product carrying identity, topology, order,
+  addressability, or ranges for later branches.
+- Facet: one semantic plane aligned to a spine, such as type, layout, control,
+  lowering, memory, schedule, or backend facts.
+
+## Terra Runtime Pattern
+
+Lalin follows the useful Terra ASDL runtime mechanics:
+
+- a context defines a closed schema vocabulary before implementation code runs
+- products are checked records with named fields
+- sums create a parent class plus concrete constructor classes
+- nullary constructors are real singleton ASDL values
+- parent membership is for type checking and shared defaults
+- methods are installed on ASDL classes using normal Lua method syntax
+- `unique` products and variants express schema-level identity and interning
+
+Lalin's compiler rewrite doctrine is stricter than Terra's examples: do not use
+`.kind` dispatch in migrated compiler semantics.
+
+## Repair Procedure
+
+When tempted to write untyped Lua plumbing:
+
+1. Stop implementation work.
+2. Name the missing semantic thing.
+3. Add the ASDL product, union, leaf, field, projection, facet, or result.
+4. Install behavior on the concrete leaf types that own it.
+5. Return ASDL values from semantic methods.
+6. Let tests fail loudly until call sites are moved to the typed shape.
+
+The answer to unclear compiler semantics is more precise ASDL, not more Lua
+dispatch.

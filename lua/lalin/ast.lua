@@ -835,8 +835,17 @@ local function install(api, T)
     ---@return LalinTree.VariantBind
     function api.variant_bind(name, ty) return Tr.VariantBind(assert_name(name, "variant_bind"), ty and as_type(ty, "variant_bind type") or Ty.TScalar(C.ScalarVoid)) end
 
-    function api.switch_stmt_arm(raw_key, body) return Tr.SwitchStmtArm(tostring(raw_key), stmts(body or {}, "switch stmt arm")) end
-    function api.switch_expr_arm(raw_key, body, result) return Tr.SwitchExprArm(tostring(raw_key), stmts(body or {}, "switch expr arm"), as_expr(result, "switch expr result")) end
+    function api.switch_key(key)
+        if is_a(Tr.SwitchKey, key) then return key end
+        if is_a(Tr.Expr, key) then return Tr.SwitchKeyExpr(key) end
+        if key == true or key == "true" then return Tr.SwitchKeyBool(true) end
+        if key == false or key == "false" then return Tr.SwitchKeyBool(false) end
+        local text = tostring(key)
+        if text:match("^[+-]?%d+$") then return Tr.SwitchKeyInt(text) end
+        return Tr.SwitchKeyName(text)
+    end
+    function api.switch_stmt_arm(key, body) return Tr.SwitchStmtArm(api.switch_key(key), stmts(body or {}, "switch stmt arm")) end
+    function api.switch_expr_arm(key, body, result) return Tr.SwitchExprArm(api.switch_key(key), stmts(body or {}, "switch expr arm"), as_expr(result, "switch expr result")) end
     function api.switch_variant_stmt_arm(spec) return Tr.SwitchVariantStmtArm(assert_name(spec.variant or spec.name or spec[1], "variant arm"), spec.binds or {}, stmts(spec.body or spec[2] or {}, "variant stmt arm")) end
     function api.switch_variant_expr_arm(spec) return Tr.SwitchVariantExprArm(assert_name(spec.variant or spec.name or spec[1], "variant expr arm"), spec.binds or {}, stmts(spec.body or spec[2] or {}, "variant expr arm"), as_expr(spec.result or spec[3], "variant expr result")) end
     function api.switch_stmt(spec) return Tr.StmtSwitch(Tr.StmtSurface, as_expr(spec.value or spec[1], "switch value"), spec.arms or {}, spec.variant_arms or {}, stmts(spec.default_body or spec.default or {}, "switch default")) end

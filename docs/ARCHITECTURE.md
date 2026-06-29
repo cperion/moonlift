@@ -137,7 +137,7 @@ LalinTree.Module
   ▼
 ┌─────────────────────────────────────────┐
 │ 5. Stencil Planning                     │
-│    StencilRules + StencilArtifactPlan   │
+│    StencilMachine + StencilArtifactPlan │
 │    → StencilArtifact[] (apply, reduce,   │
 │       scan, gather, scatter, etc.)       │
 └─────────────────────────────────────────┘
@@ -200,7 +200,7 @@ becomes a loaded MC artifact:
    → graph(CFG) → flow_facts → value_facts → mem_facts → effect_facts
    → kernel_plan (identifies "add" as trivial, no kernel needed)
    → schedule_plan → lower_plan
-   → StencilRules + StencilArtifactPlan
+   → StencilMachine + StencilArtifactPlan
      (for a+b, produces no stencil — scalar path is fine)
    → Lower.lower_module() → LJModule{ funcs={add=...} }
    → ExecPlan → ExecModulePlan
@@ -255,9 +255,9 @@ ASDL first; nullary variants also receive methods directly with normal
 |------|------|
 | `lua/lalin/frontend_pipeline.lua` | Orchestrates DSL→Tree→Typecheck→Code pipeline. Entry points: `typecheck_module`, `checked_to_code_result`, `code_result_to_back`, `code_result_to_c`. |
 | `lua/lalin/tree_typecheck.lua` | Typecheck entrypoint and remaining stage orchestration while LalinTree methods are being split out. |
-| `lua/lalin/tree_type_methods.lua` | Type-owned typecheck semantics for `LalinType` and literals. |
-| `lua/lalin/tree_expr_methods.lua` | Expression/ref-owned typecheck semantics for `LalinTree.Expr*` and `LalinBind.ValueRef*`. |
-| `lua/lalin/tree_layout_methods.lua` | Layout/ref matching semantics for `LalinSem.TypeLayout*` and `LalinType.TypeRef*`. |
+| `lua/lalin/tree_typecheck_type.lua` | Type-owned typecheck semantics for `LalinType` and literals. |
+| `lua/lalin/tree_typecheck_expr.lua` | Expression/ref-owned typecheck semantics for `LalinTree.Expr*` and `LalinBind.ValueRef*`. |
+| `lua/lalin/tree_typecheck_layout.lua` | Layout/ref matching semantics for `LalinSem.TypeLayout*` and `LalinType.TypeRef*`. |
 | `lua/lalin/tree_expr_type.lua` | Expression type inference. |
 | `lua/lalin/tree_stmt_type.lua` | Statement-level type operations (termination, etc.). |
 | `lua/lalin/tree_place_type.lua` | Place (lvalue) type inference. |
@@ -265,8 +265,7 @@ ASDL first; nullary variants also receive methods directly with normal
 | `lua/lalin/tree_field_resolve.lua` | Field resolution — struct.field to types and offsets. |
 | `lua/lalin/tree_contract_facts.lua` | Contract facts from function declarations (bounds, disjointness, SoA). |
 | `lua/lalin/tree_control_facts.lua` | Control-flow facts from control regions (entry/block/continuation). |
-| `lua/lalin/tree_to_code.lua` | Lowers `LalinTree` (typed AST) to `LalinCode` (code IR). |
-| `lua/lalin/tree_to_code_rules.lua` | Dispatch tables for tree→code lowering (27 expr, 5 place, 16 stmt variants). |
+| `lua/lalin/tree_to_code.lua` | Typed AST to `LalinCode` lowering; ASDL classes own tree→code methods. |
 
 ### Code IR & Fact Analysis
 
@@ -279,12 +278,9 @@ ASDL first; nullary variants also receive methods directly with normal
 | `lua/lalin/code_value_facts.lua` | Value analysis — algebra, closed-form expressions, ranges, reductions. |
 | `lua/lalin/code_mem_facts.lua` | Memory analysis — objects, intervals, aliasing, access patterns. |
 | `lua/lalin/code_effect_facts.lua` | Effect analysis — read/write/atomic/rw, contract effects. |
-| `lua/lalin/code_kernel_plan.lua` | Kernel identification — finds parallelizable loop/function fragments, produces `LalinKernel` plans. |
-| `lua/lalin/code_kernel_plan_rules.lua` | Rule dispatch for kernel classification. |
-| `lua/lalin/code_schedule_plan.lua` | Schedule planning — assigns scalar/vector/closed-form strategies per kernel. |
-| `lua/lalin/code_schedule_plan_rules.lua` | Rule dispatch for schedule plan. |
-| `lua/lalin/code_lower_plan.lua` | Lowering strategy — decides code/kernel/closed-form per fragment. |
-| `lua/lalin/code_lower_plan_rules.lua` | Rule dispatch for lower plan. |
+| `lua/lalin/code_kernel_plan.lua` | Kernel identification — finds parallelizable loop/function fragments, produces `LalinKernel` plans; loop selection is typed ASDL behavior. |
+| `lua/lalin/code_schedule_plan.lua` | Schedule planning — assigns scalar/vector/closed-form strategies per kernel; schedule selection is typed ASDL behavior. |
+| `lua/lalin/code_lower_plan.lua` | Lowering strategy — decides code/kernel/closed-form per fragment; lower-fragment selection is typed ASDL behavior. |
 | `lua/lalin/code_aggregate_abi.lua` | Aggregate type ABI classification — scalar/view/slice/bytespan/aggregate. |
 | `lua/lalin/code_to_back.lua` | Maps `LalinCode` types/shapes to `LalinBack` back IR. |
 | `lua/lalin/code_to_c.lua` | Maps `LalinCode` types/shapes to `LalinC` C IR. |
@@ -293,9 +289,8 @@ ASDL first; nullary variants also receive methods directly with normal
 
 | File | Role |
 |------|------|
-| `lua/lalin/exec_plan.lua` | Produces `LalinExec` plans — divides functions into scalar blocks, stencil calls, control, calls, returns, traps. |
-| `lua/lalin/exec_plan_rules.lua` | Rule dispatch for exec plan fragments. |
-| `lua/lalin/stencil_rules.lua` | Stencil rule engine — classifies kernel body into point-expression plus sink vocabulary. |
+| `lua/lalin/exec_plan.lua` | Produces `LalinExec` plans — divides functions into scalar blocks, stencil calls, control, calls, returns, traps; exec stencil selection uses typed ASDL methods. |
+| `lua/lalin/stencil_methods.lua` | Stencil-machine methods — classifies kernel body into point-expression plus sink vocabulary without a relation runner. |
 | `lua/lalin/stencil_artifact_plan.lua` | Generates canonical stencil artifacts: `store_n`, `reduce_n`, `scan_n`, and scatter-reduce descriptors. Store-shaped loops are `store_n` with explicit point body, sink, and layout modes. |
 | `lua/lalin/stencil_c.lua` | Generates complete C translation unit from stencil artifacts for GCC compilation. Produces the C source that becomes the MC bank. |
 | `lua/lalin/stencil_metastencil.lua` | Cross-provider stencil matching (MC bank ↔ BC bank equivalence). |
@@ -306,8 +301,7 @@ ASDL first; nullary variants also receive methods directly with normal
 | File | Role |
 |------|------|
 | `lua/lalin/luajit_backend.lua` | Central backend orchestration — lower_module(), build_mc_bank(), build_bc_bank(), emit_lua_artifact(). |
-| `lua/lalin/luajit_lower.lua` | Lowers `LalinCode` + kernel plans to `LalinLuaJIT` IR. Builds stencil machines. |
-| `lua/lalin/luajit_lower_rules.lua` | Rule dispatch for LuaJIT lowering. |
+| `lua/lalin/luajit_lower.lua` | Lowers `LalinCode` + kernel plans to `LalinLuaJIT` IR. Builds stencil machines; kernel/skeleton stencil lowering selection uses typed ASDL methods. |
 | `lua/lalin/luajit_emit.lua` | Emits Lua source from `LalinLuaJIT` IR — LuaJIT functions with FFI ctypes and stencil calls. |
 | `lua/lalin/luajit_expr.lua` | Lua expression utilities for emission. |
 | `lua/lalin/luajit_ctype.lua` | Converts `LalinCode.CodeType` to LuaJIT FFI ctype descriptors. |

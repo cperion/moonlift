@@ -29,7 +29,8 @@ return schema. LalinDasm {
     body [many [LalinBack.Cmd]],
   },
   product. DExternEntry { interned, key [str], symbol [str], sig [str], },
-  product. DDataEntry { interned, key [str], buf [any], size [number], align [number], },
+  product. DDataBytes { interned, bytes [str], },
+  product. DDataEntry { interned, key [str], buf [LalinDasm.DDataBytes], size [number], align [number], },
   product. DLabelPair { interned, key [str], label [str], },
   product. DLabelMap {
     interned,

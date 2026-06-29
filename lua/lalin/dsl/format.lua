@@ -13,7 +13,7 @@ local M = {}
 local T = asdl.context()
 schema(T)
 
-local C, Ty = T.LalinCore, T.LalinType
+local C, Ty, Tr = T.LalinCore, T.LalinType, T.LalinTree
 local d = llbl.doc
 
 local scalar_labels = {
@@ -330,6 +330,22 @@ fmt_tree_expr = function(e, f)
     return d.text("<" .. tostring(k or "expr") .. ">")
 end
 
+function Tr.SwitchKeyInt:format_tree_switch_key()
+    return d.text(tostring(self.raw))
+end
+
+function Tr.SwitchKeyBool:format_tree_switch_key()
+    return d.text(self.value and "true" or "false")
+end
+
+function Tr.SwitchKeyName:format_tree_switch_key()
+    return d.text(tostring(self.name))
+end
+
+function Tr.SwitchKeyExpr:format_tree_switch_key(f)
+    return fmt_tree_expr(self.expr, f)
+end
+
 fmt_expr = function(v, f)
     local lit = literal(v)
     if lit then return lit end
@@ -444,7 +460,7 @@ end
 
 local function switch_arm_doc(arm, f)
     local k = cls_kind(arm)
-    if k == "SwitchStmtArm" then return d.group { "case (", tostring(arm.raw_key), ") ", block(arm.body or {}, f, fmt_tree_stmt) } end
+    if k == "SwitchStmtArm" then return d.group { "case (", arm.key:format_tree_switch_key(f), ") ", block(arm.body or {}, f, fmt_tree_stmt) } end
     if k == "SwitchVariantStmtArm" then return d.group { "case", dot_name(arm.variant_name), " ", block(arm.body or {}, f, fmt_tree_stmt) } end
     return d.text("<switch-arm>")
 end

@@ -21,10 +21,21 @@ return schema. LalinTree {
     offset [number],
   },
   product. VariantBind { interned, field. name [str], field. ty [LalinType.Type], },
-  product. SwitchStmtArm { interned, raw_key [str], body [many [LalinTree.Stmt]], },
+  sum. SwitchKey {
+    SwitchKeyInt { variant_unique, raw [str], },
+    SwitchKeyBool { variant_unique, field. value [bool], },
+    SwitchKeyName { variant_unique, field. name [str], },
+    SwitchKeyExpr { variant_unique, field. expr [LalinTree.Expr], },
+  },
+  sum. SwitchKeyDecision {
+    SwitchConstKeys { variant_unique, keys [many [LalinTree.SwitchKey]], },
+    SwitchExprKeys { variant_unique, keys [many [LalinTree.SwitchKey]], },
+    SwitchCompareFallback { variant_unique, keys [many [LalinTree.SwitchKey]], reason [str], },
+  },
+  product. SwitchStmtArm { interned, key [LalinTree.SwitchKey], body [many [LalinTree.Stmt]], },
   product. SwitchExprArm {
     interned,
-    raw_key [str],
+    key [LalinTree.SwitchKey],
     body [many [LalinTree.Stmt]],
     result [LalinTree.Expr],
   },
@@ -930,6 +941,7 @@ return schema. LalinTree {
   product. TypeControlInput {
     interned,
     stmt [LalinTree.TypeStmtInput],
+    region_id [str],
   },
   product. TypeFuncInput {
     interned,
@@ -974,13 +986,6 @@ return schema. LalinTree {
     interned,
     field. ty [LalinType.Type],
     issues [many [LalinTree.TypeIssue]],
-  },
-  product. TypeCheckEnv {
-    interned,
-    env [LalinBind.Env],
-    facts [LalinTree.TypeModuleFacts],
-    return_ty [LalinType.Type],
-    yield [LalinTree.TypeYieldMode],
   },
   sum. TypeViewResult {
     TypeViewResult {
@@ -1030,7 +1035,7 @@ return schema. LalinTree {
   sum. TypeStmtResult {
     TypeStmtResult {
       variant_unique,
-      env [LalinTree.TypeCheckEnv],
+      state [LalinTree.TypeStmtInput],
       stmts [many [LalinTree.Stmt]],
       issues [many [LalinTree.TypeIssue]],
     },
@@ -1055,6 +1060,67 @@ return schema. LalinTree {
       field. module [LalinTree.Module],
       issues [many [LalinTree.TypeIssue]],
     },
+  },
+  product. TreeCodeModuleContext {
+    interned,
+    module_name [str],
+    layout_env [LalinSem.LayoutEnv],
+    target [optional [LalinBack.BackTargetModel]],
+    const_env [LalinBind.ConstEnv],
+  },
+  product. TreeCodeFuncContext {
+    interned,
+    field. module [LalinTree.TreeCodeModuleContext],
+    func_name [str],
+  },
+  product. TreeCodeItemRegisterInput {
+    interned,
+    field. module [LalinTree.TreeCodeModuleContext],
+    externs [many [LalinCode.CodeExtern]],
+  },
+  product. TreeCodeItemContractsInput {
+    interned,
+    field. module [LalinTree.TreeCodeModuleContext],
+    facts [many [LalinCode.CodeFuncContractFact]],
+  },
+  product. TreeCodeItemLowerInput {
+    interned,
+    field. module [LalinTree.TreeCodeModuleContext],
+    mod_name [str],
+    funcs [many [LalinCode.CodeFunc]],
+    data [many [LalinCode.CodeData]],
+    globals [many [LalinCode.CodeGlobal]],
+  },
+  product. TreeCodeExprInput { interned, func [LalinTree.TreeCodeFuncContext], },
+  product. TreeCodePlaceInput { interned, func [LalinTree.TreeCodeFuncContext], },
+  product. TreeCodeStmtInput { interned, func [LalinTree.TreeCodeFuncContext], },
+  product. TreeCodeControlInput { interned, func [LalinTree.TreeCodeFuncContext], },
+  product. TreeCodeContractInput {
+    interned,
+    field. module [LalinTree.TreeCodeModuleContext],
+    func_name [str],
+    func_id [LalinCode.CodeFuncId],
+  },
+  product. TreeCodeExprResult {
+    interned,
+    field. value [optional [LalinCode.CodeValueId]],
+    field. ty [LalinCode.CodeType],
+  },
+  product. TreeCodePlaceResult {
+    interned,
+    place [LalinCode.CodePlace],
+  },
+  product. TreeCodeFuncParts {
+    interned,
+    field. name [str],
+    linkage [LalinCode.CodeLinkage],
+    params [many [LalinType.Param]],
+    result [LalinType.Type],
+    body [many [LalinTree.Stmt]],
+  },
+  product. TreeCodeContractResult {
+    interned,
+    fact [LalinCode.CodeFuncContractFact],
   },
   sum. TreeBackLocal {
     TreeBackScalarLocal {

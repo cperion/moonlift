@@ -33,6 +33,29 @@ return schema. LalinSchedule {
     ScheduleRejectAlgebra { variant_unique, reason [str], },
     ScheduleRejectProfit { variant_unique, reason [str], },
   },
+  product. ScheduleEmitterCapability {
+    interned,
+    kind [str],
+    executable [bool],
+    reason [str],
+    rejects [many [LalinSchedule.ScheduleReject]],
+  },
+  product. SchedulePlanInput {
+    interned,
+    vector_kind [optional [LalinSchedule.ScheduleKind]],
+    vector_capability [optional [LalinSchedule.ScheduleEmitterCapability]],
+    scalar_kind [LalinSchedule.ScheduleKind],
+    scalar_capability [optional [LalinSchedule.ScheduleEmitterCapability]],
+  },
+  sum. SchedulePlanSelection {
+    ScheduleSelectionNoPlan { variant_unique, rejects [many [LalinSchedule.ScheduleReject]], },
+    ScheduleSelectionPlanned {
+      variant_unique,
+      schedule [LalinSchedule.ScheduleKind],
+      capability [LalinSchedule.ScheduleEmitterCapability],
+      rejected_alternatives [many [LalinSchedule.ScheduleReject]],
+    },
+  },
   sum. KernelSchedule {
     ScheduleNoPlan {
       variant_unique,

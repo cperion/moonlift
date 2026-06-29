@@ -76,6 +76,80 @@ return function(T)
         return nil
     end
 
+    function Ty.Type:typecheck_tree_same_binary_result(rhs_ty) return nil end
+    function Ty.TScalar:typecheck_tree_same_binary_result(rhs_ty)
+        if not type_eq(self, rhs_ty) then return nil end
+        if self:typecheck_tree_is_numeric_scalar() or self:typecheck_tree_is_integer_scalar() then return self end
+        return nil
+    end
+
+    function Ty.Type:typecheck_tree_same_integer_binary_result(rhs_ty) return nil end
+    function Ty.TScalar:typecheck_tree_same_integer_binary_result(rhs_ty)
+        if type_eq(self, rhs_ty) and self:typecheck_tree_is_integer_scalar() then return self end
+        return nil
+    end
+
+    function C.BinaryOp:typecheck_tree_binary_result(lhs_ty, rhs_ty) return lhs_ty:typecheck_tree_same_binary_result(rhs_ty) end
+    function C.BinAdd:typecheck_tree_binary_result(lhs_ty, rhs_ty)
+        return lhs_ty:typecheck_tree_bin_add(rhs_ty) or lhs_ty:typecheck_tree_same_binary_result(rhs_ty)
+    end
+    function C.BinSub:typecheck_tree_binary_result(lhs_ty, rhs_ty)
+        return lhs_ty:typecheck_tree_bin_sub(rhs_ty) or lhs_ty:typecheck_tree_same_binary_result(rhs_ty)
+    end
+    function C.BinBitAnd:typecheck_tree_binary_result(lhs_ty, rhs_ty) return lhs_ty:typecheck_tree_same_integer_binary_result(rhs_ty) end
+    function C.BinBitOr:typecheck_tree_binary_result(lhs_ty, rhs_ty) return lhs_ty:typecheck_tree_same_integer_binary_result(rhs_ty) end
+    function C.BinBitXor:typecheck_tree_binary_result(lhs_ty, rhs_ty) return lhs_ty:typecheck_tree_same_integer_binary_result(rhs_ty) end
+    function C.BinShl:typecheck_tree_binary_result(lhs_ty, rhs_ty) return lhs_ty:typecheck_tree_same_integer_binary_result(rhs_ty) end
+    function C.BinLShr:typecheck_tree_binary_result(lhs_ty, rhs_ty) return lhs_ty:typecheck_tree_same_integer_binary_result(rhs_ty) end
+    function C.BinAShr:typecheck_tree_binary_result(lhs_ty, rhs_ty) return lhs_ty:typecheck_tree_same_integer_binary_result(rhs_ty) end
+
+    function C.LogicOp:typecheck_tree_logic_result(lhs_ty, rhs_ty) return nil end
+    function C.LogicAnd:typecheck_tree_logic_result(lhs_ty, rhs_ty)
+        if lhs_ty:typecheck_tree_is_bool() and rhs_ty:typecheck_tree_is_bool() then return Ty.TScalar(C.ScalarBool) end
+        return nil
+    end
+    function C.LogicOr:typecheck_tree_logic_result(lhs_ty, rhs_ty)
+        if lhs_ty:typecheck_tree_is_bool() and rhs_ty:typecheck_tree_is_bool() then return Ty.TScalar(C.ScalarBool) end
+        return nil
+    end
+
+    function C.UnaryOp:typecheck_tree_unary_result() return nil end
+    function C.UnaryNot:typecheck_tree_unary_result(value_ty) return value_ty:typecheck_tree_unary_not_result() end
+    function C.UnaryNeg:typecheck_tree_unary_result(value_ty) return value_ty:typecheck_tree_unary_neg_result() end
+    function C.UnaryBitNot:typecheck_tree_unary_result(value_ty) return value_ty:typecheck_tree_unary_bitnot_result() end
+
+    function Ty.Type:typecheck_tree_unary_not_result() return nil end
+    function Ty.TScalar:typecheck_tree_unary_not_result()
+        if self:typecheck_tree_is_bool() then return Ty.TScalar(C.ScalarBool) end
+        return nil
+    end
+
+    function Ty.Type:typecheck_tree_unary_neg_result() return nil end
+    function Ty.TScalar:typecheck_tree_unary_neg_result()
+        if self:typecheck_tree_is_numeric_scalar() then return self end
+        return nil
+    end
+
+    function Ty.Type:typecheck_tree_unary_bitnot_result() return nil end
+    function Ty.TScalar:typecheck_tree_unary_bitnot_result()
+        if self:typecheck_tree_is_integer_scalar() then return self end
+        return nil
+    end
+
+    function Ty.Type:typecheck_tree_deref_result() return nil end
+    function Ty.TPtr:typecheck_tree_deref_result() return self.elem end
+
+    function Ty.Type:typecheck_tree_len_result() return nil end
+    function Ty.TArray:typecheck_tree_len_result() return Ty.TScalar(C.ScalarIndex) end
+    function Ty.TSlice:typecheck_tree_len_result() return Ty.TScalar(C.ScalarIndex) end
+    function Ty.TView:typecheck_tree_len_result() return Ty.TScalar(C.ScalarIndex) end
+
+    function Ty.Type:typecheck_tree_index_elem() return nil end
+    function Ty.TPtr:typecheck_tree_index_elem() return self.elem end
+    function Ty.TArray:typecheck_tree_index_elem() return self.elem end
+    function Ty.TSlice:typecheck_tree_index_elem() return self.elem end
+    function Ty.TView:typecheck_tree_index_elem() return self.elem end
+
     function Ty.TypeRef:typecheck_tree_resolve_env_type(env)
         return nil
     end
@@ -249,16 +323,16 @@ return function(T)
         return nil
     end
 
-    function Ty.Type:typecheck_tree_handle_def(type_state)
+    function Ty.Type:typecheck_tree_handle_def(facts)
         return nil
     end
 
-    function Ty.TOwned:typecheck_tree_handle_def(type_state)
-        return self.base:typecheck_tree_handle_def(type_state)
+    function Ty.TOwned:typecheck_tree_handle_def(facts)
+        return self.base:typecheck_tree_handle_def(facts)
     end
 
-    function Ty.THandle:typecheck_tree_handle_def(type_state)
-        return self.ref:typecheck_tree_ref_handle_def(type_state.facts)
+    function Ty.THandle:typecheck_tree_handle_def(facts)
+        return self.ref:typecheck_tree_ref_handle_def(facts)
     end
 
     function Ty.TypeRef:typecheck_tree_ref_handle_def(facts) return nil end
@@ -439,6 +513,15 @@ return function(T)
         return self:typecheck_tree_literal()
     end
     function C.Literal:typecheck_tree_literal_expected() return self:typecheck_tree_literal() end
+
+    function T.LalinTree.ModuleHeader:typecheck_tree_is_typed_module() return false end
+    function T.LalinTree.ModuleTyped:typecheck_tree_is_typed_module() return true end
+    function T.LalinTree.ExprHeader:typecheck_tree_is_typed_expr() return false end
+    function T.LalinTree.ExprTyped:typecheck_tree_is_typed_expr() return true end
+    function T.LalinTree.TypeIssue:typecheck_tree_is_array_length_expected() return false end
+    function T.LalinTree.TypeIssueExpected:typecheck_tree_is_array_length_expected()
+        return self.site ~= nil and self.site:match("array length") ~= nil
+    end
 
     function Ty.Type:typecheck_tree_accept_string_literal() return false end
     function Ty.TSlice:typecheck_tree_accept_string_literal() return type_eq(self.elem, u8_ty()) end

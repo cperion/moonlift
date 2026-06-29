@@ -31,9 +31,48 @@ local function bind_context(T)
     local CodeSchedulePlan = require("lalin.code_schedule_plan")(T)
     local CodeLowerPlan = require("lalin.code_lower_plan")(T)
     local ExecPlan = require("lalin.exec_plan")(T)
-    local LowerStrategyEmitRules = require("lalin.lower_strategy_emit_rules")(T)
 
     local api = {}
+
+    function Schedule.ScheduleKind:lower_emit_kernel_selection()
+        return Lower.LowerEmitScalarKernel
+    end
+    function Schedule.ScheduleVector:lower_emit_kernel_selection()
+        return Lower.LowerEmitVectorKernel
+    end
+    function Schedule.KernelSchedule:lower_emit_kernel_selection()
+        return Lower.LowerEmitScalarKernel
+    end
+    function Schedule.SchedulePlanned:lower_emit_kernel_selection()
+        return self.kind:lower_emit_kernel_selection()
+    end
+
+    function Lower.LowerStrategy:select_lower_emit(input)
+        return Lower.LowerEmitUnsupported(input.unsupported_reason)
+    end
+    function Lower.LowerStrategyCode:select_lower_emit(input)
+        return Lower.LowerEmitCode
+    end
+    function Lower.LowerStrategyClosedForm:select_lower_emit(input)
+        return Lower.LowerEmitClosedForm
+    end
+    function Lower.LowerStrategyKernel:select_lower_emit(input)
+        if input.schedule == nil then return Lower.LowerEmitMissingSchedule(input.missing_schedule_reason) end
+        return input.schedule:lower_emit_kernel_selection()
+    end
+
+    function Lower.LowerEmitSelection:lower_emit_is_code() return false end
+    function Lower.LowerEmitCode:lower_emit_is_code() return true end
+    function Lower.LowerEmitSelection:lower_emit_is_closed_form() return false end
+    function Lower.LowerEmitClosedForm:lower_emit_is_closed_form() return true end
+    function Lower.LowerEmitSelection:lower_emit_is_scalar_kernel() return false end
+    function Lower.LowerEmitScalarKernel:lower_emit_is_scalar_kernel() return true end
+    function Lower.LowerEmitSelection:lower_emit_is_vector_kernel() return false end
+    function Lower.LowerEmitVectorKernel:lower_emit_is_vector_kernel() return true end
+    function Lower.LowerEmitSelection:lower_emit_is_missing_schedule() return false end
+    function Lower.LowerEmitMissingSchedule:lower_emit_is_missing_schedule() return true end
+    function Lower.LowerEmitSelection:lower_emit_is_unsupported() return false end
+    function Lower.LowerEmitUnsupported:lower_emit_is_unsupported() return true end
 
     local function cname(text) return C.CBackendName(sanitize(text)) end
     local function clabel(id) return C.CBackendLabel(sanitize(id.text)) end
@@ -929,18 +968,49 @@ local function bind_context(T)
         return cls == Lower.LowerStrategyKernel or cls == Lower.LowerStrategyClosedForm
     end
 
-    local function lower_emit_input(fragment, cls, schedules_by_id)
+    local function lower_emit_input(fragment, schedules_by_id)
         local sched = nil
-        if cls == Lower.LowerStrategyKernel then sched = schedules_by_id[fragment.strategy.schedule.text] end
-        return {
-            strategy_code = cls == Lower.LowerStrategyCode,
-            strategy_kernel = cls == Lower.LowerStrategyKernel,
-            strategy_closed_form = cls == Lower.LowerStrategyClosedForm,
-            has_schedule = sched ~= nil,
-            schedule_vector = sched ~= nil and asdl.classof(sched.kind) == Schedule.ScheduleVector or false,
-            missing_schedule_reason = cls == Lower.LowerStrategyKernel and ("kernel strategy references missing schedule " .. fragment.strategy.schedule.text) or "",
-            unsupported_reason = "unsupported LowerStrategy for C emission " .. class_name(fragment.strategy),
-        }
+        if fragment.strategy:lower_emit_needs_schedule() then sched = schedules_by_id[fragment.strategy.schedule.text] end
+        return Lower.LowerEmitInput(
+            sched,
+            fragment.strategy:lower_emit_missing_schedule_reason(),
+            "unsupported LowerStrategy for C emission " .. class_name(fragment.strategy)
+        )
+    end
+
+    function Lower.LowerStrategy:lower_emit_needs_schedule() return false end
+    function Lower.LowerStrategyKernel:lower_emit_needs_schedule() return true end
+    function Lower.LowerStrategy:lower_emit_missing_schedule_reason() return "" end
+    function Lower.LowerStrategyKernel:lower_emit_missing_schedule_reason()
+        return "kernel strategy references missing schedule " .. self.schedule.text
+    end
+
+    function Lower.LowerEmitSelection:emit_to_c(ctx, graph, flow, kernels, schedules, code_func, fragment, baseline_by_label, graph_loops)
+        error("lower_to_c: unsupported lower emission selection", 2)
+    end
+
+    function Lower.LowerEmitCode:emit_to_c(ctx, graph, flow, kernels, schedules, code_func, fragment, baseline_by_label, graph_loops)
+        for _, b in ipairs(cover_blocks(fragment, code_func, graph_loops)) do ctx.blocks[#ctx.blocks + 1] = baseline_by_label[clabel(b.id).text] end
+    end
+
+    function Lower.LowerEmitClosedForm:emit_to_c(ctx, graph, flow, kernels, schedules, code_func, fragment, baseline_by_label, graph_loops)
+        emit_closed_form_fragment(ctx, graph, flow, kernels, fragment)
+    end
+
+    function Lower.LowerEmitScalarKernel:emit_to_c(ctx, graph, flow, kernels, schedules, code_func, fragment, baseline_by_label, graph_loops)
+        emit_scalar_kernel_fragment(ctx, graph, flow, kernels, fragment)
+    end
+
+    function Lower.LowerEmitVectorKernel:emit_to_c(ctx, graph, flow, kernels, schedules, code_func, fragment, baseline_by_label, graph_loops)
+        emit_vector_kernel_fragment(ctx, graph, flow, kernels, schedules, fragment)
+    end
+
+    function Lower.LowerEmitMissingSchedule:emit_to_c(ctx, graph, flow, kernels, schedules, code_func, fragment, baseline_by_label, graph_loops)
+        error("lower_to_c: " .. tostring(self.reason), 2)
+    end
+
+    function Lower.LowerEmitUnsupported:emit_to_c(ctx, graph, flow, kernels, schedules, code_func, fragment, baseline_by_label, graph_loops)
+        error("lower_to_c: " .. tostring(self.reason), 2)
     end
 
     local function prepare_func_ctx(ctx, code_func, c_func)
@@ -1007,23 +1077,8 @@ local function bind_context(T)
         local baseline_by_label = {}; for _, b in ipairs(baseline_blocks or {}) do baseline_by_label[b.label.text] = b end
         local schedules_by_id = schedule_by_id(schedules)
         for _, fragment in ipairs(ordered_fragments_for_func(code_func, func_plan, graph_loops)) do
-            local cls = asdl.classof(fragment.strategy)
-            local selection, err = LowerStrategyEmitRules:run("select_lower_emit", { emit = lower_emit_input(fragment, cls, schedules_by_id) }, "selection", "no lower emission selected")
-            if selection == nil then error("lower_to_c: " .. tostring(err), 2) end
-            if selection.kind == LowerStrategyEmitRules.kind.code then
-                for _, b in ipairs(cover_blocks(fragment, code_func, graph_loops)) do ctx.blocks[#ctx.blocks + 1] = baseline_by_label[clabel(b.id).text] end
-            elseif selection.kind == LowerStrategyEmitRules.kind.closed_form then
-                emit_closed_form_fragment(ctx, graph, flow, kernels, fragment)
-            elseif selection.kind == LowerStrategyEmitRules.kind.scalar_kernel or selection.kind == LowerStrategyEmitRules.kind.vector_kernel then
-                if selection.kind == LowerStrategyEmitRules.kind.vector_kernel then emit_vector_kernel_fragment(ctx, graph, flow, kernels, schedules, fragment)
-                else emit_scalar_kernel_fragment(ctx, graph, flow, kernels, fragment) end
-            elseif selection.kind == LowerStrategyEmitRules.kind.missing_schedule then
-                error("lower_to_c: " .. tostring(selection.reason), 2)
-            elseif selection.kind == LowerStrategyEmitRules.kind.unsupported then
-                error("lower_to_c: " .. tostring(selection.reason), 2)
-            else
-                error("lower_to_c: unsupported lower emission selection " .. tostring(selection.kind), 2)
-            end
+            local selection = fragment.strategy:select_lower_emit(lower_emit_input(fragment, schedules_by_id))
+            selection:emit_to_c(ctx, graph, flow, kernels, schedules, code_func, fragment, baseline_by_label, graph_loops)
         end
         return C.CBackendFunc(
             mutable_func.name,

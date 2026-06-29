@@ -31,9 +31,48 @@ local function bind_context(T)
     local CodeLowerPlan = require("lalin.code_lower_plan")(T)
     local CodeAggregateAbi = require("lalin.code_aggregate_abi")(T)
     local ReductionAlgebra = require("lalin.reduction_algebra")(T)
-    local LowerStrategyEmitRules = require("lalin.lower_strategy_emit_rules")(T)
 
     local api = {}
+
+    function Schedule.ScheduleKind:lower_emit_kernel_selection()
+        return Lower.LowerEmitScalarKernel
+    end
+    function Schedule.ScheduleVector:lower_emit_kernel_selection()
+        return Lower.LowerEmitVectorKernel
+    end
+    function Schedule.KernelSchedule:lower_emit_kernel_selection()
+        return Lower.LowerEmitScalarKernel
+    end
+    function Schedule.SchedulePlanned:lower_emit_kernel_selection()
+        return self.kind:lower_emit_kernel_selection()
+    end
+
+    function Lower.LowerStrategy:select_lower_emit(input)
+        return Lower.LowerEmitUnsupported(input.unsupported_reason)
+    end
+    function Lower.LowerStrategyCode:select_lower_emit(input)
+        return Lower.LowerEmitCode
+    end
+    function Lower.LowerStrategyClosedForm:select_lower_emit(input)
+        return Lower.LowerEmitClosedForm
+    end
+    function Lower.LowerStrategyKernel:select_lower_emit(input)
+        if input.schedule == nil then return Lower.LowerEmitMissingSchedule(input.missing_schedule_reason) end
+        return input.schedule:lower_emit_kernel_selection()
+    end
+
+    function Lower.LowerEmitSelection:lower_emit_is_code() return false end
+    function Lower.LowerEmitCode:lower_emit_is_code() return true end
+    function Lower.LowerEmitSelection:lower_emit_is_closed_form() return false end
+    function Lower.LowerEmitClosedForm:lower_emit_is_closed_form() return true end
+    function Lower.LowerEmitSelection:lower_emit_is_scalar_kernel() return false end
+    function Lower.LowerEmitScalarKernel:lower_emit_is_scalar_kernel() return true end
+    function Lower.LowerEmitSelection:lower_emit_is_vector_kernel() return false end
+    function Lower.LowerEmitVectorKernel:lower_emit_is_vector_kernel() return true end
+    function Lower.LowerEmitSelection:lower_emit_is_missing_schedule() return false end
+    function Lower.LowerEmitMissingSchedule:lower_emit_is_missing_schedule() return true end
+    function Lower.LowerEmitSelection:lower_emit_is_unsupported() return false end
+    function Lower.LowerEmitUnsupported:lower_emit_is_unsupported() return true end
 
     local function bid(id) return Back.BackValId(id.text) end
     local function block_id(id) return Back.BackBlockId(id.text) end
@@ -1223,54 +1262,67 @@ local function bind_context(T)
         return overrides
     end
 
-    local function lower_emit_input(ctx, fragment, cls)
+    local function lower_emit_input(ctx, fragment)
         local sched = nil
-        if cls == Lower.LowerStrategyKernel then sched = ctx.schedule_by_id and ctx.schedule_by_id[fragment.strategy.schedule.text] end
-        return {
-            strategy_code = cls == Lower.LowerStrategyCode,
-            strategy_kernel = cls == Lower.LowerStrategyKernel,
-            strategy_closed_form = cls == Lower.LowerStrategyClosedForm,
-            has_schedule = sched ~= nil,
-            schedule_vector = sched ~= nil and asdl.classof(sched.kind) == Schedule.ScheduleVector or false,
-            schedule = sched,
-            missing_schedule_reason = cls == Lower.LowerStrategyKernel and ("kernel strategy references missing schedule " .. fragment.strategy.schedule.text) or "",
-            unsupported_reason = "unsupported LowerStrategy for Back emission",
-        }
+        if fragment.strategy:lower_emit_needs_schedule() then sched = ctx.schedule_by_id and ctx.schedule_by_id[fragment.strategy.schedule.text] end
+        return Lower.LowerEmitInput(
+            sched,
+            fragment.strategy:lower_emit_missing_schedule_reason(),
+            "unsupported LowerStrategy for Back emission"
+        )
+    end
+
+    function Lower.LowerStrategy:lower_emit_needs_schedule() return false end
+    function Lower.LowerStrategyKernel:lower_emit_needs_schedule() return true end
+    function Lower.LowerStrategy:lower_emit_missing_schedule_reason() return "" end
+    function Lower.LowerStrategyKernel:lower_emit_missing_schedule_reason()
+        return "kernel strategy references missing schedule " .. self.schedule.text
+    end
+
+    function Lower.LowerEmitSelection:emit_to_back(ctx, code_module, graph, flow, value, mem, effect, kernels, fragment)
+        error("lower_to_back: unsupported lower emission selection", 2)
+    end
+
+    function Lower.LowerEmitCode:emit_to_back(ctx, code_module, graph, flow, value, mem, effect, kernels, fragment)
+        local cmds = CodeToBack.fragment_commands(code_module, graph, flow, value, mem, effect, fragment.cover, { validate = false, emit_local_slots = false, layout_env = ctx.layout_env, target = ctx.target })
+        for _, cmd in ipairs(cmds or {}) do ctx.cmds[#ctx.cmds + 1] = cmd end
+    end
+
+    function Lower.LowerEmitScalarKernel:emit_to_back(ctx, code_module, graph, flow, value, mem, effect, kernels, fragment)
+        local old_overrides = ctx.semantic_fragment_overrides
+        ctx.semantic_fragment_overrides = semantic_fragment_overrides(ctx, graph, fragment)
+        with_value_overrides(ctx, ctx.semantic_fragment_overrides, function()
+            emit_scalar_kernel_fragment(ctx, code_module, graph, flow, ctx.schedules, kernels, fragment)
+        end)
+        ctx.semantic_fragment_overrides = old_overrides
+    end
+
+    function Lower.LowerEmitVectorKernel:emit_to_back(ctx, code_module, graph, flow, value, mem, effect, kernels, fragment)
+        local old_overrides = ctx.semantic_fragment_overrides
+        ctx.semantic_fragment_overrides = semantic_fragment_overrides(ctx, graph, fragment)
+        with_value_overrides(ctx, ctx.semantic_fragment_overrides, function()
+            emit_vector_kernel_fragment(ctx, code_module, graph, flow, ctx.schedules, kernels, fragment)
+        end)
+        ctx.semantic_fragment_overrides = old_overrides
+    end
+
+    function Lower.LowerEmitClosedForm:emit_to_back(ctx, code_module, graph, flow, value, mem, effect, kernels, fragment)
+        with_value_overrides(ctx, semantic_fragment_overrides(ctx, graph, fragment), function()
+            emit_closed_form_fragment(ctx, code_module, graph, flow, kernels, fragment)
+        end)
+    end
+
+    function Lower.LowerEmitMissingSchedule:emit_to_back(ctx, code_module, graph, flow, value, mem, effect, kernels, fragment)
+        error("lower_to_back: " .. tostring(self.reason), 2)
+    end
+
+    function Lower.LowerEmitUnsupported:emit_to_back(ctx, code_module, graph, flow, value, mem, effect, kernels, fragment)
+        error("lower_to_back: " .. tostring(self.reason), 2)
     end
 
     local function emit_fragment(ctx, code_module, graph, flow, value, mem, effect, kernels, fragment)
-        local cls = asdl.classof(fragment.strategy)
-        local input = lower_emit_input(ctx, fragment, cls)
-        local selection, err = LowerStrategyEmitRules:run("select_lower_emit", { emit = input }, "selection", "no lower emission selected")
-        if selection == nil then error("lower_to_back: " .. tostring(err), 2) end
-        if selection.kind == LowerStrategyEmitRules.kind.code then
-            local cmds = CodeToBack.fragment_commands(code_module, graph, flow, value, mem, effect, fragment.cover, { validate = false, emit_local_slots = false, layout_env = ctx.layout_env, target = ctx.target })
-            for _, cmd in ipairs(cmds or {}) do ctx.cmds[#ctx.cmds + 1] = cmd end
-            return
-        end
-        if selection.kind == LowerStrategyEmitRules.kind.scalar_kernel or selection.kind == LowerStrategyEmitRules.kind.vector_kernel then
-            local old_overrides = ctx.semantic_fragment_overrides
-            ctx.semantic_fragment_overrides = semantic_fragment_overrides(ctx, graph, fragment)
-            with_value_overrides(ctx, ctx.semantic_fragment_overrides, function()
-                if selection.kind == LowerStrategyEmitRules.kind.vector_kernel then
-                    emit_vector_kernel_fragment(ctx, code_module, graph, flow, ctx.schedules, kernels, fragment)
-                else
-                    emit_scalar_kernel_fragment(ctx, code_module, graph, flow, ctx.schedules, kernels, fragment)
-                end
-            end)
-            ctx.semantic_fragment_overrides = old_overrides
-            return
-        elseif selection.kind == LowerStrategyEmitRules.kind.closed_form then
-            with_value_overrides(ctx, semantic_fragment_overrides(ctx, graph, fragment), function()
-                emit_closed_form_fragment(ctx, code_module, graph, flow, kernels, fragment)
-            end)
-            return
-        elseif selection.kind == LowerStrategyEmitRules.kind.missing_schedule then
-            error("lower_to_back: " .. tostring(selection.reason), 2)
-        elseif selection.kind == LowerStrategyEmitRules.kind.unsupported then
-            error("lower_to_back: " .. tostring(selection.reason), 2)
-        end
-        error("lower_to_back: unsupported lower emission selection " .. tostring(selection.kind), 2)
+        local selection = fragment.strategy:select_lower_emit(lower_emit_input(ctx, fragment))
+        selection:emit_to_back(ctx, code_module, graph, flow, value, mem, effect, kernels, fragment)
     end
 
     local function emit_func(ctx, code_module, graph, flow, value, mem, effect, func, func_plan, graph_loops)

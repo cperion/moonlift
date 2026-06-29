@@ -94,6 +94,21 @@ return schema. LalinExec {
     },
   },
 
+  product. ExecStencilInput {
+    interned,
+    artifact [optional [LalinStencil.StencilArtifact]],
+    func [optional [LalinCode.CodeFuncId]],
+    selected_reason [str],
+    unselected_reason [str],
+    missing_artifact_reason [str],
+    missing_func_reason [str],
+  },
+
+  sum. ExecStencilSelection {
+    ExecSelectStencil { variant_unique, reason [str], },
+    ExecSelectSkip { variant_unique, reason [str], },
+  },
+
   product. ExecPlanEntry {
     interned,
     kernel [LalinKernel.KernelId],

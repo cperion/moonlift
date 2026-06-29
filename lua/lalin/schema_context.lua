@@ -58,10 +58,9 @@ end
 -- ── Builtin type checks ─────────────────────────────────────
 
 local builtin_checks = {}
-for _, name in ipairs({ "nil", "number", "string", "boolean", "table", "function" }) do
+for _, name in ipairs({ "nil", "number", "string", "boolean", "function" }) do
     builtin_checks[name] = function(v) return type(v) == name end
 end
-builtin_checks["any"] = function() return true end
 
 -- ── Context ──────────────────────────────────────────────────
 

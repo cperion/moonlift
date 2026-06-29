@@ -1781,7 +1781,14 @@ M.switch = llbl.curried("switch", 1, function(t)
                 if variant_name then
                     variant_arms[#variant_arms + 1] = Tr.SwitchVariantStmtArm(variant_name, {}, tree_stmts(arm.body))
                 else
-                    stmt_arms[#stmt_arms + 1] = Tr.SwitchStmtArm(tostring(arm.key), tree_stmts(arm.body))
+                    if arm.key == true or arm.key == "true" then
+                        stmt_arms[#stmt_arms + 1] = Tr.SwitchStmtArm(Tr.SwitchKeyBool(true), tree_stmts(arm.body))
+                    elseif arm.key == false or arm.key == "false" then
+                        stmt_arms[#stmt_arms + 1] = Tr.SwitchStmtArm(Tr.SwitchKeyBool(false), tree_stmts(arm.body))
+                    else
+                        local key_text = tostring(arm.key)
+                        stmt_arms[#stmt_arms + 1] = Tr.SwitchStmtArm(key_text:match("^[+-]?%d+$") and Tr.SwitchKeyInt(key_text) or Tr.SwitchKeyName(key_text), tree_stmts(arm.body))
+                    end
                 end
             elseif is(arm, Default) then
                 default_body = arm.body

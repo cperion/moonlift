@@ -54,7 +54,9 @@ local ptr_instr = Ty.TPtr(instr_ty)
 local u16 = scalar(C.ScalarU16)
 local binding = B.Binding(C.Id("inst"), "inst", ptr_instr, B.BindingClassLocalValue)
 local env = B.Env("", { B.ValueEntry("inst", binding) }, {}, {})
-local ctx = Tr.TypeCheckEnv(env, scalar(C.ScalarI32), Tr.TypeYieldNone, {})
+local scope = Tr.TypeValueScope(env.module_name, env.values, env.types, env.layouts, Tr.TypeModuleFacts({}, {}, {}))
+local expr_input = Tr.TypeExprInput(scope)
+local place_input = Tr.TypePlaceInput(scope)
 
 -- This shape occurs after a typed fragment body is copied into a caller and
 -- re-typechecked in an environment that does not carry the fragment's layout
@@ -62,19 +64,17 @@ local ctx = Tr.TypeCheckEnv(env, scalar(C.ScalarI32), Tr.TypeYieldNone, {})
 -- the base struct/pointer type when field_layout_for cannot resolve by layout.
 local base_expr = Tr.ExprRef(Tr.ExprTyped(ptr_instr), B.ValueRefBinding(binding))
 local typed_dot = Tr.ExprDot(Tr.ExprTyped(u16), base_expr, "op")
-local expr_result = only(TC.expr(typed_dot, ctx))
+local expr_result = typed_dot:typecheck_tree_expr(expr_input)
 assert(expr_result.ty == u16, "typed ExprDot fallback must preserve field type")
-assert(asdl.classof(expr_result.expr) == Tr.ExprDot)
-assert(asdl.classof(expr_result.expr.h) == Tr.ExprTyped)
 assert(expr_result.expr.h.ty == u16)
+assert(expr_result.expr.name == "op")
 
 local base_place = Tr.PlaceRef(Tr.PlaceTyped(ptr_instr), B.ValueRefBinding(binding))
 local typed_place_dot = Tr.PlaceDot(Tr.PlaceTyped(u16), base_place, "op")
-local place_result = only(TC.place(typed_place_dot, ctx))
+local place_result = typed_place_dot:typecheck_tree_place(place_input)
 assert(place_result.ty == u16, "typed PlaceDot fallback must preserve field type")
-assert(asdl.classof(place_result.place) == Tr.PlaceDot)
-assert(asdl.classof(place_result.place.h) == Tr.PlaceTyped)
 assert(place_result.place.h.ty == u16)
+assert(place_result.place.name == "op")
 
 -- Typechecking an otherwise standalone caller may receive layouts from the
 -- host/bundle layout environment rather than from ItemType declarations in the

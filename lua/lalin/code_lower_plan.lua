@@ -21,9 +21,90 @@ local function bind_context(T)
     local CodeEffectFacts = require("lalin.code_effect_facts")(T)
     local CodeKernelPlan = require("lalin.code_kernel_plan")(T)
     local CodeSchedulePlan = require("lalin.code_schedule_plan")(T)
-    local CodeLowerPlanRules = require("lalin.code_lower_plan_rules")(T)
 
     local api = {}
+    local block_set_for
+
+    function Schedule.KernelSchedule:lower_plan_is_planned_schedule() return false end
+    function Schedule.SchedulePlanned:lower_plan_is_planned_schedule() return true end
+    function Schedule.KernelSchedule:lower_plan_is_closed_form_schedule() return false end
+    function Schedule.SchedulePlanned:lower_plan_is_closed_form_schedule()
+        return self.kind == Schedule.ScheduleClosedForm
+    end
+
+    function Kernel.KernelResult:lower_plan_closed_form_fact() return nil end
+    function Kernel.KernelResultClosedForm:lower_plan_closed_form_fact() return self.closed_form end
+
+    function Lower.LowerFragmentPlanInput:select_lower_fragment()
+        if self.kernel ~= nil then
+            if self.schedule ~= nil and self.schedule:lower_plan_is_planned_schedule() then
+                if self.schedule:lower_plan_is_closed_form_schedule() then
+                    if self.closed_form ~= nil then return Lower.LowerSelectClosedForm(self.closed_form) end
+                    return Lower.LowerSelectFallback(self.closed_form_missing_reason)
+                end
+                return Lower.LowerSelectKernel
+            end
+            return Lower.LowerSelectFallback(self.no_schedule_reason)
+        end
+        if self.kernel_no_plan ~= nil then return Lower.LowerSelectFallback(self.kernel_no_plan_reason) end
+        return Lower.LowerSelectNone
+    end
+
+    function Lower.LowerFragmentSelection:lower_plan_is_closed_form() return false end
+    function Lower.LowerSelectClosedForm:lower_plan_is_closed_form() return true end
+    function Lower.LowerFragmentSelection:lower_plan_is_kernel() return false end
+    function Lower.LowerSelectKernel:lower_plan_is_kernel() return true end
+    function Lower.LowerFragmentSelection:lower_plan_is_fallback() return false end
+    function Lower.LowerSelectFallback:lower_plan_is_fallback() return true end
+    function Lower.LowerFragmentSelection:lower_plan_is_none() return false end
+    function Lower.LowerSelectNone:lower_plan_is_none() return true end
+
+    function Lower.LowerFragmentSelection:lower_plan_add_loop_fragment(func, loop, cover, fragments, covered, issues, kplan, sched)
+        error("code_lower_plan: unsupported lower fragment selection", 2)
+    end
+
+    function Lower.LowerSelectClosedForm:lower_plan_add_loop_fragment(func, loop, cover, fragments, covered, issues, kplan, sched)
+        fragments[#fragments + 1] = Lower.LowerFragment(
+            Lower.LowerFragmentId("frag:" .. sanitize(func.id.text) .. ":semantic:" .. sanitize(loop.id.text)),
+            cover,
+            Lower.LowerStrategyClosedForm(kplan.id, self.closed_form),
+            {
+                Lower.LowerProofKernel(kplan.id, "planned semantic closed-form kernel"),
+                Lower.LowerProofSchedule(sched.id, "closed-form schedule has a semantic lowering emitter"),
+            },
+            {}
+        )
+        for block in pairs(block_set_for(loop)) do covered[block] = true end
+    end
+
+    function Lower.LowerSelectKernel:lower_plan_add_loop_fragment(func, loop, cover, fragments, covered, issues, kplan, sched)
+        fragments[#fragments + 1] = Lower.LowerFragment(
+            Lower.LowerFragmentId("frag:" .. sanitize(func.id.text) .. ":semantic:" .. sanitize(loop.id.text)),
+            cover,
+            Lower.LowerStrategyKernel(kplan.id, sched.id),
+            {
+                Lower.LowerProofKernel(kplan.id, "planned semantic kernel"),
+                Lower.LowerProofSchedule(sched.id, "kernel schedule has a semantic lowering emitter"),
+            },
+            {}
+        )
+        for block in pairs(block_set_for(loop)) do covered[block] = true end
+    end
+
+    function Lower.LowerSelectFallback:lower_plan_add_loop_fragment(func, loop, cover, fragments, covered, issues, kplan, sched)
+        local issue = Lower.LowerIssueFallback(cover, self.reason)
+        issues[#issues + 1] = issue
+        fragments[#fragments + 1] = Lower.LowerFragment(
+            Lower.LowerFragmentId("frag:" .. sanitize(func.id.text) .. ":loop_fallback:" .. sanitize(loop.id.text)),
+            cover,
+            Lower.LowerStrategyCode(self.reason),
+            { Lower.LowerProofFallback(self.reason) },
+            { issue }
+        )
+        for block in pairs(block_set_for(loop)) do covered[block] = true end
+    end
+
+    function Lower.LowerSelectNone:lower_plan_add_loop_fragment(func, loop, cover, fragments, covered, issues, kplan, sched) end
 
     local function graph_indexes(graph)
         local loops, funcs = {}, {}
@@ -50,7 +131,7 @@ local function bind_context(T)
         return out
     end
 
-    local function block_set_for(loop)
+    block_set_for = function(loop)
         local set = {}
         for _, bid in ipairs(loop and loop.body or {}) do set[bid.block.text] = true end
         return set
@@ -101,7 +182,6 @@ local function bind_context(T)
     end
 
     local function lower_fragment_input(loop, kplan, no_plan, sched)
-        local schedule_planned = sched ~= nil and asdl.classof(sched) == Schedule.SchedulePlanned
         local cf = loop_result_closed_form(kplan)
         local skipped
         if cf ~= nil then
@@ -112,58 +192,15 @@ local function bind_context(T)
             skipped = "loop " .. loop.id.text
         end
 
-        return {
-            has_kernel = kplan ~= nil,
-            has_kernel_no_plan = no_plan ~= nil,
-            schedule_planned = schedule_planned,
-            schedule_closed_form = schedule_planned and sched.kind == Schedule.ScheduleClosedForm or false,
-            has_closed_form = cf ~= nil,
-            closed_form = cf,
-            closed_form_missing_reason = "explicit Code fallback because ScheduleClosedForm has no ClosedFormFact",
-            no_schedule_reason = "explicit Code fallback for " .. skipped .. ": " .. schedule_summary(sched),
-            kernel_no_plan_reason = no_plan ~= nil and ("explicit Code fallback because KernelNoPlan rejected loop: " .. reject_summary(no_plan.rejects)) or "",
-        }
-    end
-
-    local function add_loop_code_fallback(func, loop, cover, fragments, covered, issues, reason)
-        local issue = Lower.LowerIssueFallback(cover, reason)
-        issues[#issues + 1] = issue
-        fragments[#fragments + 1] = Lower.LowerFragment(
-            Lower.LowerFragmentId("frag:" .. sanitize(func.id.text) .. ":loop_fallback:" .. sanitize(loop.id.text)),
-            cover,
-            Lower.LowerStrategyCode(reason),
-            { Lower.LowerProofFallback(reason) },
-            { issue }
+        return Lower.LowerFragmentPlanInput(
+            kplan,
+            no_plan,
+            sched,
+            cf,
+            "explicit Code fallback because ScheduleClosedForm has no ClosedFormFact",
+            "explicit Code fallback for " .. skipped .. ": " .. schedule_summary(sched),
+            no_plan ~= nil and ("explicit Code fallback because KernelNoPlan rejected loop: " .. reject_summary(no_plan.rejects)) or ""
         )
-        for block in pairs(block_set_for(loop)) do covered[block] = true end
-    end
-
-    local function add_loop_semantic_fragment(func, loop, cover, fragments, covered, kplan, sched, selection)
-        local strategy, proofs
-        if selection.kind == CodeLowerPlanRules.kind.closed_form then
-            strategy = Lower.LowerStrategyClosedForm(kplan.id, selection.closed_form)
-            proofs = {
-                Lower.LowerProofKernel(kplan.id, "planned semantic closed-form kernel"),
-                Lower.LowerProofSchedule(sched.id, "closed-form schedule has a semantic lowering emitter"),
-            }
-        elseif selection.kind == CodeLowerPlanRules.kind.kernel then
-            strategy = Lower.LowerStrategyKernel(kplan.id, sched.id)
-            proofs = {
-                Lower.LowerProofKernel(kplan.id, "planned semantic kernel"),
-                Lower.LowerProofSchedule(sched.id, "kernel schedule has a semantic lowering emitter"),
-            }
-        else
-            error("code_lower_plan: unsupported semantic selection " .. tostring(selection.kind), 2)
-        end
-
-        fragments[#fragments + 1] = Lower.LowerFragment(
-            Lower.LowerFragmentId("frag:" .. sanitize(func.id.text) .. ":semantic:" .. sanitize(loop.id.text)),
-            cover,
-            strategy,
-            proofs,
-            {}
-        )
-        for block in pairs(block_set_for(loop)) do covered[block] = true end
     end
 
     local function plan_func(func, graph_func, kernel_for_loop, kernel_no_plan_for_loop, schedule_for_kernel, issues)
@@ -180,15 +217,8 @@ local function bind_context(T)
                 local cover = Lower.LowerCoverLoop(loop.id)
                 local sched = kplan ~= nil and schedule_for_kernel[kplan.id.text] or nil
                 local no_plan = kernel_no_plan_for_loop[loop.id.text]
-                local selection, err = CodeLowerPlanRules:run("select_lower_fragment", { fragment = lower_fragment_input(loop, kplan, no_plan, sched) }, "selection", "no lower fragment selected")
-                if selection == nil then error("code_lower_plan: " .. tostring(err), 2) end
-                if selection.kind == CodeLowerPlanRules.kind.closed_form or selection.kind == CodeLowerPlanRules.kind.kernel then
-                    add_loop_semantic_fragment(func, loop, cover, fragments, covered, kplan, sched, selection)
-                elseif selection.kind == CodeLowerPlanRules.kind.fallback then
-                    add_loop_code_fallback(func, loop, cover, fragments, covered, issues, selection.reason)
-                elseif selection.kind ~= CodeLowerPlanRules.kind.none then
-                    error("code_lower_plan: unsupported lower fragment selection " .. tostring(selection.kind), 2)
-                end
+                local selection = lower_fragment_input(loop, kplan, no_plan, sched):select_lower_fragment()
+                selection:lower_plan_add_loop_fragment(func, loop, cover, fragments, covered, issues, kplan, sched)
             end
         end
 

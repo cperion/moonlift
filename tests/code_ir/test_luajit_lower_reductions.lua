@@ -264,7 +264,7 @@ do
     local rejects = {}
     Lower.lower_module(module, { contracts = contracts, collect_rejects = rejects })
     assert(#rejects == 1, "canonical reduction lowering should require a stencil provider")
-    assert(tostring(rejects[1].reason):match("stencil") or tostring(rejects[1].reason):match("select_kernel_lowering"), "unexpected missing-provider reject: " .. tostring(rejects[1].reason))
+    assert(tostring(rejects[1].reason):match("stencil"), "unexpected missing-provider reject: " .. tostring(rejects[1].reason))
 end
 
 for _, tcase in ipairs(stencil_type_cases) do

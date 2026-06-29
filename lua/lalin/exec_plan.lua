@@ -12,6 +12,7 @@ local function bind_context(T)
     if T._lalin_api_cache.exec_plan ~= nil then return T._lalin_api_cache.exec_plan end
 
     local Exec = T.LalinExec
+    local Kernel = T.LalinKernel
     local Stencil = T.LalinStencil
 
     local CodeGraph = require("lalin.code_graph")(T)
@@ -20,9 +21,48 @@ local function bind_context(T)
     local CodeMemFacts = require("lalin.code_mem_facts")(T)
     local CodeEffectFacts = require("lalin.code_effect_facts")(T)
     local CodeKernelPlan = require("lalin.code_kernel_plan")(T)
-    local ExecPlanRules = require("lalin.exec_plan_rules")(T)
 
     local api = {}
+    local kernel_blocks
+
+    function Kernel.KernelPlan:exec_kernel_plan_id() return nil end
+    function Kernel.KernelPlanned:exec_kernel_plan_id() return self.id end
+
+    function Stencil.StencilSelection:select_exec_stencil(input)
+        return Exec.ExecSelectSkip(input.unselected_reason)
+    end
+    function Stencil.StencilSelected:select_exec_stencil(input)
+        if input.artifact == nil then return Exec.ExecSelectSkip(input.missing_artifact_reason) end
+        if input.func == nil then return Exec.ExecSelectSkip(input.missing_func_reason) end
+        return Exec.ExecSelectStencil(input.selected_reason)
+    end
+
+    function Exec.ExecStencilSelection:exec_plan_is_stencil() return false end
+    function Exec.ExecSelectStencil:exec_plan_is_stencil() return true end
+    function Exec.ExecStencilSelection:exec_plan_is_skip() return false end
+    function Exec.ExecSelectSkip:exec_plan_is_skip() return true end
+
+    function Exec.ExecStencilSelection:add_exec_stencil(entries, by_func, entry, index, kernel_plan, loop_by_id, artifact, func_id)
+        error("exec_plan: unsupported exec stencil selection", 2)
+    end
+
+    function Exec.ExecSelectStencil:add_exec_stencil(entries, by_func, entry, index, kernel_plan, loop_by_id, artifact, func_id)
+        local blocks = kernel_blocks(kernel_plan, loop_by_id)
+        local fragment = Exec.ExecFragment(
+            Exec.ExecFragmentId("exec:" .. sanitize(func_id.text) .. ":stencil:" .. tostring(index)),
+            func_id,
+            blocks,
+            Exec.ExecFragmentStencil(artifact, {}, Exec.ExecResultVoid)
+        )
+        entries[#entries + 1] = Exec.ExecPlanEntry(entry.kernel, Exec.ExecMaterializeStencil(fragment, self.reason))
+        local list = by_func[func_id.text]
+        if list == nil then list = {}; by_func[func_id.text] = list end
+        list[#list + 1] = fragment
+    end
+
+    function Exec.ExecSelectSkip:add_exec_stencil(entries, by_func, entry, index, kernel_plan, loop_by_id, artifact, func_id)
+        entries[#entries + 1] = Exec.ExecPlanEntry(entry.kernel, Exec.ExecSkipStencil(self.reason))
+    end
 
     local function block_ids(func)
         local out = {}
@@ -101,7 +141,7 @@ local function bind_context(T)
         return {}
     end
 
-    local function kernel_blocks(kernel_plan, loop_by_id)
+    kernel_blocks = function(kernel_plan, loop_by_id)
         local subject = kernel_plan and kernel_plan.subject or nil
         local cls = asdl.classof(subject)
         if cls == T.LalinKernel.KernelSubjectFragment then return { subject.entry, subject.exit } end
@@ -113,7 +153,8 @@ local function bind_context(T)
     local function kernel_plan_index(kernels)
         local out = {}
         for _, plan in ipairs(kernels and kernels.plans or {}) do
-            if plan.id ~= nil then out[plan.id.text] = plan end
+            local id = plan:exec_kernel_plan_id()
+            if id ~= nil then out[id.text] = plan end
         end
         return out
     end
@@ -125,39 +166,31 @@ local function bind_context(T)
         local by_kernel = kernel_plan_index(kernels)
         for i, entry in ipairs(stencil_plan and stencil_plan.selections or {}) do
             local selection = entry.selection
-            local selected = asdl.classof(selection) == Stencil.StencilSelected
-            local artifact = selected and by_instance[selection.instance.id.text] or nil
+            local artifact = selection:exec_plan_artifact(by_instance)
             local kernel_plan = by_kernel[entry.kernel.text]
             local func_id = kernel_func_id(kernel_plan, loop_to_func)
-            local rule_selection, err = ExecPlanRules:run("select_exec_fragment", { fragment = {
-                stencil_selected = selected,
-                has_artifact = artifact ~= nil,
-                has_func = func_id ~= nil,
-                selected_reason = "selected stencil artifact has executable function owner",
-                unselected_reason = "stencil plan entry did not select an artifact",
-                missing_artifact_reason = selected and ("selected stencil instance has no artifact " .. selection.instance.id.text) or "selected stencil instance has no artifact",
-                missing_func_reason = "selected stencil kernel has no owning Code function",
-            } }, "selection", "no exec fragment selected")
-            if rule_selection == nil then error("exec_plan: " .. tostring(err), 2) end
-            if rule_selection.kind == ExecPlanRules.kind.stencil then
-                local blocks = kernel_blocks(kernel_plan, loop_by_id)
-                local fragment = Exec.ExecFragment(
-                    Exec.ExecFragmentId("exec:" .. sanitize(func_id.text) .. ":stencil:" .. tostring(i)),
-                    func_id,
-                    blocks,
-                    Exec.ExecFragmentStencil(artifact, {}, Exec.ExecResultVoid)
-                )
-                entries[#entries + 1] = Exec.ExecPlanEntry(entry.kernel, Exec.ExecMaterializeStencil(fragment, rule_selection.reason))
-                local list = by_func[func_id.text]
-                if list == nil then list = {}; by_func[func_id.text] = list end
-                list[#list + 1] = fragment
-            elseif rule_selection.kind == ExecPlanRules.kind.skip then
-                entries[#entries + 1] = Exec.ExecPlanEntry(entry.kernel, Exec.ExecSkipStencil(rule_selection.reason))
-            else
-                error("exec_plan: unsupported exec fragment selection " .. tostring(rule_selection.kind), 2)
-            end
+            local exec_selection = selection:select_exec_stencil(Exec.ExecStencilInput(
+                artifact,
+                func_id,
+                "selected stencil artifact has executable function owner",
+                "stencil plan entry did not select an artifact",
+                selection:exec_plan_missing_artifact_reason(),
+                "selected stencil kernel has no owning Code function"
+            ))
+            exec_selection:add_exec_stencil(entries, by_func, entry, i, kernel_plan, loop_by_id, artifact, func_id)
         end
         return entries, by_func
+    end
+
+    function Stencil.StencilSelection:exec_plan_artifact(by_instance) return nil end
+    function Stencil.StencilSelected:exec_plan_artifact(by_instance)
+        return by_instance[self.instance.id.text]
+    end
+    function Stencil.StencilSelection:exec_plan_missing_artifact_reason()
+        return "selected stencil instance has no artifact"
+    end
+    function Stencil.StencilSelected:exec_plan_missing_artifact_reason()
+        return "selected stencil instance has no artifact " .. self.instance.id.text
     end
 
     local function default_stencil_plan(module, kernels)

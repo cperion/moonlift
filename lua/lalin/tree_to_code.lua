@@ -1,5 +1,3 @@
-local asdl = require("lalin.asdl")
-
 local function sanitize(s)
     s = tostring(s or "x"):gsub("[^%w_]", "_")
     if s:match("^%d") then s = "_" .. s end
@@ -8,8 +6,7 @@ local function sanitize(s)
 end
 
 local function class_name(x)
-    local cls = asdl.classof(x) or x
-    return tostring(cls):match("Class%((.-)%)") or tostring(cls)
+    return tostring(x)
 end
 
 local function bind_context(T)
@@ -29,27 +26,99 @@ local function bind_context(T)
     local ModuleType = require("lalin.tree_module_type")(T)
     local ConstEval = require("lalin.sem_const_eval")(T)
     local TreeContractFacts = require("lalin.tree_contract_facts")(T)
-    local TreeToCodeRules = require("lalin.tree_to_code_rules")(T)
-
     local api = {}
+    local variant_name_text
+    local source_access_base
+    local expr_type
+    local place_type
+
+    function Tr.ModuleHeader:tree_code_module_name() return "module" end
+    function Tr.ModuleTyped:tree_code_module_name() return self.module_name end
+    function Tr.ModuleSem:tree_code_module_name() return self.module_name end
+    function Tr.ModuleCode:tree_code_module_name() return self.module_name end
+
+    function Core.Scalar:tree_code_is_void_scalar() return false end
+    function Core.ScalarVoid:tree_code_is_void_scalar() return true end
+
+    function Ty.Type:tree_code_is_void_type() return false end
+    function Ty.TScalar:tree_code_is_void_type() return self.scalar:tree_code_is_void_scalar() end
+
+    function Ty.Type:tree_code_source_access_base() return self end
+    function Ty.TLease:tree_code_source_access_base() return self.base end
+    function Ty.TOwned:tree_code_source_access_base() return self.base:tree_code_source_access_base() end
+    function Ty.TAccess:tree_code_source_access_base() return self.base:tree_code_source_access_base() end
+
+    function Ty.Type:tree_code_named_type_name() return nil end
+    function Ty.TNamed:tree_code_named_type_name() return self.ref:tree_code_type_ref_name() end
+    function Ty.TypeRef:tree_code_type_ref_name() return nil end
+    function Ty.TypeRefGlobal:tree_code_type_ref_name() return self.type_name end
+    function Ty.TypeRefLocal:tree_code_type_ref_name() return self.sym.name end
+    function Ty.TypeRefPath:tree_code_type_ref_name()
+        if #self.path.parts == 0 then return nil end
+        return self.path.parts[#self.path.parts].text
+    end
+
+    function Tr.TypeDecl:tree_code_add_variant_defs(defs, mod_name) end
+    function Tr.TypeDeclEnumSugar:tree_code_add_variant_defs(defs, mod_name)
+        local variants = {}
+        for i = 1, #self.variants do
+            local name = variant_name_text(self.variants[i])
+            variants[name] = { name = name, tag = i - 1, payload = Ty.TScalar(Core.ScalarVoid), fields = {} }
+        end
+        defs[self.name] = { type_name = self.name, ty = Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name)), variants = variants }
+    end
+    function Tr.TypeDeclTaggedUnionSugar:tree_code_add_variant_defs(defs, mod_name)
+        local variants = {}
+        for i = 1, #self.variants do
+            local v = self.variants[i]
+            variants[v.name] = { name = v.name, tag = i - 1, payload = v.payload, fields = v.fields or {} }
+        end
+        defs[self.name] = { type_name = self.name, ty = Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name)), variants = variants }
+    end
+    function Tr.Item:tree_code_add_variant_defs(defs, mod_name) end
+    function Tr.ItemType:tree_code_add_variant_defs(defs, mod_name)
+        self.t:tree_code_add_variant_defs(defs, mod_name)
+    end
+
+    function Tr.ExprHeader:tree_code_expr_type() return nil end
+    function Tr.ExprTyped:tree_code_expr_type() return self.ty end
+    function Tr.PlaceHeader:tree_code_place_type() return nil end
+    function Tr.PlaceTyped:tree_code_place_type() return self.ty end
+
+    function Ty.Type:tree_code_index_elem_type() return nil end
+    function Ty.TPtr:tree_code_index_elem_type() return self.elem end
+    function Ty.TArray:tree_code_index_elem_type() return self.elem end
+    function Ty.TSlice:tree_code_index_elem_type() return self.elem end
+    function Ty.TView:tree_code_index_elem_type() return self.elem end
+    function Tr.IndexBase:tree_code_index_base_elem_type() return nil end
+    function Tr.IndexBaseExpr:tree_code_index_base_elem_type()
+        return source_access_base(expr_type(self.base)):tree_code_index_elem_type()
+    end
+    function Tr.IndexBasePlace:tree_code_index_base_elem_type() return self.elem end
+    function Tr.IndexBaseView:tree_code_index_base_elem_type() return self.view.elem end
+
+    function Code.CodeType:tree_code_is_float_type() return false end
+    function Code.CodeTyFloat:tree_code_is_float_type() return true end
+    function Code.CodeType:tree_code_is_aggregate_type() return false end
+    function Code.CodeTyNamed:tree_code_is_aggregate_type() return true end
+    function Code.CodeTyArray:tree_code_is_aggregate_type() return true end
+    function Code.CodeTySlice:tree_code_is_aggregate_type() return true end
+    function Code.CodeTyView:tree_code_is_aggregate_type() return true end
+    function Code.CodeTyClosure:tree_code_is_aggregate_type() return true end
+    function Code.CodeType:tree_code_is_view_type() return false end
+    function Code.CodeTyView:tree_code_is_view_type() return true end
+
+    function Ty.TypeMemLayoutResult:tree_code_known_layout() return nil end
+    function Ty.TypeMemLayoutKnown:tree_code_known_layout() return self.layout end
 
     local function unsupported(ctx, node, what)
         local site = ctx and ctx.func_name or "module"
         error("tree_to_code unsupported lowering: " .. tostring(what or class_name(node)) .. " in " .. site, 3)
     end
 
-    local function select_lowering(ctx, relation, node)
-        local field = relation:match("^select_(.-)_lowering$")
-        local selection, err = TreeToCodeRules:run(relation, { [field] = node }, "selection", "no tree_to_code dispatch")
-        if selection == nil then unsupported(ctx, node, err) end
-        return selection.kind
-    end
-
     local function module_name(module)
         local h = module and module.h
-        local cls = asdl.classof(h)
-        if cls == Tr.ModuleTyped or cls == Tr.ModuleSem or cls == Tr.ModuleCode then return h.module_name end
-        return "module"
+        return h and h:tree_code_module_name() or "module"
     end
 
     local function binding_key(binding)
@@ -95,56 +164,26 @@ local function bind_context(T)
     end
 
     local function is_void_type(ty)
-        return asdl.classof(ty) == Ty.TScalar and ty.scalar == Core.ScalarVoid
+        return ty:tree_code_is_void_type()
     end
 
-    local function source_access_base(ty)
-        if asdl.classof(ty) == Ty.TLease then return ty.base end
-        if asdl.classof(ty) == Ty.TOwned then return source_access_base(ty.base) end
-        if asdl.classof(ty) == Ty.TAccess then return source_access_base(ty.base) end
-        return ty
+    source_access_base = function(ty)
+        return ty:tree_code_source_access_base()
     end
 
-    local function variant_name_text(v)
+    variant_name_text = function(v)
         if type(v) == "string" then return v end
         return v and (v.text or v.name) or tostring(v)
     end
 
     local function named_type_name(ty)
-        if asdl.classof(ty) ~= Ty.TNamed then return nil end
-        local ref = ty.ref
-        local rcls = asdl.classof(ref)
-        if rcls == Ty.TypeRefGlobal then return ref.type_name end
-        if rcls == Ty.TypeRefLocal then return ref.sym.name end
-        if rcls == Ty.TypeRefPath and #ref.path.parts > 0 then return ref.path.parts[#ref.path.parts].text end
-        return nil
+        return ty:tree_code_named_type_name()
     end
 
     local function build_variant_defs(module, module_name)
         local defs = {}
-        local function add_type_decl(t, mod_name)
-            local cls = asdl.classof(t)
-            if cls == Tr.TypeDeclEnumSugar then
-                local variants = {}
-                for i = 1, #t.variants do
-                    local name = variant_name_text(t.variants[i])
-                    variants[name] = { name = name, tag = i - 1, payload = Ty.TScalar(Core.ScalarVoid), fields = {} }
-                end
-                defs[t.name] = { type_name = t.name, ty = Ty.TNamed(Ty.TypeRefGlobal(mod_name, t.name)), variants = variants }
-            elseif cls == Tr.TypeDeclTaggedUnionSugar then
-                local variants = {}
-                for i = 1, #t.variants do
-                    local v = t.variants[i]
-                    variants[v.name] = { name = v.name, tag = i - 1, payload = v.payload, fields = v.fields or {} }
-                end
-                defs[t.name] = { type_name = t.name, ty = Ty.TNamed(Ty.TypeRefGlobal(mod_name, t.name)), variants = variants }
-            end
-        end
         for i = 1, #(module.items or {}) do
-            local item = module.items[i]
-            local cls = asdl.classof(item)
-            if cls == Tr.ItemType then add_type_decl(item.t, module_name)
-            end
+            module.items[i]:tree_code_add_variant_defs(defs, module_name)
         end
         return defs
     end
@@ -219,32 +258,27 @@ local function bind_context(T)
         return Code.CodeOriginGenerated(reason)
     end
 
-    local function expr_type(expr)
+    expr_type = function(expr)
         local h = expr and expr.h
-        local cls = asdl.classof(h)
-        if cls == Tr.ExprTyped then return h.ty end
+        if h ~= nil then
+            local ty = h:tree_code_expr_type()
+            if ty ~= nil then return ty end
+        end
         unsupported(nil, expr, "untyped expression " .. class_name(expr))
     end
 
-    local function place_type(place)
+    place_type = function(place)
         local h = place and place.h
-        local cls = asdl.classof(h)
-        if cls == Tr.PlaceTyped then return h.ty end
+        if h ~= nil then
+            local ty = h:tree_code_place_type()
+            if ty ~= nil then return ty end
+        end
         unsupported(nil, place, "untyped place " .. class_name(place))
     end
 
     local function index_base_elem_ty(base)
-        local cls = asdl.classof(base)
-        if cls == Tr.IndexBaseExpr then
-            local ty = expr_type(base.base)
-            ty = source_access_base(ty)
-            local tcls = asdl.classof(ty)
-            if tcls == Ty.TPtr or tcls == Ty.TArray or tcls == Ty.TSlice or tcls == Ty.TView then return ty.elem end
-        elseif cls == Tr.IndexBasePlace then
-            return base.elem
-        elseif cls == Tr.IndexBaseView then
-            return base.view.elem
-        end
+        local elem = base:tree_code_index_base_elem_type()
+        if elem ~= nil then return elem end
         unsupported(nil, base, "index base without element type " .. class_name(base))
     end
 
@@ -277,18 +311,16 @@ local function bind_context(T)
     end
 
     local function is_float_code_ty(ty)
-        return asdl.classof(ty) == Code.CodeTyFloat
+        return ty:tree_code_is_float_type()
     end
 
     local function is_aggregate_code_ty(ty)
-        local cls = asdl.classof(ty)
-        return cls == Code.CodeTyNamed or cls == Code.CodeTyArray or cls == Code.CodeTySlice or cls == Code.CodeTyView or cls == Code.CodeTyClosure
+        return ty:tree_code_is_aggregate_type()
     end
 
     local function layout_of(ctx, ty)
         local result = TypeSizeAlign.result(ty, ctx.layout_env, ctx.target)
-        if asdl.classof(result) == Ty.TypeMemLayoutKnown then return result.layout end
-        return nil
+        return result:tree_code_known_layout()
     end
 
     local function align_of(ctx, ty)
@@ -374,7 +406,7 @@ local function bind_context(T)
     end
 
     local function is_view_code_ty(ty)
-        return asdl.classof(ty) == Code.CodeTyView
+        return ty:tree_code_is_view_type()
     end
 
     local function ensure_local(ctx, binding, ty, residence)
@@ -392,128 +424,156 @@ local function bind_context(T)
     local collect_address_taken_expr, collect_address_taken_place, collect_address_taken_stmts
 
     local function mark_addressed_place(place, out)
-        local cls = asdl.classof(place)
-        if cls == Tr.PlaceRef and asdl.classof(place.ref) == Bind.ValueRefBinding then
-            out.addressed[binding_key(place.ref.binding)] = true
-        elseif cls == Tr.PlaceField or cls == Tr.PlaceDot then
-            mark_addressed_place(place.base, out)
-        elseif cls == Tr.PlaceIndex then
-            -- Taking the address of an indexed place takes the address of the base storage.
-            local bcls = asdl.classof(place.base)
-            if bcls == Tr.IndexBasePlace then mark_addressed_place(place.base.base, out) end
-        end
+        place:tree_code_mark_addressed_place(out)
     end
 
     collect_address_taken_place = function(place, out)
-        local cls = asdl.classof(place)
-        if cls == Tr.PlaceRef then
-            -- Plain stores/loads through a place do not make immutable values address-taken.
-        elseif cls == Tr.PlaceDeref then
-            collect_address_taken_expr(place.base, out)
-        elseif cls == Tr.PlaceField or cls == Tr.PlaceDot then
-            collect_address_taken_place(place.base, out)
-        elseif cls == Tr.PlaceIndex then
-            local bcls = asdl.classof(place.base)
-            if bcls == Tr.IndexBaseExpr then collect_address_taken_expr(place.base.base, out)
-            elseif bcls == Tr.IndexBasePlace then collect_address_taken_place(place.base.base, out)
-            elseif bcls == Tr.IndexBaseView then collect_address_taken_expr(place.base.view.base, out) end
-            collect_address_taken_expr(place.index, out)
-        end
+        place:tree_code_collect_address_taken_place(out)
     end
 
     collect_address_taken_expr = function(expr, out)
         if expr == nil then return end
-        local cls = asdl.classof(expr)
-        if cls == Tr.ExprAddrOf then
-            mark_addressed_place(expr.place, out)
-            collect_address_taken_place(expr.place, out)
-        elseif cls == Tr.ExprUnary or cls == Tr.ExprDeref or cls == Tr.ExprLen or cls == Tr.ExprIsNull then
-            collect_address_taken_expr(expr.value, out)
-        elseif cls == Tr.ExprBinary or cls == Tr.ExprCompare or cls == Tr.ExprLogic then
-            collect_address_taken_expr(expr.lhs, out); collect_address_taken_expr(expr.rhs, out)
-        elseif cls == Tr.ExprCast or cls == Tr.ExprMachineCast or cls == Tr.ExprLoad or cls == Tr.ExprAtomicLoad then
-            collect_address_taken_expr(expr.value or expr.addr, out)
-        elseif cls == Tr.ExprAtomicRmw then
-            collect_address_taken_expr(expr.addr, out); collect_address_taken_expr(expr.value, out)
-        elseif cls == Tr.ExprAtomicCas then
-            collect_address_taken_expr(expr.addr, out); collect_address_taken_expr(expr.expected, out); collect_address_taken_expr(expr.replacement, out)
-        elseif cls == Tr.ExprCall then
-            collect_address_taken_expr(expr.callee, out)
-            for i = 1, #(expr.args or {}) do collect_address_taken_expr(expr.args[i], out) end
-        elseif cls == Tr.ExprField or cls == Tr.ExprDot then
-            collect_address_taken_expr(expr.base, out)
-        elseif cls == Tr.ExprIndex then
-            local bcls = asdl.classof(expr.base)
-            if bcls == Tr.IndexBaseExpr then collect_address_taken_expr(expr.base.base, out)
-            elseif bcls == Tr.IndexBasePlace then collect_address_taken_place(expr.base.base, out)
-            elseif bcls == Tr.IndexBaseView then collect_address_taken_expr(expr.base.view.base, out) end
-            collect_address_taken_expr(expr.index, out)
-        elseif cls == Tr.ExprIntrinsic or cls == Tr.ExprArray or cls == Tr.ExprCtor then
-            for i = 1, #(expr.args or expr.elems or {}) do collect_address_taken_expr((expr.args or expr.elems)[i], out) end
-        elseif cls == Tr.ExprAgg then
-            for i = 1, #(expr.fields or {}) do collect_address_taken_expr(expr.fields[i].value, out) end
-        elseif cls == Tr.ExprIf then
-            collect_address_taken_expr(expr.cond, out); collect_address_taken_expr(expr.then_expr, out); collect_address_taken_expr(expr.else_expr, out)
-        elseif cls == Tr.ExprSelect then
-            collect_address_taken_expr(expr.cond, out); collect_address_taken_expr(expr.then_expr, out); collect_address_taken_expr(expr.else_expr, out)
-        elseif cls == Tr.ExprSwitch then
-            collect_address_taken_expr(expr.value, out)
-            for i = 1, #(expr.arms or {}) do collect_address_taken_stmts(expr.arms[i].body, out); collect_address_taken_expr(expr.arms[i].result, out) end
-            for i = 1, #(expr.variant_arms or {}) do collect_address_taken_stmts(expr.variant_arms[i].body, out); collect_address_taken_expr(expr.variant_arms[i].result, out) end
-            collect_address_taken_stmts(expr.default_body or {}, out); collect_address_taken_expr(expr.default_expr, out)
-        elseif cls == Tr.ExprControl then
-            collect_address_taken_stmts(expr.region.entry.body, out)
-            for i = 1, #(expr.region.blocks or {}) do collect_address_taken_stmts(expr.region.blocks[i].body, out) end
-        elseif cls == Tr.ExprView then
-            local vcls = asdl.classof(expr.view)
-            if vcls == Tr.ViewFromExpr then collect_address_taken_expr(expr.view.base, out)
-            elseif vcls == Tr.ViewContiguous then collect_address_taken_expr(expr.view.data, out); collect_address_taken_expr(expr.view.len, out)
-            elseif vcls == Tr.ViewStrided then collect_address_taken_expr(expr.view.data, out); collect_address_taken_expr(expr.view.len, out); collect_address_taken_expr(expr.view.stride, out)
-            elseif vcls == Tr.ViewRestrided then collect_address_taken_expr(expr.view.stride, out)
-            elseif vcls == Tr.ViewWindow then collect_address_taken_expr(expr.view.start, out); collect_address_taken_expr(expr.view.len, out)
-            elseif vcls == Tr.ViewRowBase then collect_address_taken_expr(expr.view.row_offset, out)
-            elseif vcls == Tr.ViewInterleaved then collect_address_taken_expr(expr.view.data, out); collect_address_taken_expr(expr.view.len, out); collect_address_taken_expr(expr.view.stride, out); collect_address_taken_expr(expr.view.lane, out)
-            elseif vcls == Tr.ViewInterleavedView then collect_address_taken_expr(expr.view.stride, out); collect_address_taken_expr(expr.view.lane, out) end
-        elseif cls == Tr.ExprBlock then
-            collect_address_taken_stmts(expr.stmts or {}, out); collect_address_taken_expr(expr.result, out)
-        end
+        expr:tree_code_collect_address_taken_expr(out)
     end
 
     collect_address_taken_stmts = function(stmts, out)
         for i = 1, #(stmts or {}) do
-            local stmt = stmts[i]
-            local cls = asdl.classof(stmt)
-            if cls == Tr.StmtLet then
-                collect_address_taken_expr(stmt.init, out)
-            elseif cls == Tr.StmtVar then
-                out.mutable[binding_key(stmt.binding)] = true
-                collect_address_taken_expr(stmt.init, out)
-            elseif cls == Tr.StmtSet then
-                collect_address_taken_place(stmt.place, out); collect_address_taken_expr(stmt.value, out)
-            elseif cls == Tr.StmtAtomicStore then
-                collect_address_taken_expr(stmt.addr, out); collect_address_taken_expr(stmt.value, out)
-            elseif cls == Tr.StmtExpr or cls == Tr.StmtAssert or cls == Tr.StmtYieldValue or cls == Tr.StmtReturnValue then
-                collect_address_taken_expr(stmt.expr or stmt.cond or stmt.value, out)
-            elseif cls == Tr.StmtIf then
-                collect_address_taken_expr(stmt.cond, out); collect_address_taken_stmts(stmt.then_body, out); collect_address_taken_stmts(stmt.else_body, out)
-            elseif cls == Tr.StmtSwitch then
-                collect_address_taken_expr(stmt.value, out)
-                for j = 1, #(stmt.arms or {}) do collect_address_taken_stmts(stmt.arms[j].body, out) end
-                for j = 1, #(stmt.variant_arms or {}) do collect_address_taken_stmts(stmt.variant_arms[j].body, out) end
-                collect_address_taken_stmts(stmt.default_body or {}, out)
-            elseif cls == Tr.StmtJump or cls == Tr.StmtJumpCont then
-                for j = 1, #(stmt.args or {}) do collect_address_taken_expr(stmt.args[j].value, out) end
-            elseif cls == Tr.StmtControl then
-                collect_address_taken_stmts(stmt.region.entry.body, out)
-                for j = 1, #(stmt.region.blocks or {}) do collect_address_taken_stmts(stmt.region.blocks[j].body, out) end
-            end
+            stmts[i]:tree_code_collect_address_taken_stmt(out)
         end
         return out
+    end
+
+    function Bind.ValueRef:tree_code_mark_addressed_binding(out) end
+    function Bind.ValueRefBinding:tree_code_mark_addressed_binding(out)
+        out.addressed[binding_key(self.binding)] = true
+    end
+
+    function Tr.Place:tree_code_mark_addressed_place(out) end
+    function Tr.PlaceRef:tree_code_mark_addressed_place(out) self.ref:tree_code_mark_addressed_binding(out) end
+    function Tr.PlaceField:tree_code_mark_addressed_place(out) mark_addressed_place(self.base, out) end
+    function Tr.PlaceDot:tree_code_mark_addressed_place(out) mark_addressed_place(self.base, out) end
+    function Tr.PlaceIndex:tree_code_mark_addressed_place(out) self.base:tree_code_mark_addressed_index_base(out) end
+    function Tr.IndexBase:tree_code_mark_addressed_index_base(out) end
+    function Tr.IndexBasePlace:tree_code_mark_addressed_index_base(out) mark_addressed_place(self.base, out) end
+
+    function Tr.Place:tree_code_collect_address_taken_place(out) end
+    function Tr.PlaceDeref:tree_code_collect_address_taken_place(out) collect_address_taken_expr(self.base, out) end
+    function Tr.PlaceField:tree_code_collect_address_taken_place(out) collect_address_taken_place(self.base, out) end
+    function Tr.PlaceDot:tree_code_collect_address_taken_place(out) collect_address_taken_place(self.base, out) end
+    function Tr.PlaceIndex:tree_code_collect_address_taken_place(out)
+        self.base:tree_code_collect_address_taken_index_base(out)
+        collect_address_taken_expr(self.index, out)
+    end
+    function Tr.IndexBase:tree_code_collect_address_taken_index_base(out) end
+    function Tr.IndexBaseExpr:tree_code_collect_address_taken_index_base(out) collect_address_taken_expr(self.base, out) end
+    function Tr.IndexBasePlace:tree_code_collect_address_taken_index_base(out) collect_address_taken_place(self.base, out) end
+    function Tr.IndexBaseView:tree_code_collect_address_taken_index_base(out) collect_address_taken_expr(self.view.base, out) end
+
+    function Tr.Expr:tree_code_collect_address_taken_expr(out) end
+    function Tr.ExprAddrOf:tree_code_collect_address_taken_expr(out)
+        mark_addressed_place(self.place, out)
+        collect_address_taken_place(self.place, out)
+    end
+    function Tr.ExprUnary:tree_code_collect_address_taken_expr(out) collect_address_taken_expr(self.value, out) end
+    function Tr.ExprDeref:tree_code_collect_address_taken_expr(out) collect_address_taken_expr(self.value, out) end
+    function Tr.ExprLen:tree_code_collect_address_taken_expr(out) collect_address_taken_expr(self.value, out) end
+    function Tr.ExprIsNull:tree_code_collect_address_taken_expr(out) collect_address_taken_expr(self.value, out) end
+    function Tr.ExprBinary:tree_code_collect_address_taken_expr(out) collect_address_taken_expr(self.lhs, out); collect_address_taken_expr(self.rhs, out) end
+    function Tr.ExprCompare:tree_code_collect_address_taken_expr(out) collect_address_taken_expr(self.lhs, out); collect_address_taken_expr(self.rhs, out) end
+    function Tr.ExprLogic:tree_code_collect_address_taken_expr(out) collect_address_taken_expr(self.lhs, out); collect_address_taken_expr(self.rhs, out) end
+    function Tr.ExprCast:tree_code_collect_address_taken_expr(out) collect_address_taken_expr(self.value, out) end
+    function Tr.ExprMachineCast:tree_code_collect_address_taken_expr(out) collect_address_taken_expr(self.value, out) end
+    function Tr.ExprLoad:tree_code_collect_address_taken_expr(out) collect_address_taken_expr(self.addr, out) end
+    function Tr.ExprAtomicLoad:tree_code_collect_address_taken_expr(out) collect_address_taken_expr(self.addr, out) end
+    function Tr.ExprAtomicRmw:tree_code_collect_address_taken_expr(out) collect_address_taken_expr(self.addr, out); collect_address_taken_expr(self.value, out) end
+    function Tr.ExprAtomicCas:tree_code_collect_address_taken_expr(out) collect_address_taken_expr(self.addr, out); collect_address_taken_expr(self.expected, out); collect_address_taken_expr(self.replacement, out) end
+    function Tr.ExprCall:tree_code_collect_address_taken_expr(out)
+        collect_address_taken_expr(self.callee, out)
+        for i = 1, #(self.args or {}) do collect_address_taken_expr(self.args[i], out) end
+    end
+    function Tr.ExprField:tree_code_collect_address_taken_expr(out) collect_address_taken_expr(self.base, out) end
+    function Tr.ExprDot:tree_code_collect_address_taken_expr(out) collect_address_taken_expr(self.base, out) end
+    function Tr.ExprIndex:tree_code_collect_address_taken_expr(out)
+        self.base:tree_code_collect_address_taken_index_base(out)
+        collect_address_taken_expr(self.index, out)
+    end
+    function Tr.ExprIntrinsic:tree_code_collect_address_taken_expr(out)
+        for i = 1, #(self.args or {}) do collect_address_taken_expr(self.args[i], out) end
+    end
+    function Tr.ExprArray:tree_code_collect_address_taken_expr(out)
+        for i = 1, #(self.elems or {}) do collect_address_taken_expr(self.elems[i], out) end
+    end
+    function Tr.ExprCtor:tree_code_collect_address_taken_expr(out)
+        for i = 1, #(self.args or {}) do collect_address_taken_expr(self.args[i], out) end
+    end
+    function Tr.ExprAgg:tree_code_collect_address_taken_expr(out)
+        for i = 1, #(self.fields or {}) do collect_address_taken_expr(self.fields[i].value, out) end
+    end
+    function Tr.ExprIf:tree_code_collect_address_taken_expr(out)
+        collect_address_taken_expr(self.cond, out); collect_address_taken_expr(self.then_expr, out); collect_address_taken_expr(self.else_expr, out)
+    end
+    function Tr.ExprSelect:tree_code_collect_address_taken_expr(out)
+        collect_address_taken_expr(self.cond, out); collect_address_taken_expr(self.then_expr, out); collect_address_taken_expr(self.else_expr, out)
+    end
+    function Tr.ExprSwitch:tree_code_collect_address_taken_expr(out)
+        collect_address_taken_expr(self.value, out)
+        for i = 1, #(self.arms or {}) do collect_address_taken_stmts(self.arms[i].body, out); collect_address_taken_expr(self.arms[i].result, out) end
+        for i = 1, #(self.variant_arms or {}) do collect_address_taken_stmts(self.variant_arms[i].body, out); collect_address_taken_expr(self.variant_arms[i].result, out) end
+        collect_address_taken_stmts(self.default_body or {}, out); collect_address_taken_expr(self.default_expr, out)
+    end
+    function Tr.ExprControl:tree_code_collect_address_taken_expr(out)
+        collect_address_taken_stmts(self.region.entry.body, out)
+        for i = 1, #(self.region.blocks or {}) do collect_address_taken_stmts(self.region.blocks[i].body, out) end
+    end
+    function Tr.ExprView:tree_code_collect_address_taken_expr(out) self.view:tree_code_collect_address_taken_view(out) end
+    function Tr.ExprBlock:tree_code_collect_address_taken_expr(out)
+        collect_address_taken_stmts(self.stmts or {}, out); collect_address_taken_expr(self.result, out)
+    end
+
+    function Tr.View:tree_code_collect_address_taken_view(out) end
+    function Tr.ViewFromExpr:tree_code_collect_address_taken_view(out) collect_address_taken_expr(self.base, out) end
+    function Tr.ViewContiguous:tree_code_collect_address_taken_view(out) collect_address_taken_expr(self.data, out); collect_address_taken_expr(self.len, out) end
+    function Tr.ViewStrided:tree_code_collect_address_taken_view(out) collect_address_taken_expr(self.data, out); collect_address_taken_expr(self.len, out); collect_address_taken_expr(self.stride, out) end
+    function Tr.ViewRestrided:tree_code_collect_address_taken_view(out) collect_address_taken_expr(self.stride, out) end
+    function Tr.ViewWindow:tree_code_collect_address_taken_view(out) collect_address_taken_expr(self.start, out); collect_address_taken_expr(self.len, out) end
+    function Tr.ViewRowBase:tree_code_collect_address_taken_view(out) collect_address_taken_expr(self.row_offset, out) end
+    function Tr.ViewInterleaved:tree_code_collect_address_taken_view(out) collect_address_taken_expr(self.data, out); collect_address_taken_expr(self.len, out); collect_address_taken_expr(self.stride, out); collect_address_taken_expr(self.lane, out) end
+    function Tr.ViewInterleavedView:tree_code_collect_address_taken_view(out) collect_address_taken_expr(self.stride, out); collect_address_taken_expr(self.lane, out) end
+
+    function Tr.Stmt:tree_code_collect_address_taken_stmt(out) end
+    function Tr.StmtLet:tree_code_collect_address_taken_stmt(out) collect_address_taken_expr(self.init, out) end
+    function Tr.StmtVar:tree_code_collect_address_taken_stmt(out)
+        out.mutable[binding_key(self.binding)] = true
+        collect_address_taken_expr(self.init, out)
+    end
+    function Tr.StmtSet:tree_code_collect_address_taken_stmt(out) collect_address_taken_place(self.place, out); collect_address_taken_expr(self.value, out) end
+    function Tr.StmtAtomicStore:tree_code_collect_address_taken_stmt(out) collect_address_taken_expr(self.addr, out); collect_address_taken_expr(self.value, out) end
+    function Tr.StmtExpr:tree_code_collect_address_taken_stmt(out) collect_address_taken_expr(self.expr, out) end
+    function Tr.StmtAssert:tree_code_collect_address_taken_stmt(out) collect_address_taken_expr(self.cond, out) end
+    function Tr.StmtYieldValue:tree_code_collect_address_taken_stmt(out) collect_address_taken_expr(self.value, out) end
+    function Tr.StmtReturnValue:tree_code_collect_address_taken_stmt(out) collect_address_taken_expr(self.value, out) end
+    function Tr.StmtIf:tree_code_collect_address_taken_stmt(out) collect_address_taken_expr(self.cond, out); collect_address_taken_stmts(self.then_body, out); collect_address_taken_stmts(self.else_body, out) end
+    function Tr.StmtSwitch:tree_code_collect_address_taken_stmt(out)
+        collect_address_taken_expr(self.value, out)
+        for j = 1, #(self.arms or {}) do collect_address_taken_stmts(self.arms[j].body, out) end
+        for j = 1, #(self.variant_arms or {}) do collect_address_taken_stmts(self.variant_arms[j].body, out) end
+        collect_address_taken_stmts(self.default_body or {}, out)
+    end
+    function Tr.StmtJump:tree_code_collect_address_taken_stmt(out)
+        for j = 1, #(self.args or {}) do collect_address_taken_expr(self.args[j].value, out) end
+    end
+    function Tr.StmtJumpCont:tree_code_collect_address_taken_stmt(out)
+        for j = 1, #(self.args or {}) do collect_address_taken_expr(self.args[j].value, out) end
+    end
+    function Tr.StmtControl:tree_code_collect_address_taken_stmt(out)
+        collect_address_taken_stmts(self.region.entry.body, out)
+        for j = 1, #(self.region.blocks or {}) do collect_address_taken_stmts(self.region.blocks[j].body, out) end
     end
 
     local lower_expr
     local lower_place
     local expr_as_place
+    local lower_view_parts
     local lower_stmt
     local lower_stmt_body
     local lower_expr_if
@@ -525,8 +585,14 @@ local function bind_context(T)
     local lower_stmt_switch
 
     local function lookup_binding(ctx, ref)
-        if asdl.classof(ref) ~= Bind.ValueRefBinding then unsupported(ctx, ref, "non-binding value reference " .. class_name(ref)) end
-        return ref.binding, scoped_binding_key(ctx, ref.binding)
+        return ref:tree_code_lookup_binding(ctx)
+    end
+
+    function Bind.ValueRef:tree_code_lookup_binding(ctx)
+        unsupported(ctx, self, "non-binding value reference " .. class_name(self))
+    end
+    function Bind.ValueRefBinding:tree_code_lookup_binding(ctx)
+        return self.binding, scoped_binding_key(ctx, self.binding)
     end
 
     local function load_place(ctx, place, source_ty, reason)
@@ -551,100 +617,319 @@ local function bind_context(T)
 
     local function as_index_value(ctx, value, value_ty, reason)
         if value_ty == Code.CodeTyIndex then return value end
-        local cls = asdl.classof(value_ty)
-        local op = nil
-        if cls == Code.CodeTyInt then
-            if value_ty.bits < 64 then
-                op = value_ty.signedness == Code.CodeSigned and Core.MachineCastSextend or Core.MachineCastUextend
-            else
-                op = Core.MachineCastBitcast
-            end
-        elseif value_ty == Code.CodeTyBool8 then
-            op = Core.MachineCastUextend
-        end
+        local op = value_ty:tree_code_index_cast_op()
         if op == nil then unsupported(ctx, value_ty, "non-integer index value " .. class_name(value_ty)) end
         local dst = new_temp(ctx, reason or "to_index")
         append_inst(ctx, Code.CodeInstCast(dst, op, value_ty, Code.CodeTyIndex, value), origin_generated(reason or "index cast"))
         return dst
     end
 
-    local function lower_view_parts(ctx, view)
-        local function lower_index_expr(expr, reason)
-            local value, ty = lower_expr(ctx, expr)
-            return as_index_value(ctx, value, ty, reason)
+    function Code.CodeType:tree_code_index_cast_op() return nil end
+    function Code.CodeTyInt:tree_code_index_cast_op()
+        if self.bits < 64 then
+            return self.signedness == Code.CodeSigned and Core.MachineCastSextend or Core.MachineCastUextend
         end
+        return Core.MachineCastBitcast
+    end
+    function Code.CodeTyBool8:tree_code_index_cast_op() return Core.MachineCastUextend end
 
-        local function index_mul(lhs, rhs, reason)
-            local dst = new_temp(ctx, reason)
-            append_inst(ctx, Code.CodeInstBinary(dst, Core.BinMul, Code.CodeTyIndex, default_int_semantics(), lhs, rhs), origin_generated(reason))
-            return dst
-        end
+    local function lower_index_expr_for_view(ctx, expr, reason)
+        local value, ty = lower_expr(ctx, expr)
+        return as_index_value(ctx, value, ty, reason)
+    end
 
-        local function data_offset(data, index, elem, reason)
-            local ptr_ty = Code.CodeTyDataPtr(code_ty(ctx, elem))
-            local dst = new_temp(ctx, reason)
-            local elem_size = size_of(ctx, elem)
-            if elem_size == nil then unsupported(ctx, view, "view element without known size") end
-            append_inst(ctx, Code.CodeInstPtrOffset(dst, ptr_ty, data, index, elem_size, 0), origin_generated(reason))
-            return dst
-        end
+    local function index_mul(ctx, lhs, rhs, reason)
+        local dst = new_temp(ctx, reason)
+        append_inst(ctx, Code.CodeInstBinary(dst, Core.BinMul, Code.CodeTyIndex, default_int_semantics(), lhs, rhs), origin_generated(reason))
+        return dst
+    end
 
-        local vcls = asdl.classof(view)
-        if vcls == Tr.ViewContiguous or vcls == Tr.ViewStrided then
-            local data = lower_expr(ctx, view.data)
-            local len = lower_index_expr(view.len, "view_len")
-            local stride
-            if vcls == Tr.ViewStrided then stride = lower_index_expr(view.stride, "view_stride")
-            else stride = const_index(ctx, 1, "view_stride") end
-            return data, len, stride
-        elseif vcls == Tr.ViewFromExpr then
-            local base_ty = source_access_base(expr_type(view.base))
-            if asdl.classof(base_ty) == Ty.TPtr then
-                local data = lower_expr(ctx, view.base)
-                local len = const_index(ctx, 1, "view_len")
-                local stride = const_index(ctx, 1, "view_stride")
-                return data, len, stride
-            elseif asdl.classof(base_ty) == Ty.TView then
-                local base = lower_expr(ctx, view.base)
-                local data = new_temp(ctx, "view_data")
-                local len = new_temp(ctx, "view_len")
-                local stride = new_temp(ctx, "view_stride")
-                append_inst(ctx, Code.CodeInstViewData(data, base), origin_generated("view data"))
-                append_inst(ctx, Code.CodeInstViewLen(len, base), origin_generated("view len"))
-                append_inst(ctx, Code.CodeInstViewStride(stride, base), origin_generated("view stride"))
-                return data, len, stride
-            end
-        elseif vcls == Tr.ViewRestrided then
-            local data, len = lower_view_parts(ctx, view.base)
-            local stride = lower_index_expr(view.stride, "view_stride")
-            return data, len, stride
-        elseif vcls == Tr.ViewWindow then
-            local data, _, stride = lower_view_parts(ctx, view.base)
-            local start = lower_index_expr(view.start, "view_window_start")
-            local scaled = index_mul(start, stride, "view_window_start")
-            local window_data = data_offset(data, scaled, view.elem, "view_window_data")
-            local len = lower_index_expr(view.len, "view_window_len")
-            return window_data, len, stride
-        elseif vcls == Tr.ViewRowBase then
-            local data, len, stride = lower_view_parts(ctx, view.base)
-            local row = lower_index_expr(view.row_offset, "view_row_base")
-            local scaled = index_mul(row, stride, "view_row_base_offset")
-            return data_offset(data, scaled, view.elem, "view_row_base_data"), len, stride
-        elseif vcls == Tr.ViewInterleaved then
-            local data = lower_expr(ctx, view.data)
-            local len = lower_index_expr(view.len, "view_len")
-            local stride = lower_index_expr(view.stride, "view_stride")
-            local lane = lower_index_expr(view.lane, "view_lane")
-            return data_offset(data, lane, view.elem, "view_interleaved_data"), len, stride
-        elseif vcls == Tr.ViewInterleavedView then
-            local data, len, base_stride = lower_view_parts(ctx, view.base)
-            local stride_factor = lower_index_expr(view.stride, "view_stride")
-            local lane = lower_index_expr(view.lane, "view_lane")
-            local lane_offset = index_mul(lane, base_stride, "view_interleaved_lane")
-            local stride = index_mul(base_stride, stride_factor, "view_interleaved_stride")
-            return data_offset(data, lane_offset, view.elem, "view_interleaved_data"), len, stride
-        end
-        unsupported(ctx, view, "view form " .. class_name(view))
+    local function data_offset(ctx, view, data, index, elem, reason)
+        local ptr_ty = Code.CodeTyDataPtr(code_ty(ctx, elem))
+        local dst = new_temp(ctx, reason)
+        local elem_size = size_of(ctx, elem)
+        if elem_size == nil then unsupported(ctx, view, "view element without known size") end
+        append_inst(ctx, Code.CodeInstPtrOffset(dst, ptr_ty, data, index, elem_size, 0), origin_generated(reason))
+        return dst
+    end
+
+    function Tr.View:lower_tree_view_parts_to_code(ctx)
+        unsupported(ctx, self, "view form " .. class_name(self))
+    end
+    function Tr.ViewContiguous:lower_tree_view_parts_to_code(ctx)
+        local data = lower_expr(ctx, self.data)
+        local len = lower_index_expr_for_view(ctx, self.len, "view_len")
+        local stride = const_index(ctx, 1, "view_stride")
+        return data, len, stride
+    end
+    function Tr.ViewStrided:lower_tree_view_parts_to_code(ctx)
+        local data = lower_expr(ctx, self.data)
+        local len = lower_index_expr_for_view(ctx, self.len, "view_len")
+        local stride = lower_index_expr_for_view(ctx, self.stride, "view_stride")
+        return data, len, stride
+    end
+    function Tr.ViewFromExpr:lower_tree_view_parts_to_code(ctx)
+        return source_access_base(expr_type(self.base)):tree_code_lower_view_from_expr(ctx, self)
+    end
+    function Ty.Type:tree_code_lower_view_from_expr(ctx, view)
+        unsupported(ctx, view, "view-from expression type " .. class_name(self))
+    end
+    function Ty.TPtr:tree_code_lower_view_from_expr(ctx, view)
+        local data = lower_expr(ctx, view.base)
+        local len = const_index(ctx, 1, "view_len")
+        local stride = const_index(ctx, 1, "view_stride")
+        return data, len, stride
+    end
+    function Ty.TView:tree_code_lower_view_from_expr(ctx, view)
+        local base = lower_expr(ctx, view.base)
+        local data = new_temp(ctx, "view_data")
+        local len = new_temp(ctx, "view_len")
+        local stride = new_temp(ctx, "view_stride")
+        append_inst(ctx, Code.CodeInstViewData(data, base), origin_generated("view data"))
+        append_inst(ctx, Code.CodeInstViewLen(len, base), origin_generated("view len"))
+        append_inst(ctx, Code.CodeInstViewStride(stride, base), origin_generated("view stride"))
+        return data, len, stride
+    end
+    function Tr.ViewRestrided:lower_tree_view_parts_to_code(ctx)
+        local data, len = lower_view_parts(ctx, self.base)
+        local stride = lower_index_expr_for_view(ctx, self.stride, "view_stride")
+        return data, len, stride
+    end
+    function Tr.ViewWindow:lower_tree_view_parts_to_code(ctx)
+        local data, _, stride = lower_view_parts(ctx, self.base)
+        local start = lower_index_expr_for_view(ctx, self.start, "view_window_start")
+        local scaled = index_mul(ctx, start, stride, "view_window_start")
+        local window_data = data_offset(ctx, self, data, scaled, self.elem, "view_window_data")
+        local len = lower_index_expr_for_view(ctx, self.len, "view_window_len")
+        return window_data, len, stride
+    end
+    function Tr.ViewRowBase:lower_tree_view_parts_to_code(ctx)
+        local data, len, stride = lower_view_parts(ctx, self.base)
+        local row = lower_index_expr_for_view(ctx, self.row_offset, "view_row_base")
+        local scaled = index_mul(ctx, row, stride, "view_row_base_offset")
+        return data_offset(ctx, self, data, scaled, self.elem, "view_row_base_data"), len, stride
+    end
+    function Tr.ViewInterleaved:lower_tree_view_parts_to_code(ctx)
+        local data = lower_expr(ctx, self.data)
+        local len = lower_index_expr_for_view(ctx, self.len, "view_len")
+        local stride = lower_index_expr_for_view(ctx, self.stride, "view_stride")
+        local lane = lower_index_expr_for_view(ctx, self.lane, "view_lane")
+        return data_offset(ctx, self, data, lane, self.elem, "view_interleaved_data"), len, stride
+    end
+    function Tr.ViewInterleavedView:lower_tree_view_parts_to_code(ctx)
+        local data, len, base_stride = lower_view_parts(ctx, self.base)
+        local stride_factor = lower_index_expr_for_view(ctx, self.stride, "view_stride")
+        local lane = lower_index_expr_for_view(ctx, self.lane, "view_lane")
+        local lane_offset = index_mul(ctx, lane, base_stride, "view_interleaved_lane")
+        local stride = index_mul(ctx, base_stride, stride_factor, "view_interleaved_stride")
+        return data_offset(ctx, self, data, lane_offset, self.elem, "view_interleaved_data"), len, stride
+    end
+
+    lower_view_parts = function(ctx, view)
+        return view:lower_tree_view_parts_to_code(ctx)
+    end
+
+    function Bind.BindingClass:tree_code_lookup_value(ctx, binding, ref)
+        unsupported(ctx, ref, "unbound scalar reference `" .. tostring(binding.name) .. "`")
+    end
+    function Bind.BindingClassGlobalFunc:tree_code_lookup_value(ctx, binding, ref)
+        local ptr_ty = code_ty(ctx, binding.ty)
+        local dst = new_temp(ctx, "fnref")
+        append_inst(ctx, Code.CodeInstGlobalRef(dst, Code.CodeGlobalRefFunc(code_func_id(self.item_name)), ptr_ty), origin_binding(binding))
+        return dst, ptr_ty
+    end
+    function Bind.BindingClassExtern:tree_code_lookup_value(ctx, binding, ref)
+        local ptr_ty = code_ty(ctx, binding.ty)
+        local dst = new_temp(ctx, "externref")
+        append_inst(ctx, Code.CodeInstGlobalRef(dst, Code.CodeGlobalRefExtern(code_extern_id(binding.name)), ptr_ty), origin_binding(binding))
+        return dst, ptr_ty
+    end
+    function Bind.BindingClassGlobalConst:tree_code_lookup_value(ctx, binding, ref)
+        local gid = code_global_id(self.module_name, self.item_name)
+        return load_place(ctx, Code.CodePlaceGlobal(gid, code_ty(ctx, binding.ty)), binding.ty, "load_global_" .. binding.name)
+    end
+    function Bind.BindingClassGlobalStatic:tree_code_lookup_value(ctx, binding, ref)
+        local gid = code_global_id(self.module_name, self.item_name)
+        return load_place(ctx, Code.CodePlaceGlobal(gid, code_ty(ctx, binding.ty)), binding.ty, "load_global_" .. binding.name)
+    end
+
+    function Ty.Type:tree_code_call_sig_id(ctx)
+        unsupported(ctx, self, "non-callable type " .. class_name(self))
+    end
+    function Ty.TFunc:tree_code_call_sig_id(ctx)
+        return CodeType.ensure_type_sig(ctx.module_ctx, self.params, self.result)
+    end
+    function Ty.TClosure:tree_code_call_sig_id(ctx)
+        return CodeType.ensure_type_sig(ctx.module_ctx, self.params, self.result)
+    end
+
+    function Tr.Expr:tree_code_direct_call_target() return nil end
+    function Tr.ExprRef:tree_code_direct_call_target()
+        return self.ref:tree_code_direct_call_target()
+    end
+    function Bind.ValueRef:tree_code_direct_call_target() return nil end
+    function Bind.ValueRefBinding:tree_code_direct_call_target()
+        return self.binding.class:tree_code_direct_call_target(self.binding)
+    end
+    function Bind.BindingClass:tree_code_direct_call_target(binding) return nil end
+    function Bind.BindingClassGlobalFunc:tree_code_direct_call_target(binding)
+        return Code.CodeCallDirect(code_func_id(self.item_name))
+    end
+    function Bind.BindingClassExtern:tree_code_direct_call_target(binding)
+        return Code.CodeCallExtern(code_extern_id(binding.name))
+    end
+    function Ty.Type:tree_code_indirect_call_target(callee, sig)
+        return Code.CodeCallIndirect(callee, sig)
+    end
+    function Ty.TClosure:tree_code_indirect_call_target(callee, sig)
+        return Code.CodeCallClosure(callee, sig)
+    end
+
+    function Ty.Type:tree_code_lower_field_base_place(ctx, base)
+        return expr_as_place(ctx, base), self
+    end
+    function Ty.TPtr:tree_code_lower_field_base_place(ctx, base)
+        local addr = lower_expr(ctx, base)
+        return Code.CodePlaceDeref(addr, code_ty(ctx, self.elem), align_of(ctx, self.elem)), self.elem
+    end
+    function Sem.FieldRef:tree_code_require_lowered_field(ctx)
+        unsupported(ctx, self, "field access before sem_layout_resolve")
+    end
+    function Sem.FieldByOffset:tree_code_require_lowered_field(ctx) end
+
+    function Tr.IndexBase:tree_code_lower_index_base_place(ctx, idx, elem_ty)
+        unsupported(ctx, self, "index base " .. class_name(self))
+    end
+    function Tr.IndexBaseExpr:tree_code_lower_index_base_place(ctx, idx, elem_ty)
+        return source_access_base(expr_type(self.base)):tree_code_lower_expr_index_base(ctx, self.base, idx, elem_ty)
+    end
+    function Tr.IndexBasePlace:tree_code_lower_index_base_place(ctx, idx, elem_ty)
+        return source_access_base(place_type(self.base)):tree_code_lower_place_index_base(ctx, self.base, idx, elem_ty)
+    end
+    function Tr.IndexBaseView:tree_code_lower_index_base_place(ctx, idx, elem_ty)
+        local data, _, stride = lower_view_parts(ctx, self.view)
+        local scaled = new_temp(ctx, "view_index_scaled")
+        append_inst(ctx, Code.CodeInstBinary(scaled, Core.BinMul, Code.CodeTyIndex, default_int_semantics(), idx, stride), origin_generated("view index scale"))
+        return Code.CodePlaceDeref(data, code_ty(ctx, elem_ty), align_of(ctx, elem_ty)), scaled
+    end
+
+    function Ty.Type:tree_code_lower_expr_index_base(ctx, base, idx, elem_ty)
+        if is_aggregate_code_ty(code_ty(ctx, self)) then return expr_as_place(ctx, base), idx end
+        unsupported(ctx, base, "index expression base type " .. class_name(self))
+    end
+    function Ty.TPtr:tree_code_lower_expr_index_base(ctx, base, idx, elem_ty)
+        local addr = lower_expr(ctx, base)
+        return Code.CodePlaceDeref(addr, code_ty(ctx, elem_ty), align_of(ctx, elem_ty)), idx
+    end
+    function Ty.TView:tree_code_lower_expr_index_base(ctx, base, idx, elem_ty)
+        local view = lower_expr(ctx, base)
+        local data = new_temp(ctx, "view_index_data")
+        local stride = new_temp(ctx, "view_index_stride")
+        local scaled = new_temp(ctx, "view_index_scaled")
+        append_inst(ctx, Code.CodeInstViewData(data, view), origin_generated("view index data"))
+        append_inst(ctx, Code.CodeInstViewStride(stride, view), origin_generated("view index stride"))
+        append_inst(ctx, Code.CodeInstBinary(scaled, Core.BinMul, Code.CodeTyIndex, default_int_semantics(), idx, stride), origin_generated("view index scale"))
+        return Code.CodePlaceDeref(data, code_ty(ctx, elem_ty), align_of(ctx, elem_ty)), scaled
+    end
+    function Ty.TSlice:tree_code_lower_expr_index_base(ctx, base, idx, elem_ty)
+        local slice = lower_expr(ctx, base)
+        local data = new_temp(ctx, "slice_index_data")
+        append_inst(ctx, Code.CodeInstSliceData(data, slice), origin_generated("slice index data"))
+        return Code.CodePlaceDeref(data, code_ty(ctx, elem_ty), align_of(ctx, elem_ty)), idx
+    end
+    function Ty.TArray:tree_code_lower_expr_index_base(ctx, base, idx, elem_ty)
+        return expr_as_place(ctx, base), idx
+    end
+
+    function Ty.Type:tree_code_lower_place_index_base(ctx, base, idx, elem_ty)
+        return lower_place(ctx, base), idx
+    end
+    function Ty.TView:tree_code_lower_place_index_base(ctx, base, idx, elem_ty)
+        local view = load_place(ctx, lower_place(ctx, base), self, "view_index")
+        local data = new_temp(ctx, "view_index_data")
+        local stride = new_temp(ctx, "view_index_stride")
+        local scaled = new_temp(ctx, "view_index_scaled")
+        append_inst(ctx, Code.CodeInstViewData(data, view), origin_generated("view index data"))
+        append_inst(ctx, Code.CodeInstViewStride(stride, view), origin_generated("view index stride"))
+        append_inst(ctx, Code.CodeInstBinary(scaled, Core.BinMul, Code.CodeTyIndex, default_int_semantics(), idx, stride), origin_generated("view index scale"))
+        return Code.CodePlaceDeref(data, code_ty(ctx, elem_ty), align_of(ctx, elem_ty)), scaled
+    end
+
+    function Bind.BindingClass:tree_code_global_place(ctx, binding) return nil end
+    function Bind.BindingClassGlobalConst:tree_code_global_place(ctx, binding)
+        return Code.CodePlaceGlobal(code_global_id(self.module_name, self.item_name), code_ty(ctx, binding.ty))
+    end
+    function Bind.BindingClassGlobalStatic:tree_code_global_place(ctx, binding)
+        return Code.CodePlaceGlobal(code_global_id(self.module_name, self.item_name), code_ty(ctx, binding.ty))
+    end
+
+    function Ty.Type:tree_code_lower_place_field_base(ctx, base)
+        return lower_place(ctx, base)
+    end
+    function Ty.TPtr:tree_code_lower_place_field_base(ctx, base)
+        local ref = base:tree_code_ref_for_ptr_field()
+        if ref == nil then return lower_place(ctx, base) end
+        local addr = lower_expr(ctx, Tr.ExprRef(Tr.ExprTyped(self), ref))
+        return Code.CodePlaceDeref(addr, code_ty(ctx, self.elem), align_of(ctx, self.elem))
+    end
+    function Tr.Place:tree_code_ref_for_ptr_field() return nil end
+    function Tr.PlaceRef:tree_code_ref_for_ptr_field() return self.ref end
+
+    function Tr.Expr:tree_code_as_place(ctx)
+        unsupported(ctx, self, "expression is not addressable " .. class_name(self))
+    end
+    function Tr.ExprRef:tree_code_as_place(ctx)
+        return lower_place(ctx, Tr.PlaceRef(Tr.PlaceTyped(expr_type(self)), self.ref))
+    end
+    function Tr.ExprDeref:tree_code_as_place(ctx)
+        return Code.CodePlaceDeref(lower_expr(ctx, self.value), code_ty(ctx, expr_type(self)), align_of(ctx, expr_type(self)))
+    end
+    function Tr.ExprField:tree_code_as_place(ctx)
+        return lower_field_place(ctx, self.base, self.field)
+    end
+    function Tr.ExprIndex:tree_code_as_place(ctx)
+        return lower_index_place(ctx, self.base, self.index, expr_type(self))
+    end
+
+    function Core.Literal:lower_tree_literal_to_code(ctx, source_ty)
+        local ty = code_ty(ctx, source_ty)
+        local dst = new_temp(ctx, "lit")
+        append_inst(ctx, Code.CodeInstConst(dst, Code.CodeConstLiteral(ty, self)), origin_generated("literal"))
+        return Tr.TreeCodeExprResult(dst, ty)
+    end
+    function Core.LitString:lower_tree_literal_to_code(ctx, source_ty)
+        local ty = code_ty(ctx, source_ty)
+        local elem_ty = u8_code_ty()
+        local data_id, len_bytes = fresh_string_data(ctx, self.bytes)
+        local data = new_temp(ctx, "str_data")
+        append_inst(ctx, Code.CodeInstGlobalRef(data, Code.CodeGlobalRefData(data_id), Code.CodeTyDataPtr(elem_ty)), origin_generated("string literal data ref"))
+        local len = new_temp(ctx, "str_len")
+        append_inst(ctx, Code.CodeInstConst(len, Code.CodeConstLiteral(Code.CodeTyIndex, Core.LitInt(tostring(len_bytes)))), origin_generated("string literal length"))
+        local dst = new_temp(ctx, "str")
+        append_inst(ctx, Code.CodeInstSliceMake(dst, elem_ty, data, len), origin_generated("string literal slice"))
+        return Tr.TreeCodeExprResult(dst, ty)
+    end
+
+    function Ty.Type:tree_code_is_ptr_type() return false end
+    function Ty.TPtr:tree_code_is_ptr_type() return true end
+
+    function Ty.Type:lower_tree_len_to_code(ctx, expr)
+        unsupported(ctx, expr, "len of non-array/view")
+    end
+    function Ty.TArray:lower_tree_len_to_code(ctx, expr)
+        return self.count:lower_tree_array_len_to_code(ctx, expr)
+    end
+    function Ty.ArrayLen:lower_tree_array_len_to_code(ctx, expr)
+        unsupported(ctx, expr, "len of non-constant array")
+    end
+    function Ty.ArrayLenConst:lower_tree_array_len_to_code(ctx, expr)
+        return Tr.TreeCodeExprResult(const_index(ctx, self.count, "array_len"), Code.CodeTyIndex)
+    end
+    function Ty.TView:lower_tree_len_to_code(ctx, expr)
+        local view = lower_expr(ctx, expr.value)
+        local dst = new_temp(ctx, "view_len")
+        append_inst(ctx, Code.CodeInstViewLen(dst, view), origin_generated("view len"))
+        return Tr.TreeCodeExprResult(dst, Code.CodeTyIndex)
     end
 
     local function lookup_value(ctx, ref)
@@ -655,32 +940,11 @@ local function bind_context(T)
         end
         local id = ctx.bindings[key]
         if id ~= nil then return id, code_ty(ctx, binding.ty) end
-        local bcls = asdl.classof(binding.class)
-        if bcls == Bind.BindingClassGlobalFunc then
-            local fn = code_func_id(binding.class.item_name)
-            local ptr_ty = code_ty(ctx, binding.ty)
-            local dst = new_temp(ctx, "fnref")
-            append_inst(ctx, Code.CodeInstGlobalRef(dst, Code.CodeGlobalRefFunc(fn), ptr_ty), origin_binding(binding))
-            return dst, ptr_ty
-        elseif bcls == Bind.BindingClassExtern then
-            local ex = code_extern_id(binding.name)
-            local ptr_ty = code_ty(ctx, binding.ty)
-            local dst = new_temp(ctx, "externref")
-            append_inst(ctx, Code.CodeInstGlobalRef(dst, Code.CodeGlobalRefExtern(ex), ptr_ty), origin_binding(binding))
-            return dst, ptr_ty
-        elseif bcls == Bind.BindingClassGlobalConst or bcls == Bind.BindingClassGlobalStatic then
-            local gid = code_global_id(binding.class.module_name, binding.class.item_name)
-            return load_place(ctx, Code.CodePlaceGlobal(gid, code_ty(ctx, binding.ty)), binding.ty, "load_global_" .. binding.name)
-        end
-        unsupported(ctx, ref, "unbound scalar reference `" .. tostring(binding.name) .. "`")
+        return binding.class:tree_code_lookup_value(ctx, binding, ref)
     end
 
     local function call_sig_id(ctx, fn_ty)
-        local cls = asdl.classof(fn_ty)
-        if cls == Ty.TFunc or cls == Ty.TClosure then
-            return CodeType.ensure_type_sig(ctx.module_ctx, fn_ty.params, fn_ty.result)
-        end
-        unsupported(ctx, fn_ty, "non-callable type " .. class_name(fn_ty))
+        return fn_ty:tree_code_call_sig_id(ctx)
     end
 
     lower_call = function(ctx, expr)
@@ -689,22 +953,10 @@ local function bind_context(T)
         local args = {}
         for i = 1, #(expr.args or {}) do args[i] = lower_expr(ctx, expr.args[i]) end
         local target
-        if asdl.classof(expr.callee) == Tr.ExprRef and asdl.classof(expr.callee.ref) == Bind.ValueRefBinding then
-            local binding = expr.callee.ref.binding
-            local bcls = asdl.classof(binding.class)
-            if bcls == Bind.BindingClassGlobalFunc then
-                target = Code.CodeCallDirect(code_func_id(binding.class.item_name))
-            elseif bcls == Bind.BindingClassExtern then
-                target = Code.CodeCallExtern(code_extern_id(binding.name))
-            end
-        end
+        target = expr.callee:tree_code_direct_call_target()
         if target == nil then
             local callee = lower_expr(ctx, expr.callee)
-            if asdl.classof(fn_ty) == Ty.TClosure then
-                target = Code.CodeCallClosure(callee, sig)
-            else
-                target = Code.CodeCallIndirect(callee, sig)
-            end
+            target = fn_ty:tree_code_indirect_call_target(callee, sig)
         end
         local result_ty = code_ty(ctx, expr_type(expr))
         local dst = nil
@@ -715,16 +967,11 @@ local function bind_context(T)
 
     local function lower_field_base_place(ctx, base, base_ty)
         base_ty = source_access_base(base_ty)
-        if asdl.classof(base_ty) == Ty.TPtr then
-            local addr = lower_expr(ctx, base)
-            local elem_ty = base_ty.elem
-            return Code.CodePlaceDeref(addr, code_ty(ctx, elem_ty), align_of(ctx, elem_ty)), elem_ty
-        end
-        return expr_as_place(ctx, base), base_ty
+        return base_ty:tree_code_lower_field_base_place(ctx, base)
     end
 
     local function lower_field_place(ctx, base, field)
-        if asdl.classof(field) ~= Sem.FieldByOffset then unsupported(ctx, field, "field access before sem_layout_resolve") end
+        field:tree_code_require_lowered_field(ctx)
         local base_ty = expr_type(base)
         local base_place = lower_field_base_place(ctx, base, base_ty)
         local field_layout = layout_of(ctx, field.ty)
@@ -736,148 +983,92 @@ local function bind_context(T)
         idx = as_index_value(ctx, idx, idx_ty, "index")
         local elem_size = size_of(ctx, elem_ty)
         if elem_size == nil then unsupported(ctx, base, "index element without known size") end
-        local bcls = asdl.classof(base)
         local base_place
-        if bcls == Tr.IndexBaseExpr then
-            local base_ty = source_access_base(expr_type(base.base))
-            local btcls = asdl.classof(base_ty)
-            if btcls == Ty.TPtr then
-                local addr = lower_expr(ctx, base.base)
-                base_place = Code.CodePlaceDeref(addr, code_ty(ctx, elem_ty), align_of(ctx, elem_ty))
-            elseif btcls == Ty.TView then
-                local view = lower_expr(ctx, base.base)
-                local data = new_temp(ctx, "view_index_data")
-                local stride = new_temp(ctx, "view_index_stride")
-                local scaled = new_temp(ctx, "view_index_scaled")
-                append_inst(ctx, Code.CodeInstViewData(data, view), origin_generated("view index data"))
-                append_inst(ctx, Code.CodeInstViewStride(stride, view), origin_generated("view index stride"))
-                append_inst(ctx, Code.CodeInstBinary(scaled, Core.BinMul, Code.CodeTyIndex, default_int_semantics(), idx, stride), origin_generated("view index scale"))
-                idx = scaled
-                base_place = Code.CodePlaceDeref(data, code_ty(ctx, elem_ty), align_of(ctx, elem_ty))
-            elseif btcls == Ty.TSlice then
-                local slice = lower_expr(ctx, base.base)
-                local data = new_temp(ctx, "slice_index_data")
-                append_inst(ctx, Code.CodeInstSliceData(data, slice), origin_generated("slice index data"))
-                base_place = Code.CodePlaceDeref(data, code_ty(ctx, elem_ty), align_of(ctx, elem_ty))
-            elseif btcls == Ty.TArray or is_aggregate_code_ty(code_ty(ctx, base_ty)) then
-                base_place = expr_as_place(ctx, base.base)
-            else
-                unsupported(ctx, base, "index expression base type " .. class_name(base_ty))
-            end
-        elseif bcls == Tr.IndexBasePlace then
-            local base_ty = source_access_base(place_type(base.base))
-            if asdl.classof(base_ty) == Ty.TView then
-                local view = load_place(ctx, lower_place(ctx, base.base), base_ty, "view_index")
-                local data = new_temp(ctx, "view_index_data")
-                local stride = new_temp(ctx, "view_index_stride")
-                local scaled = new_temp(ctx, "view_index_scaled")
-                append_inst(ctx, Code.CodeInstViewData(data, view), origin_generated("view index data"))
-                append_inst(ctx, Code.CodeInstViewStride(stride, view), origin_generated("view index stride"))
-                append_inst(ctx, Code.CodeInstBinary(scaled, Core.BinMul, Code.CodeTyIndex, default_int_semantics(), idx, stride), origin_generated("view index scale"))
-                idx = scaled
-                base_place = Code.CodePlaceDeref(data, code_ty(ctx, elem_ty), align_of(ctx, elem_ty))
-            else
-                base_place = lower_place(ctx, base.base)
-            end
-        elseif bcls == Tr.IndexBaseView then
-            local data, _, stride = lower_view_parts(ctx, base.view)
-            local scaled = new_temp(ctx, "view_index_scaled")
-            append_inst(ctx, Code.CodeInstBinary(scaled, Core.BinMul, Code.CodeTyIndex, default_int_semantics(), idx, stride), origin_generated("view index scale"))
-            idx = scaled
-            base_place = Code.CodePlaceDeref(data, code_ty(ctx, elem_ty), align_of(ctx, elem_ty))
-        else
-            unsupported(ctx, base, "index base " .. class_name(base))
-        end
+        base_place, idx = base:tree_code_lower_index_base_place(ctx, idx, elem_ty)
         return Code.CodePlaceIndex(base_place, idx, code_ty(ctx, elem_ty), elem_size)
     end
 
-    lower_place = function(ctx, place)
-        local action = select_lowering(ctx, "select_place_lowering", place)
-        if action == "ref" then
-            local binding, key = lookup_binding(ctx, place.ref)
-            local bcls = asdl.classof(binding.class)
-            if bcls == Bind.BindingClassGlobalConst or bcls == Bind.BindingClassGlobalStatic then
-                return Code.CodePlaceGlobal(code_global_id(binding.class.module_name, binding.class.item_name), code_ty(ctx, binding.ty))
-            end
-            local local_info = ctx.locals_by_key[key]
-            if local_info == nil then
-                if ctx.addressed[key] or ctx.mutable[key] or is_aggregate_code_ty(code_ty(ctx, binding.ty)) then
-                    ensure_local(ctx, binding, binding.ty)
-                    local_info = ctx.locals_by_key[key]
-                else
-                    unsupported(ctx, place, "address/store of value-resident binding `" .. tostring(binding.name) .. "`")
-                end
-            end
-            return Code.CodePlaceLocal(local_info.id, local_info.ty)
-        elseif action == "deref" then
-            local addr = lower_expr(ctx, place.base)
-            local ty = place_type(place)
-            return Code.CodePlaceDeref(addr, code_ty(ctx, ty), align_of(ctx, ty))
-        elseif action == "field" then
-            if asdl.classof(place.field) ~= Sem.FieldByOffset then unsupported(ctx, place, "field place before sem_layout_resolve") end
-            local base_ty = source_access_base(place_type(place.base))
-            local base_place
-            if asdl.classof(base_ty) == Ty.TPtr and asdl.classof(place.base) == Tr.PlaceRef then
-                local addr = lower_expr(ctx, Tr.ExprRef(Tr.ExprTyped(base_ty), place.base.ref))
-                base_place = Code.CodePlaceDeref(addr, code_ty(ctx, base_ty.elem), align_of(ctx, base_ty.elem))
+    function Tr.PlaceRef:lower_tree_place_to_code(input)
+        local ctx = input
+        local binding, key = lookup_binding(ctx, self.ref)
+        local global_place = binding.class:tree_code_global_place(ctx, binding)
+        if global_place ~= nil then return Tr.TreeCodePlaceResult(global_place) end
+        local local_info = ctx.locals_by_key[key]
+        if local_info == nil then
+            if ctx.addressed[key] or ctx.mutable[key] or is_aggregate_code_ty(code_ty(ctx, binding.ty)) then
+                ensure_local(ctx, binding, binding.ty)
+                local_info = ctx.locals_by_key[key]
             else
-                base_place = lower_place(ctx, place.base)
+                unsupported(ctx, self, "address/store of value-resident binding `" .. tostring(binding.name) .. "`")
             end
-            local field_layout = layout_of(ctx, place.field.ty)
-            return Code.CodePlaceField(base_place, place.field, code_ty(ctx, place.field.ty), place.field.offset, field_layout and field_layout.size or nil, field_layout and field_layout.align or nil)
-        elseif action == "index" then
-            return lower_index_place(ctx, place.base, place.index, place_type(place))
-        elseif action == "dot" then
-            unsupported(ctx, place, "dot place before sem_layout_resolve")
         end
-        unsupported(ctx, place, "place " .. class_name(place))
+        return Tr.TreeCodePlaceResult(Code.CodePlaceLocal(local_info.id, local_info.ty))
+    end
+
+    function Tr.PlaceDeref:lower_tree_place_to_code(input)
+        local ctx = input
+        local addr = lower_expr(ctx, self.base)
+        local ty = place_type(self)
+        return Tr.TreeCodePlaceResult(Code.CodePlaceDeref(addr, code_ty(ctx, ty), align_of(ctx, ty)))
+    end
+
+    function Tr.PlaceField:lower_tree_place_to_code(input)
+        local ctx = input
+        self.field:tree_code_require_lowered_field(ctx)
+        local base_ty = source_access_base(place_type(self.base))
+        local base_place = base_ty:tree_code_lower_place_field_base(ctx, self.base)
+        local field_layout = layout_of(ctx, self.field.ty)
+        return Tr.TreeCodePlaceResult(Code.CodePlaceField(base_place, self.field, code_ty(ctx, self.field.ty), self.field.offset, field_layout and field_layout.size or nil, field_layout and field_layout.align or nil))
+    end
+
+    function Tr.PlaceIndex:lower_tree_place_to_code(input)
+        local ctx = input
+        return Tr.TreeCodePlaceResult(lower_index_place(ctx, self.base, self.index, place_type(self)))
+    end
+
+    function Tr.PlaceDot:lower_tree_place_to_code(input)
+        unsupported(input, self, "dot place before sem_layout_resolve")
+    end
+
+    lower_place = function(ctx, place)
+        local result = place:lower_tree_place_to_code(ctx)
+        return result.place
     end
 
     expr_as_place = function(ctx, expr)
-        local cls = asdl.classof(expr)
-        if cls == Tr.ExprRef then return lower_place(ctx, Tr.PlaceRef(Tr.PlaceTyped(expr_type(expr)), expr.ref)) end
-        if cls == Tr.ExprDeref then return Code.CodePlaceDeref(lower_expr(ctx, expr.value), code_ty(ctx, expr_type(expr)), align_of(ctx, expr_type(expr))) end
-        if cls == Tr.ExprField then return lower_field_place(ctx, expr.base, expr.field) end
-        if cls == Tr.ExprIndex then return lower_index_place(ctx, expr.base, expr.index, expr_type(expr)) end
-        unsupported(ctx, expr, "expression is not addressable " .. class_name(expr))
+        return expr:tree_code_as_place(ctx)
     end
 
-    lower_expr = function(ctx, expr)
-        local action = select_lowering(ctx, "select_expr_lowering", expr)
-        if action == "lit" then
-            local ty = code_ty(ctx, expr_type(expr))
-            if asdl.classof(expr.value) == Core.LitString then
-                local elem_ty = u8_code_ty()
-                local data_id, len_bytes = fresh_string_data(ctx, expr.value.bytes)
-                local data = new_temp(ctx, "str_data")
-                append_inst(ctx, Code.CodeInstGlobalRef(data, Code.CodeGlobalRefData(data_id), Code.CodeTyDataPtr(elem_ty)), origin_generated("string literal data ref"))
-                local len = new_temp(ctx, "str_len")
-                append_inst(ctx, Code.CodeInstConst(len, Code.CodeConstLiteral(Code.CodeTyIndex, Core.LitInt(tostring(len_bytes)))), origin_generated("string literal length"))
-                local dst = new_temp(ctx, "str")
-                append_inst(ctx, Code.CodeInstSliceMake(dst, elem_ty, data, len), origin_generated("string literal slice"))
-                return dst, ty
-            end
-            local dst = new_temp(ctx, "lit")
-            append_inst(ctx, Code.CodeInstConst(dst, Code.CodeConstLiteral(ty, expr.value)), origin_generated("literal"))
-            return dst, ty
-        elseif action == "ref" then
-            return lookup_value(ctx, expr.ref)
-        elseif action == "unary" then
-            local value = lower_expr(ctx, expr.value)
-            local ty = code_ty(ctx, expr_type(expr))
+    function Tr.ExprLit:lower_tree_expr_to_code(input)
+        local ctx = input
+        return self.value:lower_tree_literal_to_code(ctx, expr_type(self))
+    end
+
+    function Tr.ExprRef:lower_tree_expr_to_code(input)
+        local value, ty = lookup_value(input, self.ref)
+        return Tr.TreeCodeExprResult(value, ty)
+    end
+
+    function Tr.ExprUnary:lower_tree_expr_to_code(input)
+        local ctx = input
+            local value = lower_expr(ctx, self.value)
+            local ty = code_ty(ctx, expr_type(self))
             local dst = new_temp(ctx, "unary")
-            append_inst(ctx, Code.CodeInstUnary(dst, expr.op, ty, value), origin_generated("unary"))
-            return dst, ty
-        elseif action == "binary" then
-            local lhs, lhs_ty = lower_expr(ctx, expr.lhs)
-            local rhs, rhs_ty = lower_expr(ctx, expr.rhs)
-            local ty = code_ty(ctx, expr_type(expr))
+            append_inst(ctx, Code.CodeInstUnary(dst, self.op, ty, value), origin_generated("unary"))
+            return Tr.TreeCodeExprResult(dst, ty)
+    end
+
+    function Tr.ExprBinary:lower_tree_expr_to_code(input)
+        local ctx = input
+            local lhs, lhs_ty = lower_expr(ctx, self.lhs)
+            local rhs, rhs_ty = lower_expr(ctx, self.rhs)
+            local ty = code_ty(ctx, expr_type(self))
             local dst = new_temp(ctx, "bin")
-            local lhs_src_ty = source_access_base(expr_type(expr.lhs))
-            local rhs_src_ty = source_access_base(expr_type(expr.rhs))
-            local lhs_is_ptr = asdl.classof(lhs_src_ty) == Ty.TPtr
-            local rhs_is_ptr = asdl.classof(rhs_src_ty) == Ty.TPtr
-            if expr.op == Core.BinAdd and (lhs_is_ptr or rhs_is_ptr) then
+            local lhs_src_ty = source_access_base(expr_type(self.lhs))
+            local rhs_src_ty = source_access_base(expr_type(self.rhs))
+            local lhs_is_ptr = lhs_src_ty:tree_code_is_ptr_type()
+            local rhs_is_ptr = rhs_src_ty:tree_code_is_ptr_type()
+            if self.op == Core.BinAdd and (lhs_is_ptr or rhs_is_ptr) then
                 local ptr_value, index_value, index_ty, elem_ty
                 if lhs_is_ptr then
                     ptr_value, index_value, index_ty, elem_ty = lhs, rhs, rhs_ty, lhs_src_ty.elem
@@ -886,174 +1077,254 @@ local function bind_context(T)
                 end
                 local index = as_index_value(ctx, index_value, index_ty, "ptr_add_index")
                 local elem_size = size_of(ctx, elem_ty)
-                if elem_size == nil then unsupported(ctx, expr, "pointer arithmetic element without known size") end
+                if elem_size == nil then unsupported(ctx, self, "pointer arithmetic element without known size") end
                 append_inst(ctx, Code.CodeInstPtrOffset(dst, ty, ptr_value, index, elem_size, 0), origin_generated("pointer add"))
-            elseif expr.op == Core.BinSub and lhs_is_ptr and not rhs_is_ptr then
+            elseif self.op == Core.BinSub and lhs_is_ptr and not rhs_is_ptr then
                 local index = as_index_value(ctx, rhs, rhs_ty, "ptr_sub_index")
                 local zero = const_index(ctx, 0, "ptr_sub_zero")
                 local neg = new_temp(ctx, "ptr_sub_neg")
                 append_inst(ctx, Code.CodeInstBinary(neg, Core.BinSub, Code.CodeTyIndex, default_int_semantics(), zero, index), origin_generated("pointer subtract index"))
                 local elem_size = size_of(ctx, lhs_src_ty.elem)
-                if elem_size == nil then unsupported(ctx, expr, "pointer arithmetic element without known size") end
+                if elem_size == nil then unsupported(ctx, self, "pointer arithmetic element without known size") end
                 append_inst(ctx, Code.CodeInstPtrOffset(dst, ty, lhs, neg, elem_size, 0), origin_generated("pointer subtract"))
             else
                 if is_float_code_ty(ty) then
-                    append_inst(ctx, Code.CodeInstFloatBinary(dst, expr.op, ty, default_float_mode(), lhs, rhs), origin_generated("float binary"))
+                    append_inst(ctx, Code.CodeInstFloatBinary(dst, self.op, ty, default_float_mode(), lhs, rhs), origin_generated("float binary"))
                 else
-                    append_inst(ctx, Code.CodeInstBinary(dst, expr.op, ty, default_int_semantics(), lhs, rhs), origin_generated("binary"))
+                    append_inst(ctx, Code.CodeInstBinary(dst, self.op, ty, default_int_semantics(), lhs, rhs), origin_generated("binary"))
                 end
             end
-            return dst, ty
-        elseif action == "compare" then
-            local lhs = lower_expr(ctx, expr.lhs)
-            local rhs = lower_expr(ctx, expr.rhs)
-            local operand_ty = code_ty(ctx, expr_type(expr.lhs))
+            return Tr.TreeCodeExprResult(dst, ty)
+    end
+
+    function Tr.ExprCompare:lower_tree_expr_to_code(input)
+        local ctx = input
+            local lhs = lower_expr(ctx, self.lhs)
+            local rhs = lower_expr(ctx, self.rhs)
+            local operand_ty = code_ty(ctx, expr_type(self.lhs))
             local dst = new_temp(ctx, "cmp")
-            append_inst(ctx, Code.CodeInstCompare(dst, expr.op, operand_ty, lhs, rhs), origin_generated("compare"))
-            return dst, Code.CodeTyBool8
-        elseif action == "logic" then
-            return lower_expr_logic(ctx, expr)
-        elseif action == "if" then
-            return lower_expr_if(ctx, expr)
-        elseif action == "switch" then
-            return lower_expr_switch(ctx, expr)
-        elseif action == "control" then
-            return lower_control_region(ctx, expr.region, true)
-        elseif action == "block" then
+            append_inst(ctx, Code.CodeInstCompare(dst, self.op, operand_ty, lhs, rhs), origin_generated("compare"))
+            return Tr.TreeCodeExprResult(dst, Code.CodeTyBool8)
+    end
+
+    function Tr.ExprLogic:lower_tree_expr_to_code(input)
+        local value, ty = lower_expr_logic(input, self)
+        return Tr.TreeCodeExprResult(value, ty)
+    end
+
+    function Tr.ExprIf:lower_tree_expr_to_code(input)
+        local value, ty = lower_expr_if(input, self)
+        return Tr.TreeCodeExprResult(value, ty)
+    end
+
+    function Tr.ExprSwitch:lower_tree_expr_to_code(input)
+        local value, ty = lower_expr_switch(input, self)
+        return Tr.TreeCodeExprResult(value, ty)
+    end
+
+    function Tr.ExprControl:lower_tree_expr_to_code(input)
+        local value, ty = lower_control_region(input, self.region, true)
+        return Tr.TreeCodeExprResult(value, ty)
+    end
+
+    function Tr.ExprBlock:lower_tree_expr_to_code(input)
+        local ctx = input
             local saved = save_bindings(ctx)
-            lower_stmt_body(ctx, expr.stmts or {})
-            if ctx.current_block == nil then unsupported(ctx, expr, "expression block body terminated before result") end
-            local value, ty = lower_expr(ctx, expr.result)
+            lower_stmt_body(ctx, self.stmts or {})
+            if ctx.current_block == nil then unsupported(ctx, self, "expression block body terminated before result") end
+            local value, ty = lower_expr(ctx, self.result)
             restore_bindings(ctx, saved)
-            return value, ty
-        elseif action == "machine_cast" then
-            local value, from = lower_expr(ctx, expr.value)
-            local to = code_ty(ctx, expr.ty or expr_type(expr))
+            return Tr.TreeCodeExprResult(value, ty)
+    end
+
+    function Tr.ExprMachineCast:lower_tree_expr_to_code(input)
+        local ctx = input
+            local value, from = lower_expr(ctx, self.value)
+            local to = code_ty(ctx, self.ty or expr_type(self))
             local dst = new_temp(ctx, "cast")
-            append_inst(ctx, Code.CodeInstCast(dst, expr.op, from, to, value), origin_generated("cast"))
-            return dst, to
-        elseif action == "surface_cast" then
-            unsupported(ctx, expr, "surface cast after typechecking")
-        elseif action == "select" then
-            local cond = lower_expr(ctx, expr.cond)
-            local then_value = lower_expr(ctx, expr.then_expr)
-            local else_value = lower_expr(ctx, expr.else_expr)
-            local ty = code_ty(ctx, expr_type(expr))
+            append_inst(ctx, Code.CodeInstCast(dst, self.op, from, to, value), origin_generated("cast"))
+            return Tr.TreeCodeExprResult(dst, to)
+    end
+
+    function Tr.ExprCast:lower_tree_expr_to_code(input)
+        unsupported(input, self, "surface cast after typechecking")
+    end
+
+    function Tr.ExprSelect:lower_tree_expr_to_code(input)
+        local ctx = input
+            local cond = lower_expr(ctx, self.cond)
+            local then_value = lower_expr(ctx, self.then_expr)
+            local else_value = lower_expr(ctx, self.else_expr)
+            local ty = code_ty(ctx, expr_type(self))
             local dst = new_temp(ctx, "select")
             append_inst(ctx, Code.CodeInstSelect(dst, ty, cond, then_value, else_value), origin_generated("select"))
-            return dst, ty
-        elseif action == "addr_of" then
-            local place = lower_place(ctx, expr.place)
-            local ptr_ty = code_ty(ctx, expr_type(expr))
+            return Tr.TreeCodeExprResult(dst, ty)
+    end
+
+    function Tr.ExprAddrOf:lower_tree_expr_to_code(input)
+        local ctx = input
+            local place = lower_place(ctx, self.place)
+            local ptr_ty = code_ty(ctx, expr_type(self))
             local dst = new_temp(ctx, "addr")
             append_inst(ctx, Code.CodeInstAddrOf(dst, ptr_ty, place), origin_generated("address of"))
-            return dst, ptr_ty
-        elseif action == "intrinsic" then
+            return Tr.TreeCodeExprResult(dst, ptr_ty)
+    end
+
+    function Tr.ExprIntrinsic:lower_tree_expr_to_code(input)
+        local ctx = input
             local args = {}
-            for i = 1, #(expr.args or {}) do args[i] = lower_expr(ctx, expr.args[i]) end
-            local ty = code_ty(ctx, expr_type(expr))
+            for i = 1, #(self.args or {}) do args[i] = lower_expr(ctx, self.args[i]) end
+            local ty = code_ty(ctx, expr_type(self))
             local dst = ty ~= Code.CodeTyVoid and new_temp(ctx, "intrin") or nil
-            append_inst(ctx, Code.CodeInstIntrinsic(dst, expr.op, ty, args), origin_generated("intrinsic"))
-            return dst, ty
-        elseif action == "agg" then
-            local ty = code_ty(ctx, expr.ty or expr_type(expr))
+            append_inst(ctx, Code.CodeInstIntrinsic(dst, self.op, ty, args), origin_generated("intrinsic"))
+            return Tr.TreeCodeExprResult(dst, ty)
+    end
+
+    function Tr.ExprAgg:lower_tree_expr_to_code(input)
+        local ctx = input
+            local ty = code_ty(ctx, self.ty or expr_type(self))
             local fields = {}
-            for i = 1, #(expr.fields or {}) do
-                local fi = expr.fields[i]
+            for i = 1, #(self.fields or {}) do
+                local fi = self.fields[i]
                 local value = lower_expr(ctx, fi.value)
                 fields[#fields + 1] = Code.CodeFieldValue(Sem.FieldByOffset(fi.name, fi.offset or 0, expr_type(fi.value), Host.HostRepOpaque("tree_to_code.aggregate")), value)
             end
             local dst = new_temp(ctx, "agg")
             append_inst(ctx, Code.CodeInstAggregate(dst, ty, fields), origin_generated("aggregate"))
-            return dst, ty
-        elseif action == "array" then
-            local ty = code_ty(ctx, expr_type(expr))
+            return Tr.TreeCodeExprResult(dst, ty)
+    end
+
+    function Tr.ExprArray:lower_tree_expr_to_code(input)
+        local ctx = input
+            local ty = code_ty(ctx, expr_type(self))
             local elems = {}
-            for i = 1, #(expr.elems or {}) do elems[#elems + 1] = Code.CodeArrayValue(i - 1, lower_expr(ctx, expr.elems[i])) end
+            for i = 1, #(self.elems or {}) do elems[#elems + 1] = Code.CodeArrayValue(i - 1, lower_expr(ctx, self.elems[i])) end
             local dst = new_temp(ctx, "array")
             append_inst(ctx, Code.CodeInstArray(dst, ty, elems), origin_generated("array"))
-            return dst, ty
-        elseif action == "view" then
-            local data, len, stride = lower_view_parts(ctx, expr.view)
-            local ty = code_ty(ctx, expr_type(expr))
+            return Tr.TreeCodeExprResult(dst, ty)
+    end
+
+    function Tr.ExprView:lower_tree_expr_to_code(input)
+        local ctx = input
+            local data, len, stride = lower_view_parts(ctx, self.view)
+            local ty = code_ty(ctx, expr_type(self))
             local dst = new_temp(ctx, "view")
             append_inst(ctx, Code.CodeInstViewMake(dst, ty.elem, data, len, stride), origin_generated("view"))
-            return dst, ty
-        elseif action == "len" then
-            local vty = source_access_base(expr_type(expr.value))
-            if asdl.classof(vty) == Ty.TArray and asdl.classof(vty.count) == Ty.ArrayLenConst then
-                return const_index(ctx, vty.count.count, "array_len")
-            elseif asdl.classof(vty) == Ty.TView then
-                local view = lower_expr(ctx, expr.value)
-                local dst = new_temp(ctx, "view_len")
-                append_inst(ctx, Code.CodeInstViewLen(dst, view), origin_generated("view len"))
-                return dst, Code.CodeTyIndex
-            end
-            unsupported(ctx, expr, "len of non-array/view")
-        elseif action == "sizeof" then
-            local n = size_of(ctx, expr.ty)
-            if n == nil then unsupported(ctx, expr, "sizeof type without known layout") end
-            return const_index(ctx, n, "sizeof")
-        elseif action == "alignof" then
-            return const_index(ctx, align_of(ctx, expr.ty), "alignof")
-        elseif action == "is_null" then
-            local value, ty = lower_expr(ctx, expr.value)
+            return Tr.TreeCodeExprResult(dst, ty)
+    end
+
+    function Tr.ExprLen:lower_tree_expr_to_code(input)
+        local ctx = input
+        return source_access_base(expr_type(self.value)):lower_tree_len_to_code(ctx, self)
+    end
+
+    function Tr.ExprSizeOf:lower_tree_expr_to_code(input)
+        local ctx = input
+            local n = size_of(ctx, self.ty)
+            if n == nil then unsupported(ctx, self, "sizeof type without known layout") end
+            return Tr.TreeCodeExprResult(const_index(ctx, n, "sizeof"), Code.CodeTyIndex)
+    end
+
+    function Tr.ExprAlignOf:lower_tree_expr_to_code(input)
+        return Tr.TreeCodeExprResult(const_index(input, align_of(input, self.ty), "alignof"), Code.CodeTyIndex)
+    end
+
+    function Tr.ExprIsNull:lower_tree_expr_to_code(input)
+        local ctx = input
+            local value, ty = lower_expr(ctx, self.value)
             local null_value = new_temp(ctx, "null_cmp")
             append_inst(ctx, Code.CodeInstConst(null_value, Code.CodeConstNull(ty)), origin_generated("null compare literal"))
             local dst = new_temp(ctx, "is_null")
             append_inst(ctx, Code.CodeInstCompare(dst, Core.CmpEq, ty, value, null_value), origin_generated("is null"))
-            return dst, Code.CodeTyBool8
-        elseif action == "call" then
-            return lower_call(ctx, expr)
-        elseif action == "deref" then
-            local place = Code.CodePlaceDeref(lower_expr(ctx, expr.value), code_ty(ctx, expr_type(expr)), align_of(ctx, expr_type(expr)))
-            return load_place(ctx, place, expr_type(expr), "deref")
-        elseif action == "field" then
-            return load_place(ctx, lower_field_place(ctx, expr.base, expr.field), expr_type(expr), "field")
-        elseif action == "index" then
-            return load_place(ctx, lower_index_place(ctx, expr.base, expr.index, expr_type(expr)), expr_type(expr), "index")
-        elseif action == "load" then
-            local place = Code.CodePlaceDeref(lower_expr(ctx, expr.addr), code_ty(ctx, expr.ty or expr_type(expr)), align_of(ctx, expr.ty or expr_type(expr)))
-            return load_place(ctx, place, expr.ty or expr_type(expr), "load")
-        elseif action == "atomic_load" then
-            local ty = expr.ty or expr_type(expr)
-            local place = Code.CodePlaceDeref(lower_expr(ctx, expr.addr), code_ty(ctx, ty), align_of(ctx, ty))
+            return Tr.TreeCodeExprResult(dst, Code.CodeTyBool8)
+    end
+
+    function Tr.ExprCall:lower_tree_expr_to_code(input)
+        local value, ty = lower_call(input, self)
+        return Tr.TreeCodeExprResult(value, ty)
+    end
+
+    function Tr.ExprDeref:lower_tree_expr_to_code(input)
+        local ctx = input
+            local place = Code.CodePlaceDeref(lower_expr(ctx, self.value), code_ty(ctx, expr_type(self)), align_of(ctx, expr_type(self)))
+            local value, ty = load_place(ctx, place, expr_type(self), "deref")
+            return Tr.TreeCodeExprResult(value, ty)
+    end
+
+    function Tr.ExprField:lower_tree_expr_to_code(input)
+        local ctx = input
+        local value, ty = load_place(ctx, lower_field_place(ctx, self.base, self.field), expr_type(self), "field")
+        return Tr.TreeCodeExprResult(value, ty)
+    end
+
+    function Tr.ExprIndex:lower_tree_expr_to_code(input)
+        local ctx = input
+        local value, ty = load_place(ctx, lower_index_place(ctx, self.base, self.index, expr_type(self)), expr_type(self), "index")
+        return Tr.TreeCodeExprResult(value, ty)
+    end
+
+    function Tr.ExprLoad:lower_tree_expr_to_code(input)
+        local ctx = input
+            local place = Code.CodePlaceDeref(lower_expr(ctx, self.addr), code_ty(ctx, self.ty or expr_type(self)), align_of(ctx, self.ty or expr_type(self)))
+            local value, ty = load_place(ctx, place, self.ty or expr_type(self), "load")
+            return Tr.TreeCodeExprResult(value, ty)
+    end
+
+    function Tr.ExprAtomicLoad:lower_tree_expr_to_code(input)
+        local ctx = input
+            local ty = self.ty or expr_type(self)
+            local place = Code.CodePlaceDeref(lower_expr(ctx, self.addr), code_ty(ctx, ty), align_of(ctx, ty))
             local dst = new_temp(ctx, "atomic_load")
-            append_inst(ctx, Code.CodeInstAtomicLoad(dst, place, atomic_access(ctx, Code.CodeMemoryRead, ty, expr.ordering), expr.ordering), origin_generated("atomic load"))
-            return dst, code_ty(ctx, ty)
-        elseif action == "atomic_rmw" then
-            local ty = expr.ty or expr_type(expr)
-            local place = Code.CodePlaceDeref(lower_expr(ctx, expr.addr), code_ty(ctx, ty), align_of(ctx, ty))
-            local value = lower_expr(ctx, expr.value)
+            append_inst(ctx, Code.CodeInstAtomicLoad(dst, place, atomic_access(ctx, Code.CodeMemoryRead, ty, self.ordering), self.ordering), origin_generated("atomic load"))
+            return Tr.TreeCodeExprResult(dst, code_ty(ctx, ty))
+    end
+
+    function Tr.ExprAtomicRmw:lower_tree_expr_to_code(input)
+        local ctx = input
+            local ty = self.ty or expr_type(self)
+            local place = Code.CodePlaceDeref(lower_expr(ctx, self.addr), code_ty(ctx, ty), align_of(ctx, ty))
+            local value = lower_expr(ctx, self.value)
             local dst = new_temp(ctx, "atomic_rmw")
-            append_inst(ctx, Code.CodeInstAtomicRmw(dst, expr.op, place, value, atomic_access(ctx, Code.CodeMemoryReadWrite, ty, expr.ordering), expr.ordering), origin_generated("atomic rmw"))
-            return dst, code_ty(ctx, ty)
-        elseif action == "atomic_cas" then
-            local ty = expr.ty or expr_type(expr)
-            local place = Code.CodePlaceDeref(lower_expr(ctx, expr.addr), code_ty(ctx, ty), align_of(ctx, ty))
-            local expected = lower_expr(ctx, expr.expected)
-            local replacement = lower_expr(ctx, expr.replacement)
+            append_inst(ctx, Code.CodeInstAtomicRmw(dst, self.op, place, value, atomic_access(ctx, Code.CodeMemoryReadWrite, ty, self.ordering), self.ordering), origin_generated("atomic rmw"))
+            return Tr.TreeCodeExprResult(dst, code_ty(ctx, ty))
+    end
+
+    function Tr.ExprAtomicCas:lower_tree_expr_to_code(input)
+        local ctx = input
+            local ty = self.ty or expr_type(self)
+            local place = Code.CodePlaceDeref(lower_expr(ctx, self.addr), code_ty(ctx, ty), align_of(ctx, ty))
+            local expected = lower_expr(ctx, self.expected)
+            local replacement = lower_expr(ctx, self.replacement)
             local dst = new_temp(ctx, "atomic_cas")
-            append_inst(ctx, Code.CodeInstAtomicCas(dst, place, expected, replacement, atomic_access(ctx, Code.CodeMemoryReadWrite, ty, expr.ordering), expr.ordering), origin_generated("atomic cas"))
-            return dst, code_ty(ctx, ty)
-        elseif action == "ctor" then
-            if #(expr.args or {}) > 1 then unsupported(ctx, expr, "multi-argument variant constructor `" .. tostring(expr.type_name) .. "." .. tostring(expr.variant_name) .. "`") end
-            local def = variant_def(ctx, expr.type_name)
-            local variant = def and def.variants[expr.variant_name] or nil
-            if variant == nil then unsupported(ctx, expr, "unknown variant constructor `" .. tostring(expr.type_name) .. "." .. tostring(expr.variant_name) .. "`") end
-            local owner_ty = expr_type(expr)
+            append_inst(ctx, Code.CodeInstAtomicCas(dst, place, expected, replacement, atomic_access(ctx, Code.CodeMemoryReadWrite, ty, self.ordering), self.ordering), origin_generated("atomic cas"))
+            return Tr.TreeCodeExprResult(dst, code_ty(ctx, ty))
+    end
+
+    function Tr.ExprCtor:lower_tree_expr_to_code(input)
+        local ctx = input
+            if #(self.args or {}) > 1 then unsupported(ctx, self, "multi-argument variant constructor `" .. tostring(self.type_name) .. "." .. tostring(self.variant_name) .. "`") end
+            local def = variant_def(ctx, self.type_name)
+            local variant = def and def.variants[self.variant_name] or nil
+            if variant == nil then unsupported(ctx, self, "unknown variant constructor `" .. tostring(self.type_name) .. "." .. tostring(self.variant_name) .. "`") end
+            local owner_ty = expr_type(self)
             local payload = nil
-            if #(expr.args or {}) == 1 then payload = lower_expr(ctx, expr.args[1]) end
+            if #(self.args or {}) == 1 then payload = lower_expr(ctx, self.args[1]) end
             local dst = new_temp(ctx, "variant_ctor")
             append_inst(ctx, Code.CodeInstVariantCtor(dst, code_ty(ctx, owner_ty), variant_ref(ctx, owner_ty, variant), payload), origin_generated("variant constructor"))
-            return dst, code_ty(ctx, owner_ty)
-        elseif action == "null" then
-            local ty = code_ty(ctx, expr_type(expr))
+            return Tr.TreeCodeExprResult(dst, code_ty(ctx, owner_ty))
+    end
+
+    function Tr.ExprNull:lower_tree_expr_to_code(input)
+        local ctx = input
+            local ty = code_ty(ctx, expr_type(self))
             local dst = new_temp(ctx, "null")
             append_inst(ctx, Code.CodeInstConst(dst, Code.CodeConstNull(ty)), origin_generated("null"))
-            return dst, ty
-        end
-        unsupported(ctx, expr, "expression " .. class_name(expr))
+            return Tr.TreeCodeExprResult(dst, ty)
+    end
+
+    lower_expr = function(ctx, expr)
+        local result = expr:lower_tree_expr_to_code(ctx)
+        return result.value, result.ty
     end
 
     local function bind_alias(ctx, binding, src, ty)
@@ -1109,11 +1380,20 @@ local function bind_context(T)
         return Bind.Binding(Core.Id("control:param:" .. region_id .. ":" .. label.name .. ":" .. param.name), param.name, param.ty, class)
     end
 
-    local function switch_literal(raw)
-        if raw == "true" then return Core.LitBool(true) end
-        if raw == "false" then return Core.LitBool(false) end
-        if type(raw) == "string" and raw:match("^[+-]?%d+$") then return Core.LitInt(raw) end
-        unsupported(nil, raw, "non-literal switch case `" .. tostring(raw) .. "`")
+    function Tr.SwitchKeyInt:tree_code_switch_literal()
+        return Core.LitInt(self.raw)
+    end
+
+    function Tr.SwitchKeyBool:tree_code_switch_literal()
+        return Core.LitBool(self.value)
+    end
+
+    function Tr.SwitchKeyName:tree_code_switch_literal()
+        unsupported(nil, self.name, "named switch case requires resolved key lowering")
+    end
+
+    function Tr.SwitchKeyExpr:tree_code_switch_literal()
+        unsupported(nil, self.expr, "expression switch case requires compare-fallback lowering")
     end
 
     local function lower_stmt_fallthrough_to(ctx, body, block_id, name, join_id)
@@ -1189,7 +1469,7 @@ local function bind_context(T)
         for i = 1, #(stmt.arms or {}) do
             local bid = new_block_id(ctx, "switch_case")
             case_ids[i] = bid
-            cases[i] = Code.CodeSwitchCase(switch_literal(stmt.arms[i].raw_key), bid, {})
+            cases[i] = Code.CodeSwitchCase(stmt.arms[i].key:tree_code_switch_literal(), bid, {})
         end
         local default_id = new_block_id(ctx, "switch_default")
         local join_id = new_block_id(ctx, "switch_join")
@@ -1321,7 +1601,7 @@ local function bind_context(T)
         for i = 1, #(expr.arms or {}) do
             local bid = new_block_id(ctx, "expr_switch_case")
             case_ids[i] = bid
-            cases[i] = Code.CodeSwitchCase(switch_literal(expr.arms[i].raw_key), bid, {})
+            cases[i] = Code.CodeSwitchCase(expr.arms[i].key:tree_code_switch_literal(), bid, {})
         end
         local default_id = new_block_id(ctx, "expr_switch_default")
         local join_id = new_block_id(ctx, "expr_switch_join")
@@ -1421,77 +1701,117 @@ local function bind_context(T)
         if is_expr then return result_value, result_ty end
     end
 
+    function Tr.StmtLet:lower_tree_stmt_to_code(input)
+        local ctx = input
+        local src, ty = lower_expr(ctx, self.init)
+        declare_fresh_binding_key(ctx, self.binding)
+        if binding_is_addressed(ctx, self.binding) or (is_aggregate_code_ty(ty) and not is_view_code_ty(ty)) then bind_local_init(ctx, self.binding, src, self.binding.ty, false)
+        else bind_alias(ctx, self.binding, src, ty) end
+    end
+
+    function Tr.StmtVar:lower_tree_stmt_to_code(input)
+        local ctx = input
+        local src = lower_expr(ctx, self.init)
+        ctx.mutable[declare_fresh_binding_key(ctx, self.binding)] = true
+        bind_local_init(ctx, self.binding, src, self.binding.ty, true)
+    end
+
+    function Tr.StmtSet:lower_tree_stmt_to_code(input)
+        local ctx = input
+        local value = lower_expr(ctx, self.value)
+        store_place(ctx, lower_place(ctx, self.place), place_type(self.place), value, origin_generated("set"))
+    end
+
+    function Tr.StmtAtomicStore:lower_tree_stmt_to_code(input)
+        local ctx = input
+        local value = lower_expr(ctx, self.value)
+        local place = Code.CodePlaceDeref(lower_expr(ctx, self.addr), code_ty(ctx, self.ty), align_of(ctx, self.ty))
+        append_inst(ctx, Code.CodeInstAtomicStore(place, value, atomic_access(ctx, Code.CodeMemoryWrite, self.ty, self.ordering), self.ordering), origin_generated("atomic store"))
+    end
+
+    function Tr.StmtAtomicFence:lower_tree_stmt_to_code(input)
+        append_inst(input, Code.CodeInstAtomicFence(self.ordering), origin_generated("atomic fence"))
+    end
+
+    function Tr.StmtExpr:lower_tree_stmt_to_code(input)
+        lower_expr(input, self.expr)
+    end
+
+    function Tr.StmtIf:lower_tree_stmt_to_code(input)
+        lower_stmt_if(input, self)
+    end
+
+    function Tr.StmtSwitch:lower_tree_stmt_to_code(input)
+        lower_stmt_switch(input, self)
+    end
+
+    function Tr.StmtControl:lower_tree_stmt_to_code(input)
+        lower_control_region(input, self.region, false)
+    end
+
+    function Tr.StmtJump:lower_tree_stmt_to_code(input)
+        local ctx = input
+        local region = ctx.control_region
+        if region == nil then unsupported(ctx, self, "jump outside control region") end
+        local target = region.labels[label_key(self.target)]
+        if target == nil then unsupported(ctx, self, "missing control target `" .. tostring(self.target.name) .. "`") end
+        local args = {}
+        for i = 1, #target.params do
+            local arg = find_jump_arg(self.args, target.params[i].name)
+            args[#args + 1] = lower_expr(ctx, arg.value)
+        end
+        terminate(ctx, Code.CodeTermJump(target.id, args), origin_generated("control jump"))
+    end
+
+    function Tr.StmtJumpCont:lower_tree_stmt_to_code(input)
+        unsupported(input, self, "continuation slot jump after open expansion")
+    end
+
+    function Tr.StmtYieldValue:lower_tree_stmt_to_code(input)
+        local ctx = input
+        local region = ctx.control_region
+        if region == nil or not region.is_expr then unsupported(ctx, self, "value yield outside expression control region") end
+        local value = lower_expr(ctx, self.value)
+        region.has_exit = true
+        terminate(ctx, Code.CodeTermJump(region.exit_id, { value }), origin_generated("control yield value"))
+    end
+
+    function Tr.StmtYieldVoid:lower_tree_stmt_to_code(input)
+        local ctx = input
+        local region = ctx.control_region
+        if region == nil or region.is_expr then unsupported(ctx, self, "void yield outside statement control region") end
+        region.has_exit = true
+        terminate(ctx, Code.CodeTermJump(region.exit_id, {}), origin_generated("control yield"))
+    end
+
+    function Tr.StmtReturnValue:lower_tree_stmt_to_code(input)
+        local ctx = input
+        local value = lower_expr(ctx, self.value)
+        terminate(ctx, Code.CodeTermReturn({ value }), origin_generated("return"))
+    end
+
+    function Tr.StmtReturnVoid:lower_tree_stmt_to_code(input)
+        terminate(input, Code.CodeTermReturn({}), origin_generated("return"))
+    end
+
+    function Tr.StmtTrap:lower_tree_stmt_to_code(input)
+        terminate(input, Code.CodeTermTrap("source trap"), origin_generated("trap"))
+    end
+
+    function Tr.StmtAssert:lower_tree_stmt_to_code(input)
+        local ctx = input
+        local cond = lower_expr(ctx, self.cond)
+        local ok_id = new_block_id(ctx, "assert_ok")
+        local trap_id = new_block_id(ctx, "assert_trap")
+        terminate(ctx, Code.CodeTermBranch(cond, ok_id, {}, trap_id, {}), origin_generated("assert branch"))
+        start_block(ctx, trap_id, "assert.trap", {}, origin_generated("assert trap"))
+        terminate(ctx, Code.CodeTermTrap("assertion failed"), origin_generated("assert trap"))
+        start_block(ctx, ok_id, "assert.ok", {}, origin_generated("assert ok"))
+    end
+
     lower_stmt = function(ctx, stmt)
         if ctx.current_block == nil then return end
-        local action = select_lowering(ctx, "select_stmt_lowering", stmt)
-        if action == "let" then
-            local src, ty = lower_expr(ctx, stmt.init)
-            declare_fresh_binding_key(ctx, stmt.binding)
-            if binding_is_addressed(ctx, stmt.binding) or (is_aggregate_code_ty(ty) and not is_view_code_ty(ty)) then bind_local_init(ctx, stmt.binding, src, stmt.binding.ty, false)
-            else bind_alias(ctx, stmt.binding, src, ty) end
-        elseif action == "var" then
-            local src = lower_expr(ctx, stmt.init)
-            ctx.mutable[declare_fresh_binding_key(ctx, stmt.binding)] = true
-            bind_local_init(ctx, stmt.binding, src, stmt.binding.ty, true)
-        elseif action == "set" then
-            local value = lower_expr(ctx, stmt.value)
-            store_place(ctx, lower_place(ctx, stmt.place), place_type(stmt.place), value, origin_generated("set"))
-        elseif action == "atomic_store" then
-            local value = lower_expr(ctx, stmt.value)
-            local place = Code.CodePlaceDeref(lower_expr(ctx, stmt.addr), code_ty(ctx, stmt.ty), align_of(ctx, stmt.ty))
-            append_inst(ctx, Code.CodeInstAtomicStore(place, value, atomic_access(ctx, Code.CodeMemoryWrite, stmt.ty, stmt.ordering), stmt.ordering), origin_generated("atomic store"))
-        elseif action == "atomic_fence" then
-            append_inst(ctx, Code.CodeInstAtomicFence(stmt.ordering), origin_generated("atomic fence"))
-        elseif action == "expr" then
-            lower_expr(ctx, stmt.expr)
-        elseif action == "if" then
-            lower_stmt_if(ctx, stmt)
-        elseif action == "switch" then
-            lower_stmt_switch(ctx, stmt)
-        elseif action == "control" then
-            lower_control_region(ctx, stmt.region, false)
-        elseif action == "jump" then
-            local region = ctx.control_region
-            if region == nil then unsupported(ctx, stmt, "jump outside control region") end
-            local target = region.labels[label_key(stmt.target)]
-            if target == nil then unsupported(ctx, stmt, "missing control target `" .. tostring(stmt.target.name) .. "`") end
-            local args = {}
-            for i = 1, #target.params do
-                local arg = find_jump_arg(stmt.args, target.params[i].name)
-                args[#args + 1] = lower_expr(ctx, arg.value)
-            end
-            terminate(ctx, Code.CodeTermJump(target.id, args), origin_generated("control jump"))
-        elseif action == "jump_cont" then
-            unsupported(ctx, stmt, "continuation slot jump after open expansion")
-        elseif action == "yield_value" then
-            local region = ctx.control_region
-            if region == nil or not region.is_expr then unsupported(ctx, stmt, "value yield outside expression control region") end
-            local value = lower_expr(ctx, stmt.value)
-            region.has_exit = true
-            terminate(ctx, Code.CodeTermJump(region.exit_id, { value }), origin_generated("control yield value"))
-        elseif action == "yield_void" then
-            local region = ctx.control_region
-            if region == nil or region.is_expr then unsupported(ctx, stmt, "void yield outside statement control region") end
-            region.has_exit = true
-            terminate(ctx, Code.CodeTermJump(region.exit_id, {}), origin_generated("control yield"))
-        elseif action == "return_value" then
-            local value = lower_expr(ctx, stmt.value)
-            terminate(ctx, Code.CodeTermReturn({ value }), origin_generated("return"))
-        elseif action == "return_void" then
-            terminate(ctx, Code.CodeTermReturn({}), origin_generated("return"))
-        elseif action == "trap" then
-            terminate(ctx, Code.CodeTermTrap("source trap"), origin_generated("trap"))
-        elseif action == "assert" then
-            local cond = lower_expr(ctx, stmt.cond)
-            local ok_id = new_block_id(ctx, "assert_ok")
-            local trap_id = new_block_id(ctx, "assert_trap")
-            terminate(ctx, Code.CodeTermBranch(cond, ok_id, {}, trap_id, {}), origin_generated("assert branch"))
-            start_block(ctx, trap_id, "assert.trap", {}, origin_generated("assert trap"))
-            terminate(ctx, Code.CodeTermTrap("assertion failed"), origin_generated("assert trap"))
-            start_block(ctx, ok_id, "assert.ok", {}, origin_generated("assert ok"))
-        else
-            unsupported(ctx, stmt, "statement " .. class_name(stmt))
-        end
+        stmt:lower_tree_stmt_to_code(ctx)
     end
 
     lower_stmt_body = function(ctx, body)
@@ -1501,13 +1821,25 @@ local function bind_context(T)
         end
     end
 
+    function Tr.FuncLocal:lower_tree_func_parts_to_code()
+        return Tr.TreeCodeFuncParts(self.name, Code.CodeLinkageLocal, self.params, self.result, self.body)
+    end
+
+    function Tr.FuncExport:lower_tree_func_parts_to_code()
+        return Tr.TreeCodeFuncParts(self.name, Code.CodeLinkageExport, self.params, self.result, self.body)
+    end
+
+    function Tr.FuncLocalContract:lower_tree_func_parts_to_code()
+        return Tr.TreeCodeFuncParts(self.name, Code.CodeLinkageLocal, self.params, self.result, self.body)
+    end
+
+    function Tr.FuncExportContract:lower_tree_func_parts_to_code()
+        return Tr.TreeCodeFuncParts(self.name, Code.CodeLinkageExport, self.params, self.result, self.body)
+    end
+
     local function func_parts(func)
-        local action = select_lowering(nil, "select_func_lowering", func)
-        if action == "local" then return func.name, Code.CodeLinkageLocal, func.params, func.result, func.body end
-        if action == "export" then return func.name, Code.CodeLinkageExport, func.params, func.result, func.body end
-        if action == "local_contract" then return func.name, Code.CodeLinkageLocal, func.params, func.result, func.body end
-        if action == "export_contract" then return func.name, Code.CodeLinkageExport, func.params, func.result, func.body end
-        unsupported(nil, func, "function " .. class_name(func))
+        local parts = func:lower_tree_func_parts_to_code()
+        return parts.name, parts.linkage, parts.params, parts.result, parts.body
     end
 
     local function param_binding(Core, Bind, func_name, param, index)
@@ -1522,12 +1854,21 @@ local function bind_context(T)
 
     local function global_init_for_const(ctx, source_ty, value_expr, site)
         local value = ConstEval.value(value_expr, ctx.module_ctx.const_env, ConstEval.empty_local_env())
-        local cls = asdl.classof(value)
         local ty = code_ty(ctx, source_ty)
-        if cls == Sem.ConstInt then return { Code.CodeDataScalar(0, ty, Core.LitInt(value.raw)) } end
-        if cls == Sem.ConstFloat then return { Code.CodeDataScalar(0, ty, Core.LitFloat(value.raw)) } end
-        if cls == Sem.ConstBool then return { Code.CodeDataScalar(0, ty, Core.LitBool(value.value)) } end
+        return value:tree_code_global_init(ctx, ty, value_expr, site)
+    end
+
+    function Sem.ConstValue:tree_code_global_init(ctx, ty, value_expr, site)
         unsupported(ctx, value_expr, "non-scalar constant initializer for global `" .. tostring(site) .. "`")
+    end
+    function Sem.ConstInt:tree_code_global_init(ctx, ty, value_expr, site)
+        return { Code.CodeDataScalar(0, ty, Core.LitInt(self.raw)) }
+    end
+    function Sem.ConstFloat:tree_code_global_init(ctx, ty, value_expr, site)
+        return { Code.CodeDataScalar(0, ty, Core.LitFloat(self.raw)) }
+    end
+    function Sem.ConstBool:tree_code_global_init(ctx, ty, value_expr, site)
+        return { Code.CodeDataScalar(0, ty, Core.LitBool(self.value)) }
     end
 
     local function lower_global(module_ctx, name, source_ty, value_expr)
@@ -1541,10 +1882,20 @@ local function bind_context(T)
     end
 
     local function contract_value_for_expr(func_name, expr)
-        if asdl.classof(expr) == Tr.ExprRef and asdl.classof(expr.ref) == Bind.ValueRefBinding then
-            return contract_value_for_binding(func_name, expr.ref.binding)
-        end
+        return expr:tree_code_contract_value(func_name)
+    end
+
+    function Tr.Expr:tree_code_contract_value(func_name)
+        return nil, "contract expression is not a lowered binding reference: " .. class_name(self)
+    end
+    function Tr.ExprRef:tree_code_contract_value(func_name)
+        return self.ref:tree_code_contract_value(func_name, self)
+    end
+    function Bind.ValueRef:tree_code_contract_value(func_name, expr)
         return nil, "contract expression is not a lowered binding reference: " .. class_name(expr)
+    end
+    function Bind.ValueRefBinding:tree_code_contract_value(func_name, expr)
+        return contract_value_for_binding(func_name, self.binding)
     end
 
     local function code_contract_reject(func_id, reason)
@@ -1564,64 +1915,63 @@ local function bind_context(T)
         return table.concat(out, "; ")
     end
 
+    function Tr.ContractFactBounds:lower_tree_contract_fact_to_code(ctx, func_name, func_id)
+        return Tr.TreeCodeContractResult(Code.CodeFuncContractFact(func_id, Code.CodeContractBounds(
+            contract_value_for_binding(func_name, self.base),
+            contract_value_for_binding(func_name, self.len)
+        ), origin_binding(self.base)))
+    end
+
+    function Tr.ContractFactWindowBounds:lower_tree_contract_fact_to_code(ctx, func_name, func_id)
+        local base = contract_value_for_binding(func_name, self.base)
+        local base_len, base_len_err = contract_value_for_expr(func_name, self.base_len)
+        local start, start_err = contract_value_for_expr(func_name, self.start)
+        local len, len_err = contract_value_for_expr(func_name, self.len)
+        if base_len == nil or start == nil or len == nil then
+            return Tr.TreeCodeContractResult(code_contract_reject(func_id, join_reasons(base_len_err, start_err, len_err)))
+        end
+        return Tr.TreeCodeContractResult(Code.CodeFuncContractFact(func_id, Code.CodeContractWindowBounds(base, base_len, start, len), origin_binding(self.base)))
+    end
+
+    function Tr.ContractFactDisjoint:lower_tree_contract_fact_to_code(ctx, func_name, func_id)
+        return Tr.TreeCodeContractResult(Code.CodeFuncContractFact(func_id, Code.CodeContractDisjoint(contract_value_for_binding(func_name, self.a), contract_value_for_binding(func_name, self.b)), origin_binding(self.a)))
+    end
+
+    function Tr.ContractFactSameLen:lower_tree_contract_fact_to_code(ctx, func_name, func_id)
+        return Tr.TreeCodeContractResult(Code.CodeFuncContractFact(func_id, Code.CodeContractSameLen(contract_value_for_binding(func_name, self.a), contract_value_for_binding(func_name, self.b)), origin_binding(self.a)))
+    end
+
+    function Tr.ContractFactSoAComponent:lower_tree_contract_fact_to_code(ctx, func_name, func_id)
+        return Tr.TreeCodeContractResult(Code.CodeFuncContractFact(func_id, Code.CodeContractSoAComponent(contract_value_for_binding(func_name, self.base), code_ty(ctx, self.record_ty), self.field_name, self.component_index), origin_binding(self.base)))
+    end
+
+    function Tr.ContractFactNoAlias:lower_tree_contract_fact_to_code(ctx, func_name, func_id)
+        return Tr.TreeCodeContractResult(Code.CodeFuncContractFact(func_id, Code.CodeContractNoAlias(contract_value_for_binding(func_name, self.base)), origin_binding(self.base)))
+    end
+
+    function Tr.ContractFactReadonly:lower_tree_contract_fact_to_code(ctx, func_name, func_id)
+        return Tr.TreeCodeContractResult(Code.CodeFuncContractFact(func_id, Code.CodeContractReadonly(contract_value_for_binding(func_name, self.base)), origin_binding(self.base)))
+    end
+
+    function Tr.ContractFactWriteonly:lower_tree_contract_fact_to_code(ctx, func_name, func_id)
+        return Tr.TreeCodeContractResult(Code.CodeFuncContractFact(func_id, Code.CodeContractWriteonly(contract_value_for_binding(func_name, self.base)), origin_binding(self.base)))
+    end
+
+    function Tr.ContractFactInvalidate:lower_tree_contract_fact_to_code(ctx, func_name, func_id)
+        return Tr.TreeCodeContractResult(Code.CodeFuncContractFact(func_id, Code.CodeContractInvalidate(contract_value_for_binding(func_name, self.base)), origin_binding(self.base)))
+    end
+
+    function Tr.ContractFactPreserve:lower_tree_contract_fact_to_code(ctx, func_name, func_id)
+        return Tr.TreeCodeContractResult(Code.CodeFuncContractFact(func_id, Code.CodeContractPreserve(contract_value_for_binding(func_name, self.base)), origin_binding(self.base)))
+    end
+
+    function Tr.ContractFactRejected:lower_tree_contract_fact_to_code(ctx, func_name, func_id)
+        return Tr.TreeCodeContractResult(code_contract_reject(func_id, "tree contract rejected: " .. class_name(self.issue)))
+    end
+
     local function code_contract_fact(module_ctx, func_name, func_id, fact)
         local ctx = { module_ctx = module_ctx, layout_env = module_ctx.layout_env, target = module_ctx.target, func_name = func_name }
-        local action = select_lowering(ctx, "select_contract_fact_lowering", fact)
-        if action == "bounds" then
-            return Code.CodeFuncContractFact(func_id, Code.CodeContractBounds(
-                contract_value_for_binding(func_name, fact.base),
-                contract_value_for_binding(func_name, fact.len)
-            ), origin_binding(fact.base))
-        elseif action == "window_bounds" then
-            local base = contract_value_for_binding(func_name, fact.base)
-            local base_len, base_len_err = contract_value_for_expr(func_name, fact.base_len)
-            local start, start_err = contract_value_for_expr(func_name, fact.start)
-            local len, len_err = contract_value_for_expr(func_name, fact.len)
-            if base_len == nil or start == nil or len == nil then
-                return code_contract_reject(func_id, join_reasons(base_len_err, start_err, len_err))
-            end
-            return Code.CodeFuncContractFact(func_id, Code.CodeContractWindowBounds(base, base_len, start, len), origin_binding(fact.base))
-        elseif action == "disjoint" then
-            return Code.CodeFuncContractFact(func_id, Code.CodeContractDisjoint(
-                contract_value_for_binding(func_name, fact.a),
-                contract_value_for_binding(func_name, fact.b)
-            ), origin_binding(fact.a))
-        elseif action == "same_len" then
-            return Code.CodeFuncContractFact(func_id, Code.CodeContractSameLen(
-                contract_value_for_binding(func_name, fact.a),
-                contract_value_for_binding(func_name, fact.b)
-            ), origin_binding(fact.a))
-        elseif action == "soa_component" then
-            return Code.CodeFuncContractFact(func_id, Code.CodeContractSoAComponent(
-                contract_value_for_binding(func_name, fact.base),
-                code_ty(ctx, fact.record_ty),
-                fact.field_name,
-                fact.component_index
-            ), origin_binding(fact.base))
-        elseif action == "noalias" then
-            return Code.CodeFuncContractFact(func_id, Code.CodeContractNoAlias(
-                contract_value_for_binding(func_name, fact.base)
-            ), origin_binding(fact.base))
-        elseif action == "readonly" then
-            return Code.CodeFuncContractFact(func_id, Code.CodeContractReadonly(
-                contract_value_for_binding(func_name, fact.base)
-            ), origin_binding(fact.base))
-        elseif action == "writeonly" then
-            return Code.CodeFuncContractFact(func_id, Code.CodeContractWriteonly(
-                contract_value_for_binding(func_name, fact.base)
-            ), origin_binding(fact.base))
-        elseif action == "invalidate" then
-            return Code.CodeFuncContractFact(func_id, Code.CodeContractInvalidate(
-                contract_value_for_binding(func_name, fact.base)
-            ), origin_binding(fact.base))
-        elseif action == "preserve" then
-            return Code.CodeFuncContractFact(func_id, Code.CodeContractPreserve(
-                contract_value_for_binding(func_name, fact.base)
-            ), origin_binding(fact.base))
-        elseif action == "rejected" then
-            return code_contract_reject(func_id, "tree contract rejected: " .. class_name(fact.issue))
-        end
-        return code_contract_reject(func_id, "unsupported tree contract fact: " .. class_name(fact))
+        return fact:lower_tree_contract_fact_to_code(ctx, func_name, func_id).fact
     end
 
     local function build_module_ctx(module, opts)
@@ -1631,33 +1981,43 @@ local function bind_context(T)
         local mod_name = module_name(module)
         local const_entries = {}
         for i = 1, #(module.items or {}) do
-            local item = module.items[i]
-            if asdl.classof(item) == Tr.ItemConst then
-                local c = item.c
-                if asdl.classof(c) == Tr.ConstItem then const_entries[#const_entries + 1] = Bind.ConstEntry(mod_name, c.name, c.ty, c.value) end
-            end
+            module.items[i]:tree_code_add_const_entries(const_entries, mod_name)
         end
         local module_ctx = { code_sigs = {}, code_sig_order = {}, layout_env = layout_env, target = opts.target, module_name = mod_name, funcs = {}, externs = {}, variant_defs = build_variant_defs(module, mod_name), const_env = Bind.ConstEnv(const_entries), generated_data = {}, next_string_data = 0 }
         local externs = {}
         for i = 1, #(module.items or {}) do
-            local item = module.items[i]
-            local action = select_lowering({ func_name = module_ctx.module_name }, "select_item_lowering", item)
-            if action == "func" then
-                local name, _, params, result_ty = func_parts(item.func)
-                local sig = CodeType.ensure_type_sig(module_ctx, param_types(params), result_ty)
-                module_ctx.funcs[func_key(module_ctx.module_name, name)] = { id = code_func_id(name), sig = sig }
-            elseif action == "extern" then
-                local f = item.func
-                if asdl.classof(f) ~= Tr.ExternFunc then unsupported({ func_name = module_ctx.module_name }, f, "open extern after expansion") end
-                local param_tys = {}
-                for j = 1, #(f.params or {}) do param_tys[j] = f.params[j].ty end
-                local sig = CodeType.ensure_type_sig(module_ctx, param_tys, f.result)
-                local ex = Code.CodeExtern(code_extern_id(f.name), f.name, f.symbol, sig, origin_generated("extern " .. f.name))
-                module_ctx.externs[f.name] = ex
-                externs[#externs + 1] = ex
-            end
+            module.items[i]:lower_tree_item_register_to_code(module_ctx, externs)
         end
         return module_ctx, externs
+    end
+
+    function Tr.Item:lower_tree_item_register_to_code(module_ctx, externs) end
+    function Tr.Item:tree_code_add_const_entries(entries, mod_name) end
+    function Tr.ItemConst:tree_code_add_const_entries(entries, mod_name)
+        self.c:tree_code_add_const_entries(entries, mod_name)
+    end
+    function Tr.ConstItem:tree_code_add_const_entries(entries, mod_name)
+        entries[#entries + 1] = Bind.ConstEntry(mod_name, self.name, self.ty, self.value)
+    end
+
+    function Tr.ItemFunc:lower_tree_item_register_to_code(module_ctx)
+        local name, _, params, result_ty = func_parts(self.func)
+        local sig = CodeType.ensure_type_sig(module_ctx, param_types(params), result_ty)
+        module_ctx.funcs[func_key(module_ctx.module_name, name)] = { id = code_func_id(name), sig = sig }
+    end
+
+    function Tr.ItemExtern:lower_tree_item_register_to_code(module_ctx, externs)
+        local f = self.func
+        f:tree_code_register_extern(module_ctx, externs)
+    end
+
+    function Tr.ExternFunc:tree_code_register_extern(module_ctx, externs)
+        local param_tys = {}
+        for j = 1, #(self.params or {}) do param_tys[j] = self.params[j].ty end
+        local sig = CodeType.ensure_type_sig(module_ctx, param_tys, self.result)
+        local ex = Code.CodeExtern(code_extern_id(self.name), self.name, self.symbol, sig, origin_generated("extern " .. self.name))
+        module_ctx.externs[self.name] = ex
+        externs[#externs + 1] = ex
     end
 
     local function lower_contracts(module, opts)
@@ -1667,16 +2027,20 @@ local function bind_context(T)
         local facts = {}
         for i = 1, #(module.items or {}) do
             local item = module.items[i]
-            if select_lowering({ func_name = module_ctx.module_name }, "select_item_lowering", item) == "func" then
-                local name = func_parts(item.func)
-                local func_id = code_func_id(name)
-                local tree_facts = TreeContractFacts.facts(item.func)
-                for j = 1, #(tree_facts.facts or {}) do
-                    facts[#facts + 1] = code_contract_fact(module_ctx, name, func_id, tree_facts.facts[j])
-                end
-            end
+            item:lower_tree_item_contracts_to_code(module_ctx, facts)
         end
         return Code.CodeContractFactSet(mod_id, facts)
+    end
+
+    function Tr.Item:lower_tree_item_contracts_to_code(module_ctx, facts) end
+
+    function Tr.ItemFunc:lower_tree_item_contracts_to_code(module_ctx, facts)
+        local name = func_parts(self.func)
+        local func_id = code_func_id(name)
+        local tree_facts = TreeContractFacts.facts(self.func)
+        for j = 1, #(tree_facts.facts or {}) do
+            facts[#facts + 1] = code_contract_fact(module_ctx, name, func_id, tree_facts.facts[j])
+        end
     end
 
     local function lower_func(module_ctx, func)
@@ -1743,25 +2107,7 @@ local function bind_context(T)
         local data = {}
         local globals = {}
         for i = 1, #(module.items or {}) do
-            local item = module.items[i]
-            local action = select_lowering({ func_name = mod_name }, "select_item_lowering", item)
-            if action == "func" then
-                funcs[#funcs + 1] = lower_func(module_ctx, item.func)
-            elseif action == "data" then
-                data[#data + 1] = Code.CodeData(code_data_id(item.data.id), item.data.id.text, Code.CodeLinkageLocal, item.data.size, item.data.align, { Code.CodeDataBytes(0, item.data.bytes) }, origin_generated("data " .. tostring(item.data.id.text)))
-            elseif action == "const" then
-                if asdl.classof(item.c) ~= Tr.ConstItem then unsupported({ func_name = mod_name }, item, "open const item after expansion") end
-                globals[#globals + 1] = lower_global(module_ctx, item.c.name, item.c.ty, item.c.value)
-            elseif action == "static" then
-                if asdl.classof(item.s) ~= Tr.StaticItem then unsupported({ func_name = mod_name }, item, "open static item after expansion") end
-                globals[#globals + 1] = lower_global(module_ctx, item.s.name, item.s.ty, item.s.value)
-            elseif action == "extern" or action == "type" or action == "import" then
-                -- Declarations do not produce executable LalinCode blocks.
-            elseif action == "region_frag" or action == "expr_frag" then
-                unsupported({ func_name = mod_name }, item, "fragment item leaked past frontend expansion/typecheck")
-            else
-                unsupported({ func_name = module_name(module) }, item, "module item " .. class_name(item))
-            end
+            module.items[i]:lower_tree_item_to_code(module_ctx, mod_name, funcs, data, globals)
         end
         for i = 1, #module_ctx.generated_data do data[#data + 1] = module_ctx.generated_data[i] end
         return Code.CodeModule(
@@ -1770,6 +2116,40 @@ local function bind_context(T)
             {}, data, globals, externs, funcs,
             origin_generated("tree_to_code module")
         )
+    end
+
+    function Tr.Item:lower_tree_item_to_code(module_ctx, mod_name, funcs, data, globals) end
+
+    function Tr.ItemFunc:lower_tree_item_to_code(module_ctx, mod_name, funcs)
+        funcs[#funcs + 1] = lower_func(module_ctx, self.func)
+    end
+
+    function Tr.ItemData:lower_tree_item_to_code(module_ctx, mod_name, funcs, data)
+        data[#data + 1] = Code.CodeData(code_data_id(self.data.id), self.data.id.text, Code.CodeLinkageLocal, self.data.size, self.data.align, { Code.CodeDataBytes(0, self.data.bytes) }, origin_generated("data " .. tostring(self.data.id.text)))
+    end
+
+    function Tr.ItemConst:lower_tree_item_to_code(module_ctx, mod_name, funcs, data, globals)
+        self.c:tree_code_lower_const_item(module_ctx, globals)
+    end
+
+    function Tr.ConstItem:tree_code_lower_const_item(module_ctx, globals)
+        globals[#globals + 1] = lower_global(module_ctx, self.name, self.ty, self.value)
+    end
+
+    function Tr.ItemStatic:lower_tree_item_to_code(module_ctx, mod_name, funcs, data, globals)
+        self.s:tree_code_lower_static_item(module_ctx, globals)
+    end
+
+    function Tr.StaticItem:tree_code_lower_static_item(module_ctx, globals)
+        globals[#globals + 1] = lower_global(module_ctx, self.name, self.ty, self.value)
+    end
+
+    function Tr.ItemExtern:lower_tree_item_to_code(module_ctx, mod_name, funcs, data, globals) end
+    function Tr.ItemType:lower_tree_item_to_code(module_ctx, mod_name, funcs, data, globals) end
+    function Tr.ItemImport:lower_tree_item_to_code(module_ctx, mod_name, funcs, data, globals) end
+
+    function Tr.ItemRegion:lower_tree_item_to_code(module_ctx, mod_name)
+        unsupported({ func_name = mod_name }, self, "region item leaked past frontend expansion/typecheck")
     end
 
     local function lower_module_with_contracts(module, opts)

@@ -41,7 +41,7 @@ local function stable_repr(v, seen)
     if cls then
         out[#out + 1] = tostring(cls)
         out[#out + 1] = "{"
-        for i, field in ipairs(cls.__fields or {}) do
+        for i, field in ipairs(rawget(cls, "__fields") or {}) do
             if i > 1 then out[#out + 1] = "," end
             out[#out + 1] = field.name
             out[#out + 1] = "="
@@ -677,7 +677,7 @@ local function bind_context(T)
             if cls then
                 out[#out + 1] = tostring(cls)
                 out[#out + 1] = "{"
-                for i, field in ipairs(cls.__fields or {}) do
+                for i, field in ipairs(rawget(cls, "__fields") or {}) do
                     if i > 1 then out[#out + 1] = "," end
                     out[#out + 1] = field.name
                     out[#out + 1] = "="
@@ -971,7 +971,10 @@ local function bind_context(T)
 
     local function variant_name(value)
         if value == nil then return "nil" end
-        if value.text ~= nil then return value.text end
+        if type(value) == "table" then
+            local text = rawget(value, "text")
+            if text ~= nil then return text end
+        end
         local cls = asdl.classof(value)
         local s = tostring(cls or value)
         return s:match("([%w_]+)%)$") or s:match("%.([%w_]+)$") or s

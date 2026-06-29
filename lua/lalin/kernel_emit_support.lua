@@ -342,13 +342,13 @@ local function bind_context(T)
         else
             rejects[#rejects + 1] = reject_target("unknown schedule kind " .. tostring(kind_name))
         end
-        return {
-            executable = #rejects == 0,
-            kind = kind_name,
-            rejects = rejects,
-            reason = #rejects == 0 and "supported by current semantic emitters"
+        return Schedule.ScheduleEmitterCapability(
+            kind_name,
+            #rejects == 0,
+            #rejects == 0 and "supported by current semantic emitters"
                 or ("unsupported by current semantic emitters: " .. summarize_rejects(rejects)),
-        }
+            rejects
+        )
     end
 
     api.classify = classify

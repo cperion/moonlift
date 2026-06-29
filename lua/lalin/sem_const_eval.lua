@@ -65,6 +65,22 @@ local function bind_context(T)
         return nil
     end
 
+    function Tr.SwitchKeyInt:sem_const_eval_switch_key_value()
+        return self.raw
+    end
+
+    function Tr.SwitchKeyBool:sem_const_eval_switch_key_value()
+        return Sem.ConstBool(self.value)
+    end
+
+    function Tr.SwitchKeyName:sem_const_eval_switch_key_value()
+        return nil
+    end
+
+    function Tr.SwitchKeyExpr:sem_const_eval_switch_key_value()
+        return nil
+    end
+
     local function bool_value(v)
         if schema.classof(v) == Sem.ConstBool then return v.value end
         return nil
@@ -118,10 +134,6 @@ local function bind_context(T)
             if fields[i].name == name then return fields[i].value end
         end
         return nil
-    end
-
-    local function switch_key_value(key)
-        return key
     end
 
     local function same_const(a, b)
@@ -474,7 +486,7 @@ local function bind_context(T)
             local value = eval_value(self.value, const_env, local_env)
             if value == nil then return single(no()) end
             for i = 1, #self.arms do
-                local key = switch_key_value(self.arms[i].raw_key)
+                local key = self.arms[i].key:sem_const_eval_switch_key_value()
                 if key == value or (type(key) == "string" and int_raw(value) == key) then
                     local stmt_result = eval_stmts(self.arms[i].body, const_env, local_env)
                     if stmt_result.kind == "falls_through" then
