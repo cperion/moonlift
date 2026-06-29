@@ -542,12 +542,10 @@ return schema. LalinLuaJIT {
 
   sum. LJFuncBody {
     LJBodyMachine {
-      variant_unique,
       machine [LalinLuaJIT.LJMachineId],
       terminal [LalinLuaJIT.LJTerminal],
     },
     LJBodyBlocks {
-      variant_unique,
       entry [LalinLuaJIT.LJBlockId],
       blocks [many [LalinLuaJIT.LJBlock]],
     },

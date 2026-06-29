@@ -63,17 +63,17 @@ local function bind_context(T)
         local variants = {}
         for i = 1, #self.variants do
             local name = variant_name_text(self.variants[i])
-            variants[name] = { name = name, tag = i - 1, payload = Ty.TScalar(Core.ScalarVoid), fields = {} }
+            variants[name] = Tr.TreeCodeVariant(name, i - 1, Ty.TScalar(Core.ScalarVoid), {})
         end
-        defs[self.name] = { type_name = self.name, ty = Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name)), variants = variants }
+        defs[self.name] = Tr.TreeCodeVariantDef(Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name)), variants)
     end
     function Tr.TypeDeclTaggedUnionSugar:tree_code_add_variant_defs(defs, mod_name)
         local variants = {}
         for i = 1, #self.variants do
             local v = self.variants[i]
-            variants[v.name] = { name = v.name, tag = i - 1, payload = v.payload, fields = v.fields or {} }
+            variants[v.name] = Tr.TreeCodeVariant(v.name, i - 1, v.payload, v.fields or {})
         end
-        defs[self.name] = { type_name = self.name, ty = Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name)), variants = variants }
+        defs[self.name] = Tr.TreeCodeVariantDef(Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name)), variants)
     end
     function Tr.Item:tree_code_add_variant_defs(defs, mod_name) end
     function Tr.ItemType:tree_code_add_variant_defs(defs, mod_name)
@@ -134,19 +134,24 @@ local function bind_context(T)
         return key
     end
 
+    local function binding_alpha_suffix(ctx)
+        return ctx and ctx.binding_alpha_suffixes and ctx.binding_alpha_suffixes.current or nil
+    end
+
     local function declare_binding_key(ctx, binding)
         local key = binding_key(binding)
-        if ctx ~= nil and ctx.binding_alpha ~= nil and ctx.binding_alpha_suffix ~= nil and ctx.binding_alpha[key] == nil then
-            ctx.binding_alpha[key] = key .. "@" .. ctx.binding_alpha_suffix
+        local suffix = binding_alpha_suffix(ctx)
+        if ctx ~= nil and ctx.binding_alpha ~= nil and suffix ~= nil and ctx.binding_alpha[key] == nil then
+            ctx.binding_alpha[key] = key .. "@" .. suffix
         end
         return scoped_binding_key(ctx, binding)
     end
 
     local function declare_fresh_binding_key(ctx, binding)
         local key = binding_key(binding)
-        if ctx ~= nil and ctx.binding_alpha ~= nil and ctx.binding_alpha_suffix ~= nil then
-            ctx.binding_alpha_seq = (ctx.binding_alpha_seq or 0) + 1
-            ctx.binding_alpha[key] = key .. "@" .. ctx.binding_alpha_suffix .. "_l" .. tostring(ctx.binding_alpha_seq)
+        local suffix = binding_alpha_suffix(ctx)
+        if ctx ~= nil and ctx.binding_alpha ~= nil and suffix ~= nil then
+            ctx.binding_alpha[key] = key .. "@" .. suffix .. "_l" .. tostring(ctx:tree_code_next_counter("binding_alpha"))
         end
         return scoped_binding_key(ctx, binding)
     end
@@ -222,11 +227,51 @@ local function bind_context(T)
         return bytes
     end
 
+    local function new_tree_code_func_context(module_ctx, func_name, residence)
+        residence = residence or {}
+        return Tr.TreeCodeFuncContext(
+            module_ctx,
+            func_name,
+            {},
+            {},
+            residence.addressed or {},
+            residence.mutable or {},
+            {},
+            {},
+            nil,
+            {},
+            {},
+            0,
+            0,
+            0,
+            0,
+            0,
+            {},
+            nil,
+            {},
+            0,
+            nil,
+            {},
+            {}
+        )
+    end
+
+    local function tree_code_target(raw_target)
+        local target = raw_target and raw_target.c_target or raw_target
+        local ok, normalized = pcall(CodeType.normalize_target, target)
+        if ok then return normalized end
+        return CodeType.default_target({
+            pointer_bits = target and target.pointer_bits or nil,
+            index_bits = target and (target.index_bits or target.pointer_bits) or nil,
+            endian = type(target and target.endian) == "string" and target.endian or nil,
+        })
+    end
+
     local function fresh_string_data(ctx, bytes)
-        local module_ctx = ctx.module_ctx
+        local module_ctx = ctx.module
         module_ctx.next_string_data = (module_ctx.next_string_data or 0) + 1
         local stem = "str_" .. sanitize(ctx.func_name) .. "_" .. tostring(module_ctx.next_string_data)
-        local id = Code.CodeDataId("data:" .. tostring(module_ctx.module_name or "module") .. ":" .. stem)
+        local id = Code.CodeDataId("data:" .. tostring(module_ctx.facts.module_name or "module") .. ":" .. stem)
         local decoded = decoded_string_bytes(bytes)
         local nul_terminated = decoded .. "\0"
         module_ctx.generated_data[#module_ctx.generated_data + 1] = Code.CodeData(
@@ -283,7 +328,7 @@ local function bind_context(T)
     end
 
     local function code_ty(ctx, ty)
-        return CodeType.type_to_code(ty, ctx.module_ctx)
+        return CodeType.type_to_code(ty, ctx.module)
     end
 
     local function u8_code_ty()
@@ -291,7 +336,7 @@ local function bind_context(T)
     end
 
     local function variant_def(ctx, type_name)
-        return ctx.module_ctx.variant_defs and ctx.module_ctx.variant_defs[type_name] or nil
+        return ctx.module.facts.variant_defs and ctx.module.facts.variant_defs[type_name] or nil
     end
 
     local function variant_payload_ty(ctx, variant)
@@ -319,7 +364,7 @@ local function bind_context(T)
     end
 
     local function layout_of(ctx, ty)
-        local result = TypeSizeAlign.result(ty, ctx.layout_env, ctx.target)
+        local result = TypeSizeAlign.result(ty, ctx.module.facts.layout_env, ctx.module.facts.target)
         return result:tree_code_known_layout()
     end
 
@@ -333,58 +378,158 @@ local function bind_context(T)
         return layout and layout.size or nil
     end
 
+    local clone_map, replace_map
+    local label_key
+
+    function Tr.TreeCodeFuncContext:tree_code_next_counter(name)
+        local next_value = (self.counter_values[name] or 0) + 1
+        self.counter_values[name] = next_value
+        return next_value
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_current_block()
+        return self.current_blocks.current
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_has_current_block()
+        return self:tree_code_current_block() ~= nil
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_set_current_block(block)
+        self.current_blocks.current = block
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_clear_current_block()
+        self.current_blocks.current = nil
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_append_block(block)
+        self.blocks[#self.blocks + 1] = block
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_save_bindings()
+        return Tr.TreeCodeBindingSnapshot(clone_map(self.bindings), clone_map(self.locals_by_key))
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_restore_bindings(saved)
+        replace_map(self.bindings, saved.bindings)
+        replace_map(self.locals_by_key, saved.locals_by_key)
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_note_binding(binding, value)
+        self.bindings[scoped_binding_key(self, binding)] = value
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_note_mutable(binding)
+        self.mutable[declare_fresh_binding_key(self, binding)] = true
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_alpha_snapshot()
+        return clone_map(self.binding_alpha), self.binding_alpha_suffixes.current
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_use_alpha(alpha, suffix)
+        replace_map(self.binding_alpha, alpha)
+        self.binding_alpha_suffixes.current = suffix
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_fork_alpha(suffix)
+        self:tree_code_use_alpha(setmetatable({}, { __index = self.binding_alpha }), suffix)
+        return self.binding_alpha
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_enter_control_region(region)
+        self.control_regions.current = region
+        self.control_exit_seen.current = false
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_leave_control_region(region)
+        local saw_exit = self.control_exit_seen.current or false
+        self.control_regions.current = region
+        self.control_exit_seen.current = false
+        return saw_exit
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_current_control_region()
+        return self.control_regions.current
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_note_control_exit()
+        self.control_exit_seen.current = true
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_control_target(label)
+        local region = self:tree_code_current_control_region()
+        if region == nil then return nil end
+        return region.targets[label_key(label)]
+    end
+
+    function Tr.TreeCodeFuncContext:tree_code_ensure_local(binding, source_ty, residence)
+        local key = declare_binding_key(self, binding)
+        local existing = self.locals_by_key[key]
+        if existing ~= nil then return existing.id, existing.ty end
+        local cty = code_ty(self, source_ty or binding.ty)
+        local id = local_id_for_binding(self, binding)
+        local local_ = Code.CodeLocal(id, binding.name, cty, residence or residence_for(self, binding, source_ty or binding.ty), origin_binding(binding))
+        self.locals[#self.locals + 1] = local_
+        self.locals_by_key[key] = Tr.TreeCodeLocalBinding(id, cty, source_ty or binding.ty)
+        return id, cty
+    end
+
     local function new_temp(ctx, prefix)
-        ctx.next_value = ctx.next_value + 1
-        return Code.CodeValueId("v:" .. sanitize(ctx.func_name) .. ":" .. sanitize(prefix or "tmp") .. tostring(ctx.next_value))
+        return Code.CodeValueId("v:" .. sanitize(ctx.func_name) .. ":" .. sanitize(prefix or "tmp") .. tostring(ctx:tree_code_next_counter("value")))
     end
 
     local function new_inst_id(ctx, prefix)
-        ctx.next_inst = ctx.next_inst + 1
-        return Code.CodeInstId("inst:" .. sanitize(ctx.func_name) .. ":" .. sanitize(prefix or "i") .. tostring(ctx.next_inst))
+        return Code.CodeInstId("inst:" .. sanitize(ctx.func_name) .. ":" .. sanitize(prefix or "i") .. tostring(ctx:tree_code_next_counter("inst")))
     end
 
     local function new_term_id(ctx, prefix)
-        ctx.next_term = ctx.next_term + 1
-        return Code.CodeTermId("term:" .. sanitize(ctx.func_name) .. ":" .. sanitize(prefix or "t") .. tostring(ctx.next_term))
+        return Code.CodeTermId("term:" .. sanitize(ctx.func_name) .. ":" .. sanitize(prefix or "t") .. tostring(ctx:tree_code_next_counter("term")))
     end
 
     local function new_block_id(ctx, prefix)
-        ctx.next_block = ctx.next_block + 1
-        return Code.CodeBlockId("block:" .. sanitize(ctx.func_name) .. ":" .. sanitize(prefix or "b") .. tostring(ctx.next_block))
+        return Code.CodeBlockId("block:" .. sanitize(ctx.func_name) .. ":" .. sanitize(prefix or "b") .. tostring(ctx:tree_code_next_counter("block")))
     end
 
     local function append_inst(ctx, kind, origin)
-        if ctx.current_block == nil then unsupported(ctx, kind, "instruction after terminator") end
-        ctx.current_block.insts[#ctx.current_block.insts + 1] = Code.CodeInst(new_inst_id(ctx), kind, origin or origin_generated("tree_to_code"))
+        local block = ctx:tree_code_current_block()
+        if block == nil then unsupported(ctx, kind, "instruction after terminator") end
+        block.insts[#block.insts + 1] = Code.CodeInst(new_inst_id(ctx), kind, origin or origin_generated("tree_to_code"))
     end
 
     local function start_block(ctx, id, name, params, origin)
-        if ctx.current_block ~= nil then unsupported(ctx, id, "starting block before terminating current block") end
-        ctx.current_block = { id = id, name = name, params = params or {}, insts = {}, origin = origin or origin_generated("block " .. tostring(name or "block")) }
+        if ctx:tree_code_has_current_block() then unsupported(ctx, id, "starting block before terminating current block") end
+        ctx:tree_code_set_current_block(Tr.TreeCodeBlockBuilder(id, name, params or {}, {}, origin or origin_generated("block " .. tostring(name or "block"))))
     end
 
     local function terminate(ctx, kind, origin)
-        if ctx.current_block == nil then unsupported(ctx, kind, "terminator without current block") end
+        if not ctx:tree_code_has_current_block() then unsupported(ctx, kind, "terminator without current block") end
         local term = Code.CodeTerm(new_term_id(ctx, "term"), kind, origin or origin_generated("terminator"))
-        local block = ctx.current_block
-        ctx.blocks[#ctx.blocks + 1] = Code.CodeBlock(block.id, block.name, block.params, block.insts, term, block.origin)
-        ctx.current_block = nil
+        local block = ctx:tree_code_current_block()
+        ctx:tree_code_append_block(Code.CodeBlock(block.id, block.name, block.params, block.insts, term, block.origin))
+        ctx:tree_code_clear_current_block()
         return term
     end
 
-    local function clone_map(t)
+    clone_map = function(t)
         local out = {}
         for k, v in pairs(t or {}) do out[k] = v end
         return out
     end
 
+    replace_map = function(dst, src)
+        for k in pairs(dst or {}) do dst[k] = nil end
+        for k, v in pairs(src or {}) do dst[k] = v end
+        return dst
+    end
+
     local function save_bindings(ctx)
-        return { bindings = clone_map(ctx.bindings), locals_by_key = clone_map(ctx.locals_by_key) }
+        return ctx:tree_code_save_bindings()
     end
 
     local function restore_bindings(ctx, saved)
-        ctx.bindings = clone_map(saved.bindings)
-        ctx.locals_by_key = clone_map(saved.locals_by_key)
+        ctx:tree_code_restore_bindings(saved)
     end
 
     local function default_int_semantics()
@@ -410,15 +555,7 @@ local function bind_context(T)
     end
 
     local function ensure_local(ctx, binding, ty, residence)
-        local key = declare_binding_key(ctx, binding)
-        local existing = ctx.locals_by_key[key]
-        if existing ~= nil then return existing.id, existing.ty end
-        local cty = code_ty(ctx, ty or binding.ty)
-        local id = local_id_for_binding(ctx, binding)
-        local local_ = Code.CodeLocal(id, binding.name, cty, residence or residence_for(ctx, binding, ty or binding.ty), origin_binding(binding))
-        ctx.locals[#ctx.locals + 1] = local_
-        ctx.locals_by_key[key] = { id = id, ty = cty, source_ty = ty or binding.ty }
-        return id, cty
+        return ctx:tree_code_ensure_local(binding, ty, residence)
     end
 
     local collect_address_taken_expr, collect_address_taken_place, collect_address_taken_stmts
@@ -757,10 +894,10 @@ local function bind_context(T)
         unsupported(ctx, self, "non-callable type " .. class_name(self))
     end
     function Ty.TFunc:tree_code_call_sig_id(ctx)
-        return CodeType.ensure_type_sig(ctx.module_ctx, self.params, self.result)
+        return CodeType.ensure_type_sig(ctx.module, self.params, self.result)
     end
     function Ty.TClosure:tree_code_call_sig_id(ctx)
-        return CodeType.ensure_type_sig(ctx.module_ctx, self.params, self.result)
+        return CodeType.ensure_type_sig(ctx.module, self.params, self.result)
     end
 
     function Tr.Expr:tree_code_direct_call_target() return nil end
@@ -1131,7 +1268,7 @@ local function bind_context(T)
         local ctx = input
             local saved = save_bindings(ctx)
             lower_stmt_body(ctx, self.stmts or {})
-            if ctx.current_block == nil then unsupported(ctx, self, "expression block body terminated before result") end
+            if not ctx:tree_code_has_current_block() then unsupported(ctx, self, "expression block body terminated before result") end
             local value, ty = lower_expr(ctx, self.result)
             restore_bindings(ctx, saved)
             return Tr.TreeCodeExprResult(value, ty)
@@ -1330,7 +1467,7 @@ local function bind_context(T)
     local function bind_alias(ctx, binding, src, ty)
         declare_binding_key(ctx, binding)
         local dst = value_id_for_binding(ctx, binding)
-        ctx.bindings[scoped_binding_key(ctx, binding)] = dst
+        ctx:tree_code_note_binding(binding, dst)
         append_inst(ctx, Code.CodeInstAlias(dst, ty, src), origin_binding(binding))
         return dst
     end
@@ -1359,7 +1496,7 @@ local function bind_context(T)
         end
     end
 
-    local function label_key(label)
+    label_key = function(label)
         return label and label.name or tostring(label)
     end
 
@@ -1400,7 +1537,7 @@ local function bind_context(T)
         start_block(ctx, block_id, name, {}, origin_generated(name))
         local saved = save_bindings(ctx)
         lower_stmt_body(ctx, body or {})
-        local falls = ctx.current_block ~= nil
+        local falls = ctx:tree_code_has_current_block()
         if falls then terminate(ctx, Code.CodeTermJump(join_id, {}), origin_generated(name .. " fallthrough")) end
         restore_bindings(ctx, saved)
         return falls
@@ -1455,7 +1592,7 @@ local function bind_context(T)
                 start_block(ctx, case_ids[i], "switch.variant.case", {}, origin_generated("variant switch case"))
                 lower_variant_binds(ctx, "stmt_switch", value, owner_ty, variant, arm)
                 lower_stmt_body(ctx, arm.body or {})
-                if ctx.current_block ~= nil then terminate(ctx, Code.CodeTermJump(join_id, {}), origin_generated("variant switch case fallthrough")); any_falls = true end
+                if ctx:tree_code_has_current_block() then terminate(ctx, Code.CodeTermJump(join_id, {}), origin_generated("variant switch case fallthrough")); any_falls = true end
             end
             restore_bindings(ctx, saved)
             if lower_stmt_fallthrough_to(ctx, stmt.default_body or {}, default_id, "switch.variant.default", join_id) then any_falls = true end
@@ -1573,7 +1710,7 @@ local function bind_context(T)
                 start_block(ctx, case_ids[i], "expr.switch.variant.case", {}, origin_generated("variant switch expression case"))
                 lower_variant_binds(ctx, "expr_switch", value, owner_ty, variant, arm)
                 lower_stmt_body(ctx, arm.body or {})
-                if ctx.current_block ~= nil then
+                if ctx:tree_code_has_current_block() then
                     local arm_value = lower_expr(ctx, arm.result)
                     terminate(ctx, Code.CodeTermJump(join_id, { arm_value }), origin_generated("variant switch expression case yield"))
                     any_falls = true
@@ -1582,7 +1719,7 @@ local function bind_context(T)
             restore_bindings(ctx, saved)
             start_block(ctx, default_id, "expr.switch.variant.default", {}, origin_generated("variant switch expression default"))
             lower_stmt_body(ctx, expr.default_body or {})
-            if ctx.current_block ~= nil then
+            if ctx:tree_code_has_current_block() then
                 local default_value = lower_expr(ctx, expr.default_expr)
                 terminate(ctx, Code.CodeTermJump(join_id, { default_value }), origin_generated("variant switch expression default yield"))
                 any_falls = true
@@ -1612,7 +1749,7 @@ local function bind_context(T)
             restore_bindings(ctx, saved)
             start_block(ctx, case_ids[i], "expr.switch.case", {}, origin_generated("switch expression case"))
             lower_stmt_body(ctx, expr.arms[i].body or {})
-            if ctx.current_block ~= nil then
+            if ctx:tree_code_has_current_block() then
                 local arm_value = lower_expr(ctx, expr.arms[i].result)
                 terminate(ctx, Code.CodeTermJump(join_id, { arm_value }), origin_generated("switch expression case yield"))
                 any_falls = true
@@ -1621,7 +1758,7 @@ local function bind_context(T)
         restore_bindings(ctx, saved)
         start_block(ctx, default_id, "expr.switch.default", {}, origin_generated("switch expression default"))
         lower_stmt_body(ctx, expr.default_body or {})
-        if ctx.current_block ~= nil then
+        if ctx:tree_code_has_current_block() then
             local default_value = lower_expr(ctx, expr.default_expr)
             terminate(ctx, Code.CodeTermJump(join_id, { default_value }), origin_generated("switch expression default yield"))
             any_falls = true
@@ -1637,13 +1774,11 @@ local function bind_context(T)
         local result_value = is_expr and new_temp(ctx, "control_result") or nil
         local exit_params = {}
         if is_expr then exit_params[1] = Code.CodeParam(result_value, "result", result_ty, origin_generated("control result")) end
-        ctx.next_control_scope = (ctx.next_control_scope or 0) + 1
-        local saved_alpha, saved_alpha_suffix = ctx.binding_alpha, ctx.binding_alpha_suffix
-        local alpha = setmetatable({}, { __index = saved_alpha })
-        local alpha_suffix = "ctl" .. tostring(ctx.next_control_scope)
-        ctx.binding_alpha, ctx.binding_alpha_suffix = alpha, alpha_suffix
+        local saved_alpha, saved_alpha_suffix = ctx:tree_code_alpha_snapshot()
+        local alpha_suffix = "ctl" .. tostring(ctx:tree_code_next_counter("control_scope"))
+        local alpha = ctx:tree_code_fork_alpha(alpha_suffix)
         local records = {}
-        local labels = {}
+        local targets = {}
         local function add_record(block, is_entry)
             local bid = new_block_id(ctx, "ctl_" .. block.label.name)
             local params = {}
@@ -1658,44 +1793,44 @@ local function bind_context(T)
             end
             local rec = { id = bid, label = block.label, name = "ctl." .. block.label.name, params = params, bindings = bindings, body = block.body or {}, entry = is_entry, entry_params = block.params or {} }
             records[#records + 1] = rec
-            labels[label_key(block.label)] = rec
+            targets[label_key(block.label)] = Tr.TreeCodeControlTarget(bid, params)
             return rec
         end
         local entry = add_record(region.entry, true)
         for i = 1, #(region.blocks or {}) do add_record(region.blocks[i], false) end
+        local region_alpha = clone_map(ctx.binding_alpha)
         local exit_id = new_block_id(ctx, is_expr and "ctl_expr_exit" or "ctl_stmt_exit")
         local saved_outer = save_bindings(ctx)
         local entry_args = {}
-        ctx.binding_alpha, ctx.binding_alpha_suffix = saved_alpha, saved_alpha_suffix
+        ctx:tree_code_use_alpha(saved_alpha, saved_alpha_suffix)
         for i = 1, #(region.entry.params or {}) do
             entry_args[#entry_args + 1] = lower_expr(ctx, region.entry.params[i].init)
         end
-        ctx.binding_alpha, ctx.binding_alpha_suffix = alpha, alpha_suffix
+        ctx:tree_code_use_alpha(region_alpha, alpha_suffix)
         terminate(ctx, Code.CodeTermJump(entry.id, entry_args), origin_generated("enter control region"))
-        local outer_control = ctx.control_region
-        local control_region = { labels = labels, exit_id = exit_id, is_expr = is_expr, has_exit = false }
-        ctx.control_region = control_region
+        local outer_control = ctx:tree_code_current_control_region()
+        local control_region = Tr.TreeCodeControlRegion(is_expr, exit_id, targets)
+        ctx:tree_code_enter_control_region(control_region)
         local saved_region_outer = saved_outer
         for i = 1, #records do
             local rec = records[i]
             restore_bindings(ctx, saved_region_outer)
-            ctx.binding_alpha = setmetatable({}, { __index = alpha })
-            ctx.binding_alpha_suffix = alpha_suffix .. "_b" .. tostring(i)
+            ctx:tree_code_use_alpha(setmetatable({}, { __index = region_alpha }), alpha_suffix .. "_b" .. tostring(i))
             start_block(ctx, rec.id, rec.name, rec.params, origin_generated("control block " .. rec.label.name))
             for j = 1, #rec.bindings do
                 local b = rec.bindings[j]
-                ctx.bindings[scoped_binding_key(ctx, b.binding)] = b.value
+                ctx:tree_code_note_binding(b.binding, b.value)
                 if binding_is_addressed(ctx, b.binding) or is_aggregate_code_ty(b.code_ty) then
                     bind_local_init(ctx, b.binding, b.value, b.ty, false)
                 end
             end
             lower_stmt_body(ctx, rec.body)
-            if ctx.current_block ~= nil then unsupported(ctx, rec.label, "control block `" .. tostring(rec.label.name) .. "` can fall through") end
+            if ctx:tree_code_has_current_block() then unsupported(ctx, rec.label, "control block `" .. tostring(rec.label.name) .. "` can fall through") end
         end
-        ctx.control_region = outer_control
-        ctx.binding_alpha, ctx.binding_alpha_suffix = saved_alpha, saved_alpha_suffix
+        local has_exit = ctx:tree_code_leave_control_region(outer_control)
+        ctx:tree_code_use_alpha(saved_alpha, saved_alpha_suffix)
         restore_bindings(ctx, saved_outer)
-        if control_region.has_exit or is_expr then
+        if has_exit or is_expr then
             start_block(ctx, exit_id, is_expr and "ctl.expr.exit" or "ctl.stmt.exit", exit_params, origin_generated("control exit"))
         end
         if is_expr then return result_value, result_ty end
@@ -1712,7 +1847,7 @@ local function bind_context(T)
     function Tr.StmtVar:lower_tree_stmt_to_code(input)
         local ctx = input
         local src = lower_expr(ctx, self.init)
-        ctx.mutable[declare_fresh_binding_key(ctx, self.binding)] = true
+        ctx:tree_code_note_mutable(self.binding)
         bind_local_init(ctx, self.binding, src, self.binding.ty, true)
     end
 
@@ -1751,9 +1886,9 @@ local function bind_context(T)
 
     function Tr.StmtJump:lower_tree_stmt_to_code(input)
         local ctx = input
-        local region = ctx.control_region
+        local region = ctx:tree_code_current_control_region()
         if region == nil then unsupported(ctx, self, "jump outside control region") end
-        local target = region.labels[label_key(self.target)]
+        local target = ctx:tree_code_control_target(self.target)
         if target == nil then unsupported(ctx, self, "missing control target `" .. tostring(self.target.name) .. "`") end
         local args = {}
         for i = 1, #target.params do
@@ -1769,18 +1904,18 @@ local function bind_context(T)
 
     function Tr.StmtYieldValue:lower_tree_stmt_to_code(input)
         local ctx = input
-        local region = ctx.control_region
+        local region = ctx:tree_code_current_control_region()
         if region == nil or not region.is_expr then unsupported(ctx, self, "value yield outside expression control region") end
         local value = lower_expr(ctx, self.value)
-        region.has_exit = true
+        ctx:tree_code_note_control_exit()
         terminate(ctx, Code.CodeTermJump(region.exit_id, { value }), origin_generated("control yield value"))
     end
 
     function Tr.StmtYieldVoid:lower_tree_stmt_to_code(input)
         local ctx = input
-        local region = ctx.control_region
+        local region = ctx:tree_code_current_control_region()
         if region == nil or region.is_expr then unsupported(ctx, self, "void yield outside statement control region") end
-        region.has_exit = true
+        ctx:tree_code_note_control_exit()
         terminate(ctx, Code.CodeTermJump(region.exit_id, {}), origin_generated("control yield"))
     end
 
@@ -1810,13 +1945,13 @@ local function bind_context(T)
     end
 
     lower_stmt = function(ctx, stmt)
-        if ctx.current_block == nil then return end
+        if not ctx:tree_code_has_current_block() then return end
         stmt:lower_tree_stmt_to_code(ctx)
     end
 
     lower_stmt_body = function(ctx, body)
         for i = 1, #(body or {}) do
-            if ctx.current_block == nil then return end
+            if not ctx:tree_code_has_current_block() then return end
             lower_stmt(ctx, body[i])
         end
     end
@@ -1853,7 +1988,7 @@ local function bind_context(T)
     end
 
     local function global_init_for_const(ctx, source_ty, value_expr, site)
-        local value = ConstEval.value(value_expr, ctx.module_ctx.const_env, ConstEval.empty_local_env())
+        local value = ConstEval.value(value_expr, ctx.module.facts.const_env, ConstEval.empty_local_env())
         local ty = code_ty(ctx, source_ty)
         return value:tree_code_global_init(ctx, ty, value_expr, site)
     end
@@ -1872,9 +2007,9 @@ local function bind_context(T)
     end
 
     local function lower_global(module_ctx, name, source_ty, value_expr)
-        local ctx = { module_ctx = module_ctx, layout_env = module_ctx.layout_env, target = module_ctx.target, func_name = module_ctx.module_name }
+        local ctx = new_tree_code_func_context(module_ctx, module_ctx.facts.module_name)
         local inits = global_init_for_const(ctx, source_ty, value_expr, name)
-        return Code.CodeGlobal(code_global_id(module_ctx.module_name, name), name, code_ty(ctx, source_ty), Code.CodeLinkageLocal, size_of(ctx, source_ty), align_of(ctx, source_ty), inits, origin_generated("global " .. tostring(name)))
+        return Code.CodeGlobal(code_global_id(module_ctx.facts.module_name, name), name, code_ty(ctx, source_ty), Code.CodeLinkageLocal, size_of(ctx, source_ty), align_of(ctx, source_ty), inits, origin_generated("global " .. tostring(name)))
     end
 
     local function contract_value_for_binding(func_name, binding)
@@ -1970,7 +2105,7 @@ local function bind_context(T)
     end
 
     local function code_contract_fact(module_ctx, func_name, func_id, fact)
-        local ctx = { module_ctx = module_ctx, layout_env = module_ctx.layout_env, target = module_ctx.target, func_name = func_name }
+        local ctx = new_tree_code_func_context(module_ctx, func_name)
         return fact:lower_tree_contract_fact_to_code(ctx, func_name, func_id).fact
     end
 
@@ -1983,7 +2118,22 @@ local function bind_context(T)
         for i = 1, #(module.items or {}) do
             module.items[i]:tree_code_add_const_entries(const_entries, mod_name)
         end
-        local module_ctx = { code_sigs = {}, code_sig_order = {}, layout_env = layout_env, target = opts.target, module_name = mod_name, funcs = {}, externs = {}, variant_defs = build_variant_defs(module, mod_name), const_env = Bind.ConstEnv(const_entries), generated_data = {}, next_string_data = 0 }
+        local module_facts = Tr.TreeCodeModuleFacts(
+            mod_name,
+            layout_env,
+            tree_code_target(opts.target),
+            Bind.ConstEnv(const_entries),
+            build_variant_defs(module, mod_name)
+        )
+        local module_ctx = Tr.TreeCodeModuleContext(
+            module_facts,
+            {},
+            {},
+            {},
+            {},
+            {},
+            0
+        )
         local externs = {}
         for i = 1, #(module.items or {}) do
             module.items[i]:lower_tree_item_register_to_code(module_ctx, externs)
@@ -2003,7 +2153,7 @@ local function bind_context(T)
     function Tr.ItemFunc:lower_tree_item_register_to_code(module_ctx)
         local name, _, params, result_ty = func_parts(self.func)
         local sig = CodeType.ensure_type_sig(module_ctx, param_types(params), result_ty)
-        module_ctx.funcs[func_key(module_ctx.module_name, name)] = { id = code_func_id(name), sig = sig }
+        module_ctx.funcs[func_key(module_ctx.facts.module_name, name)] = Tr.TreeCodeFuncRegistration(code_func_id(name), sig)
     end
 
     function Tr.ItemExtern:lower_tree_item_register_to_code(module_ctx, externs)
@@ -2046,23 +2196,7 @@ local function bind_context(T)
     local function lower_func(module_ctx, func)
         local name, linkage, params, result_ty, body = func_parts(func)
         local residence = collect_address_taken_stmts(body or {}, { addressed = {}, mutable = {} })
-        local ctx = {
-            module_ctx = module_ctx,
-            layout_env = module_ctx.layout_env,
-            target = module_ctx.target,
-            func_name = name,
-            bindings = {},
-            locals_by_key = {},
-            addressed = residence.addressed,
-            mutable = residence.mutable,
-            locals = {},
-            blocks = {},
-            current_block = nil,
-            next_value = 0,
-            next_inst = 0,
-            next_term = 0,
-            next_block = 0,
-        }
+        local ctx = new_tree_code_func_context(module_ctx, name, residence)
 
         local entry = Code.CodeBlockId("block:" .. sanitize(name) .. ":entry")
         start_block(ctx, entry, "entry", {}, origin_generated("entry block"))
@@ -2074,7 +2208,7 @@ local function bind_context(T)
             local binding = param_binding(Core, Bind, name, p, i)
             local ty = code_ty(ctx, p.ty)
             local value = value_id_for_binding(ctx, binding)
-            ctx.bindings[scoped_binding_key(ctx, binding)] = value
+            ctx:tree_code_note_binding(binding, value)
             code_params[#code_params + 1] = Code.CodeParam(value, p.name, ty, origin_binding(binding))
             sig_params[#sig_params + 1] = ty
             if binding_is_addressed(ctx, binding) or is_aggregate_code_ty(ty) then
@@ -2088,7 +2222,7 @@ local function bind_context(T)
         local sig = CodeType.ensure_code_sig(module_ctx, sig_params, sig_results)
 
         lower_stmt_body(ctx, body or {})
-        if ctx.current_block ~= nil then
+        if ctx:tree_code_has_current_block() then
             if result == Code.CodeTyVoid then
                 terminate(ctx, Code.CodeTermReturn({}), origin_generated("void fallthrough"))
             else

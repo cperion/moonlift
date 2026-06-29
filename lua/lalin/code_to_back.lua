@@ -1,8 +1,7 @@
 local asdl = require("lalin.asdl")
 
 local function class_name(x)
-    local cls = asdl.classof(x) or x
-    return tostring(cls):match("Class%((.-)%)") or tostring(cls)
+    return tostring(x):match("Class%((.-)%)") or tostring(x)
 end
 
 local function bind_context(T)
@@ -25,6 +24,143 @@ local function bind_context(T)
 
     local function unsupported(x)
         error("code_to_back: unsupported " .. class_name(x), 3)
+    end
+
+    local function code_back_result(input, state)
+        return Code.CodeBackStateResult(state or input.state)
+    end
+
+    local function code_back_module_facts_from_lowering(lowering)
+        return Code.CodeBackModuleFacts(
+            lowering.sigs,
+            lowering.sig_abi_by_sig,
+            lowering.mem_backend_by_inst,
+            lowering.value_int_semantics_by_value,
+            lowering.value_float_mode_by_value,
+            lowering.effect_by_inst,
+            lowering.readonly_inst,
+            lowering.layout_env,
+            lowering.target
+        )
+    end
+
+    local function code_back_function_facts_from_lowering(lowering)
+        return Code.CodeBackFunctionFacts(
+            lowering.current_func_id,
+            lowering.current_return_sret,
+            lowering.value_types,
+            lowering.block_params
+        )
+    end
+
+    local function code_back_state_from_lowering(lowering)
+        return Code.CodeBackFunctionState(
+            lowering.cmds,
+            lowering.aggregate_local_addr,
+            lowering.aggregate_value_addr,
+            lowering.aggregate_value_size,
+            lowering.closure_value_has_captures,
+            lowering.local_stack_slots,
+            lowering.tmp_index or 0,
+            lowering.next_tmp or 0
+        )
+    end
+
+    local function copy_list(xs)
+        local out = {}
+        for i = 1, #(xs or {}) do out[i] = xs[i] end
+        return out
+    end
+
+    local function copy_map(xs)
+        local out = {}
+        for k, v in pairs(xs or {}) do out[k] = v end
+        return out
+    end
+
+    local function code_back_state(cmds, aggregate_local_addr, aggregate_value_addr, aggregate_value_size, closure_value_has_captures, local_stack_slots, tmp_index, next_tmp)
+        return Code.CodeBackFunctionState(
+            cmds,
+            aggregate_local_addr,
+            aggregate_value_addr,
+            aggregate_value_size,
+            closure_value_has_captures,
+            local_stack_slots,
+            tmp_index or 0,
+            next_tmp or 0
+        )
+    end
+
+    function Code.CodeBackFunctionState:code_back_append_cmd(cmd)
+        local cmds = copy_list(self.cmds)
+        cmds[#cmds + 1] = cmd
+        return code_back_state(cmds, self.aggregate_local_addr, self.aggregate_value_addr, self.aggregate_value_size, self.closure_value_has_captures, self.local_stack_slots, self.tmp_index, self.next_tmp)
+    end
+
+    function Code.CodeBackFunctionState:code_back_tmp_value(tag)
+        local next_tmp = (self.next_tmp or 0) + 1
+        return Code.CodeBackValueResult(
+            Back.BackValId((tag or "code_to_back.tmp") .. "." .. tostring(next_tmp)),
+            code_back_state(self.cmds, self.aggregate_local_addr, self.aggregate_value_addr, self.aggregate_value_size, self.closure_value_has_captures, self.local_stack_slots, self.tmp_index, next_tmp)
+        )
+    end
+
+    function Code.CodeBackFunctionState:code_back_note_aggregate_value(id, addr, size)
+        local aggregate_value_addr = copy_map(self.aggregate_value_addr)
+        local aggregate_value_size = self.aggregate_value_size
+        aggregate_value_addr[id.text] = addr
+        if size ~= nil then
+            aggregate_value_size = copy_map(self.aggregate_value_size)
+            aggregate_value_size[id.text] = size
+        end
+        return code_back_state(self.cmds, self.aggregate_local_addr, aggregate_value_addr, aggregate_value_size, self.closure_value_has_captures, self.local_stack_slots, self.tmp_index, self.next_tmp)
+    end
+
+    function Code.CodeBackFunctionState:code_back_note_aggregate_local(id, addr)
+        local aggregate_local_addr = copy_map(self.aggregate_local_addr)
+        aggregate_local_addr[id.text] = addr
+        return code_back_state(self.cmds, aggregate_local_addr, self.aggregate_value_addr, self.aggregate_value_size, self.closure_value_has_captures, self.local_stack_slots, self.tmp_index, self.next_tmp)
+    end
+
+    function Code.CodeBackFunctionState:code_back_note_closure_captures(id, has_captures)
+        local closure_value_has_captures = copy_map(self.closure_value_has_captures)
+        closure_value_has_captures[id.text] = has_captures
+        return code_back_state(self.cmds, self.aggregate_local_addr, self.aggregate_value_addr, self.aggregate_value_size, closure_value_has_captures, self.local_stack_slots, self.tmp_index, self.next_tmp)
+    end
+
+    function Code.CodeBackFunctionState:code_back_note_local_stack_slot(local_, slot, size, align)
+        local local_stack_slots = copy_map(self.local_stack_slots)
+        local_stack_slots[local_.id.text] = Code.CodeBackLocalSlot(slot, local_.ty, size, align)
+        return code_back_state(self.cmds, self.aggregate_local_addr, self.aggregate_value_addr, self.aggregate_value_size, self.closure_value_has_captures, local_stack_slots, self.tmp_index, self.next_tmp)
+    end
+
+    local function code_back_sync_lowering(lowering, state)
+        lowering.cmds = state.cmds
+        lowering.aggregate_local_addr = state.aggregate_local_addr
+        lowering.aggregate_value_addr = state.aggregate_value_addr
+        lowering.aggregate_value_size = state.aggregate_value_size
+        lowering.closure_value_has_captures = state.closure_value_has_captures
+        lowering.local_stack_slots = state.local_stack_slots
+        lowering.tmp_index = state.tmp_index
+        lowering.next_tmp = state.next_tmp
+    end
+
+    local function code_back_inst_input(lowering, inst_id)
+        return Code.CodeBackInstInput(
+            code_back_module_facts_from_lowering(lowering),
+            code_back_function_facts_from_lowering(lowering),
+            code_back_state_from_lowering(lowering),
+            inst_id
+        )
+    end
+
+    local function code_back_term_input(lowering, term_id)
+        return Code.CodeBackTermInput(
+            code_back_module_facts_from_lowering(lowering),
+            code_back_function_facts_from_lowering(lowering),
+            code_back_state_from_lowering(lowering),
+            term_id
+        )
     end
 
     local function bid(id) return Back.BackValId(id.text) end
@@ -169,6 +305,10 @@ local function bind_context(T)
     function Core.MachineCastFToS:lower_code_cast_to_back_op() return Back.BackFToS end
     function Core.MachineCastFToU:lower_code_cast_to_back_op() return Back.BackFToU end
 
+    local zero
+    local aggregate_addr_for_value
+    local is_byref_aggregate_ty
+
     function Core.Intrinsic:lower_code_intrinsic_to_back_op() return nil end
     function Core.IntrinsicPopcount:lower_code_intrinsic_to_back_op() return Back.BackIntrinsicPopcount end
     function Core.IntrinsicClz:lower_code_intrinsic_to_back_op() return Back.BackIntrinsicClz end
@@ -185,60 +325,257 @@ local function bind_context(T)
     function Core.IntrinsicRotl:lower_code_intrinsic_to_back_rotate_op() return Back.BackRotateLeft end
     function Core.IntrinsicRotr:lower_code_intrinsic_to_back_rotate_op() return Back.BackRotateRight end
 
-    local function int_semantics(ctx, k)
-        local fact = ctx.value_int_semantics_by_value and ctx.value_int_semantics_by_value[k.dst.text]
+    function Code.CodeIntOverflow:lower_code_int_overflow_to_back()
+        return Back.BackIntWrap
+    end
+    function Code.CodeIntAssumeNoOverflow:lower_code_int_overflow_to_back()
+        return Back.BackIntNoWrap(self.reason)
+    end
+    function Code.CodeIntTrapOnOverflow:lower_code_int_overflow_to_back()
+        return Back.BackIntNoWrap("trap-on-overflow Code semantics")
+    end
+
+    function Code.CodeFloatMode:lower_code_float_mode_to_back()
+        return Back.BackFloatStrict
+    end
+    function Code.CodeFloatStrict:lower_code_float_mode_to_back()
+        return Back.BackFloatStrict
+    end
+    function Code.CodeFloatReassoc:lower_code_float_mode_to_back()
+        return Back.BackFloatReassoc(self.reason)
+    end
+    function Code.CodeFloatFastMath:lower_code_float_mode_to_back()
+        return Back.BackFloatFastMath(self.reason)
+    end
+
+    function T.LalinMem.MemAlignment:lower_code_mem_alignment_to_back()
+        return Back.BackAlignUnknown
+    end
+    function T.LalinMem.MemAlignUnknown:lower_code_mem_alignment_to_back()
+        return Back.BackAlignUnknown
+    end
+    function T.LalinMem.MemAlignKnown:lower_code_mem_alignment_to_back()
+        return Back.BackAlignKnown(self.bytes)
+    end
+    function T.LalinMem.MemAlignAtLeast:lower_code_mem_alignment_to_back()
+        return Back.BackAlignAtLeast(self.bytes)
+    end
+    function T.LalinMem.MemAlignAssumed:lower_code_mem_alignment_to_back()
+        return Back.BackAlignAssumed(self.bytes, "MemBackendAccessInfo assumption")
+    end
+
+    function T.LalinMem.MemTrap:lower_code_mem_trap_to_back()
+        return Back.BackMayTrap
+    end
+    function T.LalinMem.MemMayTrap:lower_code_mem_trap_to_back()
+        return Back.BackMayTrap
+    end
+    function T.LalinMem.MemNonTrapping:lower_code_mem_trap_to_back()
+        return Back.BackNonTrapping(self.reason)
+    end
+    function T.LalinMem.MemCheckedTrap:lower_code_mem_trap_to_back()
+        return Back.BackChecked(self.reason)
+    end
+
+    function T.LalinMem.MemBounds:lower_code_mem_bounds_to_back()
+        return Back.BackPtrInBounds("MemBackendAccessInfo bounds")
+    end
+    function T.LalinMem.MemBoundsUnknown:lower_code_mem_bounds_to_back()
+        return Back.BackPtrBoundsUnknown
+    end
+
+    function T.LalinMem.MemObjectEffectFact:code_back_readonly_object()
+        return nil
+    end
+    function T.LalinMem.MemObjectReadonly:code_back_readonly_object()
+        return self.object
+    end
+
+    function T.LalinEffect.OpEffect:code_back_allows_call()
+        return true
+    end
+    function T.LalinEffect.EffectUnknown:code_back_allows_call()
+        return true
+    end
+
+    function Code.CodeType:code_back_index_cast_op()
+        return nil
+    end
+    function Code.CodeTyIndex:code_back_index_cast_op()
+        return false
+    end
+    function Code.CodeTyInt:code_back_index_cast_op()
+        if self.bits < 64 then return self.signedness == Code.CodeSigned and Back.BackSextend or Back.BackUextend end
+        return nil
+    end
+    function Code.CodeTyBool8:code_back_index_cast_op()
+        return Back.BackUextend
+    end
+
+    function Code.CodeType:code_back_lease_base()
+        return self
+    end
+    function Code.CodeTyLease:code_back_lease_base()
+        return self.base
+    end
+    function Code.CodeType:code_back_optional_lease_base()
+        return self
+    end
+    function Code.CodeType:code_back_view_elem()
+        return nil
+    end
+    function Code.CodeTyView:code_back_view_elem()
+        return self.elem
+    end
+    function Code.CodeType:code_back_slice_elem()
+        return nil
+    end
+    function Code.CodeTySlice:code_back_slice_elem()
+        return self.elem
+    end
+    function Code.CodeType:code_back_view_data_ty()
+        return Code.CodeTyDataPtr(nil)
+    end
+    function Code.CodeTyView:code_back_view_data_ty()
+        return Code.CodeTyDataPtr(self.elem)
+    end
+    function Code.CodeType:code_back_slice_data_ty()
+        return Code.CodeTyDataPtr(nil)
+    end
+    function Code.CodeTySlice:code_back_slice_data_ty()
+        return Code.CodeTyDataPtr(self.elem)
+    end
+    function Code.CodeType:code_back_is_local_byref_aggregate()
+        return false
+    end
+    function Code.CodeTyNamed:code_back_is_local_byref_aggregate()
+        return true
+    end
+    function Code.CodeTyArray:code_back_is_local_byref_aggregate()
+        return true
+    end
+    function Code.CodeTyClosure:code_back_is_local_byref_aggregate()
+        return true
+    end
+    function Code.CodeType:code_back_is_closure()
+        return false
+    end
+    function Code.CodeTyClosure:code_back_is_closure()
+        return true
+    end
+    function Code.CodeType:code_back_array_elem()
+        return nil
+    end
+    function Code.CodeTyArray:code_back_array_elem()
+        return self.elem
+    end
+
+    function Code.CodePlace:code_back_store_aggregate_local(state, value, access)
+        return nil
+    end
+    function Code.CodePlaceLocal:code_back_store_aggregate_local(state, value, access)
+        if is_byref_aggregate_ty(access.ty) then
+            return state:code_back_note_aggregate_local(self.local_id, aggregate_addr_for_value(state, value, access.ty) or bid(value))
+        end
+        return nil
+    end
+
+    function T.LalinSem.FieldRef:code_back_field_offset()
+        unsupported(self)
+    end
+    function T.LalinSem.FieldByOffset:code_back_field_offset()
+        return self.offset or 0
+    end
+
+    function Back.BackAddressBase:code_back_materialize_addr_base(state, tag)
+        return Code.CodeBackValueResult(nil, state)
+    end
+    function Back.BackAddrValue:code_back_materialize_addr_base(state, tag)
+        return Code.CodeBackValueResult(self.value, state)
+    end
+    function Back.BackAddrStack:code_back_materialize_addr_base(state, tag)
+        local tmp = state:code_back_tmp_value((tag or "code_to_back.stack_base") .. ".base")
+        state = tmp.state:code_back_append_cmd(Back.CmdStackAddr(tmp.value, self.slot))
+        return Code.CodeBackValueResult(tmp.value, state)
+    end
+    function Back.BackAddrData:code_back_materialize_addr_base(state, tag)
+        local tmp = state:code_back_tmp_value((tag or "code_to_back.data_base") .. ".base")
+        state = tmp.state:code_back_append_cmd(Back.CmdDataAddr(tmp.value, self.data))
+        return Code.CodeBackValueResult(tmp.value, state)
+    end
+
+    function Back.BackAddress:code_back_with_const_offset(state, offset)
+        local base = self.base
+        local materialized = base:code_back_materialize_addr_base(state, "code_to_back.addr_base")
+        state = materialized.state
+        if materialized.value ~= nil then base = Back.BackAddrValue(materialized.value) end
+        if offset == 0 then return Code.CodeBackAddressResult(Back.BackAddress(base, self.byte_offset, self.provenance, self.formation_bounds), state) end
+        local tmp = state:code_back_tmp_value("code_to_back.view_addr." .. tostring(offset))
+        state = tmp.state:code_back_append_cmd(Back.CmdPtrOffset(tmp.value, base, self.byte_offset, 1, offset, self.provenance, self.formation_bounds))
+        local z = zero(state)
+        return Code.CodeBackAddressResult(Back.BackAddress(Back.BackAddrValue(tmp.value), z.value, self.provenance, self.formation_bounds), z.state)
+    end
+
+    function Back.BackAddress:code_back_to_ptr_value(state, tag)
+        local materialized = self.base:code_back_materialize_addr_base(state, tag)
+        state = materialized.state
+        local base = materialized.value ~= nil and Back.BackAddrValue(materialized.value) or self.base
+        local tmp = state:code_back_tmp_value(tag or "code_to_back.addr_value")
+        state = tmp.state:code_back_append_cmd(Back.CmdPtrOffset(tmp.value, base, self.byte_offset, 1, 0, self.provenance, self.formation_bounds))
+        return Code.CodeBackValueResult(tmp.value, state)
+    end
+
+    function Back.BackAddress:code_back_stack_base_slot()
+        return self.base:code_back_stack_base_slot(self.byte_offset)
+    end
+    function Back.BackAddressBase:code_back_stack_base_slot(byte_offset)
+        return nil
+    end
+    function Back.BackAddrStack:code_back_stack_base_slot(byte_offset)
+        return self.slot
+    end
+
+    local function int_semantics(module_facts, k)
+        local fact = module_facts.value_int_semantics_by_value and module_facts.value_int_semantics_by_value[k.dst.text]
         local sem = fact or k.semantics
         local overflow = Back.BackIntWrap
         if sem ~= nil then
-            local ocls = asdl.classof(sem.overflow)
-            if ocls == Code.CodeIntAssumeNoOverflow then overflow = Back.BackIntNoWrap(sem.overflow.reason)
-            elseif sem.overflow == Code.CodeIntTrapOnOverflow then overflow = Back.BackIntNoWrap("trap-on-overflow Code semantics") end
+            overflow = sem.overflow:lower_code_int_overflow_to_back()
         end
         return Back.BackIntSemantics(overflow, Back.BackIntMayLose)
     end
 
-    local function float_semantics(ctx, k)
-        local mode = (ctx.value_float_mode_by_value and ctx.value_float_mode_by_value[k.dst.text]) or k.mode
-        if mode == nil or mode == Code.CodeFloatStrict then return Back.BackFloatStrict end
-        local cls = asdl.classof(mode)
-        if cls == Code.CodeFloatReassoc then return Back.BackFloatReassoc(mode.reason) end
-        if cls == Code.CodeFloatFastMath then return Back.BackFloatFastMath(mode.reason) end
-        return Back.BackFloatStrict
+    local function float_semantics(module_facts, k)
+        local mode = (module_facts.value_float_mode_by_value and module_facts.value_float_mode_by_value[k.dst.text]) or k.mode
+        return mode ~= nil and mode:lower_code_float_mode_to_back() or Back.BackFloatStrict
     end
 
-    local function zero(ctx)
-        ctx.next_tmp = (ctx.next_tmp or 0) + 1
-        local v = Back.BackValId("code_to_back.zero." .. tostring(ctx.next_tmp))
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdConst(v, Back.BackIndex, Back.BackLitInt("0"))
-        return v
+    zero = function(state)
+        local tmp = state:code_back_tmp_value("code_to_back.zero")
+        return Code.CodeBackValueResult(tmp.value, tmp.state:code_back_append_cmd(Back.CmdConst(tmp.value, Back.BackIndex, Back.BackLitInt("0"))))
     end
 
-    local function note_value(ctx, id, ty)
-        if id ~= nil and ty ~= nil then ctx.value_types[id.text] = ty end
+    local function lowering_note_value(state, id, ty)
+        if id ~= nil and ty ~= nil then state.value_types[id.text] = ty end
     end
 
-    local function index_value(ctx, id)
-        local ty = ctx.value_types[id.text]
-        if ty == Code.CodeTyIndex then return bid(id) end
-        local cls = asdl.classof(ty)
-        if cls == Code.CodeTyInt and ty.bits < 64 then
-            ctx.next_tmp = (ctx.next_tmp or 0) + 1
-            local v = Back.BackValId("code_to_back.index." .. tostring(ctx.next_tmp))
-            local op = ty.signedness == Code.CodeSigned and Back.BackSextend or Back.BackUextend
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdCast(v, op, Back.BackIndex, bid(id))
-            return v
-        elseif ty == Code.CodeTyBool8 then
-            ctx.next_tmp = (ctx.next_tmp or 0) + 1
-            local v = Back.BackValId("code_to_back.index." .. tostring(ctx.next_tmp))
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdCast(v, Back.BackUextend, Back.BackIndex, bid(id))
-            return v
+    local function index_value(state, func_facts, id)
+        local ty = func_facts.value_types[id.text]
+        local op = ty and ty:code_back_index_cast_op() or nil
+        if op == false then return Code.CodeBackValueResult(bid(id), state) end
+        if op ~= nil then
+            local tmp = state:code_back_tmp_value("code_to_back.index")
+            state = tmp.state
+            local v = tmp.value
+            state = state:code_back_append_cmd(Back.CmdCast(v, op, Back.BackIndex, bid(id)))
+            return Code.CodeBackValueResult(v, state)
         end
-        return bid(id)
+        return Code.CodeBackValueResult(bid(id), state)
     end
 
-    local function value_as(ctx, id, ty)
-        if ty == Code.CodeTyIndex then return index_value(ctx, id) end
-        return bid(id)
+    local function value_as(state, func_facts, id, ty)
+        if ty == Code.CodeTyIndex then return index_value(state, func_facts, id) end
+        return Code.CodeBackValueResult(bid(id), state)
     end
 
     local function access_mode(mode, readonly)
@@ -249,239 +586,228 @@ local function bind_context(T)
     end
 
     local function back_alignment(alignment)
-        local cls = asdl.classof(alignment)
-        if alignment == nil or alignment == T.LalinMem.MemAlignUnknown then return Back.BackAlignUnknown end
-        if cls == T.LalinMem.MemAlignKnown then return Back.BackAlignKnown(alignment.bytes) end
-        if cls == T.LalinMem.MemAlignAtLeast then return Back.BackAlignAtLeast(alignment.bytes) end
-        if cls == T.LalinMem.MemAlignAssumed then return Back.BackAlignAssumed(alignment.bytes, "MemBackendAccessInfo assumption") end
-        return Back.BackAlignUnknown
+        return alignment ~= nil and alignment:lower_code_mem_alignment_to_back() or Back.BackAlignUnknown
     end
 
     local function back_trap(trap)
-        local cls = asdl.classof(trap)
-        if trap == T.LalinMem.MemMayTrap then return Back.BackMayTrap end
-        if cls == T.LalinMem.MemNonTrapping then return Back.BackNonTrapping(trap.reason) end
-        if cls == T.LalinMem.MemCheckedTrap then return Back.BackChecked(trap.reason) end
-        return Back.BackMayTrap
+        return trap ~= nil and trap:lower_code_mem_trap_to_back() or Back.BackMayTrap
     end
 
-    local function memory_info(ctx, access, inst_id)
-        local info = ctx.mem_backend_by_inst and ctx.mem_backend_by_inst[inst_id.text] or nil
+    local function memory_info(module_facts, access, inst_id)
+        local info = module_facts.mem_backend_by_inst and module_facts.mem_backend_by_inst[inst_id.text] or nil
         if info == nil then error("code_to_back: missing MemBackendAccessInfo for Code inst " .. inst_id.text, 3) end
         local deref = info.deref_bytes and Back.BackDerefBytes(info.deref_bytes, "MemBackendAccessInfo") or Back.BackDerefUnknown
         local motion = info.movable and Back.BackCanMove("MemBackendAccessInfo movable") or Back.BackMayNotMove
-        local readonly = ctx.readonly_inst and ctx.readonly_inst[inst_id.text]
+        local readonly = module_facts.readonly_inst and module_facts.readonly_inst[inst_id.text]
         return Back.BackMemoryInfo(Back.BackAccessId(info.access.text), back_alignment(info.alignment), deref, back_trap(info.trap), motion, access_mode(access.mode, readonly))
     end
 
-    local function component_memory_info(ctx, access, inst_id, field)
-        local info = ctx.mem_backend_by_inst and ctx.mem_backend_by_inst[inst_id.text] or nil
+    local function component_memory_info(module_facts, access, inst_id, field)
+        local info = module_facts.mem_backend_by_inst and module_facts.mem_backend_by_inst[inst_id.text] or nil
         if info == nil then error("code_to_back: missing MemBackendAccessInfo for Code inst " .. inst_id.text, 3) end
         local motion = info.movable and Back.BackCanMove("MemBackendAccessInfo movable view component") or Back.BackMayNotMove
-        local readonly = ctx.readonly_inst and ctx.readonly_inst[inst_id.text]
+        local readonly = module_facts.readonly_inst and module_facts.readonly_inst[inst_id.text]
         return Back.BackMemoryInfo(Back.BackAccessId(info.access.text .. ":" .. field), back_alignment(info.alignment), Back.BackDerefBytes(8, "view descriptor component"), back_trap(info.trap), motion, access_mode(access.mode, readonly))
     end
 
-    local function const_index(ctx, raw)
-        ctx.next_tmp = (ctx.next_tmp or 0) + 1
-        local v = Back.BackValId("code_to_back.const_index." .. tostring(ctx.next_tmp))
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdConst(v, Back.BackIndex, Back.BackLitInt(tostring(raw)))
-        return v
+    local function const_index(state, raw)
+        local tmp = state:code_back_tmp_value("code_to_back.const_index")
+        return Code.CodeBackValueResult(tmp.value, tmp.state:code_back_append_cmd(Back.CmdConst(tmp.value, Back.BackIndex, Back.BackLitInt(tostring(raw)))))
     end
 
-    local function null_ptr(ctx, tag)
-        ctx.next_tmp = (ctx.next_tmp or 0) + 1
-        local v = Back.BackValId((tag or "code_to_back.null") .. "." .. tostring(ctx.next_tmp))
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdConst(v, Back.BackPtr, Back.BackLitNull)
-        return v
+    local function null_ptr(state, tag)
+        local tmp = state:code_back_tmp_value(tag or "code_to_back.null")
+        return Code.CodeBackValueResult(tmp.value, tmp.state:code_back_append_cmd(Back.CmdConst(tmp.value, Back.BackPtr, Back.BackLitNull)))
     end
 
-    local function address_at_const_offset(ctx, addr, offset)
-        local base = addr.base
-        local base_cls = asdl.classof(base)
-        if base_cls == Back.BackAddrStack then
-            local base_ptr = Back.BackValId("code_to_back.addr_stack_base." .. tostring(ctx.next_tmp or 0))
-            ctx.next_tmp = (ctx.next_tmp or 0) + 1
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdStackAddr(base_ptr, base.slot)
-            base = Back.BackAddrValue(base_ptr)
-        elseif base_cls == Back.BackAddrData then
-            local base_ptr = Back.BackValId("code_to_back.addr_data_base." .. tostring(ctx.next_tmp or 0))
-            ctx.next_tmp = (ctx.next_tmp or 0) + 1
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdDataAddr(base_ptr, base.data)
-            base = Back.BackAddrValue(base_ptr)
-        end
-        if offset == 0 then return Back.BackAddress(base, addr.byte_offset, addr.provenance, addr.formation_bounds) end
-        local ptr = Back.BackValId("code_to_back.view_addr." .. tostring(ctx.next_tmp or 0) .. "." .. tostring(offset))
-        ctx.next_tmp = (ctx.next_tmp or 0) + 1
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdPtrOffset(ptr, base, addr.byte_offset, 1, offset, addr.provenance, addr.formation_bounds)
-        return Back.BackAddress(Back.BackAddrValue(ptr), zero(ctx), addr.provenance, addr.formation_bounds)
+    local function address_at_const_offset(state, addr, offset)
+        return addr:code_back_with_const_offset(state, offset)
     end
 
-    local function address_to_ptr_value(ctx, addr, tag)
-        local base = addr.base
-        local base_cls = asdl.classof(base)
-        if base_cls == Back.BackAddrStack then
-            local base_ptr = Back.BackValId((tag or "code_to_back.stack_base") .. ".base." .. tostring(ctx.next_tmp or 0))
-            ctx.next_tmp = (ctx.next_tmp or 0) + 1
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdStackAddr(base_ptr, base.slot)
-            base = Back.BackAddrValue(base_ptr)
-        elseif base_cls == Back.BackAddrData then
-            local base_ptr = Back.BackValId((tag or "code_to_back.data_base") .. ".base." .. tostring(ctx.next_tmp or 0))
-            ctx.next_tmp = (ctx.next_tmp or 0) + 1
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdDataAddr(base_ptr, base.data)
-            base = Back.BackAddrValue(base_ptr)
-        end
-        local ptr = Back.BackValId((tag or "code_to_back.addr_value") .. "." .. tostring(ctx.next_tmp or 0))
-        ctx.next_tmp = (ctx.next_tmp or 0) + 1
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdPtrOffset(ptr, base, addr.byte_offset, 1, 0, addr.provenance, addr.formation_bounds)
-        return ptr
+    local function address_to_ptr_value(state, addr, tag)
+        return addr:code_back_to_ptr_value(state, tag)
     end
 
     local function back_bounds(info)
-        if info ~= nil and asdl.classof(info.bounds) ~= T.LalinMem.MemBoundsUnknown then return Back.BackPtrInBounds("MemBackendAccessInfo bounds") end
-        return Back.BackPtrBoundsUnknown
+        return info ~= nil and info.bounds:lower_code_mem_bounds_to_back() or Back.BackPtrBoundsUnknown
     end
 
-    function Code.CodePlace:lower_code_place_to_back_addr(ctx, info)
+    function Code.CodePlace:lower_code_place_to_back_addr(input)
         unsupported(self)
     end
-    function Code.CodePlaceDeref:lower_code_place_to_back_addr(ctx, info)
-        return Back.BackAddress(Back.BackAddrValue(bid(self.addr)), zero(ctx), Back.BackProvUnknown, back_bounds(info))
+    function Code.CodePlaceDeref:lower_code_place_to_back_addr(input)
+        local state = input.state
+        local z = zero(state); state = z.state
+        return Code.CodeBackPlaceResult(Back.BackAddress(Back.BackAddrValue(bid(self.addr)), z.value, Back.BackProvUnknown, back_bounds(input.access)), state)
     end
-    function Code.CodePlaceGlobal:lower_code_place_to_back_addr(ctx, info)
-        return Back.BackAddress(Back.BackAddrData(data_id(self.global)), zero(ctx), Back.BackProvData(data_id(self.global)), Back.BackPtrInBounds("global"))
+    function Code.CodePlaceGlobal:lower_code_place_to_back_addr(input)
+        local state = input.state
+        local z = zero(state); state = z.state
+        return Code.CodeBackPlaceResult(Back.BackAddress(Back.BackAddrData(data_id(self.global)), z.value, Back.BackProvData(data_id(self.global)), Back.BackPtrInBounds("global")), state)
     end
-    function Code.CodePlaceData:lower_code_place_to_back_addr(ctx, info)
-        return Back.BackAddress(Back.BackAddrData(data_id(self.data)), zero(ctx), Back.BackProvData(data_id(self.data)), Back.BackPtrInBounds("data"))
+    function Code.CodePlaceData:lower_code_place_to_back_addr(input)
+        local state = input.state
+        local z = zero(state); state = z.state
+        return Code.CodeBackPlaceResult(Back.BackAddress(Back.BackAddrData(data_id(self.data)), z.value, Back.BackProvData(data_id(self.data)), Back.BackPtrInBounds("data")), state)
     end
-    function Code.CodePlaceLocal:lower_code_place_to_back_addr(ctx, info)
+    function Code.CodePlaceLocal:lower_code_place_to_back_addr(input)
+        local state = input.state
         if CodeAggregateAbi.is_view(self.ty) or CodeAggregateAbi.is_slice(self.ty) or CodeAggregateAbi.is_byte_span(self.ty) then
-            local stack = ctx.local_stack_slots and ctx.local_stack_slots[self.local_id.text]
+            local stack = state.local_stack_slots and state.local_stack_slots[self.local_id.text]
             if stack == nil then error("code_to_back: descriptor local has no materialized storage " .. self.local_id.text, 3) end
-            return Back.BackAddress(Back.BackAddrStack(stack.slot), zero(ctx), Back.BackProvStack(stack.slot), back_bounds(info))
+            local z = zero(state); state = z.state
+            return Code.CodeBackPlaceResult(Back.BackAddress(Back.BackAddrStack(stack.slot), z.value, Back.BackProvStack(stack.slot), back_bounds(input.access)), state)
         end
-        local ty_cls = asdl.classof(self.ty)
-        if ty_cls == Code.CodeTyNamed or ty_cls == Code.CodeTyArray or ty_cls == Code.CodeTyClosure then
-            local addr = ctx.aggregate_local_addr and ctx.aggregate_local_addr[self.local_id.text]
+        if self.ty:code_back_is_local_byref_aggregate() then
+            local addr = state.aggregate_local_addr and state.aggregate_local_addr[self.local_id.text]
             if addr == nil then error("code_to_back: aggregate local has no materialized address " .. self.local_id.text, 3) end
-            return Back.BackAddress(Back.BackAddrValue(addr), zero(ctx), Back.BackProvUnknown, back_bounds(info))
+            local z = zero(state); state = z.state
+            return Code.CodeBackPlaceResult(Back.BackAddress(Back.BackAddrValue(addr), z.value, Back.BackProvUnknown, back_bounds(input.access)), state)
         end
-        local stack = ctx.local_stack_slots and ctx.local_stack_slots[self.local_id.text]
+        local stack = state.local_stack_slots and state.local_stack_slots[self.local_id.text]
         if stack ~= nil then
-            return Back.BackAddress(Back.BackAddrStack(stack.slot), zero(ctx), Back.BackProvStack(stack.slot), back_bounds(info))
+            local z = zero(state); state = z.state
+            return Code.CodeBackPlaceResult(Back.BackAddress(Back.BackAddrStack(stack.slot), z.value, Back.BackProvStack(stack.slot), back_bounds(input.access)), state)
         end
         unsupported(self)
     end
-    function Code.CodePlaceField:lower_code_place_to_back_addr(ctx, info)
-        local base = self.base:lower_code_place_to_back_addr(ctx, info)
-        local ptr = Back.BackValId("code_to_back.field." .. tostring(ctx.next_tmp or 0) .. "." .. tostring(self.offset or 0))
-        ctx.next_tmp = (ctx.next_tmp or 0) + 1
-        local bounds = back_bounds(info)
-        local idx0 = const_index(ctx, 0)
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdPtrOffset(ptr, base.base, idx0, 1, self.offset or 0, Back.BackProvDerived("field"), bounds)
-        return Back.BackAddress(Back.BackAddrValue(ptr), zero(ctx), Back.BackProvDerived("field"), bounds)
+    function Code.CodePlaceField:lower_code_place_to_back_addr(input)
+        local state = input.state
+        local base_result = self.base:lower_code_place_to_back_addr(input)
+        state = base_result.state
+        local base = base_result.address
+        local ptr_result = state:code_back_tmp_value("code_to_back.field." .. tostring(self.offset or 0))
+        state = ptr_result.state
+        local ptr = ptr_result.value
+        local bounds = back_bounds(input.access)
+        local idx0 = const_index(state, 0); state = idx0.state
+        state = state:code_back_append_cmd(Back.CmdPtrOffset(ptr, base.base, idx0.value, 1, self.offset or 0, Back.BackProvDerived("field"), bounds))
+        local z = zero(state); state = z.state
+        return Code.CodeBackPlaceResult(Back.BackAddress(Back.BackAddrValue(ptr), z.value, Back.BackProvDerived("field"), bounds), state)
     end
-    function Code.CodePlaceIndex:lower_code_place_to_back_addr(ctx, info)
-        local base = self.base:lower_code_place_to_back_addr(ctx, info)
+    function Code.CodePlaceIndex:lower_code_place_to_back_addr(input)
+        local state = input.state
+        local base_result = self.base:lower_code_place_to_back_addr(input)
+        state = base_result.state
+        local base = base_result.address
         local ptr = Back.BackValId("code_to_back.addr." .. self.index.text)
-        local index = index_value(ctx, self.index)
-        local bounds = back_bounds(info)
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdPtrOffset(ptr, base.base, index, self.elem_size, 0, Back.BackProvDerived("index"), bounds)
-        return Back.BackAddress(Back.BackAddrValue(ptr), zero(ctx), Back.BackProvDerived("index"), bounds)
+        local index = index_value(state, input.func, self.index); state = index.state
+        local bounds = back_bounds(input.access)
+        state = state:code_back_append_cmd(Back.CmdPtrOffset(ptr, base.base, index.value, self.elem_size, 0, Back.BackProvDerived("index"), bounds))
+        local z = zero(state); state = z.state
+        return Code.CodeBackPlaceResult(Back.BackAddress(Back.BackAddrValue(ptr), z.value, Back.BackProvDerived("index"), bounds), state)
     end
 
-    function Code.CodePlace:lower_code_place_addr_of_to_back(ctx, dst, info)
-        local addr = self:lower_code_place_to_back_addr(ctx, info)
-        local ptr = address_to_ptr_value(ctx, addr, "code_to_back.addr_of")
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(dst), ptr)
+    function Code.CodePlace:lower_code_place_addr_of_to_back(input, dst)
+        local state = input.state
+        local result = self:lower_code_place_to_back_addr(input)
+        state = result.state
+        local ptr = address_to_ptr_value(state, result.address, "code_to_back.addr_of"); state = ptr.state
+        state = state:code_back_append_cmd(Back.CmdAlias(bid(dst), ptr.value))
+        return Code.CodeBackStateResult(state)
     end
-    function Code.CodePlaceGlobal:lower_code_place_addr_of_to_back(ctx, dst, info)
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdDataAddr(bid(dst), data_id(self.global))
+    function Code.CodePlaceGlobal:lower_code_place_addr_of_to_back(input, dst)
+        local state = input.state
+        state = state:code_back_append_cmd(Back.CmdDataAddr(bid(dst), data_id(self.global)))
+        return Code.CodeBackStateResult(state)
     end
-    function Code.CodePlaceData:lower_code_place_addr_of_to_back(ctx, dst, info)
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdDataAddr(bid(dst), data_id(self.data))
+    function Code.CodePlaceData:lower_code_place_addr_of_to_back(input, dst)
+        local state = input.state
+        state = state:code_back_append_cmd(Back.CmdDataAddr(bid(dst), data_id(self.data)))
+        return Code.CodeBackStateResult(state)
     end
-    function Code.CodePlaceLocal:lower_code_place_addr_of_to_back(ctx, dst, info)
-        local addr = self:lower_code_place_to_back_addr(ctx, info)
-        if asdl.classof(addr.base) == Back.BackAddrStack and asdl.classof(addr.byte_offset) == Back.BackValId then
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdStackAddr(bid(dst), addr.base.slot)
+    function Code.CodePlaceLocal:lower_code_place_addr_of_to_back(input, dst)
+        local state = input.state
+        local result = self:lower_code_place_to_back_addr(input)
+        state = result.state
+        local addr = result.address
+        local stack_offset = addr:code_back_stack_base_slot()
+        if stack_offset ~= nil then
+            state = state:code_back_append_cmd(Back.CmdStackAddr(bid(dst), stack_offset))
         else
-            local ptr = address_to_ptr_value(ctx, addr, "code_to_back.addr_of")
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(dst), ptr)
+            local ptr = address_to_ptr_value(state, addr, "code_to_back.addr_of"); state = ptr.state
+            state = state:code_back_append_cmd(Back.CmdAlias(bid(dst), ptr.value))
+        end
+        return Code.CodeBackStateResult(state)
+    end
+
+    local function code_back_place_input(input)
+        return Code.CodeBackPlaceInput(input.module, input.func, input.state, input.inst, input.module.mem_backend_by_inst[input.inst.text])
+    end
+
+    local function addr_from_place(input, place)
+        return place:lower_code_place_to_back_addr(code_back_place_input(input))
+    end
+
+    function Code.CodeDataInit:lower_code_data_init_to_back(state, data)
+        unsupported(self)
+    end
+    function Code.CodeDataZero:lower_code_data_init_to_back(state, data)
+        state = state:code_back_append_cmd(Back.CmdDataInitZero(data, self.offset, self.size))
+    end
+    function Code.CodeDataScalar:lower_code_data_init_to_back(state, data)
+        local s = scalar(self.ty); if s == nil then unsupported(self.ty) end
+        state = state:code_back_append_cmd(Back.CmdDataInit(data, self.offset, s, self.literal:lower_core_literal_to_back()))
+    end
+    function Code.CodeDataBytes:lower_code_data_init_to_back(state, data)
+        for i = 1, #self.bytes do
+            state = state:code_back_append_cmd(Back.CmdDataInit(data, self.offset + i - 1, Back.BackU8, Back.BackLitInt(tostring(self.bytes:byte(i)))))
         end
     end
 
-    local function addr_from_place(ctx, place, info)
-        return place:lower_code_place_to_back_addr(ctx, info)
+    local function data_init(state, init, data)
+        return init:lower_code_data_init_to_back(state, data)
     end
 
-    local function data_init(ctx, init, data)
-        local cls = asdl.classof(init)
-        if cls == Code.CodeDataZero then
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdDataInitZero(data, init.offset, init.size)
-        elseif cls == Code.CodeDataScalar then
-            local s = scalar(init.ty); if s == nil then unsupported(init.ty) end
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdDataInit(data, init.offset, s, init.literal:lower_core_literal_to_back())
-        elseif cls == Code.CodeDataBytes then
-            for i = 1, #init.bytes do
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdDataInit(data, init.offset + i - 1, Back.BackU8, Back.BackLitInt(tostring(init.bytes:byte(i))))
-            end
-        else
-            unsupported(init)
-        end
-    end
-
-    function Code.CodeInstKind:lower_code_inst_dst_type(ctx)
+    function Code.CodeInstKind:lower_code_inst_dst_type(func_facts, module_facts)
         return nil, nil
     end
-    function Code.CodeInstConst:lower_code_inst_dst_type(ctx) return self.dst, self.const.ty end
-    function Code.CodeInstAlias:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
-    function Code.CodeInstUnary:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
-    function Code.CodeInstBinary:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
-    function Code.CodeInstFloatBinary:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
-    function Code.CodeInstCompare:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTyBool8 end
-    function Code.CodeInstCast:lower_code_inst_dst_type(ctx) return self.dst, self.to end
-    function Code.CodeInstIntrinsic:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
-    function Code.CodeInstSelect:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
-    function Code.CodeInstAddrOf:lower_code_inst_dst_type(ctx) return self.dst, self.ptr_ty end
-    function Code.CodeInstGlobalRef:lower_code_inst_dst_type(ctx) return self.dst, self.ptr_ty end
-    function Code.CodeInstPtrOffset:lower_code_inst_dst_type(ctx) return self.dst, self.ptr_ty end
-    function Code.CodeInstLoad:lower_code_inst_dst_type(ctx) return self.dst, self.access.ty end
-    function Code.CodeInstAtomicLoad:lower_code_inst_dst_type(ctx) return self.dst, self.access.ty end
-    function Code.CodeInstAtomicRmw:lower_code_inst_dst_type(ctx) return self.dst, self.access.ty end
-    function Code.CodeInstAtomicCas:lower_code_inst_dst_type(ctx) return self.dst, self.access.ty end
-    function Code.CodeInstAggregate:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
-    function Code.CodeInstArray:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
-    function Code.CodeInstClosure:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
-    function Code.CodeInstVariantCtor:lower_code_inst_dst_type(ctx) return self.dst, self.ty end
-    function Code.CodeInstVariantTag:lower_code_inst_dst_type(ctx) return self.dst, self.tag_ty end
-    function Code.CodeInstVariantPayload:lower_code_inst_dst_type(ctx) return self.dst, self.variant.payload_ty end
-    function Code.CodeInstViewMake:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTyView(self.elem_ty) end
-    function Code.CodeInstViewData:lower_code_inst_dst_type(ctx)
-        local vty = ctx.value_types and ctx.value_types[self.view.text] or nil
-        if asdl.classof(vty) == Code.CodeTyLease then vty = vty.base end
-        return self.dst, Code.CodeTyDataPtr(asdl.classof(vty) == Code.CodeTyView and vty.elem or nil)
+    function Code.CodeInstConst:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.const.ty end
+    function Code.CodeInstAlias:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.ty end
+    function Code.CodeInstUnary:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.ty end
+    function Code.CodeInstBinary:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.ty end
+    function Code.CodeInstFloatBinary:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.ty end
+    function Code.CodeInstCompare:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, Code.CodeTyBool8 end
+    function Code.CodeInstCast:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.to end
+    function Code.CodeInstIntrinsic:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.ty end
+    function Code.CodeInstSelect:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.ty end
+    function Code.CodeInstAddrOf:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.ptr_ty end
+    function Code.CodeInstGlobalRef:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.ptr_ty end
+    function Code.CodeInstPtrOffset:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.ptr_ty end
+    function Code.CodeInstLoad:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.access.ty end
+    function Code.CodeInstAtomicLoad:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.access.ty end
+    function Code.CodeInstAtomicRmw:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.access.ty end
+    function Code.CodeInstAtomicCas:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.access.ty end
+    function Code.CodeInstAggregate:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.ty end
+    function Code.CodeInstArray:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.ty end
+    function Code.CodeInstClosure:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.ty end
+    function Code.CodeInstVariantCtor:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.ty end
+    function Code.CodeInstVariantTag:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.tag_ty end
+    function Code.CodeInstVariantPayload:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.variant.payload_ty end
+    function Code.CodeInstViewMake:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, Code.CodeTyView(self.elem_ty) end
+    function Code.CodeInstViewData:lower_code_inst_dst_type(func_facts, module_facts)
+        local vty = func_facts.value_types and func_facts.value_types[self.view.text] or nil
+        return self.dst, vty ~= nil and vty:code_back_lease_base():code_back_view_data_ty() or Code.CodeTyDataPtr(nil)
     end
-    function Code.CodeInstViewLen:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTyIndex end
-    function Code.CodeInstViewStride:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTyIndex end
-    function Code.CodeInstSliceMake:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTySlice(self.elem_ty) end
-    function Code.CodeInstSliceData:lower_code_inst_dst_type(ctx)
-        local sty = ctx.value_types and ctx.value_types[self.slice.text] or nil
-        if asdl.classof(sty) == Code.CodeTyLease then sty = sty.base end
-        return self.dst, Code.CodeTyDataPtr(asdl.classof(sty) == Code.CodeTySlice and sty.elem or nil)
+    function Code.CodeInstViewLen:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, Code.CodeTyIndex end
+    function Code.CodeInstViewStride:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, Code.CodeTyIndex end
+    function Code.CodeInstSliceMake:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, Code.CodeTySlice(self.elem_ty) end
+    function Code.CodeInstSliceData:lower_code_inst_dst_type(func_facts, module_facts)
+        local sty = func_facts.value_types and func_facts.value_types[self.slice.text] or nil
+        return self.dst, sty ~= nil and sty:code_back_lease_base():code_back_slice_data_ty() or Code.CodeTyDataPtr(nil)
     end
-    function Code.CodeInstSliceLen:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTyIndex end
-    function Code.CodeInstByteSpanMake:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTyByteSpan end
-    function Code.CodeInstByteSpanData:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned)) end
-    function Code.CodeInstByteSpanLen:lower_code_inst_dst_type(ctx) return self.dst, Code.CodeTyIndex end
-    function Code.CodeInstCall:lower_code_inst_dst_type(ctx)
-        local sig = self.sig and ctx.sigs[self.sig.text] or nil
+    function Code.CodeInstSliceLen:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, Code.CodeTyIndex end
+    function Code.CodeInstByteSpanMake:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, Code.CodeTyByteSpan end
+    function Code.CodeInstByteSpanData:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned)) end
+    function Code.CodeInstByteSpanLen:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, Code.CodeTyIndex end
+    function Code.CodeInstCall:lower_code_inst_dst_type(func_facts, module_facts)
+        local sig = self.sig and module_facts.sigs[self.sig.text] or nil
         if sig and sig.results[1] then return self.dst, sig.results[1] end
         return nil, nil
     end
 
-    local function inst_dst_type(ctx, k)
-        return k:lower_code_inst_dst_type(ctx)
+    local function inst_dst_type(func_facts, module_facts, k)
+        return k:lower_code_inst_dst_type(func_facts, module_facts)
     end
 
     local function view_component_id(view, field)
@@ -504,14 +830,14 @@ local function bind_context(T)
 
     local function slice_elem(ty) return CodeAggregateAbi.slice_elem(ty) end
 
-    local function is_byref_aggregate_ty(ty) return CodeAggregateAbi.is_aggregate(ty) end
+    is_byref_aggregate_ty = function(ty) return CodeAggregateAbi.is_aggregate(ty) end
 
     local function component_scalars(ty) return CodeAggregateAbi.component_scalars(ty) end
 
-    local function sig_abi(ctx, sig) return CodeAggregateAbi.lowered_sig(sig) end
+    local function sig_abi(state, sig) return CodeAggregateAbi.lowered_sig(sig) end
 
-    local function closure_abi(ctx, sig)
-        local abi = sig_abi(ctx, sig)
+    local function closure_abi(state, sig)
+        local abi = sig_abi(state, sig)
         local params = {}
         if abi.sret then params[#params + 1] = Back.BackPtr end
         params[#params + 1] = Back.BackPtr
@@ -547,73 +873,72 @@ local function bind_context(T)
         return 0, 1
     end
 
-    local function aggregate_layout(ctx, ty) return CodeAggregateAbi.layout(ctx, ty) end
+    local function aggregate_layout(state, ty) return CodeAggregateAbi.layout(state, ty) end
 
-    local function aggregate_size_align(ctx, ty) return CodeAggregateAbi.size_align(ctx, ty) end
+    local function aggregate_size_align(state, ty) return CodeAggregateAbi.size_align(state, ty) end
 
-    local function code_size_align(ctx, ty)
-        if is_view_ty(ty) then return aggregate_size_align(ctx, ty) end
-        if is_slice_ty(ty) then return aggregate_size_align(ctx, ty) end
-        if CodeAggregateAbi.is_byte_span(ty) then return aggregate_size_align(ctx, ty) end
-        if CodeAggregateAbi.is_aggregate(ty) then return aggregate_size_align(ctx, ty) end
+    local function code_size_align(state, ty)
+        if is_view_ty(ty) then return aggregate_size_align(state, ty) end
+        if is_slice_ty(ty) then return aggregate_size_align(state, ty) end
+        if CodeAggregateAbi.is_byte_span(ty) then return aggregate_size_align(state, ty) end
+        if CodeAggregateAbi.is_aggregate(ty) then return aggregate_size_align(state, ty) end
         local s = scalar(ty); if s == nil then unsupported(ty) end
         return scalar_size_align(s)
     end
 
-    local function layout_field_offset(ctx, ty, name) return CodeAggregateAbi.field_offset(ctx, ty, name) end
+    local function layout_field_offset(state, ty, name) return CodeAggregateAbi.field_offset(state, ty, name) end
 
-    local function synthetic_memory(ctx, tag, bytes, mode)
-        ctx.next_tmp = (ctx.next_tmp or 0) + 1
-        return Back.BackMemoryInfo(Back.BackAccessId("code_to_back." .. tag .. "." .. tostring(ctx.next_tmp)), Back.BackAlignUnknown, Back.BackDerefBytes(bytes or 1, "Code aggregate ABI"), Back.BackNonTrapping("Code aggregate ABI stack/local access"), Back.BackCanMove("Code aggregate ABI local access"), mode)
+    local function synthetic_memory(state, tag, bytes, mode)
+        local tmp = state:code_back_tmp_value("code_to_back." .. tag)
+        local memory = Back.BackMemoryInfo(Back.BackAccessId(tmp.value.text), Back.BackAlignUnknown, Back.BackDerefBytes(bytes or 1, "Code aggregate ABI"), Back.BackNonTrapping("Code aggregate ABI stack/local access"), Back.BackCanMove("Code aggregate ABI local access"), mode)
+        return Code.CodeBackMemoryInfoResult(memory, tmp.state)
     end
 
-    local function aggregate_addr_for_value(ctx, id, ty)
-        local mapped = ctx.aggregate_value_addr and ctx.aggregate_value_addr[id.text]
+    aggregate_addr_for_value = function(state, id, ty)
+        local mapped = state.aggregate_value_addr and state.aggregate_value_addr[id.text]
         if mapped ~= nil then return mapped end
         if is_byref_aggregate_ty(ty) then return bid(id) end
         return nil
     end
 
-    local function create_aggregate_storage(ctx, id, ty, prefix, size_override, align_override)
-        local size, align = aggregate_size_align(ctx, ty)
+    local function create_aggregate_storage(state, id, ty, prefix, size_override, align_override)
+        local size, align = aggregate_size_align(state, ty)
         size = size_override or size
         align = align_override or align
         local slot = Back.BackStackSlotId((prefix or "code_to_back.aggregate") .. ":" .. id.text)
         local addr = Back.BackValId(id.text .. ":addr")
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdCreateStackSlot(slot, size, align)
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdStackAddr(addr, slot)
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(id), addr)
-        ctx.aggregate_value_addr[id.text] = addr
-        ctx.aggregate_value_size[id.text] = size
-        return addr, size, align
+        state = state:code_back_append_cmd(Back.CmdCreateStackSlot(slot, size, align))
+        state = state:code_back_append_cmd(Back.CmdStackAddr(addr, slot))
+        state = state:code_back_append_cmd(Back.CmdAlias(bid(id), addr))
+        state = state:code_back_note_aggregate_value(id, addr, size)
+        return state, addr, size, align
     end
 
-    local function create_local_stack_slot(ctx, local_, prefix, emit)
-        local size, align = code_size_align(ctx, local_.ty)
+    local function create_local_stack_slot(state, local_, prefix, emit)
+        local size, align = code_size_align(state, local_.ty)
         local slot = Back.BackStackSlotId((prefix or "code_to_back.local") .. ":" .. local_.id.text)
-        if emit ~= false then ctx.cmds[#ctx.cmds + 1] = Back.CmdCreateStackSlot(slot, size, align) end
-        ctx.local_stack_slots = ctx.local_stack_slots or {}
-        ctx.local_stack_slots[local_.id.text] = { slot = slot, ty = local_.ty, size = size, align = align }
-        return slot
+        if emit ~= false then state = state:code_back_append_cmd(Back.CmdCreateStackSlot(slot, size, align)) end
+        state = state:code_back_note_local_stack_slot(local_, slot, size, align)
+        return state, slot
     end
 
-    local function materialize_addressed_locals(ctx, locals, emit)
-        ctx.local_stack_slots = ctx.local_stack_slots or {}
+    local function materialize_addressed_locals(state, locals, emit)
         for _, local_ in ipairs(locals or {}) do
             if is_view_ty(local_.ty) or is_slice_ty(local_.ty) or CodeAggregateAbi.is_byte_span(local_.ty) then
-                create_local_stack_slot(ctx, local_, nil, emit)
+                state = create_local_stack_slot(state, local_, nil, emit)
             elseif local_.residence == Code.CodeResidenceAddressed and not CodeAggregateAbi.is_aggregate(local_.ty) then
-                create_local_stack_slot(ctx, local_, nil, emit)
+                state = create_local_stack_slot(state, local_, nil, emit)
             end
         end
+        return state
     end
 
-    local function closure_descriptor_size(ctx, fields)
+    local function closure_descriptor_size(func_facts, fields)
         local size, align = 16, 8
         for _, field in ipairs(fields or {}) do
             local name = field.field and field.field.field_name
             if name ~= "__lalin_fn" then
-                local fty = ctx.value_types[field.value.text]
+                local fty = func_facts.value_types[field.value.text]
                 if fty == nil then error("code_to_back: closure capture value has unknown type " .. field.value.text, 3) end
                 local s = scalar(fty); if s == nil then unsupported(fty) end
                 local sz, a = scalar_size_align(s)
@@ -627,145 +952,159 @@ local function bind_context(T)
         return size, align
     end
 
-    local function store_scalar_at_offset(ctx, base_addr, offset, value, ty, tag)
+    local function store_scalar_at_offset(state, base_addr, offset, value, ty, tag)
         local s = scalar(ty); if s == nil then unsupported(ty) end
         local sz = scalar_size_align(s)
-        local ptr = Back.BackValId((tag or "code_to_back.store_field") .. ".ptr." .. tostring(ctx.next_tmp or 0) .. "." .. tostring(offset or 0))
-        local idx0 = const_index(ctx, 0)
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdPtrOffset(ptr, Back.BackAddrValue(base_addr), idx0, 1, offset or 0, Back.BackProvDerived(tag or "aggregate field"), Back.BackPtrInBounds("aggregate field"))
-        local z = zero(ctx)
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(Back.BackShapeScalar(s), Back.BackAddress(Back.BackAddrValue(ptr), z, Back.BackProvDerived(tag or "aggregate field"), Back.BackPtrInBounds("aggregate field")), value, synthetic_memory(ctx, tag or "aggregate_store", sz, Back.BackAccessWrite))
+        local ptr_result = state:code_back_tmp_value((tag or "code_to_back.store_field") .. ".ptr." .. tostring(offset or 0))
+        state = ptr_result.state
+        local ptr = ptr_result.value
+        local idx0 = const_index(state, 0); state = idx0.state
+        state = state:code_back_append_cmd(Back.CmdPtrOffset(ptr, Back.BackAddrValue(base_addr), idx0.value, 1, offset or 0, Back.BackProvDerived(tag or "aggregate field"), Back.BackPtrInBounds("aggregate field")))
+        local z = zero(state); state = z.state
+        local memory = synthetic_memory(state, tag or "aggregate_store", sz, Back.BackAccessWrite); state = memory.state
+        state = state:code_back_append_cmd(Back.CmdStoreInfo(Back.BackShapeScalar(s), Back.BackAddress(Back.BackAddrValue(ptr), z.value, Back.BackProvDerived(tag or "aggregate field"), Back.BackPtrInBounds("aggregate field")), value, memory.memory))
+        return state
     end
 
-    local function load_scalar_at_offset(ctx, dst, base_addr, offset, ty, tag)
+    local function load_scalar_at_offset(state, dst, base_addr, offset, ty, tag)
         local s = scalar(ty); if s == nil then unsupported(ty) end
         local sz = scalar_size_align(s)
-        local ptr = Back.BackValId((tag or "code_to_back.load_field") .. ".ptr." .. tostring(ctx.next_tmp or 0) .. "." .. tostring(offset or 0))
-        local idx0 = const_index(ctx, 0)
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdPtrOffset(ptr, Back.BackAddrValue(base_addr), idx0, 1, offset or 0, Back.BackProvDerived(tag or "aggregate field"), Back.BackPtrInBounds("aggregate field"))
-        local z = zero(ctx)
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(dst, Back.BackShapeScalar(s), Back.BackAddress(Back.BackAddrValue(ptr), z, Back.BackProvDerived(tag or "aggregate field"), Back.BackPtrInBounds("aggregate field")), synthetic_memory(ctx, tag or "aggregate_load", sz, Back.BackAccessRead))
+        local ptr_result = state:code_back_tmp_value((tag or "code_to_back.load_field") .. ".ptr." .. tostring(offset or 0))
+        state = ptr_result.state
+        local ptr = ptr_result.value
+        local idx0 = const_index(state, 0); state = idx0.state
+        state = state:code_back_append_cmd(Back.CmdPtrOffset(ptr, Back.BackAddrValue(base_addr), idx0.value, 1, offset or 0, Back.BackProvDerived(tag or "aggregate field"), Back.BackPtrInBounds("aggregate field")))
+        local z = zero(state); state = z.state
+        local memory = synthetic_memory(state, tag or "aggregate_load", sz, Back.BackAccessRead); state = memory.state
+        state = state:code_back_append_cmd(Back.CmdLoadInfo(dst, Back.BackShapeScalar(s), Back.BackAddress(Back.BackAddrValue(ptr), z.value, Back.BackProvDerived(tag or "aggregate field"), Back.BackPtrInBounds("aggregate field")), memory.memory))
+        return state
     end
 
-    local function source_aggregate_ptr(ctx, value)
-        return ctx.aggregate_value_addr[value.text] or bid(value)
+    local function source_aggregate_ptr(state, value)
+        return state.aggregate_value_addr[value.text] or bid(value)
     end
 
-    local function ptr_at_offset(ctx, base_addr, offset, tag)
-        local ptr = Back.BackValId((tag or "code_to_back.aggregate_ptr") .. "." .. tostring(ctx.next_tmp or 0) .. "." .. tostring(offset or 0))
-        ctx.next_tmp = (ctx.next_tmp or 0) + 1
-        local idx0 = const_index(ctx, 0)
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdPtrOffset(ptr, Back.BackAddrValue(base_addr), idx0, 1, offset or 0, Back.BackProvDerived(tag or "aggregate copy"), Back.BackPtrInBounds("aggregate copy"))
-        return ptr
+    local function ptr_at_offset(state, base_addr, offset, tag)
+        local ptr_result = state:code_back_tmp_value((tag or "code_to_back.aggregate_ptr") .. "." .. tostring(offset or 0))
+        state = ptr_result.state
+        local idx0 = const_index(state, 0); state = idx0.state
+        state = state:code_back_append_cmd(Back.CmdPtrOffset(ptr_result.value, Back.BackAddrValue(base_addr), idx0.value, 1, offset or 0, Back.BackProvDerived(tag or "aggregate copy"), Back.BackPtrInBounds("aggregate copy")))
+        return Code.CodeBackValueResult(ptr_result.value, state)
     end
 
-    local function copy_aggregate_from_ptr(ctx, dst_base, dst_offset, src_base, ty, tag, src_offset)
-        local size = aggregate_size_align(ctx, ty)
-        local dst_ptr = ptr_at_offset(ctx, dst_base, dst_offset or 0, (tag or "aggregate_copy") .. ".dst")
-        local src_ptr = ptr_at_offset(ctx, src_base, src_offset or 0, (tag or "aggregate_copy") .. ".src")
-        local len = const_index(ctx, size)
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdMemcpy(dst_ptr, src_ptr, len)
+    local function copy_aggregate_from_ptr(state, dst_base, dst_offset, src_base, ty, tag, src_offset)
+        local size = aggregate_size_align(state, ty)
+        local dst_ptr = ptr_at_offset(state, dst_base, dst_offset or 0, (tag or "aggregate_copy") .. ".dst"); state = dst_ptr.state
+        local src_ptr = ptr_at_offset(state, src_base, src_offset or 0, (tag or "aggregate_copy") .. ".src"); state = src_ptr.state
+        local len = const_index(state, size); state = len.state
+        state = state:code_back_append_cmd(Back.CmdMemcpy(dst_ptr.value, src_ptr.value, len.value))
+        return state
     end
 
-    local function copy_value_to_offset(ctx, dst_base, dst_offset, value, ty, tag, src_base, src_offset, tmp)
+    local function copy_value_to_offset(state, dst_base, dst_offset, value, ty, tag, src_base, src_offset, tmp)
         if is_view_ty(ty) then
             local vals
             if value ~= nil then
                 vals = component_values(value, ty)
             else
-                vals = {
-                    tmp or Back.BackValId((tag or "view_copy") .. ".data." .. tostring(ctx.next_tmp or 0)),
-                    Back.BackValId((tag or "view_copy") .. ".len." .. tostring(ctx.next_tmp or 0)),
-                    Back.BackValId((tag or "view_copy") .. ".stride." .. tostring(ctx.next_tmp or 0)),
-                }
-                load_scalar_at_offset(ctx, vals[1], src_base, (src_offset or 0), Code.CodeTyDataPtr(view_elem(ty)), tag or "view_copy_data")
-                load_scalar_at_offset(ctx, vals[2], src_base, (src_offset or 0) + 8, Code.CodeTyIndex, tag or "view_copy_len")
-                load_scalar_at_offset(ctx, vals[3], src_base, (src_offset or 0) + 16, Code.CodeTyIndex, tag or "view_copy_stride")
+                local data = tmp and Code.CodeBackValueResult(tmp, state) or state:code_back_tmp_value((tag or "view_copy") .. ".data")
+                state = data.state
+                local len = state:code_back_tmp_value((tag or "view_copy") .. ".len"); state = len.state
+                local stride = state:code_back_tmp_value((tag or "view_copy") .. ".stride"); state = stride.state
+                vals = { data.value, len.value, stride.value }
+                state = load_scalar_at_offset(state, vals[1], src_base, (src_offset or 0), Code.CodeTyDataPtr(view_elem(ty)), tag or "view_copy_data")
+                state = load_scalar_at_offset(state, vals[2], src_base, (src_offset or 0) + 8, Code.CodeTyIndex, tag or "view_copy_len")
+                state = load_scalar_at_offset(state, vals[3], src_base, (src_offset or 0) + 16, Code.CodeTyIndex, tag or "view_copy_stride")
             end
-            store_scalar_at_offset(ctx, dst_base, (dst_offset or 0), vals[1], Code.CodeTyDataPtr(view_elem(ty)), tag or "view_store_data")
-            store_scalar_at_offset(ctx, dst_base, (dst_offset or 0) + 8, vals[2], Code.CodeTyIndex, tag or "view_store_len")
-            store_scalar_at_offset(ctx, dst_base, (dst_offset or 0) + 16, vals[3], Code.CodeTyIndex, tag or "view_store_stride")
+            state = store_scalar_at_offset(state, dst_base, (dst_offset or 0), vals[1], Code.CodeTyDataPtr(view_elem(ty)), tag or "view_store_data")
+            state = store_scalar_at_offset(state, dst_base, (dst_offset or 0) + 8, vals[2], Code.CodeTyIndex, tag or "view_store_len")
+            state = store_scalar_at_offset(state, dst_base, (dst_offset or 0) + 16, vals[3], Code.CodeTyIndex, tag or "view_store_stride")
         elseif is_slice_ty(ty) then
             local vals
             if value ~= nil then
                 vals = component_values(value, ty)
             else
-                vals = {
-                    tmp or Back.BackValId((tag or "slice_copy") .. ".data." .. tostring(ctx.next_tmp or 0)),
-                    Back.BackValId((tag or "slice_copy") .. ".len." .. tostring(ctx.next_tmp or 0)),
-                }
-                load_scalar_at_offset(ctx, vals[1], src_base, src_offset or 0, Code.CodeTyDataPtr(slice_elem(ty)), tag or "slice_copy_data")
-                load_scalar_at_offset(ctx, vals[2], src_base, (src_offset or 0) + 8, Code.CodeTyIndex, tag or "slice_copy_len")
+                local data = tmp and Code.CodeBackValueResult(tmp, state) or state:code_back_tmp_value((tag or "slice_copy") .. ".data")
+                state = data.state
+                local len = state:code_back_tmp_value((tag or "slice_copy") .. ".len"); state = len.state
+                vals = { data.value, len.value }
+                state = load_scalar_at_offset(state, vals[1], src_base, src_offset or 0, Code.CodeTyDataPtr(slice_elem(ty)), tag or "slice_copy_data")
+                state = load_scalar_at_offset(state, vals[2], src_base, (src_offset or 0) + 8, Code.CodeTyIndex, tag or "slice_copy_len")
             end
-            store_scalar_at_offset(ctx, dst_base, dst_offset or 0, vals[1], Code.CodeTyDataPtr(slice_elem(ty)), tag or "slice_store_data")
-            store_scalar_at_offset(ctx, dst_base, (dst_offset or 0) + 8, vals[2], Code.CodeTyIndex, tag or "slice_store_len")
+            state = store_scalar_at_offset(state, dst_base, dst_offset or 0, vals[1], Code.CodeTyDataPtr(slice_elem(ty)), tag or "slice_store_data")
+            state = store_scalar_at_offset(state, dst_base, (dst_offset or 0) + 8, vals[2], Code.CodeTyIndex, tag or "slice_store_len")
         elseif CodeAggregateAbi.is_byte_span(ty) then
             local vals
             if value ~= nil then
                 vals = component_values(value, ty)
             else
-                vals = {
-                    tmp or Back.BackValId((tag or "bytespan_copy") .. ".data." .. tostring(ctx.next_tmp or 0)),
-                    Back.BackValId((tag or "bytespan_copy") .. ".len." .. tostring(ctx.next_tmp or 0)),
-                }
-                load_scalar_at_offset(ctx, vals[1], src_base, src_offset or 0, Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned)), tag or "bytespan_copy_data")
-                load_scalar_at_offset(ctx, vals[2], src_base, (src_offset or 0) + 8, Code.CodeTyIndex, tag or "bytespan_copy_len")
+                local data = tmp and Code.CodeBackValueResult(tmp, state) or state:code_back_tmp_value((tag or "bytespan_copy") .. ".data")
+                state = data.state
+                local len = state:code_back_tmp_value((tag or "bytespan_copy") .. ".len"); state = len.state
+                vals = { data.value, len.value }
+                state = load_scalar_at_offset(state, vals[1], src_base, src_offset or 0, Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned)), tag or "bytespan_copy_data")
+                state = load_scalar_at_offset(state, vals[2], src_base, (src_offset or 0) + 8, Code.CodeTyIndex, tag or "bytespan_copy_len")
             end
-            store_scalar_at_offset(ctx, dst_base, dst_offset or 0, vals[1], Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned)), tag or "bytespan_store_data")
-            store_scalar_at_offset(ctx, dst_base, (dst_offset or 0) + 8, vals[2], Code.CodeTyIndex, tag or "bytespan_store_len")
+            state = store_scalar_at_offset(state, dst_base, dst_offset or 0, vals[1], Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned)), tag or "bytespan_store_data")
+            state = store_scalar_at_offset(state, dst_base, (dst_offset or 0) + 8, vals[2], Code.CodeTyIndex, tag or "bytespan_store_len")
         elseif is_byref_aggregate_ty(ty) then
             local source = src_base
             if source == nil then
                 if value == nil then error("code_to_back: aggregate copy has no source", 3) end
-                source = source_aggregate_ptr(ctx, value)
+                source = source_aggregate_ptr(state, value)
             end
-            copy_aggregate_from_ptr(ctx, dst_base, dst_offset or 0, source, ty, tag, src_offset or 0)
+            state = copy_aggregate_from_ptr(state, dst_base, dst_offset or 0, source, ty, tag, src_offset or 0)
         else
-            local v = value and bid(value) or (tmp or Back.BackValId((tag or "scalar_copy") .. ".tmp." .. tostring(ctx.next_tmp or 0)))
-            if value == nil then load_scalar_at_offset(ctx, v, src_base, src_offset or 0, ty, tag or "scalar_copy") end
-            store_scalar_at_offset(ctx, dst_base, dst_offset or 0, v, ty, tag)
+            local v = value and Code.CodeBackValueResult(bid(value), state) or (tmp and Code.CodeBackValueResult(tmp, state) or state:code_back_tmp_value((tag or "scalar_copy") .. ".tmp"))
+            state = v.state
+            if value == nil then state = load_scalar_at_offset(state, v.value, src_base, src_offset or 0, ty, tag or "scalar_copy") end
+            state = store_scalar_at_offset(state, dst_base, dst_offset or 0, v.value, ty, tag)
         end
+        return state
     end
 
-    local function store_closure_descriptor(ctx, dst, ty, fn, ctx_ptr)
-        local addr = create_aggregate_storage(ctx, dst, ty, "code_to_back.closure")
+    local function store_closure_descriptor(state, dst, ty, fn, ctx_ptr)
+        local addr
+        state, addr = create_aggregate_storage(state, dst, ty, "code_to_back.closure")
         local fn_ty = Code.CodeTyCodePtr(ty.sig)
-        store_scalar_at_offset(ctx, addr, 0, fn, fn_ty, "closure_fn")
-        store_scalar_at_offset(ctx, addr, 8, ctx_ptr, Code.CodeTyDataPtr(nil), "closure_ctx")
-        return addr
+        state = store_scalar_at_offset(state, addr, 0, fn, fn_ty, "closure_fn")
+        state = store_scalar_at_offset(state, addr, 8, ctx_ptr, Code.CodeTyDataPtr(nil), "closure_ctx")
+        return Code.CodeBackValueResult(addr, state)
     end
 
-    local function closure_env_ptr(ctx, base_addr, has_captures)
-        if not has_captures then return null_ptr(ctx, "code_to_back.closure_ctx_null") end
-        local ptr = Back.BackValId("code_to_back.closure_ctx." .. tostring(ctx.next_tmp or 0))
-        local idx0 = const_index(ctx, 0)
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdPtrOffset(ptr, Back.BackAddrValue(base_addr), idx0, 1, 16, Back.BackProvDerived("closure env"), Back.BackPtrInBounds("closure env"))
-        return ptr
+    local function closure_env_ptr(state, base_addr, has_captures)
+        if not has_captures then return null_ptr(state, "code_to_back.closure_ctx_null") end
+        local ptr = state:code_back_tmp_value("code_to_back.closure_ctx"); state = ptr.state
+        local idx0 = const_index(state, 0); state = idx0.state
+        state = state:code_back_append_cmd(Back.CmdPtrOffset(ptr.value, Back.BackAddrValue(base_addr), idx0.value, 1, 16, Back.BackProvDerived("closure env"), Back.BackPtrInBounds("closure env")))
+        return Code.CodeBackValueResult(ptr.value, state)
     end
 
-    local function store_view_components_to_addr(ctx, base_addr, view, ty, tag)
+    local function store_view_components_to_addr(state, base_addr, view, ty, tag)
         local elem = view_elem(ty)
         local data_ty = Code.CodeTyDataPtr(elem)
         local vals = component_values(view, ty)
-        store_scalar_at_offset(ctx, base_addr, 0, vals[1], data_ty, (tag or "view") .. ":data")
-        store_scalar_at_offset(ctx, base_addr, 8, vals[2], Code.CodeTyIndex, (tag or "view") .. ":len")
-        store_scalar_at_offset(ctx, base_addr, 16, vals[3], Code.CodeTyIndex, (tag or "view") .. ":stride")
+        state = store_scalar_at_offset(state, base_addr, 0, vals[1], data_ty, (tag or "view") .. ":data")
+        state = store_scalar_at_offset(state, base_addr, 8, vals[2], Code.CodeTyIndex, (tag or "view") .. ":len")
+        state = store_scalar_at_offset(state, base_addr, 16, vals[3], Code.CodeTyIndex, (tag or "view") .. ":stride")
+        return state
     end
 
-    local function load_view_components_from_addr(ctx, view, base_addr, ty, tag)
+    local function load_view_components_from_addr(state, view, base_addr, ty, tag)
         local elem = view_elem(ty)
         local data_ty = Code.CodeTyDataPtr(elem)
         local vals = component_values(view, ty)
-        load_scalar_at_offset(ctx, vals[1], base_addr, 0, data_ty, (tag or "view") .. ":data")
-        load_scalar_at_offset(ctx, vals[2], base_addr, 8, Code.CodeTyIndex, (tag or "view") .. ":len")
-        load_scalar_at_offset(ctx, vals[3], base_addr, 16, Code.CodeTyIndex, (tag or "view") .. ":stride")
+        state = load_scalar_at_offset(state, vals[1], base_addr, 0, data_ty, (tag or "view") .. ":data")
+        state = load_scalar_at_offset(state, vals[2], base_addr, 8, Code.CodeTyIndex, (tag or "view") .. ":len")
+        state = load_scalar_at_offset(state, vals[3], base_addr, 16, Code.CodeTyIndex, (tag or "view") .. ":stride")
+        return state
     end
 
-    local function check_call_effects(ctx, inst_id)
-        local effects = ctx.effect_by_inst and ctx.effect_by_inst[inst_id.text] or nil
+    local function check_call_effects(module_facts, inst_id)
+        local effects = module_facts.effect_by_inst and module_facts.effect_by_inst[inst_id.text] or nil
         if effects == nil then return end
         for _, effect in ipairs(effects.effects or {}) do
-            if asdl.classof(effect) == T.LalinEffect.EffectUnknown then
+            if effect:code_back_allows_call() then
                 -- Ordinary Code fallback may still emit conservative calls; the
                 -- fact is consulted here so optimized fragment emitters can
                 -- reject motion/vectorization before reaching Back.
@@ -774,420 +1113,639 @@ local function bind_context(T)
         end
     end
 
-    local function inst(ctx, i)
-        local k = i.kind
-        local cls = asdl.classof(k)
-        if cls == Code.CodeInstConst then
-            local s = scalar(k.const.ty); if s == nil then unsupported(k.const.ty) end
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdConst(bid(k.dst), s, k.const:lower_code_const_to_back_literal())
-        elseif cls == Code.CodeInstAlias then
-            if is_view_ty(k.ty) then
-                local dsts, srcs = component_values(k.dst, k.ty), component_values(k.src, k.ty)
-                for n = 1, #dsts do ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(dsts[n], srcs[n]) end
-            elseif is_byref_aggregate_ty(k.ty) then
-                ctx.aggregate_value_addr[k.dst.text] = aggregate_addr_for_value(ctx, k.src, k.ty) or bid(k.src)
+    function Code.CodeGlobalRef:lower_code_global_ref_to_back_addr(state, dst)
+        unsupported(self)
+    end
+    function Code.CodeGlobalRefFunc:lower_code_global_ref_to_back_addr(state, dst)
+        state = state:code_back_append_cmd(Back.CmdFuncAddr(bid(dst), func_id(self.func)))
+        return Code.CodeBackStateResult(state)
+    end
+    function Code.CodeGlobalRefExtern:lower_code_global_ref_to_back_addr(state, dst)
+        state = state:code_back_append_cmd(Back.CmdExternAddr(bid(dst), extern_id(self["extern"])))
+        return Code.CodeBackStateResult(state)
+    end
+    function Code.CodeGlobalRefData:lower_code_global_ref_to_back_addr(state, dst)
+        state = state:code_back_append_cmd(Back.CmdDataAddr(bid(dst), data_id(self.data)))
+        return Code.CodeBackStateResult(state)
+    end
+    function Code.CodeGlobalRefGlobal:lower_code_global_ref_to_back_addr(state, dst)
+        state = state:code_back_append_cmd(Back.CmdDataAddr(bid(dst), data_id(self.global)))
+        return Code.CodeBackStateResult(state)
+    end
+
+    function Code.CodeCallTarget:lower_code_call_target_to_back(input, call)
+        unsupported(self)
+    end
+    function Code.CodeCallDirect:lower_code_call_target_to_back(input, call)
+        return Back.BackCallDirect(func_id(self.func)), sig_id(call.sig), nil
+    end
+    function Code.CodeCallExtern:lower_code_call_target_to_back(input, call)
+        return Back.BackCallExtern(extern_id(self["extern"])), sig_id(call.sig), nil
+    end
+    function Code.CodeCallIndirect:lower_code_call_target_to_back(input, call)
+        return Back.BackCallIndirect(bid(self.callee)), sig_id(call.sig), nil
+    end
+    function Code.CodeCallClosure:lower_code_call_target_to_back(input, call)
+        local state = input.state
+        local closure_ty = input.func.value_types[self.closure.text]
+        local closure_addr = aggregate_addr_for_value(state, self.closure, closure_ty)
+        if closure_addr == nil then error("code_to_back: closure call has no descriptor address " .. self.closure.text, 3) end
+        local fn = Back.BackValId(self.closure.text .. ":closure_call_fn")
+        local closure_ctx = Back.BackValId(self.closure.text .. ":closure_call_ctx")
+        state = load_scalar_at_offset(state, fn, closure_addr, 0, Code.CodeTyCodePtr(self.sig), "closure_call_fn")
+        state = load_scalar_at_offset(state, closure_ctx, closure_addr, 8, Code.CodeTyDataPtr(nil), "closure_call_ctx")
+        return Back.BackCallIndirect(fn), closure_sig_id(call.sig), closure_ctx, state
+    end
+
+    function Code.CodeInst:lower_code_inst_to_back(input)
+        return self.kind:lower_code_inst_to_back(Code.CodeBackInstInput(input.module, input.func, input.state, self.id))
+    end
+
+    function Code.CodeInstKind:lower_code_inst_to_back(input)
+        unsupported(self)
+    end
+
+    function Code.CodeInstConst:lower_code_inst_to_back(input)
+        local state = input.state
+            local s = scalar(self.const.ty); if s == nil then unsupported(self.const.ty) end
+            state = state:code_back_append_cmd(Back.CmdConst(bid(self.dst), s, self.const:lower_code_const_to_back_literal()))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstAlias:lower_code_inst_to_back(input)
+        local state = input.state
+            if is_view_ty(self.ty) then
+                local dsts, srcs = component_values(self.dst, self.ty), component_values(self.src, self.ty)
+                for n = 1, #dsts do state = state:code_back_append_cmd(Back.CmdAlias(dsts[n], srcs[n])) end
+            elseif is_byref_aggregate_ty(self.ty) then
+                state = state:code_back_note_aggregate_value(self.dst, aggregate_addr_for_value(state, self.src, self.ty) or bid(self.src))
             else
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), bid(k.src))
+                state = state:code_back_append_cmd(Back.CmdAlias(bid(self.dst), bid(self.src)))
             end
-        elseif cls == Code.CodeInstUnary then
-            local op = k.op:lower_code_unary_to_back_op(); if op == nil then unsupported(k.op) end
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdUnary(bid(k.dst), op, shape(k.ty), bid(k.value))
-        elseif cls == Code.CodeInstBinary then
-            local s = scalar(k.ty); if s == nil then unsupported(k.ty) end
-            local iop, bop, sop = k.op:lower_code_binary_to_back_int_op(), k.op:lower_code_binary_to_back_bit_op(), k.op:lower_code_binary_to_back_shift_op()
-            local lhs, rhs = value_as(ctx, k.lhs, k.ty), value_as(ctx, k.rhs, k.ty)
-            if iop then ctx.cmds[#ctx.cmds + 1] = Back.CmdIntBinary(bid(k.dst), iop, s, int_semantics(ctx, k), lhs, rhs)
-            elseif bop then ctx.cmds[#ctx.cmds + 1] = Back.CmdBitBinary(bid(k.dst), bop, s, lhs, rhs)
-            elseif sop then ctx.cmds[#ctx.cmds + 1] = Back.CmdShift(bid(k.dst), sop, s, lhs, rhs)
-            else unsupported(k.op) end
-        elseif cls == Code.CodeInstFloatBinary then
-            local s = scalar(k.ty); local op = k.op:lower_code_binary_to_back_float_op(); if not s or not op then unsupported(k) end
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdFloatBinary(bid(k.dst), op, s, float_semantics(ctx, k), bid(k.lhs), bid(k.rhs))
-        elseif cls == Code.CodeInstCompare then
-            local lhs, rhs = value_as(ctx, k.lhs, k.operand_ty), value_as(ctx, k.rhs, k.operand_ty)
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdCompare(bid(k.dst), k.operand_ty:lower_code_type_to_back_cmp_op(k.op), shape(k.operand_ty), lhs, rhs)
-        elseif cls == Code.CodeInstCast then
-            local s = scalar(k.to); if s == nil then unsupported(k.to) end
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdCast(bid(k.dst), k.op:lower_code_cast_to_back_op(), s, bid(k.value))
-        elseif cls == Code.CodeInstIntrinsic then
-            if k.op == Core.IntrinsicTrap then
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdTrap
-            elseif k.op == Core.IntrinsicFma then
-                local s = scalar(k.ty); if s == nil then unsupported(k.ty) end
-                if k.dst == nil or #k.args ~= 3 then unsupported(k) end
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdFma(bid(k.dst), s, Back.BackFloatStrict, bid(k.args[1]), bid(k.args[2]), bid(k.args[3]))
-            elseif k.op:lower_code_intrinsic_to_back_rotate_op() ~= nil then
-                local s = scalar(k.ty); if s == nil then unsupported(k.ty) end
-                if k.dst == nil or #k.args ~= 2 then unsupported(k) end
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdRotate(bid(k.dst), k.op:lower_code_intrinsic_to_back_rotate_op(), s, bid(k.args[1]), bid(k.args[2]))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstUnary:lower_code_inst_to_back(input)
+        local state = input.state
+            local op = self.op:lower_code_unary_to_back_op(); if op == nil then unsupported(self.op) end
+            state = state:code_back_append_cmd(Back.CmdUnary(bid(self.dst), op, shape(self.ty), bid(self.value)))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstBinary:lower_code_inst_to_back(input)
+        local state = input.state
+            local s = scalar(self.ty); if s == nil then unsupported(self.ty) end
+            local iop, bop, sop = self.op:lower_code_binary_to_back_int_op(), self.op:lower_code_binary_to_back_bit_op(), self.op:lower_code_binary_to_back_shift_op()
+            local lhs = value_as(state, input.func, self.lhs, self.ty); state = lhs.state
+            local rhs = value_as(state, input.func, self.rhs, self.ty); state = rhs.state
+            if iop then state = state:code_back_append_cmd(Back.CmdIntBinary(bid(self.dst), iop, s, int_semantics(input.module, self), lhs.value, rhs.value))
+            elseif bop then state = state:code_back_append_cmd(Back.CmdBitBinary(bid(self.dst), bop, s, lhs.value, rhs.value))
+            elseif sop then state = state:code_back_append_cmd(Back.CmdShift(bid(self.dst), sop, s, lhs.value, rhs.value))
+            else unsupported(self.op) end
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstFloatBinary:lower_code_inst_to_back(input)
+        local state = input.state
+            local s = scalar(self.ty); local op = self.op:lower_code_binary_to_back_float_op(); if not s or not op then unsupported(self) end
+            state = state:code_back_append_cmd(Back.CmdFloatBinary(bid(self.dst), op, s, float_semantics(input.module, self), bid(self.lhs), bid(self.rhs)))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstCompare:lower_code_inst_to_back(input)
+        local state = input.state
+            local lhs = value_as(state, input.func, self.lhs, self.operand_ty); state = lhs.state
+            local rhs = value_as(state, input.func, self.rhs, self.operand_ty); state = rhs.state
+            state = state:code_back_append_cmd(Back.CmdCompare(bid(self.dst), self.operand_ty:lower_code_type_to_back_cmp_op(self.op), shape(self.operand_ty), lhs.value, rhs.value))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstCast:lower_code_inst_to_back(input)
+        local state = input.state
+            local s = scalar(self.to); if s == nil then unsupported(self.to) end
+            state = state:code_back_append_cmd(Back.CmdCast(bid(self.dst), self.op:lower_code_cast_to_back_op(), s, bid(self.value)))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstIntrinsic:lower_code_inst_to_back(input)
+        local state = input.state
+            if self.op == Core.IntrinsicTrap then
+                state = state:code_back_append_cmd(Back.CmdTrap)
+            elseif self.op == Core.IntrinsicFma then
+                local s = scalar(self.ty); if s == nil then unsupported(self.ty) end
+                if self.dst == nil or #self.args ~= 3 then unsupported(self) end
+                state = state:code_back_append_cmd(Back.CmdFma(bid(self.dst), s, Back.BackFloatStrict, bid(self.args[1]), bid(self.args[2]), bid(self.args[3])))
+            elseif self.op:lower_code_intrinsic_to_back_rotate_op() ~= nil then
+                local s = scalar(self.ty); if s == nil then unsupported(self.ty) end
+                if self.dst == nil or #self.args ~= 2 then unsupported(self) end
+                state = state:code_back_append_cmd(Back.CmdRotate(bid(self.dst), self.op:lower_code_intrinsic_to_back_rotate_op(), s, bid(self.args[1]), bid(self.args[2])))
             else
-                local op = k.op:lower_code_intrinsic_to_back_op(); if op == nil then unsupported(k.op) end
-                local s = scalar(k.ty); if s == nil then unsupported(k.ty) end
-                if k.dst == nil or #k.args < 1 then unsupported(k) end
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdIntrinsic(bid(k.dst), op, Back.BackShapeScalar(s), { bid(k.args[1]) })
+                local op = self.op:lower_code_intrinsic_to_back_op(); if op == nil then unsupported(self.op) end
+                local s = scalar(self.ty); if s == nil then unsupported(self.ty) end
+                if self.dst == nil or #self.args < 1 then unsupported(self) end
+                state = state:code_back_append_cmd(Back.CmdIntrinsic(bid(self.dst), op, Back.BackShapeScalar(s), { bid(self.args[1]) }))
             end
-        elseif cls == Code.CodeInstSelect then
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdSelect(bid(k.dst), shape(k.ty), bid(k.cond), bid(k.then_value), bid(k.else_value))
-        elseif cls == Code.CodeInstAddrOf then
-            k.place:lower_code_place_addr_of_to_back(ctx, k.dst, ctx.mem_backend_by_inst[i.id.text])
-        elseif cls == Code.CodeInstGlobalRef then
-            local rcls = asdl.classof(k.ref)
-            if rcls == Code.CodeGlobalRefFunc then ctx.cmds[#ctx.cmds + 1] = Back.CmdFuncAddr(bid(k.dst), func_id(k.ref.func))
-            elseif rcls == Code.CodeGlobalRefExtern then ctx.cmds[#ctx.cmds + 1] = Back.CmdExternAddr(bid(k.dst), extern_id(k.ref["extern"]))
-            elseif rcls == Code.CodeGlobalRefData then ctx.cmds[#ctx.cmds + 1] = Back.CmdDataAddr(bid(k.dst), data_id(k.ref.data))
-            elseif rcls == Code.CodeGlobalRefGlobal then ctx.cmds[#ctx.cmds + 1] = Back.CmdDataAddr(bid(k.dst), data_id(k.ref.global))
-            else unsupported(k.ref) end
-        elseif cls == Code.CodeInstPtrOffset then
-            local index = index_value(ctx, k.index)
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdPtrOffset(bid(k.dst), Back.BackAddrValue(bid(k.base)), index, k.elem_size, k.const_offset, Back.BackProvDerived("CodePtrOffset"), Back.BackPtrBoundsUnknown)
-        elseif cls == Code.CodeInstViewMake then
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstSelect:lower_code_inst_to_back(input)
+        local state = input.state
+            state = state:code_back_append_cmd(Back.CmdSelect(bid(self.dst), shape(self.ty), bid(self.cond), bid(self.then_value), bid(self.else_value)))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstAddrOf:lower_code_inst_to_back(input)
+        local state = input.state
+            self.place:lower_code_place_addr_of_to_back(code_back_place_input(input), self.dst)
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstGlobalRef:lower_code_inst_to_back(input)
+        local state = input.state
+            local result = self.ref:lower_code_global_ref_to_back_addr(state, self.dst)
+            state = result.state
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstPtrOffset:lower_code_inst_to_back(input)
+        local state = input.state
+            local index = index_value(state, input.func, self.index); state = index.state
+            state = state:code_back_append_cmd(Back.CmdPtrOffset(bid(self.dst), Back.BackAddrValue(bid(self.base)), index.value, self.elem_size, self.const_offset, Back.BackProvDerived("CodePtrOffset"), Back.BackPtrBoundsUnknown))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstViewMake:lower_code_inst_to_back(input)
+        local state = input.state
             -- Materialize executable descriptor components as deterministic SSA aliases.
             -- Projections alias from these component ids; if a view was not made in Code,
             -- Back validation fails loudly on the missing deterministic source value.
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(view_component_id(k.dst, "data"), bid(k.data))
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(view_component_id(k.dst, "len"), bid(k.len))
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(view_component_id(k.dst, "stride"), bid(k.stride))
-        elseif cls == Code.CodeInstViewData then
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), view_component_id(k.view, "data"))
-        elseif cls == Code.CodeInstViewLen then
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), view_component_id(k.view, "len"))
-        elseif cls == Code.CodeInstViewStride then
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), view_component_id(k.view, "stride"))
-        elseif cls == Code.CodeInstSliceMake then
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(slice_component_id(k.dst, "data"), bid(k.data))
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(slice_component_id(k.dst, "len"), bid(k.len))
-        elseif cls == Code.CodeInstSliceData then
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), slice_component_id(k.slice, "data"))
-        elseif cls == Code.CodeInstSliceLen then
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), slice_component_id(k.slice, "len"))
-        elseif cls == Code.CodeInstByteSpanMake then
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(Back.BackValId(k.dst.text .. ":bytespan_data"), bid(k.data))
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(Back.BackValId(k.dst.text .. ":bytespan_len"), bid(k.len))
-        elseif cls == Code.CodeInstByteSpanData then
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), Back.BackValId(k.span.text .. ":bytespan_data"))
-        elseif cls == Code.CodeInstByteSpanLen then
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), Back.BackValId(k.span.text .. ":bytespan_len"))
-        elseif cls == Code.CodeInstLoad then
-            local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
-            if is_byref_aggregate_ty(k.access.ty) then
-                local p = address_to_ptr_value(ctx, addr, "code_to_back.aggregate_load_addr")
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), p)
-                ctx.aggregate_value_addr[k.dst.text] = p
-            elseif is_view_ty(k.access.ty) then
-                local elem = view_elem(k.access.ty)
+            state = state:code_back_append_cmd(Back.CmdAlias(view_component_id(self.dst, "data"), bid(self.data)))
+            state = state:code_back_append_cmd(Back.CmdAlias(view_component_id(self.dst, "len"), bid(self.len)))
+            state = state:code_back_append_cmd(Back.CmdAlias(view_component_id(self.dst, "stride"), bid(self.stride)))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstViewData:lower_code_inst_to_back(input)
+        local state = input.state
+            state = state:code_back_append_cmd(Back.CmdAlias(bid(self.dst), view_component_id(self.view, "data")))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstViewLen:lower_code_inst_to_back(input)
+        local state = input.state
+            state = state:code_back_append_cmd(Back.CmdAlias(bid(self.dst), view_component_id(self.view, "len")))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstViewStride:lower_code_inst_to_back(input)
+        local state = input.state
+            state = state:code_back_append_cmd(Back.CmdAlias(bid(self.dst), view_component_id(self.view, "stride")))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstSliceMake:lower_code_inst_to_back(input)
+        local state = input.state
+            state = state:code_back_append_cmd(Back.CmdAlias(slice_component_id(self.dst, "data"), bid(self.data)))
+            state = state:code_back_append_cmd(Back.CmdAlias(slice_component_id(self.dst, "len"), bid(self.len)))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstSliceData:lower_code_inst_to_back(input)
+        local state = input.state
+            state = state:code_back_append_cmd(Back.CmdAlias(bid(self.dst), slice_component_id(self.slice, "data")))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstSliceLen:lower_code_inst_to_back(input)
+        local state = input.state
+            state = state:code_back_append_cmd(Back.CmdAlias(bid(self.dst), slice_component_id(self.slice, "len")))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstByteSpanMake:lower_code_inst_to_back(input)
+        local state = input.state
+            state = state:code_back_append_cmd(Back.CmdAlias(Back.BackValId(self.dst.text .. ":bytespan_data"), bid(self.data)))
+            state = state:code_back_append_cmd(Back.CmdAlias(Back.BackValId(self.dst.text .. ":bytespan_len"), bid(self.len)))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstByteSpanData:lower_code_inst_to_back(input)
+        local state = input.state
+            state = state:code_back_append_cmd(Back.CmdAlias(bid(self.dst), Back.BackValId(self.span.text .. ":bytespan_data")))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstByteSpanLen:lower_code_inst_to_back(input)
+        local state = input.state
+            state = state:code_back_append_cmd(Back.CmdAlias(bid(self.dst), Back.BackValId(self.span.text .. ":bytespan_len")))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstLoad:lower_code_inst_to_back(input)
+        local state = input.state
+            local place_result = addr_from_place(input, self.place)
+            local addr = place_result.address
+            state = place_result.state
+            if is_byref_aggregate_ty(self.access.ty) then
+                local p = address_to_ptr_value(state, addr, "code_to_back.aggregate_load_addr"); state = p.state
+                state = state:code_back_append_cmd(Back.CmdAlias(bid(self.dst), p.value))
+                state = state:code_back_note_aggregate_value(self.dst, p.value)
+            elseif is_view_ty(self.access.ty) then
+                local elem = view_elem(self.access.ty)
                 local data_ty = Code.CodeTyDataPtr(elem)
-                local vals = component_values(k.dst, k.access.ty)
-                local data_addr = address_at_const_offset(ctx, addr, 0)
-                local len_addr = address_at_const_offset(ctx, addr, 8)
-                local stride_addr = address_at_const_offset(ctx, addr, 16)
-                local data_mem = component_memory_info(ctx, k.access, i.id, "view_data")
-                local len_mem = component_memory_info(ctx, k.access, i.id, "view_len")
-                local stride_mem = component_memory_info(ctx, k.access, i.id, "view_stride")
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(vals[1], shape(data_ty), data_addr, data_mem)
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(vals[2], shape(Code.CodeTyIndex), len_addr, len_mem)
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(vals[3], shape(Code.CodeTyIndex), stride_addr, stride_mem)
-            elseif is_slice_ty(k.access.ty) then
-                local elem = slice_elem(k.access.ty)
+                local vals = component_values(self.dst, self.access.ty)
+                local data_addr = address_at_const_offset(state, addr, 0); state = data_addr.state
+                local len_addr = address_at_const_offset(state, addr, 8); state = len_addr.state
+                local stride_addr = address_at_const_offset(state, addr, 16); state = stride_addr.state
+                local data_mem = component_memory_info(input.module, self.access, input.inst, "view_data")
+                local len_mem = component_memory_info(input.module, self.access, input.inst, "view_len")
+                local stride_mem = component_memory_info(input.module, self.access, input.inst, "view_stride")
+                state = state:code_back_append_cmd(Back.CmdLoadInfo(vals[1], shape(data_ty), data_addr.address, data_mem))
+                state = state:code_back_append_cmd(Back.CmdLoadInfo(vals[2], shape(Code.CodeTyIndex), len_addr.address, len_mem))
+                state = state:code_back_append_cmd(Back.CmdLoadInfo(vals[3], shape(Code.CodeTyIndex), stride_addr.address, stride_mem))
+            elseif is_slice_ty(self.access.ty) then
+                local elem = slice_elem(self.access.ty)
                 local data_ty = Code.CodeTyDataPtr(elem)
-                local vals = component_values(k.dst, k.access.ty)
-                local data_addr = address_at_const_offset(ctx, addr, 0)
-                local len_addr = address_at_const_offset(ctx, addr, 8)
-                local data_mem = component_memory_info(ctx, k.access, i.id, "slice_data")
-                local len_mem = component_memory_info(ctx, k.access, i.id, "slice_len")
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(vals[1], shape(data_ty), data_addr, data_mem)
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(vals[2], shape(Code.CodeTyIndex), len_addr, len_mem)
-            elseif k.access.ty == Code.CodeTyByteSpan or asdl.classof(k.access.ty) == Code.CodeTyByteSpan then
+                local vals = component_values(self.dst, self.access.ty)
+                local data_addr = address_at_const_offset(state, addr, 0); state = data_addr.state
+                local len_addr = address_at_const_offset(state, addr, 8); state = len_addr.state
+                local data_mem = component_memory_info(input.module, self.access, input.inst, "slice_data")
+                local len_mem = component_memory_info(input.module, self.access, input.inst, "slice_len")
+                state = state:code_back_append_cmd(Back.CmdLoadInfo(vals[1], shape(data_ty), data_addr.address, data_mem))
+                state = state:code_back_append_cmd(Back.CmdLoadInfo(vals[2], shape(Code.CodeTyIndex), len_addr.address, len_mem))
+            elseif CodeAggregateAbi.is_byte_span(self.access.ty) then
                 local data_ty = Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned))
-                local vals = component_values(k.dst, k.access.ty)
-                local data_addr = address_at_const_offset(ctx, addr, 0)
-                local len_addr = address_at_const_offset(ctx, addr, 8)
-                local data_mem = component_memory_info(ctx, k.access, i.id, "bytespan_data")
-                local len_mem = component_memory_info(ctx, k.access, i.id, "bytespan_len")
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(vals[1], shape(data_ty), data_addr, data_mem)
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(vals[2], shape(Code.CodeTyIndex), len_addr, len_mem)
+                local vals = component_values(self.dst, self.access.ty)
+                local data_addr = address_at_const_offset(state, addr, 0); state = data_addr.state
+                local len_addr = address_at_const_offset(state, addr, 8); state = len_addr.state
+                local data_mem = component_memory_info(input.module, self.access, input.inst, "bytespan_data")
+                local len_mem = component_memory_info(input.module, self.access, input.inst, "bytespan_len")
+                state = state:code_back_append_cmd(Back.CmdLoadInfo(vals[1], shape(data_ty), data_addr.address, data_mem))
+                state = state:code_back_append_cmd(Back.CmdLoadInfo(vals[2], shape(Code.CodeTyIndex), len_addr.address, len_mem))
             else
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(bid(k.dst), shape(k.access.ty), addr, memory_info(ctx, k.access, i.id))
+                state = state:code_back_append_cmd(Back.CmdLoadInfo(bid(self.dst), shape(self.access.ty), addr, memory_info(input.module, self.access, input.inst)))
             end
-        elseif cls == Code.CodeInstAggregate then
-            if asdl.classof(k.ty) == Code.CodeTyClosure then
-                local size, align = closure_descriptor_size(ctx, k.fields)
-                local addr = create_aggregate_storage(ctx, k.dst, k.ty, "code_to_back.closure", size, align)
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstAggregate:lower_code_inst_to_back(input)
+        local state = input.state
+            if self.ty:code_back_is_closure() then
+                local size, align = closure_descriptor_size(input.func, self.fields)
+                local addr
+                state, addr = create_aggregate_storage(state, self.dst, self.ty, "code_to_back.closure", size, align)
                 local fn = nil
                 local captures = {}
-                for _, field in ipairs(k.fields or {}) do
-                    if asdl.classof(field.field) ~= T.LalinSem.FieldByOffset then unsupported(field.field) end
+                for _, field in ipairs(self.fields or {}) do
                     if field.field.field_name == "__lalin_fn" then
                         fn = field.value
                     else
                         captures[#captures + 1] = field
                     end
                 end
-                ctx.closure_value_has_captures[k.dst.text] = #captures > 0
+                state = state:code_back_note_closure_captures(self.dst, #captures > 0)
                 if fn == nil then error("code_to_back: closure aggregate missing __lalin_fn", 3) end
-                store_scalar_at_offset(ctx, addr, 0, bid(fn), Code.CodeTyCodePtr(k.ty.sig), "closure_fn")
-                store_scalar_at_offset(ctx, addr, 8, closure_env_ptr(ctx, addr, #captures > 0), Code.CodeTyDataPtr(nil), "closure_ctx")
+                state = store_scalar_at_offset(state, addr, 0, bid(fn), Code.CodeTyCodePtr(self.ty.sig), "closure_fn")
+                local closure_ctx = closure_env_ptr(state, addr, #captures > 0); state = closure_ctx.state
+                state = store_scalar_at_offset(state, addr, 8, closure_ctx.value, Code.CodeTyDataPtr(nil), "closure_ctx")
                 for _, field in ipairs(captures) do
-                    local fty = ctx.value_types[field.value.text]
+                    local fty = input.func.value_types[field.value.text]
                     if fty == nil then error("code_to_back: closure capture value has unknown type " .. field.value.text, 3) end
-                    copy_value_to_offset(ctx, addr, 16 + (field.field.offset or 0), field.value, fty, "closure_capture")
+                    state = copy_value_to_offset(state, addr, 16 + field.field:code_back_field_offset(), field.value, fty, "closure_capture")
                 end
             else
-                local addr = create_aggregate_storage(ctx, k.dst, k.ty, "code_to_back.aggregate")
-                for _, field in ipairs(k.fields or {}) do
-                    if asdl.classof(field.field) ~= T.LalinSem.FieldByOffset then unsupported(field.field) end
-                    local fty = ctx.value_types[field.value.text]
+                local addr
+                state, addr = create_aggregate_storage(state, self.dst, self.ty, "code_to_back.aggregate")
+                for _, field in ipairs(self.fields or {}) do
+                    local fty = input.func.value_types[field.value.text]
                     if fty == nil then error("code_to_back: aggregate field value has unknown type " .. field.value.text, 3) end
-                    copy_value_to_offset(ctx, addr, field.field.offset or 0, field.value, fty, "aggregate_field")
+                    state = copy_value_to_offset(state, addr, field.field:code_back_field_offset(), field.value, fty, "aggregate_field")
                 end
             end
-        elseif cls == Code.CodeInstClosure then
-            store_closure_descriptor(ctx, k.dst, k.ty, bid(k.fn), bid(k.ctx))
-        elseif cls == Code.CodeInstArray then
-            local addr = create_aggregate_storage(ctx, k.dst, k.ty, "code_to_back.array")
-            local ty_cls = asdl.classof(k.ty)
-            if ty_cls ~= Code.CodeTyArray then unsupported(k.ty) end
-            local elem_s = scalar(k.ty.elem)
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstClosure:lower_code_inst_to_back(input)
+        local state = input.state
+            local descriptor = store_closure_descriptor(state, self.dst, self.ty, bid(self.fn), bid(self.state))
+            state = descriptor.state
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstArray:lower_code_inst_to_back(input)
+        local state = input.state
+            local addr
+            state, addr = create_aggregate_storage(state, self.dst, self.ty, "code_to_back.array")
+            local elem_ty = self.ty:code_back_array_elem()
+            if elem_ty == nil then unsupported(self.ty) end
+            local elem_s = scalar(elem_ty)
             local elem_size
             if elem_s ~= nil then
                 elem_size = scalar_size_align(elem_s)
             else
-                elem_size = aggregate_size_align(ctx, k.ty.elem)
+                elem_size = aggregate_size_align(state, elem_ty)
             end
-            for _, elem in ipairs(k.elems or {}) do
-                local ety = ctx.value_types[elem.value.text] or k.ty.elem
-                copy_value_to_offset(ctx, addr, (elem.index or 0) * elem_size, elem.value, ety, "array_elem")
+            for _, elem in ipairs(self.elems or {}) do
+                local ety = input.func.value_types[elem.value.text] or elem_ty
+                state = copy_value_to_offset(state, addr, (elem.index or 0) * elem_size, elem.value, ety, "array_elem")
             end
-        elseif cls == Code.CodeInstVariantCtor then
-            local addr = create_aggregate_storage(ctx, k.dst, k.ty, "code_to_back.variant")
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstVariantCtor:lower_code_inst_to_back(input)
+        local state = input.state
+            local addr
+            state, addr = create_aggregate_storage(state, self.dst, self.ty, "code_to_back.variant")
             local tag_ty = Code.CodeTyInt(32, Code.CodeUnsigned)
-            local tag_val = Back.BackValId(k.dst.text .. ":tag")
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdConst(tag_val, Back.BackU32, Back.BackLitInt(tostring(k.variant.tag_value)))
-            store_scalar_at_offset(ctx, addr, 0, tag_val, tag_ty, "variant_tag")
-            if k.payload ~= nil and k.variant.payload_ty ~= nil then
-                local off = layout_field_offset(ctx, k.ty, "__payload") or 4
-                local pty = ctx.value_types[k.payload.text] or k.variant.payload_ty
-                store_scalar_at_offset(ctx, addr, off, bid(k.payload), pty, "variant_payload")
+            local tag_val = Back.BackValId(self.dst.text .. ":tag")
+            state = state:code_back_append_cmd(Back.CmdConst(tag_val, Back.BackU32, Back.BackLitInt(tostring(self.variant.tag_value))))
+            state = store_scalar_at_offset(state, addr, 0, tag_val, tag_ty, "variant_tag")
+            if self.payload ~= nil and self.variant.payload_ty ~= nil then
+                local off = layout_field_offset(state, self.ty, "__payload") or 4
+                local pty = input.func.value_types[self.payload.text] or self.variant.payload_ty
+                state = store_scalar_at_offset(state, addr, off, bid(self.payload), pty, "variant_payload")
             end
-        elseif cls == Code.CodeInstVariantTag then
-            local addr = aggregate_addr_for_value(ctx, k.value, ctx.value_types[k.value.text])
-            if addr == nil then error("code_to_back: variant tag source has no aggregate address " .. k.value.text, 3) end
-            load_scalar_at_offset(ctx, k.dst and bid(k.dst) or Back.BackValId(k.value.text .. ":tag"), addr, 0, k.tag_ty, "variant_tag")
-        elseif cls == Code.CodeInstVariantPayload then
-            local owner_ty = ctx.value_types[k.value.text]
-            local addr = aggregate_addr_for_value(ctx, k.value, owner_ty)
-            if addr == nil then error("code_to_back: variant payload source has no aggregate address " .. k.value.text, 3) end
-            local off = layout_field_offset(ctx, owner_ty, "__payload") or 4
-            local pty = k.variant.payload_ty
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstVariantTag:lower_code_inst_to_back(input)
+        local state = input.state
+            local addr = aggregate_addr_for_value(state, self.value, input.func.value_types[self.value.text])
+            if addr == nil then error("code_to_back: variant tag source has no aggregate address " .. self.value.text, 3) end
+            state = load_scalar_at_offset(state, self.dst and bid(self.dst) or Back.BackValId(self.value.text .. ":tag"), addr, 0, self.tag_ty, "variant_tag")
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstVariantPayload:lower_code_inst_to_back(input)
+        local state = input.state
+            local owner_ty = input.func.value_types[self.value.text]
+            local addr = aggregate_addr_for_value(state, self.value, owner_ty)
+            if addr == nil then error("code_to_back: variant payload source has no aggregate address " .. self.value.text, 3) end
+            local off = layout_field_offset(state, owner_ty, "__payload") or 4
+            local pty = self.variant.payload_ty
             if pty == nil then error("code_to_back: variant payload has no payload type", 3) end
-            load_scalar_at_offset(ctx, bid(k.dst), addr, off, pty, "variant_payload")
-        elseif cls == Code.CodeInstStore then
-            if asdl.classof(k.place) == Code.CodePlaceLocal and is_byref_aggregate_ty(k.access.ty) then
-                ctx.aggregate_local_addr = ctx.aggregate_local_addr or {}
-                ctx.aggregate_local_addr[k.place.local_id.text] = aggregate_addr_for_value(ctx, k.value, k.access.ty) or bid(k.value)
-                note_value(ctx, inst_dst_type(ctx, k))
-                return
+            state = load_scalar_at_offset(state, bid(self.dst), addr, off, pty, "variant_payload")
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstStore:lower_code_inst_to_back(input)
+        local state = input.state
+            local aggregate_local_state = self.place:code_back_store_aggregate_local(state, self.value, self.access)
+            if aggregate_local_state ~= nil then
+                state = aggregate_local_state
+                return Code.CodeBackStateResult(state)
             end
-            local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
-            if is_view_ty(k.access.ty) then
-                local elem = view_elem(k.access.ty)
+            local place_result = addr_from_place(input, self.place)
+            local addr = place_result.address
+            state = place_result.state
+            if is_view_ty(self.access.ty) then
+                local elem = view_elem(self.access.ty)
                 local data_ty = Code.CodeTyDataPtr(elem)
-                local vals = component_values(k.value, k.access.ty)
-                local data_addr = address_at_const_offset(ctx, addr, 0)
-                local len_addr = address_at_const_offset(ctx, addr, 8)
-                local stride_addr = address_at_const_offset(ctx, addr, 16)
-                local data_mem = component_memory_info(ctx, k.access, i.id, "view_data")
-                local len_mem = component_memory_info(ctx, k.access, i.id, "view_len")
-                local stride_mem = component_memory_info(ctx, k.access, i.id, "view_stride")
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(data_ty), data_addr, vals[1], data_mem)
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(Code.CodeTyIndex), len_addr, vals[2], len_mem)
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(Code.CodeTyIndex), stride_addr, vals[3], stride_mem)
-            elseif is_slice_ty(k.access.ty) then
-                local elem = slice_elem(k.access.ty)
+                local vals = component_values(self.value, self.access.ty)
+                local data_addr = address_at_const_offset(state, addr, 0); state = data_addr.state
+                local len_addr = address_at_const_offset(state, addr, 8); state = len_addr.state
+                local stride_addr = address_at_const_offset(state, addr, 16); state = stride_addr.state
+                local data_mem = component_memory_info(input.module, self.access, input.inst, "view_data")
+                local len_mem = component_memory_info(input.module, self.access, input.inst, "view_len")
+                local stride_mem = component_memory_info(input.module, self.access, input.inst, "view_stride")
+                state = state:code_back_append_cmd(Back.CmdStoreInfo(shape(data_ty), data_addr.address, vals[1], data_mem))
+                state = state:code_back_append_cmd(Back.CmdStoreInfo(shape(Code.CodeTyIndex), len_addr.address, vals[2], len_mem))
+                state = state:code_back_append_cmd(Back.CmdStoreInfo(shape(Code.CodeTyIndex), stride_addr.address, vals[3], stride_mem))
+            elseif is_slice_ty(self.access.ty) then
+                local elem = slice_elem(self.access.ty)
                 local data_ty = Code.CodeTyDataPtr(elem)
-                local vals = component_values(k.value, k.access.ty)
-                local data_addr = address_at_const_offset(ctx, addr, 0)
-                local len_addr = address_at_const_offset(ctx, addr, 8)
-                local data_mem = component_memory_info(ctx, k.access, i.id, "slice_data")
-                local len_mem = component_memory_info(ctx, k.access, i.id, "slice_len")
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(data_ty), data_addr, vals[1], data_mem)
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(Code.CodeTyIndex), len_addr, vals[2], len_mem)
-            elseif k.access.ty == Code.CodeTyByteSpan or asdl.classof(k.access.ty) == Code.CodeTyByteSpan then
+                local vals = component_values(self.value, self.access.ty)
+                local data_addr = address_at_const_offset(state, addr, 0); state = data_addr.state
+                local len_addr = address_at_const_offset(state, addr, 8); state = len_addr.state
+                local data_mem = component_memory_info(input.module, self.access, input.inst, "slice_data")
+                local len_mem = component_memory_info(input.module, self.access, input.inst, "slice_len")
+                state = state:code_back_append_cmd(Back.CmdStoreInfo(shape(data_ty), data_addr.address, vals[1], data_mem))
+                state = state:code_back_append_cmd(Back.CmdStoreInfo(shape(Code.CodeTyIndex), len_addr.address, vals[2], len_mem))
+            elseif CodeAggregateAbi.is_byte_span(self.access.ty) then
                 local data_ty = Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned))
-                local vals = component_values(k.value, k.access.ty)
-                local data_addr = address_at_const_offset(ctx, addr, 0)
-                local len_addr = address_at_const_offset(ctx, addr, 8)
-                local data_mem = component_memory_info(ctx, k.access, i.id, "bytespan_data")
-                local len_mem = component_memory_info(ctx, k.access, i.id, "bytespan_len")
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(data_ty), data_addr, vals[1], data_mem)
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(Code.CodeTyIndex), len_addr, vals[2], len_mem)
+                local vals = component_values(self.value, self.access.ty)
+                local data_addr = address_at_const_offset(state, addr, 0); state = data_addr.state
+                local len_addr = address_at_const_offset(state, addr, 8); state = len_addr.state
+                local data_mem = component_memory_info(input.module, self.access, input.inst, "bytespan_data")
+                local len_mem = component_memory_info(input.module, self.access, input.inst, "bytespan_len")
+                state = state:code_back_append_cmd(Back.CmdStoreInfo(shape(data_ty), data_addr.address, vals[1], data_mem))
+                state = state:code_back_append_cmd(Back.CmdStoreInfo(shape(Code.CodeTyIndex), len_addr.address, vals[2], len_mem))
             else
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(k.access.ty), addr, bid(k.value), memory_info(ctx, k.access, i.id))
+                state = state:code_back_append_cmd(Back.CmdStoreInfo(shape(self.access.ty), addr, bid(self.value), memory_info(input.module, self.access, input.inst)))
             end
-        elseif cls == Code.CodeInstAtomicLoad then
-            local s = scalar(k.access.ty); if s == nil then unsupported(k.access.ty) end
-            local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicLoad(bid(k.dst), s, addr, memory_info(ctx, k.access, i.id), k.ordering:lower_code_atomic_ordering_to_back())
-        elseif cls == Code.CodeInstAtomicStore then
-            local s = scalar(k.access.ty); if s == nil then unsupported(k.access.ty) end
-            local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicStore(s, addr, bid(k.value), memory_info(ctx, k.access, i.id), k.ordering:lower_code_atomic_ordering_to_back())
-        elseif cls == Code.CodeInstAtomicRmw then
-            local s = scalar(k.access.ty); if s == nil then unsupported(k.access.ty) end
-            local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicRmw(bid(k.dst), k.op:lower_code_atomic_rmw_op_to_back(), s, addr, bid(k.value), memory_info(ctx, k.access, i.id), k.ordering:lower_code_atomic_ordering_to_back())
-        elseif cls == Code.CodeInstAtomicCas then
-            local s = scalar(k.access.ty); if s == nil then unsupported(k.access.ty) end
-            local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicCas(bid(k.dst), s, addr, bid(k.expected), bid(k.replacement), memory_info(ctx, k.access, i.id), k.ordering:lower_code_atomic_ordering_to_back())
-        elseif cls == Code.CodeInstAtomicFence then
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicFence(k.ordering:lower_code_atomic_ordering_to_back())
-        elseif cls == Code.CodeInstCall then
-            check_call_effects(ctx, i.id)
-            local target_cls = asdl.classof(k.target)
-            local target
-            local call_sig = sig_id(k.sig)
-            local closure_ctx = nil
-            if target_cls == Code.CodeCallDirect then target = Back.BackCallDirect(func_id(k.target.func))
-            elseif target_cls == Code.CodeCallExtern then target = Back.BackCallExtern(extern_id(k.target["extern"]))
-            elseif target_cls == Code.CodeCallIndirect then target = Back.BackCallIndirect(bid(k.target.callee))
-            elseif target_cls == Code.CodeCallClosure then
-                local closure_ty = ctx.value_types[k.target.closure.text]
-                local closure_addr = aggregate_addr_for_value(ctx, k.target.closure, closure_ty)
-                if closure_addr == nil then error("code_to_back: closure call has no descriptor address " .. k.target.closure.text, 3) end
-                local fn = Back.BackValId(k.target.closure.text .. ":closure_call_fn")
-                closure_ctx = Back.BackValId(k.target.closure.text .. ":closure_call_ctx")
-                load_scalar_at_offset(ctx, fn, closure_addr, 0, Code.CodeTyCodePtr(k.target.sig), "closure_call_fn")
-                load_scalar_at_offset(ctx, closure_ctx, closure_addr, 8, Code.CodeTyDataPtr(nil), "closure_call_ctx")
-                target = Back.BackCallIndirect(fn)
-                call_sig = closure_sig_id(k.sig)
-            else unsupported(k.target) end
-            local sig = ctx.sigs[k.sig.text]
-            local abi = ctx.sig_abi_by_sig and ctx.sig_abi_by_sig[k.sig.text] or sig_abi(ctx, sig)
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstAtomicLoad:lower_code_inst_to_back(input)
+        local state = input.state
+            local s = scalar(self.access.ty); if s == nil then unsupported(self.access.ty) end
+            local place_result = addr_from_place(input, self.place)
+            local addr = place_result.address
+            state = place_result.state
+            state = state:code_back_append_cmd(Back.CmdAtomicLoad(bid(self.dst), s, addr, memory_info(input.module, self.access, input.inst), self.ordering:lower_code_atomic_ordering_to_back()))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstAtomicStore:lower_code_inst_to_back(input)
+        local state = input.state
+            local s = scalar(self.access.ty); if s == nil then unsupported(self.access.ty) end
+            local place_result = addr_from_place(input, self.place)
+            local addr = place_result.address
+            state = place_result.state
+            state = state:code_back_append_cmd(Back.CmdAtomicStore(s, addr, bid(self.value), memory_info(input.module, self.access, input.inst), self.ordering:lower_code_atomic_ordering_to_back()))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstAtomicRmw:lower_code_inst_to_back(input)
+        local state = input.state
+            local s = scalar(self.access.ty); if s == nil then unsupported(self.access.ty) end
+            local place_result = addr_from_place(input, self.place)
+            local addr = place_result.address
+            state = place_result.state
+            state = state:code_back_append_cmd(Back.CmdAtomicRmw(bid(self.dst), self.op:lower_code_atomic_rmw_op_to_back(), s, addr, bid(self.value), memory_info(input.module, self.access, input.inst), self.ordering:lower_code_atomic_ordering_to_back()))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstAtomicCas:lower_code_inst_to_back(input)
+        local state = input.state
+            local s = scalar(self.access.ty); if s == nil then unsupported(self.access.ty) end
+            local place_result = addr_from_place(input, self.place)
+            local addr = place_result.address
+            state = place_result.state
+            state = state:code_back_append_cmd(Back.CmdAtomicCas(bid(self.dst), s, addr, bid(self.expected), bid(self.replacement), memory_info(input.module, self.access, input.inst), self.ordering:lower_code_atomic_ordering_to_back()))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstAtomicFence:lower_code_inst_to_back(input)
+        local state = input.state
+            state = state:code_back_append_cmd(Back.CmdAtomicFence(self.ordering:lower_code_atomic_ordering_to_back()))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeInstCall:lower_code_inst_to_back(input)
+        local state = input.state
+            check_call_effects(input.module, input.inst)
+            local target, call_sig, closure_ctx, target_state = self.target:lower_code_call_target_to_back(input, self)
+            if target_state ~= nil then state = target_state end
+            local sig = input.module.sigs[self.sig.text]
+            local abi = input.module.sig_abi_by_sig and input.module.sig_abi_by_sig[self.sig.text] or sig_abi(state, sig)
             local result = Back.BackCallStmt
             local args = {}
             local sret_addr = nil
             if abi.sret then
-                if k.dst == nil then error("code_to_back: aggregate-return call requires destination", 3) end
-                sret_addr = create_aggregate_storage(ctx, k.dst, abi.result_ty, "code_to_back.call_result")
+                if self.dst == nil then error("code_to_back: aggregate-return call requires destination", 3) end
+                state, sret_addr = create_aggregate_storage(state, self.dst, abi.result_ty, "code_to_back.call_result")
                 args[#args + 1] = sret_addr
-            elseif k.dst ~= nil then
+            elseif self.dst ~= nil then
                 local s = sig and sig.results[1] and scalar(sig.results[1]) or nil
-                if s == nil then unsupported(k) end
-                result = Back.BackCallValue(bid(k.dst), s)
+                if s == nil then unsupported(self) end
+                result = Back.BackCallValue(bid(self.dst), s)
             end
             if closure_ctx ~= nil then args[#args + 1] = closure_ctx end
-            for n = 1, #k.args do append_components(args, k.args[n], sig.params[n]) end
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdCall(result, target, call_sig, args)
-            if sret_addr ~= nil and is_view_ty(abi.result_ty) then load_view_components_from_addr(ctx, k.dst, sret_addr, abi.result_ty, "code_to_back.call_view_result") end
-        else
-            unsupported(k)
-        end
-        note_value(ctx, inst_dst_type(ctx, k))
+            for n = 1, #self.args do append_components(args, self.args[n], sig.params[n]) end
+            state = state:code_back_append_cmd(Back.CmdCall(result, target, call_sig, args))
+            if sret_addr ~= nil and is_view_ty(abi.result_ty) then state = load_view_components_from_addr(state, self.dst, sret_addr, abi.result_ty, "code_to_back.call_view_result") end
+        return code_back_result(input, state)
+    end
+    function Code.CodeTerm:lower_code_term_to_back(input)
+        return self.kind:lower_code_term_to_back(Code.CodeBackTermInput(input.module, input.func, input.state, self.id))
     end
 
-    local function term(ctx, t)
-        local k = t.kind
-        local cls = asdl.classof(k)
-        if cls == Code.CodeTermJump then
+    function Code.CodeTermKind:lower_code_term_to_back(input)
+        unsupported(self)
+    end
+
+    function Code.CodeTermJump:lower_code_term_to_back(input)
+        local state = input.state
             local args = {}
-            local dest_params = ctx.block_params[k.dest.text] or {}
-            for i = 1, #k.args do append_components(args, k.args[i], dest_params[i] and dest_params[i].ty or ctx.value_types[k.args[i].text]) end
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdJump(block_id(k.dest), args)
-        elseif cls == Code.CodeTermBranch then
+            local dest_params = input.func.block_params[self.dest.text] or {}
+            for i = 1, #self.args do append_components(args, self.args[i], dest_params[i] and dest_params[i].ty or input.func.value_types[self.args[i].text]) end
+            state = state:code_back_append_cmd(Back.CmdJump(block_id(self.dest), args))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeTermBranch:lower_code_term_to_back(input)
+        local state = input.state
             local ta, ea = {}, {}
-            local then_params, else_params = ctx.block_params[k.then_dest.text] or {}, ctx.block_params[k.else_dest.text] or {}
-            for i = 1, #k.then_args do append_components(ta, k.then_args[i], then_params[i] and then_params[i].ty or ctx.value_types[k.then_args[i].text]) end
-            for i = 1, #k.else_args do append_components(ea, k.else_args[i], else_params[i] and else_params[i].ty or ctx.value_types[k.else_args[i].text]) end
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdBrIf(bid(k.cond), block_id(k.then_dest), ta, block_id(k.else_dest), ea)
-        elseif cls == Code.CodeTermSwitch then
-            if #(k.default_args or {}) ~= 0 then error("code_to_back: switch default args are not representable in Back CmdSwitchInt", 3) end
+            local then_params, else_params = input.func.block_params[self.then_dest.text] or {}, input.func.block_params[self.else_dest.text] or {}
+            for i = 1, #self.then_args do append_components(ta, self.then_args[i], then_params[i] and then_params[i].ty or input.func.value_types[self.then_args[i].text]) end
+            for i = 1, #self.else_args do append_components(ea, self.else_args[i], else_params[i] and else_params[i].ty or input.func.value_types[self.else_args[i].text]) end
+            state = state:code_back_append_cmd(Back.CmdBrIf(bid(self.cond), block_id(self.then_dest), ta, block_id(self.else_dest), ea))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeTermSwitch:lower_code_term_to_back(input)
+        local state = input.state
+            if #(self.default_args or {}) ~= 0 then error("code_to_back: switch default args are not representable in Back CmdSwitchInt", 3) end
             local cases = {}
-            for i = 1, #k.cases do
-                if #(k.cases[i].args or {}) ~= 0 then error("code_to_back: switch case args are not representable in Back CmdSwitchInt", 3) end
-                cases[i] = Back.BackSwitchCase(k.cases[i].literal.raw or tostring(k.cases[i].literal.value), block_id(k.cases[i].dest))
+            for i = 1, #self.cases do
+                if #(self.cases[i].args or {}) ~= 0 then error("code_to_back: switch case args are not representable in Back CmdSwitchInt", 3) end
+                cases[i] = Back.BackSwitchCase(self.cases[i].literal.raw or tostring(self.cases[i].literal.value), block_id(self.cases[i].dest))
             end
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdSwitchInt(bid(k.value), Back.BackI32, cases, block_id(k.default_dest))
-        elseif cls == Code.CodeTermVariantSwitch then
-            if #(k.default_args or {}) ~= 0 then error("code_to_back: variant switch default args are not representable in Back CmdSwitchInt", 3) end
+            state = state:code_back_append_cmd(Back.CmdSwitchInt(bid(self.value), Back.BackI32, cases, block_id(self.default_dest)))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeTermVariantSwitch:lower_code_term_to_back(input)
+        local state = input.state
+            if #(self.default_args or {}) ~= 0 then error("code_to_back: variant switch default args are not representable in Back CmdSwitchInt", 3) end
             local cases = {}
-            for i = 1, #k.cases do
-                if #(k.cases[i].args or {}) ~= 0 then error("code_to_back: variant switch case args are not representable in Back CmdSwitchInt", 3) end
-                cases[i] = Back.BackSwitchCase(tostring(k.cases[i].variant.tag_value), block_id(k.cases[i].dest))
+            for i = 1, #self.cases do
+                if #(self.cases[i].args or {}) ~= 0 then error("code_to_back: variant switch case args are not representable in Back CmdSwitchInt", 3) end
+                cases[i] = Back.BackSwitchCase(tostring(self.cases[i].variant.tag_value), block_id(self.cases[i].dest))
             end
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdSwitchInt(bid(k.tag), Back.BackI32, cases, block_id(k.default_dest))
-        elseif cls == Code.CodeTermReturn then
-            if #k.values == 0 then ctx.cmds[#ctx.cmds + 1] = Back.CmdReturnVoid
+            state = state:code_back_append_cmd(Back.CmdSwitchInt(bid(self.tag), Back.BackI32, cases, block_id(self.default_dest)))
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeTermReturn:lower_code_term_to_back(input)
+        local state = input.state
+            if #self.values == 0 then state = state:code_back_append_cmd(Back.CmdReturnVoid)
             else
-                local rty = ctx.value_types[k.values[1].text]
-                if asdl.classof(rty) == Code.CodeTyClosure and ctx.closure_value_has_captures[k.values[1].text] then
+                local rty = input.func.value_types[self.values[1].text]
+                if rty:code_back_is_closure() and state.closure_value_has_captures[self.values[1].text] then
                     error("code_to_back: returning captured closure descriptors requires a closure environment ownership model", 3)
                 end
-                if ctx.current_return_sret ~= nil and is_view_ty(rty) then
-                    store_view_components_to_addr(ctx, ctx.current_return_sret, k.values[1], rty, "code_to_back.view_return")
-                    ctx.cmds[#ctx.cmds + 1] = Back.CmdReturnVoid
+                if input.func.current_return_sret ~= nil and is_view_ty(rty) then
+                    state = store_view_components_to_addr(state, input.func.current_return_sret, self.values[1], rty, "code_to_back.view_return")
+                    state = state:code_back_append_cmd(Back.CmdReturnVoid)
                 elseif is_view_ty(rty) then
                     error("code_to_back: view return ABI requires sret lowering", 3)
-                elseif ctx.current_return_sret ~= nil and is_byref_aggregate_ty(rty) then
-                    local src = aggregate_addr_for_value(ctx, k.values[1], rty)
-                    if src == nil then error("code_to_back: aggregate return value has no address " .. k.values[1].text, 3) end
-                    local size = aggregate_size_align(ctx, rty)
-                    local len = const_index(ctx, size)
-                    ctx.cmds[#ctx.cmds + 1] = Back.CmdMemcpy(ctx.current_return_sret, src, len)
-                    ctx.cmds[#ctx.cmds + 1] = Back.CmdReturnVoid
+                elseif input.func.current_return_sret ~= nil and is_byref_aggregate_ty(rty) then
+                    local src = aggregate_addr_for_value(state, self.values[1], rty)
+                    if src == nil then error("code_to_back: aggregate return value has no address " .. self.values[1].text, 3) end
+                    local size = aggregate_size_align(state, rty)
+                    local len = const_index(state, size); state = len.state
+                    state = state:code_back_append_cmd(Back.CmdMemcpy(input.func.current_return_sret, src, len.value))
+                    state = state:code_back_append_cmd(Back.CmdReturnVoid)
                 else
-                    ctx.cmds[#ctx.cmds + 1] = Back.CmdReturnValue(bid(k.values[1]))
+                    state = state:code_back_append_cmd(Back.CmdReturnValue(bid(self.values[1])))
                 end
             end
-        elseif cls == Code.CodeTermTrap or cls == Code.CodeTermUnreachable then
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdTrap
-        else
-            unsupported(k)
-        end
+        return code_back_result(input, state)
     end
 
-    local function func(ctx, f)
-        ctx.value_types = {}
-        ctx.block_params = {}
-        ctx.aggregate_local_addr = {}
-        ctx.aggregate_value_addr = {}
-        ctx.aggregate_value_size = {}
-        ctx.closure_value_has_captures = {}
-        ctx.local_stack_slots = {}
-        local fsig = ctx.sigs[f.sig.text]
-        local fabi = ctx.sig_abi_by_sig and ctx.sig_abi_by_sig[f.sig.text] or (fsig and sig_abi(ctx, fsig))
-        ctx.current_return_sret = fabi and fabi.sret and Back.BackValId("sret:" .. f.id.text) or nil
-        for i = 1, #(f.params or {}) do note_value(ctx, f.params[i].value, f.params[i].ty) end
+    function Code.CodeTermTrap:lower_code_term_to_back(input)
+        local state = input.state
+        state = state:code_back_append_cmd(Back.CmdTrap)
+        return code_back_result(input, state)
+    end
+
+    function Code.CodeTermUnreachable:lower_code_term_to_back(input)
+        local state = input.state
+        state = state:code_back_append_cmd(Back.CmdTrap)
+        return code_back_result(input, state)
+    end
+    local function func(lowering, f)
+        lowering.current_func_id = f.id
+        lowering.value_types = {}
+        lowering.block_params = {}
+        lowering.aggregate_local_addr = {}
+        lowering.aggregate_value_addr = {}
+        lowering.aggregate_value_size = {}
+        lowering.closure_value_has_captures = {}
+        lowering.local_stack_slots = {}
+        local fsig = lowering.sigs[f.sig.text]
+        local fabi = lowering.sig_abi_by_sig and lowering.sig_abi_by_sig[f.sig.text] or (fsig and sig_abi(lowering, fsig))
+        lowering.current_return_sret = fabi and fabi.sret and Back.BackValId("sret:" .. f.id.text) or nil
+        for i = 1, #(f.params or {}) do lowering_note_value(lowering, f.params[i].value, f.params[i].ty) end
         for i = 1, #(f.blocks or {}) do
-            ctx.block_params[f.blocks[i].id.text] = f.blocks[i].params or {}
-            for j = 1, #(f.blocks[i].params or {}) do note_value(ctx, f.blocks[i].params[j].value, f.blocks[i].params[j].ty) end
+            lowering.block_params[f.blocks[i].id.text] = f.blocks[i].params or {}
+            for j = 1, #(f.blocks[i].params or {}) do lowering_note_value(lowering, f.blocks[i].params[j].value, f.blocks[i].params[j].ty) end
             for j = 1, #(f.blocks[i].insts or {}) do
-                local dst, ty = inst_dst_type(ctx, f.blocks[i].insts[j].kind)
-                note_value(ctx, dst, ty)
+                local dst, ty = inst_dst_type(code_back_function_facts_from_lowering(lowering), code_back_module_facts_from_lowering(lowering), f.blocks[i].insts[j].kind)
+                lowering_note_value(lowering, dst, ty)
             end
         end
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdBeginFunc(func_id(f.id))
-        materialize_addressed_locals(ctx, f.locals, true)
-        for i = 1, #f.blocks do ctx.cmds[#ctx.cmds + 1] = Back.CmdCreateBlock(block_id(f.blocks[i].id)) end
+        lowering.cmds[#lowering.cmds + 1] = Back.CmdBeginFunc(func_id(f.id))
+        local function_state = code_back_state_from_lowering(lowering)
+        function_state = materialize_addressed_locals(function_state, f.locals, true)
+        code_back_sync_lowering(lowering, function_state)
+        for i = 1, #f.blocks do lowering.cmds[#lowering.cmds + 1] = Back.CmdCreateBlock(block_id(f.blocks[i].id)) end
         for i = 1, #f.blocks do
             local b = f.blocks[i]
             for j = 1, #b.params do
                 local vals, shapes = component_values(b.params[j].value, b.params[j].ty), component_shapes(b.params[j].ty)
-                for n = 1, #vals do ctx.cmds[#ctx.cmds + 1] = Back.CmdAppendBlockParam(block_id(b.id), vals[n], shapes[n]) end
+                for n = 1, #vals do lowering.cmds[#lowering.cmds + 1] = Back.CmdAppendBlockParam(block_id(b.id), vals[n], shapes[n]) end
             end
         end
         for i = 1, #f.blocks do
             local b = f.blocks[i]
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdSwitchToBlock(block_id(b.id))
+            lowering.cmds[#lowering.cmds + 1] = Back.CmdSwitchToBlock(block_id(b.id))
             if b.id == f.entry then
                 local params = {}
-                if ctx.current_return_sret ~= nil then params[#params + 1] = ctx.current_return_sret end
+                if lowering.current_return_sret ~= nil then params[#params + 1] = lowering.current_return_sret end
                 for j = 1, #f.params do append_components(params, f.params[j].value, f.params[j].ty) end
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdBindEntryParams(block_id(b.id), params)
+                lowering.cmds[#lowering.cmds + 1] = Back.CmdBindEntryParams(block_id(b.id), params)
             end
-            for j = 1, #b.insts do inst(ctx, b.insts[j]) end
-            term(ctx, b.term)
+            for j = 1, #b.insts do
+                local result = b.insts[j]:lower_code_inst_to_back(code_back_inst_input(lowering, b.insts[j].id))
+                code_back_sync_lowering(lowering, result.state)
+            end
+            local term_result = b.term:lower_code_term_to_back(code_back_term_input(lowering, b.term.id))
+            code_back_sync_lowering(lowering, term_result.state)
         end
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdFinishFunc(func_id(f.id))
+        lowering.cmds[#lowering.cmds + 1] = Back.CmdFinishFunc(func_id(f.id))
     end
 
     local function validate_module(code_module, opts)
@@ -1209,51 +1767,54 @@ local function bind_context(T)
         return graph, flow, value, mem, effect
     end
 
-    local function make_ctx(code_module, opts)
+    local function make_lowering(code_module, opts)
         opts = opts or {}
         local _, _, value, mem, effect = build_fact_context(code_module, opts)
-        local ctx = { cmds = {}, sigs = {}, sig_abi_by_sig = {}, next_tmp = 0, mem_backend_by_inst = {}, value_int_semantics_by_value = {}, value_float_mode_by_value = {}, value_expr_by_value = {}, effect_by_inst = {}, readonly_inst = {}, aggregate_local_addr = {}, aggregate_value_addr = {}, aggregate_value_size = {}, closure_value_has_captures = {}, local_stack_slots = {}, layout_env = opts.layout_env, target = opts.target }
-        for i = 1, #(code_module.sigs or {}) do ctx.sigs[code_module.sigs[i].id.text] = code_module.sigs[i] end
+        local lowering = { cmds = {}, sigs = {}, sig_abi_by_sig = {}, next_tmp = 0, mem_backend_by_inst = {}, value_int_semantics_by_value = {}, value_float_mode_by_value = {}, value_expr_by_value = {}, effect_by_inst = {}, readonly_inst = {}, aggregate_local_addr = {}, aggregate_value_addr = {}, aggregate_value_size = {}, closure_value_has_captures = {}, local_stack_slots = {}, layout_env = opts.layout_env, target = opts.target }
+        for i = 1, #(code_module.sigs or {}) do lowering.sigs[code_module.sigs[i].id.text] = code_module.sigs[i] end
         local backend_by_access, object_by_access, readonly_objects = {}, {}, {}
         for _, info in ipairs(mem and mem.backend_info or {}) do backend_by_access[info.access.text] = info end
         for _, interval in ipairs(mem and mem.intervals or {}) do object_by_access[interval.access.text] = interval.object end
-        for _, eff in ipairs(mem and mem.effects or {}) do if asdl.classof(eff) == T.LalinMem.MemObjectReadonly then readonly_objects[eff.object.text] = true end end
+        for _, eff in ipairs(mem and mem.effects or {}) do
+            local readonly = eff:code_back_readonly_object()
+            if readonly ~= nil then readonly_objects[readonly.text] = true end
+        end
         for _, access in ipairs(mem and mem.accesses or {}) do
             local info = backend_by_access[access.id.text]
             if info ~= nil and access.inst ~= nil then
-                ctx.mem_backend_by_inst[access.inst.text] = info
+                lowering.mem_backend_by_inst[access.inst.text] = info
                 local obj = object_by_access[access.id.text]
-                if obj ~= nil and readonly_objects[obj.text] and access.access.mode == Code.CodeMemoryRead then ctx.readonly_inst[access.inst.text] = true end
+                if obj ~= nil and readonly_objects[obj.text] and access.access.mode == Code.CodeMemoryRead then lowering.readonly_inst[access.inst.text] = true end
             end
         end
         local vindex = CodeValueFacts.expr_index(value)
-        ctx.value_expr_by_value = vindex.expr_by_value
-        ctx.value_int_semantics_by_value = vindex.no_wrap_by_value
-        ctx.value_float_mode_by_value = vindex.float_mode_by_value
-        for _, inst_effect in ipairs(effect and effect.insts or {}) do ctx.effect_by_inst[inst_effect.inst.text] = inst_effect end
-        return ctx
+        lowering.value_expr_by_value = vindex.expr_by_value
+        lowering.value_int_semantics_by_value = vindex.no_wrap_by_value
+        lowering.value_float_mode_by_value = vindex.float_mode_by_value
+        for _, inst_effect in ipairs(effect and effect.insts or {}) do lowering.effect_by_inst[inst_effect.inst.text] = inst_effect end
+        return lowering
     end
 
-    local function emit_module_prelude(ctx, code_module)
+    local function emit_module_prelude(lowering, code_module)
         for i = 1, #(code_module.sigs or {}) do
             local s = code_module.sigs[i]
-            local abi = sig_abi(ctx, s)
-            ctx.sig_abi_by_sig[s.id.text] = abi
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdCreateSig(sig_id(s.id), abi.params, abi.results)
-            local cabi = closure_abi(ctx, s)
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdCreateSig(closure_sig_id(s.id), cabi.params, cabi.results)
+            local abi = sig_abi(lowering, s)
+            lowering.sig_abi_by_sig[s.id.text] = abi
+            lowering.cmds[#lowering.cmds + 1] = Back.CmdCreateSig(sig_id(s.id), abi.params, abi.results)
+            local cabi = closure_abi(lowering, s)
+            lowering.cmds[#lowering.cmds + 1] = Back.CmdCreateSig(closure_sig_id(s.id), cabi.params, cabi.results)
         end
         for i = 1, #(code_module.data or {}) do
             local d = code_module.data[i]
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdDeclareData(data_id(d.id), d.size, d.align)
-            for j = 1, #d.inits do data_init(ctx, d.inits[j], data_id(d.id)) end
+            lowering.cmds[#lowering.cmds + 1] = Back.CmdDeclareData(data_id(d.id), d.size, d.align)
+            for j = 1, #d.inits do data_init(lowering, d.inits[j], data_id(d.id)) end
         end
         for i = 1, #(code_module.globals or {}) do
             local g = code_module.globals[i]
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdDeclareData(data_id(g.id), g.size or 8, g.align or 1)
-            for j = 1, #g.inits do data_init(ctx, g.inits[j], data_id(g.id)) end
+            lowering.cmds[#lowering.cmds + 1] = Back.CmdDeclareData(data_id(g.id), g.size or 8, g.align or 1)
+            for j = 1, #g.inits do data_init(lowering, g.inits[j], data_id(g.id)) end
         end
-        for i = 1, #(code_module.externs or {}) do ctx.cmds[#ctx.cmds + 1] = Back.CmdDeclareExtern(extern_id(code_module.externs[i].id), code_module.externs[i].symbol, sig_id(code_module.externs[i].sig)) end
+        for i = 1, #(code_module.externs or {}) do lowering.cmds[#lowering.cmds + 1] = Back.CmdDeclareExtern(extern_id(code_module.externs[i].id), code_module.externs[i].symbol, sig_id(code_module.externs[i].sig)) end
     end
 
     local function function_declare(f)
@@ -1262,130 +1823,160 @@ local function bind_context(T)
     end
 
     local function function_body_commands(code_module, f)
-        local ctx = make_ctx(code_module)
-        func(ctx, f)
-        return ctx.cmds
+        local lowering = make_lowering(code_module)
+        func(lowering, f)
+        return lowering.cmds
     end
 
-    local function blocks_for_cover(code_module, graph, cover)
-        local cls = asdl.classof(cover)
-        if cls == Lower.LowerCoverFunction then
-            for _, f in ipairs(code_module.funcs or {}) do if f.id == cover.func then return f, f.blocks or {} end end
-        elseif cls == Lower.LowerCoverBlock then
-            for _, f in ipairs(code_module.funcs or {}) do
-                if f.id == cover.func then
-                    for _, b in ipairs(f.blocks or {}) do if b.id == cover.block then return f, { b } end end
-                end
+    local function code_back_find_func(code_module, func_id_)
+        for _, f in ipairs(code_module.funcs or {}) do
+            if f.id == func_id_ then return f end
+        end
+        return nil
+    end
+
+    function Lower.LowerCover:code_back_blocks_for_cover(code_module, graph)
+        error("code_to_back: unable to resolve LowerCover for fragment", 2)
+    end
+
+    function Lower.LowerCoverFunction:code_back_blocks_for_cover(code_module, graph)
+        local f = code_back_find_func(code_module, self.func)
+        if f ~= nil then return f, f.blocks or {} end
+        return Lower.LowerCover.code_back_blocks_for_cover(self, code_module, graph)
+    end
+
+    function Lower.LowerCoverBlock:code_back_blocks_for_cover(code_module, graph)
+        local f = code_back_find_func(code_module, self.func)
+        if f ~= nil then
+            for _, b in ipairs(f.blocks or {}) do
+                if b.id == self.block then return f, { b } end
             end
-        elseif cls == Lower.LowerCoverBlockRange then
-            for _, f in ipairs(code_module.funcs or {}) do
-                if f.id == cover.func then
-                    local out, active = {}, false
-                    for _, b in ipairs(f.blocks or {}) do
-                        if b.id == cover.entry then active = true end
-                        if active then out[#out + 1] = b end
-                        if b.id == cover.exit then break end
-                    end
-                    return f, out
-                end
+        end
+        return Lower.LowerCover.code_back_blocks_for_cover(self, code_module, graph)
+    end
+
+    function Lower.LowerCoverBlockRange:code_back_blocks_for_cover(code_module, graph)
+        local f = code_back_find_func(code_module, self.func)
+        if f ~= nil then
+            local out, active = {}, false
+            for _, b in ipairs(f.blocks or {}) do
+                if b.id == self.entry then active = true end
+                if active then out[#out + 1] = b end
+                if b.id == self.exit then break end
             end
-        elseif cls == Lower.LowerCoverLoop then
-            local block_set, func_id = {}, nil
-            for _, fg in ipairs(graph and graph.funcs or {}) do
-                for _, loop in ipairs(fg.loops or {}) do
-                    if loop.id == cover.loop then
-                        func_id = fg.func
-                        for _, bid in ipairs(loop.body or {}) do block_set[bid.block.text] = true end
-                    end
-                end
-            end
-            if func_id ~= nil then
-                for _, f in ipairs(code_module.funcs or {}) do
-                    if f.id == func_id then
-                        local out = {}
-                        for _, b in ipairs(f.blocks or {}) do if block_set[b.id.text] then out[#out + 1] = b end end
-                        return f, out
-                    end
+            return f, out
+        end
+        return Lower.LowerCover.code_back_blocks_for_cover(self, code_module, graph)
+    end
+
+    function Lower.LowerCoverLoop:code_back_blocks_for_cover(code_module, graph)
+        local block_set, func_id_ = {}, nil
+        for _, fg in ipairs(graph and graph.funcs or {}) do
+            for _, loop in ipairs(fg.loops or {}) do
+                if loop.id == self.loop then
+                    func_id_ = fg.func
+                    for _, bid in ipairs(loop.body or {}) do block_set[bid.block.text] = true end
                 end
             end
         end
-        error("code_to_back: unable to resolve LowerCover for fragment", 2)
+        if func_id_ ~= nil then
+            local f = code_back_find_func(code_module, func_id_)
+            if f ~= nil then
+                local out = {}
+                for _, b in ipairs(f.blocks or {}) do if block_set[b.id.text] then out[#out + 1] = b end end
+                return f, out
+            end
+        end
+        return Lower.LowerCover.code_back_blocks_for_cover(self, code_module, graph)
+    end
+
+    local function blocks_for_cover(code_module, graph, cover)
+        return cover:code_back_blocks_for_cover(code_module, graph)
     end
 
     local function fragment_commands(code_module, graph, flow, value, mem, effect, cover, opts)
         opts = opts or {}
         opts.graph, opts.flow, opts.value, opts.mem, opts.effect = graph, flow, value, mem, effect
         validate_module(code_module, opts)
-        local ctx = make_ctx(code_module, opts)
-        ctx.value_types = {}
-        ctx.block_params = {}
-        ctx.aggregate_local_addr = {}
-        ctx.aggregate_value_addr = {}
-        ctx.aggregate_value_size = {}
-        ctx.closure_value_has_captures = {}
-        ctx.local_stack_slots = {}
+        local lowering = make_lowering(code_module, opts)
+        lowering.value_types = {}
+        lowering.block_params = {}
+        lowering.aggregate_local_addr = {}
+        lowering.aggregate_value_addr = {}
+        lowering.aggregate_value_size = {}
+        lowering.closure_value_has_captures = {}
+        lowering.local_stack_slots = {}
         local f, blocks = blocks_for_cover(code_module, graph or opts.graph or CodeGraph.graph(code_module), cover)
-        local fsig = ctx.sigs[f.sig.text]
-        local fabi = ctx.sig_abi_by_sig and ctx.sig_abi_by_sig[f.sig.text] or (fsig and sig_abi(ctx, fsig))
-        ctx.current_return_sret = fabi and fabi.sret and Back.BackValId("sret:" .. f.id.text) or nil
-        materialize_addressed_locals(ctx, f.locals, opts.emit_local_slots ~= false)
+        lowering.current_func_id = f.id
+        local fsig = lowering.sigs[f.sig.text]
+        local fabi = lowering.sig_abi_by_sig and lowering.sig_abi_by_sig[f.sig.text] or (fsig and sig_abi(lowering, fsig))
+        lowering.current_return_sret = fabi and fabi.sret and Back.BackValId("sret:" .. f.id.text) or nil
+        local function_state = code_back_state_from_lowering(lowering)
+        function_state = materialize_addressed_locals(function_state, f.locals, opts.emit_local_slots ~= false)
+        code_back_sync_lowering(lowering, function_state)
         local block_ord = {}
         for i, b in ipairs(f.blocks or {}) do block_ord[b.id.text] = i end
         local first_ord = 1
         if blocks and blocks[1] and block_ord[blocks[1].id.text] then first_ord = block_ord[blocks[1].id.text] end
-        ctx.next_tmp = first_ord * 1000000
-        for _, param in ipairs(f.params or {}) do note_value(ctx, param.value, param.ty) end
+        lowering.next_tmp = first_ord * 1000000
+        for _, param in ipairs(f.params or {}) do lowering_note_value(lowering, param.value, param.ty) end
         for _, b in ipairs(f.blocks or {}) do
-            ctx.block_params[b.id.text] = b.params or {}
-            for _, param in ipairs(b.params or {}) do note_value(ctx, param.value, param.ty) end
+            lowering.block_params[b.id.text] = b.params or {}
+            for _, param in ipairs(b.params or {}) do lowering_note_value(lowering, param.value, param.ty) end
             for _, i in ipairs(b.insts or {}) do
-                local dst, ty = inst_dst_type(ctx, i.kind)
-                note_value(ctx, dst, ty)
+                local dst, ty = inst_dst_type(code_back_function_facts_from_lowering(lowering), code_back_module_facts_from_lowering(lowering), i.kind)
+                lowering_note_value(lowering, dst, ty)
             end
         end
         for _, b in ipairs(blocks or {}) do
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdSwitchToBlock(block_id(b.id))
+            lowering.cmds[#lowering.cmds + 1] = Back.CmdSwitchToBlock(block_id(b.id))
             if b.id == f.entry then
                 local params = {}
-                if ctx.current_return_sret ~= nil then params[#params + 1] = ctx.current_return_sret end
+                if lowering.current_return_sret ~= nil then params[#params + 1] = lowering.current_return_sret end
                 for j = 1, #f.params do append_components(params, f.params[j].value, f.params[j].ty) end
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdBindEntryParams(block_id(b.id), params)
+                lowering.cmds[#lowering.cmds + 1] = Back.CmdBindEntryParams(block_id(b.id), params)
             end
-            for _, i in ipairs(b.insts or {}) do inst(ctx, i) end
-            term(ctx, b.term)
+            for _, i in ipairs(b.insts or {}) do
+                local result = i:lower_code_inst_to_back(code_back_inst_input(lowering, i.id))
+                code_back_sync_lowering(lowering, result.state)
+            end
+            local term_result = b.term:lower_code_term_to_back(code_back_term_input(lowering, b.term.id))
+            code_back_sync_lowering(lowering, term_result.state)
         end
-        return ctx.cmds
+        return lowering.cmds
     end
 
     local function module_prelude_commands(code_module, opts)
         opts = opts or {}
         validate_module(code_module, opts)
-        local ctx = make_ctx(code_module, opts)
-        emit_module_prelude(ctx, code_module)
-        return ctx.cmds
+        local lowering = make_lowering(code_module, opts)
+        emit_module_prelude(lowering, code_module)
+        return lowering.cmds
     end
 
     local function function_local_stack_slot_commands(code_module, f, opts)
         opts = opts or {}
-        local ctx = make_ctx(code_module, opts)
-        ctx.local_stack_slots = {}
-        materialize_addressed_locals(ctx, f.locals, true)
-        return ctx.cmds
+        local lowering = make_lowering(code_module, opts)
+        lowering.local_stack_slots = {}
+        local state = code_back_state_from_lowering(lowering)
+        state = materialize_addressed_locals(state, f.locals, true)
+        code_back_sync_lowering(lowering, state)
+        return lowering.cmds
     end
 
     local function module(code_module, opts)
         opts = opts or {}
         validate_module(code_module, opts)
-        local ctx = make_ctx(code_module, opts)
-        emit_module_prelude(ctx, code_module)
+        local lowering = make_lowering(code_module, opts)
+        emit_module_prelude(lowering, code_module)
         for i = 1, #(code_module.funcs or {}) do
-            ctx.cmds[#ctx.cmds + 1] = function_declare(code_module.funcs[i])
+            lowering.cmds[#lowering.cmds + 1] = function_declare(code_module.funcs[i])
         end
         for i = 1, #(code_module.funcs or {}) do
-            func(ctx, code_module.funcs[i])
+            func(lowering, code_module.funcs[i])
         end
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdFinalizeModule
-        return Back.BackProgram(ctx.cmds)
+        lowering.cmds[#lowering.cmds + 1] = Back.CmdFinalizeModule
+        return Back.BackProgram(lowering.cmds)
     end
 
     api.module = module

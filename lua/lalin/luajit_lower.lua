@@ -39,6 +39,16 @@ local function bind_context(T)
 
     local api = {}
 
+    function Kernel.KernelPlan:luajit_kernel_body() return nil end
+    function Kernel.KernelPlanned:luajit_kernel_body()
+        local body = rawget(self, "body")
+        return type(body) == "table" and body or nil
+    end
+
+    local function kernel_plan_body(plan)
+        return plan and plan:luajit_kernel_body() or nil
+    end
+
     function SM.StencilMachineKernelInput:select_stencil_machine_kernel()
         local ready = self.loop_plan and self.owns_loop and self.planned and self.counted_positive
         if ready and self.has_skeleton_provider and self.stencil_skeleton_ready then
@@ -1215,12 +1225,12 @@ local function bind_context(T)
         local step_num = const_int_value(ctx, loop_fact.counted.step)
         if step_num == nil or step_num == 0 then return nil, "store stencil requires a non-zero constant step" end
         local descriptor_step = math.abs(step_num)
-        local store, store_reason = single_store_effect(plan.body)
+        local store, store_reason = single_store_effect(kernel_plan_body(plan))
         if store == nil then return nil, store_reason end
         local dst_base = lane_base_value(store.dst)
         if dst_base == nil then return nil, "store destination lane has no value base" end
         local dst_fact = lane_selection_fact(ctx, store.dst)
-        local bindings = binding_index(plan.body)
+        local bindings = binding_index(kernel_plan_body(plan))
         local classified, reason = classify_store_expr(store.value, bindings)
         if classified == nil then return nil, reason end
         local start_expr, stop_expr = producer_value_id_expr(ctx, loop_fact.counted.start), producer_value_id_expr(ctx, loop_fact.counted.stop)
@@ -1411,7 +1421,7 @@ local function bind_context(T)
 
     local function stencil_reduce_plan(ctx, func, plan, graph_loop, loop_fact)
         if asdl.classof(plan) ~= Kernel.KernelPlanned then return nil, "kernel is not planned" end
-        local result = plan.body.result
+        local result = kernel_plan_body(plan).result
         if asdl.classof(result) ~= Kernel.KernelResultReduction then return nil, "kernel result is not a reduction" end
         local reduction = result.reduction
         if not function_returns_reduction(func, graph_loop, reduction) then return nil, "function return is not the kernel reduction" end
@@ -1419,11 +1429,11 @@ local function bind_context(T)
         local step_num = const_int_value(ctx, loop_fact.counted.step)
         if step_num == nil or step_num == 0 then return nil, "reduction stencil requires a non-zero constant step" end
         local descriptor_step = math.abs(step_num)
-        local classified, reason = classify_store_expr(Kernel.KernelExprAlgebra(reduction.contribution), binding_index(plan.body))
+        local classified, reason = classify_store_expr(Kernel.KernelExprAlgebra(reduction.contribution), binding_index(kernel_plan_body(plan)))
         if classified == nil then return nil, reason end
         local start_expr, stop_expr = producer_value_id_expr(ctx, loop_fact.counted.start), producer_value_id_expr(ctx, loop_fact.counted.stop)
         local init_expr = value_expr(ctx, reduction.init)
-        local class, class_reason = enrich_stencil_class(ctx, classified, graph_loop, loop_fact, binding_index(plan.body), nil, nil)
+        local class, class_reason = enrich_stencil_class(ctx, classified, graph_loop, loop_fact, binding_index(kernel_plan_body(plan)), nil, nil)
         if class == nil then return nil, class_reason end
         local i32 = Code.CodeTyInt(32, Code.CodeSigned)
         local selection_input = SM.StencilMachineReduceSelectInput(
@@ -1487,7 +1497,7 @@ local function bind_context(T)
 
     local function kernel_plan_stencil_shaped(plan)
         if asdl.classof(plan) ~= Kernel.KernelPlanned then return false end
-        local body = plan.body
+        local body = kernel_plan_body(plan)
         local result = body and body.result or nil
         if asdl.classof(result) == Kernel.KernelResultReduction
             or asdl.classof(result) == Kernel.KernelResultFind then
@@ -1508,7 +1518,7 @@ local function bind_context(T)
 
     local function kernel_plan_requires_stencil_lowering(plan)
         if asdl.classof(plan) ~= Kernel.KernelPlanned then return false end
-        local body = plan.body
+        local body = kernel_plan_body(plan)
         local result = body and body.result or nil
         if asdl.classof(result) == Kernel.KernelResultReduction
             or asdl.classof(result) == Kernel.KernelResultFind then
@@ -1532,9 +1542,9 @@ local function bind_context(T)
     end
 
     local function skeleton_scan_plan(ctx, func, plan, graph_loop, loop_fact)
-        local effect, effect_reason = single_effect(plan.body, Kernel.KernelEffectScan)
+        local effect, effect_reason = single_effect(kernel_plan_body(plan), Kernel.KernelEffectScan)
         if effect == nil then return nil, effect_reason end
-        local result = plan.body.result
+        local result = kernel_plan_body(plan).result
         if asdl.classof(result) ~= Kernel.KernelResultReduction then return nil, "scan skeleton requires reduction result" end
         local reduction = effect.reduction
         if result.reduction ~= reduction then return nil, "scan result reduction does not match scan effect" end
@@ -1543,7 +1553,7 @@ local function bind_context(T)
         local dst_base = lane_base_value(effect.dst)
         if dst_base == nil then return nil, "scan destination lane has no value base" end
         local dst_fact = lane_selection_fact(ctx, effect.dst)
-        local bindings = binding_index(plan.body)
+        local bindings = binding_index(kernel_plan_body(plan))
         local class, class_reason = enriched_class_for_expr(ctx, Kernel.KernelExprAlgebra(reduction.contribution), graph_loop, loop_fact, bindings, dst_base, effect.dst.elem_ty)
         if class == nil then return nil, class_reason end
         local start_expr, stop_expr = producer_value_id_expr(ctx, loop_fact.counted.start), producer_value_id_expr(ctx, loop_fact.counted.stop)
@@ -1593,10 +1603,10 @@ local function bind_context(T)
     end
 
     local function skeleton_find_plan(ctx, func, plan, graph_loop, loop_fact)
-        local result = plan.body.result
+        local result = kernel_plan_body(plan).result
         if asdl.classof(result) ~= Kernel.KernelResultFind then return nil, "kernel result is not find" end
         if graph_loop == nil then return nil, "find skeleton requires a graph loop" end
-        local bindings = binding_index(plan.body)
+        local bindings = binding_index(kernel_plan_body(plan))
         local class, class_reason = enriched_class_for_expr(ctx, result.src, graph_loop, loop_fact, bindings, nil, nil)
         if class == nil then return nil, class_reason end
         local step_num = const_int_value(ctx, loop_fact.counted.step)
@@ -1616,12 +1626,12 @@ local function bind_context(T)
     end
 
     local function skeleton_partition_plan(ctx, func, plan, graph_loop, loop_fact)
-        local effect, effect_reason = single_effect(plan.body, Kernel.KernelEffectPartition)
+        local effect, effect_reason = single_effect(kernel_plan_body(plan), Kernel.KernelEffectPartition)
         if effect == nil then return nil, effect_reason end
         local dst_base = lane_base_value(effect.dst)
         if dst_base == nil then return nil, "partition destination lane has no value base" end
         local dst_fact = lane_selection_fact(ctx, effect.dst)
-        local bindings = binding_index(plan.body)
+        local bindings = binding_index(kernel_plan_body(plan))
         local class, class_reason = enriched_class_for_expr(ctx, effect.src, graph_loop, loop_fact, bindings, dst_base, effect.dst.elem_ty)
         if class == nil then return nil, class_reason end
         local step_num = const_int_value(ctx, loop_fact.counted.step)
@@ -1646,12 +1656,12 @@ local function bind_context(T)
     end
 
     local function skeleton_copy_plan(ctx, func, plan, graph_loop, loop_fact)
-        local effect, effect_reason = single_effect(plan.body, Kernel.KernelEffectCopy)
+        local effect, effect_reason = single_effect(kernel_plan_body(plan), Kernel.KernelEffectCopy)
         if effect == nil then return nil, effect_reason end
         local dst_base = lane_base_value(effect.dst)
         if dst_base == nil then return nil, "copy destination lane has no value base" end
         local dst_fact = lane_selection_fact(ctx, effect.dst)
-        local bindings = binding_index(plan.body)
+        local bindings = binding_index(kernel_plan_body(plan))
         local class, class_reason = enriched_class_for_expr(ctx, effect.src, graph_loop, loop_fact, bindings, dst_base, effect.dst.elem_ty)
         if class == nil then return nil, class_reason end
         local step_num = const_int_value(ctx, loop_fact.counted.step)
@@ -1679,14 +1689,14 @@ local function bind_context(T)
     end
 
     local function skeleton_scatter_reduce_plan(ctx, func, plan, graph_loop, loop_fact)
-        local effect, effect_reason = single_effect(plan.body, Kernel.KernelEffectScatterReduce)
+        local effect, effect_reason = single_effect(kernel_plan_body(plan), Kernel.KernelEffectScatterReduce)
         if effect == nil then return nil, effect_reason end
         if not function_returns_void_from_loop(func, graph_loop) then return nil, "scatter-reduce loop exits as neither final value nor void effect" end
         local dst_base = lane_base_value(effect.dst)
         if dst_base == nil then return nil, "scatter-reduce destination lane has no value base" end
         local dst_fact = lane_selection_fact(ctx, effect.dst)
         if dst_fact == nil then return nil, "scatter-reduce destination lane has no layout fact" end
-        local bindings = binding_index(plan.body)
+        local bindings = binding_index(kernel_plan_body(plan))
         local class, class_reason = enriched_class_for_expr(ctx, effect.value, graph_loop, loop_fact, bindings, dst_base, effect.dst.elem_ty)
         if class == nil then return nil, class_reason end
         for _, input in ipairs(class.inputs or {}) do
@@ -1817,7 +1827,7 @@ local function bind_context(T)
         local owns_loop = (subject_cls == Kernel.KernelSubjectLoop and loop_owner == func.id)
             or (subject_cls == Kernel.KernelSubjectFunction and subject.func == func.id)
         local planned = asdl.classof(plan) == Kernel.KernelPlanned
-        local result = planned and plan.body and plan.body.result or nil
+        local result = planned and kernel_plan_body(plan) and kernel_plan_body(plan).result or nil
         local result_reduction = asdl.classof(result) == Kernel.KernelResultReduction
         local reduction = result_reduction and result.reduction or nil
         local stencil_reduce_ready = false
@@ -1846,7 +1856,7 @@ local function bind_context(T)
         local store_reason = nil
         if planned then
             local store
-            store, store_reason = single_store_effect(plan.body)
+            store, store_reason = single_store_effect(kernel_plan_body(plan))
             single_store = store ~= nil
             store_dst_base = store ~= nil and lane_base_value(store.dst) ~= nil
         end
@@ -1940,7 +1950,7 @@ local function bind_context(T)
     end
 
     local function plan_domain_loop(plan)
-        local body = plan and plan.body or nil
+        local body = plan and kernel_plan_body(plan) or nil
         local domain = body and body.domain and body.domain.domain or nil
         if asdl.classof(domain) == Flow.FlowDomainLoop then return domain.loop end
         return nil

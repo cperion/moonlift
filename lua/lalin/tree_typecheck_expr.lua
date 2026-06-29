@@ -64,6 +64,83 @@ return function(T)
         return self.ty
     end
 
+    function C.Scalar:typecheck_tree_cast_bits() return nil end
+    function C.ScalarBool:typecheck_tree_cast_bits() return 8 end
+    function C.ScalarI8:typecheck_tree_cast_bits() return 8 end
+    function C.ScalarI16:typecheck_tree_cast_bits() return 16 end
+    function C.ScalarI32:typecheck_tree_cast_bits() return 32 end
+    function C.ScalarI64:typecheck_tree_cast_bits() return 64 end
+    function C.ScalarU8:typecheck_tree_cast_bits() return 8 end
+    function C.ScalarU16:typecheck_tree_cast_bits() return 16 end
+    function C.ScalarU32:typecheck_tree_cast_bits() return 32 end
+    function C.ScalarU64:typecheck_tree_cast_bits() return 64 end
+    function C.ScalarF32:typecheck_tree_cast_bits() return 32 end
+    function C.ScalarF64:typecheck_tree_cast_bits() return 64 end
+    function C.ScalarIndex:typecheck_tree_cast_bits() return 64 end
+
+    function C.Scalar:typecheck_tree_cast_is_float() return false end
+    function C.ScalarF32:typecheck_tree_cast_is_float() return true end
+    function C.ScalarF64:typecheck_tree_cast_is_float() return true end
+
+    function C.Scalar:typecheck_tree_cast_is_signed_int() return false end
+    function C.ScalarI8:typecheck_tree_cast_is_signed_int() return true end
+    function C.ScalarI16:typecheck_tree_cast_is_signed_int() return true end
+    function C.ScalarI32:typecheck_tree_cast_is_signed_int() return true end
+    function C.ScalarI64:typecheck_tree_cast_is_signed_int() return true end
+
+    function C.Scalar:typecheck_tree_cast_is_unsigned_int() return false end
+    function C.ScalarBool:typecheck_tree_cast_is_unsigned_int() return true end
+    function C.ScalarU8:typecheck_tree_cast_is_unsigned_int() return true end
+    function C.ScalarU16:typecheck_tree_cast_is_unsigned_int() return true end
+    function C.ScalarU32:typecheck_tree_cast_is_unsigned_int() return true end
+    function C.ScalarU64:typecheck_tree_cast_is_unsigned_int() return true end
+    function C.ScalarIndex:typecheck_tree_cast_is_unsigned_int() return true end
+
+    function C.Scalar:typecheck_tree_cast_is_int() return self:typecheck_tree_cast_is_signed_int() or self:typecheck_tree_cast_is_unsigned_int() end
+
+    function Ty.Type:typecheck_tree_scalar_cast_op() return nil end
+    function Ty.TScalar:typecheck_tree_scalar_cast_op(op, to)
+        return to:typecheck_tree_scalar_cast_from(op, self.scalar)
+    end
+    function Ty.Type:typecheck_tree_scalar_cast_from() return nil end
+    function Ty.TScalar:typecheck_tree_scalar_cast_from(op, from)
+        return op:typecheck_tree_machine_cast(from, self.scalar)
+    end
+
+    function C.SurfaceCastOp:typecheck_tree_machine_cast() return nil end
+    function C.SurfaceBitcast:typecheck_tree_machine_cast(from, to) return C.MachineCastBitcast end
+    function C.SurfaceTrunc:typecheck_tree_machine_cast(from, to) return C.MachineCastIreduce end
+    function C.SurfaceSExt:typecheck_tree_machine_cast(from, to) return C.MachineCastSextend end
+    function C.SurfaceZExt:typecheck_tree_machine_cast(from, to) return C.MachineCastUextend end
+    function C.SurfaceSatCast:typecheck_tree_machine_cast() return nil end
+    function C.SurfaceCast:typecheck_tree_machine_cast(from, to)
+        if from == to then return C.MachineCastIdentity end
+        local from_bits = from:typecheck_tree_cast_bits()
+        local to_bits = to:typecheck_tree_cast_bits()
+        if from_bits == nil or to_bits == nil then return nil end
+        local from_float = from:typecheck_tree_cast_is_float()
+        local to_float = to:typecheck_tree_cast_is_float()
+        if from_float and to_float then
+            if from_bits < to_bits then return C.MachineCastFpromote end
+            if from_bits > to_bits then return C.MachineCastFdemote end
+            return C.MachineCastBitcast
+        end
+        if from_float and to:typecheck_tree_cast_is_int() then
+            return to:typecheck_tree_cast_is_signed_int() and C.MachineCastFToS or C.MachineCastFToU
+        end
+        if from:typecheck_tree_cast_is_int() and to_float then
+            return from:typecheck_tree_cast_is_signed_int() and C.MachineCastSToF or C.MachineCastUToF
+        end
+        if from:typecheck_tree_cast_is_int() and to:typecheck_tree_cast_is_int() then
+            if from_bits > to_bits then return C.MachineCastIreduce end
+            if from_bits < to_bits then
+                return from:typecheck_tree_cast_is_signed_int() and C.MachineCastSextend or C.MachineCastUextend
+            end
+            return C.MachineCastBitcast
+        end
+        return nil
+    end
+
     function B.ValueRefBinding:typecheck_tree_ref()
         return Tr.TypeValueRefResult(self, self.binding.ty, {})
     end
@@ -108,6 +185,10 @@ return function(T)
     function Tr.ExprCast:typecheck_tree_expr(input)
         local value = self.value:typecheck_tree_expr(input)
         local ty = canonical_type(input.scope, self.ty)
+        local machine_op = value.ty:typecheck_tree_scalar_cast_op(self.op, ty)
+        if machine_op ~= nil then
+            return Tr.TypeExprResult(Tr.ExprMachineCast(Tr.ExprTyped(ty), machine_op, ty, value.expr), ty, value.issues)
+        end
         return Tr.TypeExprResult(Tr.ExprCast(Tr.ExprTyped(ty), self.op, ty, value.expr), ty, value.issues)
     end
 

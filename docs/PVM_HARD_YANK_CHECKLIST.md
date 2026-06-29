@@ -131,6 +131,14 @@ long checklist below remains the full audit.
             module registration.
       - [x] Production `tree_to_code.lua` is clean for `asdl.classof`,
             `schema.isa`, `.kind`, selector-table, and rule-module dispatch.
+- [x] Continue `lua/lalin/code_to_back.lua` method rewrite.
+      - [x] `CodeInstKind` and `CodeTermKind` behavior lives on concrete ASDL
+            leaf methods; the old instruction/terminator ladders are gone.
+      - [x] Code-to-Back facts, state, inputs, and state/value/address/memory
+            results are explicit ASDL products.
+      - [x] Code-to-Back semantic helpers no longer mutate `state.cmds`,
+            scratch maps, or `next_tmp` directly; state changes are returned
+            through typed products and synced by the driver.
 
 ## Goal
 
@@ -232,7 +240,7 @@ The replacement pattern is stricter:
 - [x] `tests/pvm` is deleted or split into correctly named compiler-process
       tests if any still describe real behavior.
 - [x] `lalin.init` does not export `M.pvm`.
-- [ ] public docs no longer tell users or compiler contributors that PVM is part
+- [x] public docs no longer tell users or compiler contributors that PVM is part
       of Lalin.
 - [ ] LLBL/LLPVM names that contain `pvm` are audited separately. They are not
       automatically the same problem as `lalin.pvm`, but must not leak a PVM
@@ -296,7 +304,7 @@ The replacement pattern is stricter:
 - [x] Remove `M.pvm` from `lua/lalin/init.lua`.
 - [x] Replace internal `M.pvm.context()` call sites with `asdl.context()`.
 - [x] Ensure `require("lalin").pvm` is nil or absent.
-- [ ] Remove any documented `lalin.pvm` usage.
+- [x] Remove any documented `lalin.pvm` usage.
 - [x] Remove any top-level `require("pvm") == require("lalin.pvm")`
       compatibility assertion.
 - [x] Remove `tests/pvm` from `tests/run.lua` default and all suites.
@@ -648,18 +656,81 @@ These are the current freeform rule/dispatch modules to eliminate or shrink.
         operator/type leaf methods.
   - [x] Remove dead operator/cast/atomic helper dispatch from the coordinator.
 - [ ] `lua/lalin/tree_to_code.lua`
-  - [ ] remains module/function lowering driver
-  - [ ] delegates typed operations to node methods
+  - [x] remains module/function lowering driver
+  - [x] delegates typed operations to node methods
+  - [ ] Replace remaining `ctx`/`module_ctx` driver bags with precise typed
+        Tree-to-Code ASDL input/state/result products.
+        - [x] Added typed Tree-to-Code module context fields, function
+              registrations, variant definitions, local binding snapshots,
+              block builders, and control-region state to the ASDL schema.
+        - [x] Split constant Tree-to-Code module facts from phase-resolved
+              module state: `TreeCodeModuleFacts` owns module name, layout
+              environment, target, constant environment, and variant
+              definitions; `TreeCodeModuleContext` owns generated signatures,
+              registrations, externs, data, and counters.
+        - [x] `build_module_ctx` now constructs `TreeCodeModuleContext`;
+              function registrations and variant definitions use typed ASDL
+              products instead of raw registration tables.
+        - [x] Tree-to-Code function-local binding snapshots and local binding
+              entries now use typed ASDL products.
+        - [x] Function lowering now constructs `TreeCodeFuncContext` ASDL
+              objects; block assembly, counters, binding snapshots, locals,
+              alpha scopes, and active control regions are changed through
+              installed context methods instead of a raw driver table.
+        - [x] Tree-to-Code mutable state products are not interned; function
+              blocks, locals, counters, and generated module data no longer
+              share empty ASDL collection tables across functions.
+        - [ ] Continue replacing broad `ctx` method parameters with narrower
+              typed Tree-to-Code input products where a leaf does not need full
+              function state.
 - [ ] `lua/lalin/code_to_back.lua`
   - [ ] methodize type, place, expr, inst lowering
+  - [x] Added explicit `CodeBack*` ASDL products for module facts, function
+        facts, function state, instruction input, terminator input, place input,
+        state result, and place result.
+  - [x] Added typed Code-to-Back value/address/memory result products for
+        helpers that produce Back values, addresses, or synthetic memory facts
+        while threading `CodeBackFunctionState`.
+  - [x] `CodeInst` lowering now delegates through `CodeInstKind` ASDL leaf
+        methods; the central instruction-kind class ladder is removed.
+  - [x] `CodeTerm` lowering now delegates through `CodeTermKind` ASDL leaf
+        methods; the central terminator-kind class ladder is removed.
+  - [x] `CodeDataInit`, `CodeGlobalRef`, and `CodeCallTarget` lowering now live
+        on their concrete ASDL leaves.
+  - [x] Removed the `ctx`/context adapter from `Code -> Back` semantic methods;
+        instruction and terminator methods receive typed ASDL inputs and read
+        module/function facts from `input.module` and `input.func`.
+  - [x] `CodePlace` address and address-of lowering now use typed
+        `CodeBackPlaceInput` and return `CodeBackPlaceResult` /
+        `CodeBackStateResult` instead of receiving loose state/info arguments.
+  - [x] Driver-local Code-to-Back orchestration table is named `lowering`; ASDL
+        semantic methods only use `input.state` for `CodeBackFunctionState`.
+  - [x] Renamed the last Code-to-Back `make_ctx` boundary to
+        `make_lowering`; no `ctx` identifier remains in the file.
+  - [x] Remove the temporary Code-to-Back builder adapter and replace command/
+        scratch mutation with returned `CodeBackFunctionState` values.
+        - [x] Deleted `code_back_lowering`, rawset state pollution, and generic
+              `code_back_read`/`code_back_write_state` accessors.
+        - [x] `CodeBackFunctionState` now owns named update methods for command
+              append, aggregate value/local facts, closure-capture facts, and
+              local stack slots; function/fragment drivers sync from
+              `CodeBackStateResult` values.
+        - [x] Direct semantic writes to `state.cmds`, aggregate scratch maps,
+              closure-capture maps, and local stack-slot maps are removed.
+        - [x] Temporary-value, address, and synthetic-memory helpers now return
+              typed value/address/memory result products carrying the updated
+              `CodeBackFunctionState`; direct `next_tmp` mutation is removed
+              from semantic helpers.
+  - [x] Move remaining helper class checks for memory facts, address bases,
+        type properties, field refs, and lower covers onto ASDL leaf methods.
   - [x] Core literal, Code const, binary/unary/compare/cast/intrinsic, atomic
         ordering, and atomic RMW Back opcode selection live on ASDL leaf
         methods instead of helper dispatch.
   - [x] `CodePlace` address formation and address-of lowering delegate to
         concrete place methods instead of dispatching on place class.
-  - [ ] Move `CodeInstKind` lowering out of the instruction driver ladder and
+  - [x] Move `CodeInstKind` lowering out of the instruction driver ladder and
         onto concrete instruction-kind methods.
-  - [ ] Move `CodeTermKind` lowering out of the terminator driver ladder and
+  - [x] Move `CodeTermKind` lowering out of the terminator driver ladder and
         onto concrete terminator-kind methods.
 - [ ] `lua/lalin/code_to_c.lua`
   - [ ] methodize C backend projection
@@ -703,7 +774,7 @@ These are the current freeform rule/dispatch modules to eliminate or shrink.
   - [x] direct class method assignment
   - [x] method dispatch failure diagnostics
   - [x] multiple context isolation
-- [ ] Rewrite rule tests as behavior tests:
+- [x] Rewrite rule tests as behavior tests:
   - [x] `tests/frontend/test_tree_typecheck_rules.lua`
   - [x] `tests/frontend/test_tree_to_code_methods.lua`
   - [x] `tests/code_ir/test_code_kernel_plan_methods.lua`
@@ -746,13 +817,13 @@ These are the current freeform rule/dispatch modules to eliminate or shrink.
 
 ## Verification Gates
 
-- [ ] `rg -n 'require\\("lalin\\.pvm"\\)|require\\('\\''lalin\\.pvm'\\''\\)' lua tests tools docs`
-      returns nothing.
-- [ ] `rg -n 'require\\("pvm"\\)|require\\('\\''pvm'\\''\\)' lua/lalin lua/llpvm tests tools`
-      returns nothing unless explicitly isolated in retired UI code.
+- [x] `rg -n 'require\\("lalin\\.pvm"\\)|require\\('\\''lalin\\.pvm'\\''\\)' lua tests tools docs`
+      returns nothing outside this checklist.
+- [x] `rg -n 'require\\("pvm"\\)|require\\('\\''pvm'\\''\\)' lua/lalin lua/llpvm tests tools`
+      returns nothing outside UI/mlui/retired surfaces tracked above.
 - [x] `rg -n 'pvm\\.phase|phase\\(' lua/lalin` has no PVM recording-phase hits.
 - [ ] `rg -n 'M\\.pvm|\\.pvm\\b' lua/lalin docs tests` has no Lalin public API hits.
-- [ ] `rg -n '_rules' lua/lalin` only shows files that are intentionally still
+- [x] `rg -n '_rules' lua/lalin` only shows files that are intentionally still
       waiting in the migration checklist.
 - [x] `luajit tests/run.lua asdl`
 - [x] `luajit tests/run.lua frontend`
@@ -767,16 +838,16 @@ These are the current freeform rule/dispatch modules to eliminate or shrink.
 
 ## Suggested Rewrite Order
 
-- [ ] 1. Freeze the target API in `lalin.asdl`.
-- [ ] 2. Replace compiler `lalin.pvm` imports with `lalin.asdl` imports and sane
+- [x] 1. Freeze the target API in `lalin.asdl`.
+- [x] 2. Replace compiler `lalin.pvm` imports with `lalin.asdl` imports and sane
       local names.
-- [ ] 3. Delete PVM erase and PVM phase tests.
-- [ ] 4. Remove `M.pvm` and public PVM docs.
+- [x] 3. Delete PVM erase and PVM phase tests.
+- [x] 4. Remove `M.pvm` and public PVM docs.
 - [ ] 5. Isolate or retire UI/top-level `pvm` usage.
 - [x] 6. Add ASDL direct method support.
 - [x] 7. Finish `tree_typecheck.lua` method rewrite after deleting `tree_typecheck_rules.lua`.
 - [x] 8. Migrate `tree_to_code_rules.lua`.
-- [ ] 9. Migrate code/kernel/schedule/lower/exec rule modules.
+- [x] 9. Migrate code/kernel/schedule/lower/exec rule modules.
 - [ ] 10. Migrate LuaJIT/C/backend lowering emitters.
-- [ ] 11. Delete rule modules as each reaches zero real ownership.
+- [x] 11. Delete rule modules as each reaches zero real ownership.
 - [ ] 12. Run the full verification gates and update architecture docs.

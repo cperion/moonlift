@@ -23,6 +23,13 @@ low-level implementation languages. In practice it gives languages like C, and
 for Lalin Lua, the missing product/sum discipline needed to build large compiler
 systems without reducing every semantic object to an untyped record.
 
+Good ASDL design is also excellent for AI-assisted maintenance because it
+localizes attention. If behavior lives on the ASDL leaf that owns the semantic
+case, an agent can inspect the schema, open the leaf method, and reason locally.
+If behavior is spread through side tables, rule runners, handler maps, and
+string dispatch, the agent has to reconstruct a hidden architecture from global
+search results and is much more likely to make a bad patch.
+
 When compiler code needs to classify a value, choose an alternative, remember a
 fact, pass state, return a decision, or route to behavior, first ask what ASDL
 type is missing. Add that product, union, leaf, field, projection, facet, or
@@ -294,6 +301,93 @@ Lalin follows the useful Terra ASDL runtime mechanics:
 
 Lalin's compiler rewrite doctrine is stricter than Terra's examples: do not use
 `.kind` dispatch in migrated compiler semantics.
+
+## Harness Pattern
+
+The useful lesson from the Terra compiler-pattern harnesses is not a permission
+to build more Lua plumbing. The useful lesson is that each ASDL semantic
+boundary can be made visible, testable, and measurable as a local unit.
+
+A semantic boundary is a method attached to an ASDL receiver:
+
+```lua
+checked = source:check(input)
+lowered = checked:lower(input)
+machine = lowered:define_machine(input)
+```
+
+The receiver is ASDL. The input should be ASDL when the operation needs more
+than primitive scalars. The result is ASDL. That shape is the harness contract.
+
+For each important boundary, a harness can provide:
+
+- an implementation artifact for `Receiver:method`
+- a focused test that constructs the receiver ASDL value and calls the method
+- a bench when the method is on a hot path
+- a profile script when allocation or dispatch shape matters
+- a backend-specific artifact only when the backend is a real typed boundary
+
+This helps because the agent does not need to rediscover where behavior lives.
+The schema names the receiver, the method name names the semantic operation,
+and the harness names the expected result. Missing work becomes a failing local
+stub instead of a hidden convention in a giant pass.
+
+Correct harness shape:
+
+```lua
+local source = Fixture.new_source_spec(T)
+local checked = source:check(input)
+
+assert(Checked.Spec:is(checked))
+```
+
+Wrong harness shape:
+
+```lua
+local checked = check_source({
+  kind = "Spec",
+  tokens = tokens,
+  parser = parser,
+})
+
+assert(checked.kind == "CheckedSpec")
+```
+
+The wrong version teaches the compiler to accept ad hoc input tables and
+stringly typed result records. That defeats the point of ASDL. A harness must
+make the typed path easier than the untyped path.
+
+Whole-pipeline harnesses are still useful, but they should prove composition of
+typed phases:
+
+```text
+Source ASDL
+  -> :check()
+  -> Checked ASDL
+  -> :lower()
+  -> Lowered ASDL
+  -> :define_machine()
+  -> Machine ASDL/artifact
+```
+
+These tests should not become a substitute for local leaf-method tests. They
+answer a different question: "Do the ASDL phase products connect?" Local tests
+answer: "Does this receiver method implement this semantic boundary?"
+
+Shared fixtures are useful when they build canonical ASDL towers that several
+tests need. They are dangerous when they become generic mutable context bags.
+A good fixture returns named ASDL roots. A bad fixture returns a loose table of
+knobs, caches, handler maps, and optional fields that every test interprets by
+convention.
+
+Scaffolding can be useful for AI-assisted work because it can generate the
+expected files for each declared boundary: implementation, test, bench, and
+profile. The generated implementation must fail loudly until the method is
+filled in. The generated test must construct ASDL inputs and assert ASDL
+outputs. It must not scaffold `{ kind = ... }` compatibility tables.
+
+The rule is simple: harnesses may make ASDL method work easier to find, run,
+and measure. They must never introduce a second untyped protocol beside ASDL.
 
 ## Repair Procedure
 
