@@ -117,7 +117,7 @@ local function bind_context(T)
             return single(S.AnchorLookup(out))
             end)(node, ...)
         else
-            error("phase lalin_source_anchor_lookup: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_source_anchor_lookup: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

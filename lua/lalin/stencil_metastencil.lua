@@ -28,10 +28,11 @@ local function stable_repr(v, seen)
     if seen[v] then return "<cycle>" end
     seen[v] = true
     local out = {}
-    if cls and cls.__fields then
+    local fields = cls and asdl.fields(cls) or nil
+    if fields then
         out[#out + 1] = tostring(cls)
         out[#out + 1] = "{"
-        for i, field in ipairs(cls.__fields or {}) do
+        for i, field in ipairs(fields or {}) do
             if i > 1 then out[#out + 1] = "," end
             out[#out + 1] = field.name
             out[#out + 1] = "="
@@ -441,7 +442,7 @@ local function bind_context(T)
     local function node_is_reduce_fold(node)
         local d = node.artifact.instance.descriptor
         return asdl.classof(d.sink) == Stencil.StencilSinkReduce
-            and asdl.classof(d.sink.mode) == Stencil.StencilReduceFold
+            and asdl.classof(d.sink.semantics) == Stencil.StencilReduceFold
     end
 
     local function node_is_scan(node)
@@ -502,7 +503,7 @@ local function bind_context(T)
         if not same_value(out_access.ty, in_access.ty) then return nil, "fused Store output type does not match Reduce input type" end
         local inputs, seen = {}, {}
         append_store_inputs(inputs, seen, store_desc, store_out)
-        local reducer = reduce_desc.sink.mode.reducer
+        local reducer = reduce_desc.sink.semantics.reducer
         local store_shape = Plan.artifact_shape(store_node.artifact)
         local scope = reduce_desc.sink.scope
         local dst_layout
@@ -511,7 +512,7 @@ local function bind_context(T)
             dst_layout = dst_name and reduce_accesses[dst_name] and reduce_accesses[dst_name].layout or nil
         end
         return Plan.reduce_n_artifact({
-            kind = reducer.reduction,
+            op = reducer.reduction,
             int_semantics = reducer.int_semantics,
             float_mode = reducer.float_mode,
         }, nil, {
@@ -557,7 +558,7 @@ local function bind_context(T)
         local dst_access = scan_accesses[dst_name]
         local store_shape = Plan.artifact_shape(store_node.artifact)
         return Plan.scan_n_artifact({
-            kind = reducer.reduction,
+            op = reducer.reduction,
             int_semantics = reducer.int_semantics,
             float_mode = reducer.float_mode,
         }, nil, {
@@ -605,7 +606,7 @@ local function bind_context(T)
         local reducer = scatter_desc.sink.reducer
         local store_shape = Plan.artifact_shape(store_node.artifact)
         return Plan.scatter_reduce_n_artifact({
-            kind = reducer.reduction,
+            op = reducer.reduction,
             int_semantics = reducer.int_semantics,
             float_mode = reducer.float_mode,
         }, nil, {

@@ -18,7 +18,7 @@ local function type_name(A, ty)
     if cls == A.TypeRelativeName then return ty.name end
     if cls == A.TypeList then return type_name(A, ty.elem) end
     if cls == A.TypeOptional then return type_name(A, ty.elem) end
-    error("context_define_schema: unsupported TypeExpr " .. tostring(cls and cls.kind or tostring(ty)), 2)
+    error("context_define_schema: unsupported TypeExpr " .. tostring(cls or tostring(ty)), 2)
 end
 
 local function convert_field(A, field)

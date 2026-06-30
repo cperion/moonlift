@@ -140,7 +140,7 @@ local function bind_context(T)
                 local kplan = kernels_by_id[sched.kernel.text]
                 if kplan ~= nil then
                     local target = schedules.target and schedules.target.target or nil
-                    local cap = KernelEmitSupport.classify(kplan, sched.kind, target, flow)
+                    local cap = KernelEmitSupport.classify(kplan, sched.form, target, flow)
                     if not cap.executable then add(ctx, "schedule-not-executable", "SchedulePlanned is not executable by semantic lowering: " .. tostring(cap.reason)) end
                 end
             elseif cls == Schedule.ScheduleNoPlan then
@@ -196,7 +196,7 @@ local function bind_context(T)
             if kplan == nil then add(ctx, "missing-kernel", "LowerStrategyClosedForm cites missing KernelPlanned " .. strategy.kernel.text)
             elseif asdl.classof(kplan.body.result) ~= Kernel.KernelResultClosedForm or kplan.body.result.closed_form ~= strategy.fact then add(ctx, "strategy-closed-form-mismatch", "LowerStrategyClosedForm fact does not match KernelResultClosedForm") end
             local sched = schedules_by_kernel[strategy.kernel.text]
-            if sched == nil or asdl.classof(sched) ~= Schedule.SchedulePlanned or sched.kind ~= Schedule.ScheduleClosedForm then add(ctx, "missing-schedule", "LowerStrategyClosedForm requires SchedulePlanned(ScheduleClosedForm) for kernel " .. strategy.kernel.text) end
+            if sched == nil or asdl.classof(sched) ~= Schedule.SchedulePlanned or sched.form ~= Schedule.ScheduleClosedForm then add(ctx, "missing-schedule", "LowerStrategyClosedForm requires SchedulePlanned(ScheduleClosedForm) for kernel " .. strategy.kernel.text) end
             if not closed[tostring(strategy.fact)] then add(ctx, "missing-closed-form", "LowerStrategyClosedForm cites ClosedFormFact outside ValueFactSet") end
         else
             add(ctx, "unsupported-strategy", "Lower strategy is not executable by semantic lowering without a dedicated emitter: " .. tostring(cls or strategy))

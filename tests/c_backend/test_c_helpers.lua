@@ -95,8 +95,8 @@ for i = 1, #intrinsic_patterns do
 end
 
 local access = C.CBackendMemoryAccess(i32, 4, C.CBackendMayTrap, false, nil)
-local load_kind = C.CBackendHelperLoad(access)
-local load_use = C.CBackendHelperUse(H.helper_id(load_kind), load_kind)
+local load_spec = C.CBackendHelperLoad(access)
+local load_use = C.CBackendHelperUse(H.helper_id(load_spec), load_spec)
 local load_src = table.concat(H.emit_helper(load_use), "\n")
 assert(load_src:match("memcpy"), "load helper uses memcpy")
 assert(load_src:match("ml_load_i32_a4"))

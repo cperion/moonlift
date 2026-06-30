@@ -63,7 +63,7 @@ local function bind_context(T)
  return single(self.ty)
             end)(node, ...)
         else
-            error("phase lalin_tree_place_header_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_place_header_type: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -82,7 +82,7 @@ local function bind_context(T)
  return {}
             end)(node, ...)
         else
-            error("phase lalin_tree_place_value_ref_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_place_value_ref_type: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -101,7 +101,7 @@ local function bind_context(T)
  return single(self.view.elem)
             end)(node, ...)
         else
-            error("phase lalin_tree_index_base_elem_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_index_base_elem_type: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -143,7 +143,7 @@ local function bind_context(T)
  return header_or(self.h, first(index_base_elem_type(self.base)))
             end)(node, ...)
         else
-            error("phase lalin_tree_place_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_place_type: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

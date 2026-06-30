@@ -75,7 +75,7 @@ local function bind_context(T)
  return single("")
             end)(node, ...)
         else
-            error("phase lalin_tree_module_name: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_module_name: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -89,22 +89,22 @@ local function bind_context(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.FuncLocal) then
             return (function(self, mod_name)
- return single(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name))))
+ return single(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingRoleGlobalFunc(mod_name, self.name))))
             end)(node, ...)
         elseif schema.isa(node, Tr.FuncExport) then
             return (function(self, mod_name)
- return single(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name))))
+ return single(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingRoleGlobalFunc(mod_name, self.name))))
             end)(node, ...)
         elseif schema.isa(node, Tr.FuncLocalContract) then
             return (function(self, mod_name)
- return single(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name))))
+ return single(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingRoleGlobalFunc(mod_name, self.name))))
             end)(node, ...)
         elseif schema.isa(node, Tr.FuncExportContract) then
             return (function(self, mod_name)
- return single(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name))))
+ return single(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingRoleGlobalFunc(mod_name, self.name))))
             end)(node, ...)
         else
-            error("phase lalin_tree_func_value_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_func_value_entry: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -112,10 +112,10 @@ local function bind_context(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ExternFunc) then
             return (function(self)
- return single(B.ValueEntry(self.name, B.Binding(C.Id("extern:" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassExtern(self.symbol))))
+ return single(B.ValueEntry(self.name, B.Binding(C.Id("extern:" .. self.name), self.name, params_type(self.params, self.result), B.BindingRoleExtern(self.symbol))))
             end)(node, ...)
         else
-            error("phase lalin_tree_extern_value_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_extern_value_entry: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -123,10 +123,10 @@ local function bind_context(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ConstItem) then
             return (function(self, mod_name)
- return single(B.ValueEntry(self.name, B.Binding(C.Id("const:" .. mod_name .. ":" .. self.name), self.name, self.ty, B.BindingClassGlobalConst(mod_name, self.name))))
+ return single(B.ValueEntry(self.name, B.Binding(C.Id("const:" .. mod_name .. ":" .. self.name), self.name, self.ty, B.BindingRoleGlobalConst(mod_name, self.name))))
             end)(node, ...)
         else
-            error("phase lalin_tree_const_value_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_const_value_entry: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -134,10 +134,10 @@ local function bind_context(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.StaticItem) then
             return (function(self, mod_name)
- return single(B.ValueEntry(self.name, B.Binding(C.Id("static:" .. mod_name .. ":" .. self.name), self.name, self.ty, B.BindingClassGlobalStatic(mod_name, self.name))))
+ return single(B.ValueEntry(self.name, B.Binding(C.Id("static:" .. mod_name .. ":" .. self.name), self.name, self.ty, B.BindingRoleGlobalStatic(mod_name, self.name))))
             end)(node, ...)
         else
-            error("phase lalin_tree_static_value_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_static_value_entry: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -164,7 +164,7 @@ local function bind_context(T)
  return single(B.TypeEntry(self.name, Ty.THandle(Ty.TypeRefGlobal(mod_name, self.name), self.repr)))
             end)(node, ...)
         else
-            error("phase lalin_tree_type_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_type_entry: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -271,7 +271,7 @@ local function bind_context(T)
  return {}
             end)(node, ...)
         else
-            error("phase lalin_tree_item_layout: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_item_layout: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -306,7 +306,7 @@ local function bind_context(T)
  return {}
             end)(node, ...)
         else
-            error("phase lalin_tree_item_env_entries: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_item_env_entries: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -338,7 +338,7 @@ local function bind_context(T)
             return single(B.Env(mod_name, values, types, layouts))
             end)(node, ...)
         else
-            error("phase lalin_tree_module_env: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_module_env: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

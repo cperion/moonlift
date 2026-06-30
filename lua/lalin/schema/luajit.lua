@@ -362,7 +362,7 @@ return schema. LalinLuaJIT {
     },
   },
 
-  sum. LJMachineKind {
+  sum. LJMachineOp {
     LJMachineEmpty,
     LJMachineOne { variant_unique, field. value [LalinLuaJIT.LJExpr], },
     LJMachineSourceArray {
@@ -429,7 +429,7 @@ return schema. LalinLuaJIT {
   product. LJMachine {
     interned,
     field. id [LalinLuaJIT.LJMachineId],
-    kind [LalinLuaJIT.LJMachineKind],
+    op [LalinLuaJIT.LJMachineOp],
     result [optional [LalinLuaJIT.LJPhysicalType]],
     state [LalinLuaJIT.LJStateShape],
     trace [LalinLuaJIT.LJTraceHint],

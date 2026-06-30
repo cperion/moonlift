@@ -31,7 +31,7 @@ local x_plus_1 = Tr.ExprClosure(Tr.ExprSurface, { Ty.Param("x", i32) }, i32, {
     Tr.StmtReturnValue(Tr.StmtSurface, plus(name_ref("x"), int_lit(1)))
 })
 
-local f_binding = B.Binding(C.Id("local:f"), "f", closure_i32, B.BindingClassLocalValue)
+local f_binding = B.Binding(C.Id("local:f"), "f", closure_i32, B.BindingRoleLocalValue)
 local store_func = Tr.FuncExport("closure_store", {}, i32, {
     Tr.StmtLet(Tr.StmtSurface, f_binding, x_plus_1),
     Tr.StmtReturnValue(Tr.StmtSurface, call(name_ref("f"), { int_lit(41) })),
@@ -41,7 +41,7 @@ local apply_func = Tr.FuncLocal("apply_closure", { Ty.Param("f", closure_i32), T
     Tr.StmtReturnValue(Tr.StmtSurface, call(name_ref("f"), { name_ref("x") })),
 })
 
-local y_binding = B.Binding(C.Id("local:y"), "y", i32, B.BindingClassLocalValue)
+local y_binding = B.Binding(C.Id("local:y"), "y", i32, B.BindingRoleLocalValue)
 local capture_closure = Tr.ExprClosure(Tr.ExprSurface, { Ty.Param("x", i32) }, i32, {
     Tr.StmtReturnValue(Tr.StmtSurface, plus(name_ref("x"), name_ref("y")))
 })
@@ -53,7 +53,7 @@ local pass_func = Tr.FuncExport("closure_pass", {}, i32, {
 local make_func = Tr.FuncLocal("make_inc", {}, closure_i32, {
     Tr.StmtReturnValue(Tr.StmtSurface, x_plus_1),
 })
-local f2_binding = B.Binding(C.Id("local:f2"), "f", closure_i32, B.BindingClassLocalValue)
+local f2_binding = B.Binding(C.Id("local:f2"), "f", closure_i32, B.BindingRoleLocalValue)
 local return_func = Tr.FuncExport("closure_return", {}, i32, {
     Tr.StmtLet(Tr.StmtSurface, f2_binding, call(name_ref("make_inc"), {})),
     Tr.StmtReturnValue(Tr.StmtSurface, call(name_ref("f"), { int_lit(41) })),

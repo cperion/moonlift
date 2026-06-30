@@ -20,7 +20,7 @@ local function append_decl_items(out, value)
         for i = 1, #(value.items or {}) do out[#out + 1] = value.items[i] end
         return
     end
-    if cls and tostring(cls.kind or ""):match("^Item") then
+    if cls and tostring(asdl.class_basename(value) or ""):match("^Item") then
         out[#out + 1] = value
         return
     end
@@ -75,7 +75,7 @@ local function bind_context(T)
         local mod_name, ctor_name = cls_text:match("^Class%((Lalin[%w_]+)%.([%w_]+)%)$")
         if mod_name and ctor_name and T[mod_name] and T[mod_name][ctor_name] ~= nil then
             local ctor = T[mod_name][ctor_name]
-            local fields = cls.__fields or {}
+            local fields = asdl.fields(cls) or {}
             if #fields == 0 then
                 return type(ctor) == "function" and ctor() or ctor
             end
@@ -146,7 +146,7 @@ local function bind_context(T)
     end
 
     local function parse_document(doc)
-        local dsl = require("lalin.dsl")
+        local dsl = require("lalin").dsl
         local source_name = doc.uri and doc.uri.text or "=(lalin.lua)"
         dsl.use()
         local ok, result = pcall(function()

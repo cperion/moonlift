@@ -35,10 +35,9 @@ local function bind_context(T)
             lowering.sigs,
             lowering.sig_abi_by_sig,
             lowering.mem_backend_by_inst,
-            lowering.value_int_semantics_by_value,
-            lowering.value_float_mode_by_value,
+            lowering.value_semantics,
             lowering.effect_by_inst,
-            lowering.readonly_inst,
+            lowering.readonly,
             lowering.layout_env,
             lowering.target
         )
@@ -53,16 +52,54 @@ local function bind_context(T)
         )
     end
 
-    local function code_back_state_from_lowering(lowering)
+    function Code.CodeValueSemanticsProjection:code_back_int_semantics_for_value(id)
+        if id == nil then return nil end
+        return self.int_semantics_by_value[id.text]
+    end
+
+    function Code.CodeValueSemanticsProjection:code_back_float_mode_for_value(id)
+        if id == nil then return nil end
+        return self.float_mode_by_value[id.text]
+    end
+
+    function Code.CodeBackReadonlyProjection:code_back_inst_is_readonly(id)
+        if id == nil then return false end
+        return self.readonly_by_inst[id.text] == true
+    end
+
+    local function code_back_aggregate_state(local_addr_by_value, value_addr_by_value, value_size_by_value)
+        return Code.CodeBackAggregateState(local_addr_by_value or {}, value_addr_by_value or {}, value_size_by_value or {})
+    end
+
+    local function code_back_closure_state(has_captures_by_value)
+        return Code.CodeBackClosureState(has_captures_by_value or {})
+    end
+
+    local function code_back_local_slot_state(slot_by_local)
+        return Code.CodeBackLocalSlotState(slot_by_local or {})
+    end
+
+    local function code_back_temp_state(tmp_index, next_tmp)
+        return Code.CodeBackTempState(tmp_index or 0, next_tmp or 0)
+    end
+
+    local function code_back_function_state(cmds, aggregates, closures, local_slots, temps)
         return Code.CodeBackFunctionState(
+            cmds or {},
+            aggregates or code_back_aggregate_state(),
+            closures or code_back_closure_state(),
+            local_slots or code_back_local_slot_state(),
+            temps or code_back_temp_state()
+        )
+    end
+
+    local function code_back_state_from_lowering(lowering)
+        return code_back_function_state(
             lowering.cmds,
-            lowering.aggregate_local_addr,
-            lowering.aggregate_value_addr,
-            lowering.aggregate_value_size,
-            lowering.closure_value_has_captures,
-            lowering.local_stack_slots,
-            lowering.tmp_index or 0,
-            lowering.next_tmp or 0
+            lowering.aggregates,
+            lowering.closures,
+            lowering.local_slots,
+            lowering.temps
         )
     end
 
@@ -78,71 +115,55 @@ local function bind_context(T)
         return out
     end
 
-    local function code_back_state(cmds, aggregate_local_addr, aggregate_value_addr, aggregate_value_size, closure_value_has_captures, local_stack_slots, tmp_index, next_tmp)
-        return Code.CodeBackFunctionState(
-            cmds,
-            aggregate_local_addr,
-            aggregate_value_addr,
-            aggregate_value_size,
-            closure_value_has_captures,
-            local_stack_slots,
-            tmp_index or 0,
-            next_tmp or 0
-        )
-    end
-
     function Code.CodeBackFunctionState:code_back_append_cmd(cmd)
         local cmds = copy_list(self.cmds)
         cmds[#cmds + 1] = cmd
-        return code_back_state(cmds, self.aggregate_local_addr, self.aggregate_value_addr, self.aggregate_value_size, self.closure_value_has_captures, self.local_stack_slots, self.tmp_index, self.next_tmp)
+        return code_back_function_state(cmds, self.aggregates, self.closures, self.local_slots, self.temps)
     end
 
     function Code.CodeBackFunctionState:code_back_tmp_value(tag)
-        local next_tmp = (self.next_tmp or 0) + 1
+        local next_tmp = (self.temps.next_tmp or 0) + 1
         return Code.CodeBackValueResult(
             Back.BackValId((tag or "code_to_back.tmp") .. "." .. tostring(next_tmp)),
-            code_back_state(self.cmds, self.aggregate_local_addr, self.aggregate_value_addr, self.aggregate_value_size, self.closure_value_has_captures, self.local_stack_slots, self.tmp_index, next_tmp)
+            code_back_function_state(self.cmds, self.aggregates, self.closures, self.local_slots, code_back_temp_state(self.temps.tmp_index, next_tmp))
         )
     end
 
     function Code.CodeBackFunctionState:code_back_note_aggregate_value(id, addr, size)
-        local aggregate_value_addr = copy_map(self.aggregate_value_addr)
-        local aggregate_value_size = self.aggregate_value_size
-        aggregate_value_addr[id.text] = addr
+        local value_addr_by_value = copy_map(self.aggregates.value_addr_by_value)
+        local value_size_by_value = self.aggregates.value_size_by_value
+        value_addr_by_value[id.text] = addr
         if size ~= nil then
-            aggregate_value_size = copy_map(self.aggregate_value_size)
-            aggregate_value_size[id.text] = size
+            value_size_by_value = copy_map(self.aggregates.value_size_by_value)
+            value_size_by_value[id.text] = size
         end
-        return code_back_state(self.cmds, self.aggregate_local_addr, aggregate_value_addr, aggregate_value_size, self.closure_value_has_captures, self.local_stack_slots, self.tmp_index, self.next_tmp)
+        return code_back_function_state(self.cmds, code_back_aggregate_state(self.aggregates.local_addr_by_value, value_addr_by_value, value_size_by_value), self.closures, self.local_slots, self.temps)
     end
 
     function Code.CodeBackFunctionState:code_back_note_aggregate_local(id, addr)
-        local aggregate_local_addr = copy_map(self.aggregate_local_addr)
-        aggregate_local_addr[id.text] = addr
-        return code_back_state(self.cmds, aggregate_local_addr, self.aggregate_value_addr, self.aggregate_value_size, self.closure_value_has_captures, self.local_stack_slots, self.tmp_index, self.next_tmp)
+        local local_addr_by_value = copy_map(self.aggregates.local_addr_by_value)
+        local_addr_by_value[id.text] = addr
+        return code_back_function_state(self.cmds, code_back_aggregate_state(local_addr_by_value, self.aggregates.value_addr_by_value, self.aggregates.value_size_by_value), self.closures, self.local_slots, self.temps)
     end
 
     function Code.CodeBackFunctionState:code_back_note_closure_captures(id, has_captures)
-        local closure_value_has_captures = copy_map(self.closure_value_has_captures)
-        closure_value_has_captures[id.text] = has_captures
-        return code_back_state(self.cmds, self.aggregate_local_addr, self.aggregate_value_addr, self.aggregate_value_size, closure_value_has_captures, self.local_stack_slots, self.tmp_index, self.next_tmp)
+        local has_captures_by_value = copy_map(self.closures.has_captures_by_value)
+        has_captures_by_value[id.text] = has_captures
+        return code_back_function_state(self.cmds, self.aggregates, code_back_closure_state(has_captures_by_value), self.local_slots, self.temps)
     end
 
     function Code.CodeBackFunctionState:code_back_note_local_stack_slot(local_, slot, size, align)
-        local local_stack_slots = copy_map(self.local_stack_slots)
-        local_stack_slots[local_.id.text] = Code.CodeBackLocalSlot(slot, local_.ty, size, align)
-        return code_back_state(self.cmds, self.aggregate_local_addr, self.aggregate_value_addr, self.aggregate_value_size, self.closure_value_has_captures, local_stack_slots, self.tmp_index, self.next_tmp)
+        local slot_by_local = copy_map(self.local_slots.slot_by_local)
+        slot_by_local[local_.id.text] = Code.CodeBackLocalSlot(slot, local_.ty, size, align)
+        return code_back_function_state(self.cmds, self.aggregates, self.closures, code_back_local_slot_state(slot_by_local), self.temps)
     end
 
     local function code_back_sync_lowering(lowering, state)
         lowering.cmds = state.cmds
-        lowering.aggregate_local_addr = state.aggregate_local_addr
-        lowering.aggregate_value_addr = state.aggregate_value_addr
-        lowering.aggregate_value_size = state.aggregate_value_size
-        lowering.closure_value_has_captures = state.closure_value_has_captures
-        lowering.local_stack_slots = state.local_stack_slots
-        lowering.tmp_index = state.tmp_index
-        lowering.next_tmp = state.next_tmp
+        lowering.aggregates = state.aggregates
+        lowering.closures = state.closures
+        lowering.local_slots = state.local_slots
+        lowering.temps = state.temps
     end
 
     local function code_back_inst_input(lowering, inst_id)
@@ -536,7 +557,7 @@ local function bind_context(T)
     end
 
     local function int_semantics(module_facts, k)
-        local fact = module_facts.value_int_semantics_by_value and module_facts.value_int_semantics_by_value[k.dst.text]
+        local fact = module_facts.value_semantics:code_back_int_semantics_for_value(k.dst)
         local sem = fact or k.semantics
         local overflow = Back.BackIntWrap
         if sem ~= nil then
@@ -546,7 +567,7 @@ local function bind_context(T)
     end
 
     local function float_semantics(module_facts, k)
-        local mode = (module_facts.value_float_mode_by_value and module_facts.value_float_mode_by_value[k.dst.text]) or k.mode
+        local mode = module_facts.value_semantics:code_back_float_mode_for_value(k.dst) or k.mode
         return mode ~= nil and mode:lower_code_float_mode_to_back() or Back.BackFloatStrict
     end
 
@@ -598,16 +619,16 @@ local function bind_context(T)
         if info == nil then error("code_to_back: missing MemBackendAccessInfo for Code inst " .. inst_id.text, 3) end
         local deref = info.deref_bytes and Back.BackDerefBytes(info.deref_bytes, "MemBackendAccessInfo") or Back.BackDerefUnknown
         local motion = info.movable and Back.BackCanMove("MemBackendAccessInfo movable") or Back.BackMayNotMove
-        local readonly = module_facts.readonly_inst and module_facts.readonly_inst[inst_id.text]
-        return Back.BackMemoryInfo(Back.BackAccessId(info.access.text), back_alignment(info.alignment), deref, back_trap(info.trap), motion, access_mode(access.mode, readonly))
+        local readonly = module_facts.readonly:code_back_inst_is_readonly(inst_id)
+        return Back.BackMemoryInfo(Back.BackAccessId(info.access.text), back_alignment(info.alignment), deref, back_trap(info.trap), motion, access_mode(access.effect, readonly))
     end
 
     local function component_memory_info(module_facts, access, inst_id, field)
         local info = module_facts.mem_backend_by_inst and module_facts.mem_backend_by_inst[inst_id.text] or nil
         if info == nil then error("code_to_back: missing MemBackendAccessInfo for Code inst " .. inst_id.text, 3) end
         local motion = info.movable and Back.BackCanMove("MemBackendAccessInfo movable view component") or Back.BackMayNotMove
-        local readonly = module_facts.readonly_inst and module_facts.readonly_inst[inst_id.text]
-        return Back.BackMemoryInfo(Back.BackAccessId(info.access.text .. ":" .. field), back_alignment(info.alignment), Back.BackDerefBytes(8, "view descriptor component"), back_trap(info.trap), motion, access_mode(access.mode, readonly))
+        local readonly = module_facts.readonly:code_back_inst_is_readonly(inst_id)
+        return Back.BackMemoryInfo(Back.BackAccessId(info.access.text .. ":" .. field), back_alignment(info.alignment), Back.BackDerefBytes(8, "view descriptor component"), back_trap(info.trap), motion, access_mode(access.effect, readonly))
     end
 
     local function const_index(state, raw)
@@ -653,18 +674,18 @@ local function bind_context(T)
     function Code.CodePlaceLocal:lower_code_place_to_back_addr(input)
         local state = input.state
         if CodeAggregateAbi.is_view(self.ty) or CodeAggregateAbi.is_slice(self.ty) or CodeAggregateAbi.is_byte_span(self.ty) then
-            local stack = state.local_stack_slots and state.local_stack_slots[self.local_id.text]
+            local stack = state.local_slots.slot_by_local[self.local_id.text]
             if stack == nil then error("code_to_back: descriptor local has no materialized storage " .. self.local_id.text, 3) end
             local z = zero(state); state = z.state
             return Code.CodeBackPlaceResult(Back.BackAddress(Back.BackAddrStack(stack.slot), z.value, Back.BackProvStack(stack.slot), back_bounds(input.access)), state)
         end
         if self.ty:code_back_is_local_byref_aggregate() then
-            local addr = state.aggregate_local_addr and state.aggregate_local_addr[self.local_id.text]
+            local addr = state.aggregates.local_addr_by_value[self.local_id.text]
             if addr == nil then error("code_to_back: aggregate local has no materialized address " .. self.local_id.text, 3) end
             local z = zero(state); state = z.state
             return Code.CodeBackPlaceResult(Back.BackAddress(Back.BackAddrValue(addr), z.value, Back.BackProvUnknown, back_bounds(input.access)), state)
         end
-        local stack = state.local_stack_slots and state.local_stack_slots[self.local_id.text]
+        local stack = state.local_slots.slot_by_local[self.local_id.text]
         if stack ~= nil then
             local z = zero(state); state = z.state
             return Code.CodeBackPlaceResult(Back.BackAddress(Back.BackAddrStack(stack.slot), z.value, Back.BackProvStack(stack.slot), back_bounds(input.access)), state)
@@ -759,7 +780,7 @@ local function bind_context(T)
         return init:lower_code_data_init_to_back(state, data)
     end
 
-    function Code.CodeInstKind:lower_code_inst_dst_type(func_facts, module_facts)
+    function Code.CodeInstOp:lower_code_inst_dst_type(func_facts, module_facts)
         return nil, nil
     end
     function Code.CodeInstConst:lower_code_inst_dst_type(func_facts, module_facts) return self.dst, self.const.ty end
@@ -806,8 +827,20 @@ local function bind_context(T)
         return nil, nil
     end
 
-    local function inst_dst_type(func_facts, module_facts, k)
-        return k:lower_code_inst_dst_type(func_facts, module_facts)
+    function Code.CodeInst:lower_code_inst_dst_type(func_facts, module_facts)
+        return rawget(self, "op"):lower_code_inst_dst_type(func_facts, module_facts)
+    end
+
+    function Code.CodeInst:lower_code_inst_body_to_back(input)
+        return rawget(self, "op"):lower_code_inst_to_back(Code.CodeBackInstInput(input.module, input.func, input.state, self.id))
+    end
+
+    function Code.CodeTerm:lower_code_term_body_to_back(input)
+        return rawget(self, "op"):lower_code_term_to_back(Code.CodeBackTermInput(input.module, input.func, input.state, self.id))
+    end
+
+    local function inst_dst_type(func_facts, module_facts, inst)
+        return inst:lower_code_inst_dst_type(func_facts, module_facts)
     end
 
     local function view_component_id(view, field)
@@ -895,7 +928,7 @@ local function bind_context(T)
     end
 
     aggregate_addr_for_value = function(state, id, ty)
-        local mapped = state.aggregate_value_addr and state.aggregate_value_addr[id.text]
+        local mapped = state.aggregates.value_addr_by_value[id.text]
         if mapped ~= nil then return mapped end
         if is_byref_aggregate_ty(ty) then return bid(id) end
         return nil
@@ -981,7 +1014,7 @@ local function bind_context(T)
     end
 
     local function source_aggregate_ptr(state, value)
-        return state.aggregate_value_addr[value.text] or bid(value)
+        return state.aggregates.value_addr_by_value[value.text] or bid(value)
     end
 
     local function ptr_at_offset(state, base_addr, offset, tag)
@@ -1158,10 +1191,10 @@ local function bind_context(T)
     end
 
     function Code.CodeInst:lower_code_inst_to_back(input)
-        return self.kind:lower_code_inst_to_back(Code.CodeBackInstInput(input.module, input.func, input.state, self.id))
+        return self:lower_code_inst_body_to_back(input)
     end
 
-    function Code.CodeInstKind:lower_code_inst_to_back(input)
+    function Code.CodeInstOp:lower_code_inst_to_back(input)
         unsupported(self)
     end
 
@@ -1233,17 +1266,20 @@ local function bind_context(T)
                 state = state:code_back_append_cmd(Back.CmdTrap)
             elseif self.op == Core.IntrinsicFma then
                 local s = scalar(self.ty); if s == nil then unsupported(self.ty) end
-                if self.dst == nil or #self.args ~= 3 then unsupported(self) end
-                state = state:code_back_append_cmd(Back.CmdFma(bid(self.dst), s, Back.BackFloatStrict, bid(self.args[1]), bid(self.args[2]), bid(self.args[3])))
+                local dst = rawget(self, "dst")
+                if dst == nil or #self.args ~= 3 then unsupported(self) end
+                state = state:code_back_append_cmd(Back.CmdFma(bid(dst), s, Back.BackFloatStrict, bid(self.args[1]), bid(self.args[2]), bid(self.args[3])))
             elseif self.op:lower_code_intrinsic_to_back_rotate_op() ~= nil then
                 local s = scalar(self.ty); if s == nil then unsupported(self.ty) end
-                if self.dst == nil or #self.args ~= 2 then unsupported(self) end
-                state = state:code_back_append_cmd(Back.CmdRotate(bid(self.dst), self.op:lower_code_intrinsic_to_back_rotate_op(), s, bid(self.args[1]), bid(self.args[2])))
+                local dst = rawget(self, "dst")
+                if dst == nil or #self.args ~= 2 then unsupported(self) end
+                state = state:code_back_append_cmd(Back.CmdRotate(bid(dst), self.op:lower_code_intrinsic_to_back_rotate_op(), s, bid(self.args[1]), bid(self.args[2])))
             else
                 local op = self.op:lower_code_intrinsic_to_back_op(); if op == nil then unsupported(self.op) end
                 local s = scalar(self.ty); if s == nil then unsupported(self.ty) end
-                if self.dst == nil or #self.args < 1 then unsupported(self) end
-                state = state:code_back_append_cmd(Back.CmdIntrinsic(bid(self.dst), op, Back.BackShapeScalar(s), { bid(self.args[1]) }))
+                local dst = rawget(self, "dst")
+                if dst == nil or #self.args < 1 then unsupported(self) end
+                state = state:code_back_append_cmd(Back.CmdIntrinsic(bid(dst), op, Back.BackShapeScalar(s), { bid(self.args[1]) }))
             end
         return code_back_result(input, state)
     end
@@ -1592,14 +1628,15 @@ local function bind_context(T)
             local result = Back.BackCallStmt
             local args = {}
             local sret_addr = nil
+            local dst = rawget(self, "dst")
             if abi.sret then
-                if self.dst == nil then error("code_to_back: aggregate-return call requires destination", 3) end
-                state, sret_addr = create_aggregate_storage(state, self.dst, abi.result_ty, "code_to_back.call_result")
+                if dst == nil then error("code_to_back: aggregate-return call requires destination", 3) end
+                state, sret_addr = create_aggregate_storage(state, dst, abi.result_ty, "code_to_back.call_result")
                 args[#args + 1] = sret_addr
-            elseif self.dst ~= nil then
+            elseif dst ~= nil then
                 local s = sig and sig.results[1] and scalar(sig.results[1]) or nil
                 if s == nil then unsupported(self) end
-                result = Back.BackCallValue(bid(self.dst), s)
+                result = Back.BackCallValue(bid(dst), s)
             end
             if closure_ctx ~= nil then args[#args + 1] = closure_ctx end
             for n = 1, #self.args do append_components(args, self.args[n], sig.params[n]) end
@@ -1608,10 +1645,10 @@ local function bind_context(T)
         return code_back_result(input, state)
     end
     function Code.CodeTerm:lower_code_term_to_back(input)
-        return self.kind:lower_code_term_to_back(Code.CodeBackTermInput(input.module, input.func, input.state, self.id))
+        return self:lower_code_term_body_to_back(input)
     end
 
-    function Code.CodeTermKind:lower_code_term_to_back(input)
+    function Code.CodeTermOp:lower_code_term_to_back(input)
         unsupported(self)
     end
 
@@ -1663,7 +1700,7 @@ local function bind_context(T)
             if #self.values == 0 then state = state:code_back_append_cmd(Back.CmdReturnVoid)
             else
                 local rty = input.func.value_types[self.values[1].text]
-                if rty:code_back_is_closure() and state.closure_value_has_captures[self.values[1].text] then
+                if rty:code_back_is_closure() and state.closures.has_captures_by_value[self.values[1].text] then
                     error("code_to_back: returning captured closure descriptors requires a closure environment ownership model", 3)
                 end
                 if input.func.current_return_sret ~= nil and is_view_ty(rty) then
@@ -1700,11 +1737,10 @@ local function bind_context(T)
         lowering.current_func_id = f.id
         lowering.value_types = {}
         lowering.block_params = {}
-        lowering.aggregate_local_addr = {}
-        lowering.aggregate_value_addr = {}
-        lowering.aggregate_value_size = {}
-        lowering.closure_value_has_captures = {}
-        lowering.local_stack_slots = {}
+        lowering.aggregates = code_back_aggregate_state()
+        lowering.closures = code_back_closure_state()
+        lowering.local_slots = code_back_local_slot_state()
+        lowering.temps = code_back_temp_state()
         local fsig = lowering.sigs[f.sig.text]
         local fabi = lowering.sig_abi_by_sig and lowering.sig_abi_by_sig[f.sig.text] or (fsig and sig_abi(lowering, fsig))
         lowering.current_return_sret = fabi and fabi.sret and Back.BackValId("sret:" .. f.id.text) or nil
@@ -1713,7 +1749,7 @@ local function bind_context(T)
             lowering.block_params[f.blocks[i].id.text] = f.blocks[i].params or {}
             for j = 1, #(f.blocks[i].params or {}) do lowering_note_value(lowering, f.blocks[i].params[j].value, f.blocks[i].params[j].ty) end
             for j = 1, #(f.blocks[i].insts or {}) do
-                local dst, ty = inst_dst_type(code_back_function_facts_from_lowering(lowering), code_back_module_facts_from_lowering(lowering), f.blocks[i].insts[j].kind)
+                local dst, ty = inst_dst_type(code_back_function_facts_from_lowering(lowering), code_back_module_facts_from_lowering(lowering), f.blocks[i].insts[j])
                 lowering_note_value(lowering, dst, ty)
             end
         end
@@ -1770,27 +1806,24 @@ local function bind_context(T)
     local function make_lowering(code_module, opts)
         opts = opts or {}
         local _, _, value, mem, effect = build_fact_context(code_module, opts)
-        local lowering = { cmds = {}, sigs = {}, sig_abi_by_sig = {}, next_tmp = 0, mem_backend_by_inst = {}, value_int_semantics_by_value = {}, value_float_mode_by_value = {}, value_expr_by_value = {}, effect_by_inst = {}, readonly_inst = {}, aggregate_local_addr = {}, aggregate_value_addr = {}, aggregate_value_size = {}, closure_value_has_captures = {}, local_stack_slots = {}, layout_env = opts.layout_env, target = opts.target }
+        local lowering = { cmds = {}, sigs = {}, sig_abi_by_sig = {}, mem_backend_by_inst = {}, value_semantics = Code.CodeValueSemanticsProjection({}, {}), effect_by_inst = {}, readonly = Code.CodeBackReadonlyProjection({}), aggregates = code_back_aggregate_state(), closures = code_back_closure_state(), local_slots = code_back_local_slot_state(), temps = code_back_temp_state(), layout_env = opts.layout_env, target = opts.target }
         for i = 1, #(code_module.sigs or {}) do lowering.sigs[code_module.sigs[i].id.text] = code_module.sigs[i] end
-        local backend_by_access, object_by_access, readonly_objects = {}, {}, {}
-        for _, info in ipairs(mem and mem.backend_info or {}) do backend_by_access[info.access.text] = info end
-        for _, interval in ipairs(mem and mem.intervals or {}) do object_by_access[interval.access.text] = interval.object end
+        local mem_projection = CodeMemFacts.access_projection(mem)
+        local readonly_objects = {}
         for _, eff in ipairs(mem and mem.effects or {}) do
             local readonly = eff:code_back_readonly_object()
             if readonly ~= nil then readonly_objects[readonly.text] = true end
         end
         for _, access in ipairs(mem and mem.accesses or {}) do
-            local info = backend_by_access[access.id.text]
+            local info = mem_projection:backend_for_access(access.id)
             if info ~= nil and access.inst ~= nil then
                 lowering.mem_backend_by_inst[access.inst.text] = info
-                local obj = object_by_access[access.id.text]
-                if obj ~= nil and readonly_objects[obj.text] and access.access.mode == Code.CodeMemoryRead then lowering.readonly_inst[access.inst.text] = true end
+                local obj = mem_projection:object_for_access(access.id)
+                if obj ~= nil and readonly_objects[obj.text] and access.access.effect == Code.CodeMemoryRead then lowering.readonly.readonly_by_inst[access.inst.text] = true end
             end
         end
         local vindex = CodeValueFacts.expr_index(value)
-        lowering.value_expr_by_value = vindex.expr_by_value
-        lowering.value_int_semantics_by_value = vindex.no_wrap_by_value
-        lowering.value_float_mode_by_value = vindex.float_mode_by_value
+        lowering.value_semantics = vindex:code_value_semantics_projection()
         for _, inst_effect in ipairs(effect and effect.insts or {}) do lowering.effect_by_inst[inst_effect.inst.text] = inst_effect end
         return lowering
     end
@@ -1901,11 +1934,10 @@ local function bind_context(T)
         local lowering = make_lowering(code_module, opts)
         lowering.value_types = {}
         lowering.block_params = {}
-        lowering.aggregate_local_addr = {}
-        lowering.aggregate_value_addr = {}
-        lowering.aggregate_value_size = {}
-        lowering.closure_value_has_captures = {}
-        lowering.local_stack_slots = {}
+        lowering.aggregates = code_back_aggregate_state()
+        lowering.closures = code_back_closure_state()
+        lowering.local_slots = code_back_local_slot_state()
+        lowering.temps = code_back_temp_state()
         local f, blocks = blocks_for_cover(code_module, graph or opts.graph or CodeGraph.graph(code_module), cover)
         lowering.current_func_id = f.id
         local fsig = lowering.sigs[f.sig.text]
@@ -1918,13 +1950,13 @@ local function bind_context(T)
         for i, b in ipairs(f.blocks or {}) do block_ord[b.id.text] = i end
         local first_ord = 1
         if blocks and blocks[1] and block_ord[blocks[1].id.text] then first_ord = block_ord[blocks[1].id.text] end
-        lowering.next_tmp = first_ord * 1000000
+        lowering.temps = code_back_temp_state(lowering.temps.tmp_index, first_ord * 1000000)
         for _, param in ipairs(f.params or {}) do lowering_note_value(lowering, param.value, param.ty) end
         for _, b in ipairs(f.blocks or {}) do
             lowering.block_params[b.id.text] = b.params or {}
             for _, param in ipairs(b.params or {}) do lowering_note_value(lowering, param.value, param.ty) end
             for _, i in ipairs(b.insts or {}) do
-                local dst, ty = inst_dst_type(code_back_function_facts_from_lowering(lowering), code_back_module_facts_from_lowering(lowering), i.kind)
+                local dst, ty = inst_dst_type(code_back_function_facts_from_lowering(lowering), code_back_module_facts_from_lowering(lowering), i)
                 lowering_note_value(lowering, dst, ty)
             end
         end
@@ -1957,7 +1989,7 @@ local function bind_context(T)
     local function function_local_stack_slot_commands(code_module, f, opts)
         opts = opts or {}
         local lowering = make_lowering(code_module, opts)
-        lowering.local_stack_slots = {}
+        lowering.local_slots = code_back_local_slot_state()
         local state = code_back_state_from_lowering(lowering)
         state = materialize_addressed_locals(state, f.locals, true)
         code_back_sync_lowering(lowering, state)

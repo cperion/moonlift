@@ -46,7 +46,7 @@ local function bind_context(T)
         local key = tostring(a) .. "|" .. tostring(b)
         if seen[key] then return true end
         seen[key] = true
-        local fields = ac.__fields or {}
+        local fields = asdl.fields(ac) or {}
         for i = 1, #fields do
             local name = fields[i].name
             local av, bv = a[name], b[name]
@@ -147,9 +147,9 @@ local function bind_context(T)
     local function check_memory_access(ctx, site, access, expected_mode)
         if access == nil then return end
         check_align(ctx, site, access.align, access)
-        if expected_mode == "read" and access.mode ~= Code.CodeMemoryRead and access.mode ~= Code.CodeMemoryReadWrite then
+        if expected_mode == "read" and access.effect ~= Code.CodeMemoryRead and access.effect ~= Code.CodeMemoryReadWrite then
             add_issue(ctx, Code.CodeIssueInvalidMemoryAccess(site, access))
-        elseif expected_mode == "write" and access.mode ~= Code.CodeMemoryWrite and access.mode ~= Code.CodeMemoryReadWrite then
+        elseif expected_mode == "write" and access.effect ~= Code.CodeMemoryWrite and access.effect ~= Code.CodeMemoryReadWrite then
             add_issue(ctx, Code.CodeIssueInvalidMemoryAccess(site, access))
         end
         type_uses_code_sig(access.ty, ctx)
@@ -450,10 +450,10 @@ local function bind_context(T)
                 local inst = block.insts[j]
                 if fctx.insts[inst.id.text] ~= nil then add_issue(ctx, Code.CodeIssueDuplicateInst(inst.id)) end
                 fctx.insts[inst.id.text] = true
-                local dst, ty = inst_dst_type(ctx, fctx, inst.kind)
-                if asdl.classof(inst.kind) == Code.CodeInstCall then
-                    local sig = inst.kind.sig and ctx.sigs[inst.kind.sig.text] or nil
-                    if sig ~= nil and #sig.results == 1 then dst, ty = inst.kind.dst, sig.results[1] end
+                local dst, ty = inst_dst_type(ctx, fctx, inst.op)
+                if asdl.classof(inst.op) == Code.CodeInstCall then
+                    local sig = inst.op.sig and ctx.sigs[inst.op.sig.text] or nil
+                    if sig ~= nil and #sig.results == 1 then dst, ty = rawget(inst.op, "dst"), sig.results[1] end
                 end
                 if dst ~= nil then register_dst(ctx, fctx, dst, ty) end
             end
@@ -462,7 +462,7 @@ local function bind_context(T)
 
     local function check_inst(ctx, fctx, func, block, inst)
         local site = "func:" .. func.name .. ":block:" .. block.name .. ":inst:" .. inst.id.text
-        local k = inst.kind
+        local k = inst.op
         local cls = asdl.classof(k)
         if cls == Code.CodeInstConst then
             type_uses_code_sig(k.const.ty, ctx)
@@ -619,7 +619,7 @@ local function bind_context(T)
         local term = block.term
         if term == nil then return end
         local site = "func:" .. func.name .. ":block:" .. block.name .. ":term:" .. term.id.text
-        local k = term.kind
+        local k = term.op
         local cls = asdl.classof(k)
         if cls == Code.CodeTermJump then
             check_transfer(ctx, fctx, site .. ":jump", k.dest, k.args)

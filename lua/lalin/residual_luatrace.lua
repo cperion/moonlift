@@ -21,6 +21,7 @@ local function bind_context(T)
     local Code = T.LalinCode
     local Value = T.LalinValue
     local Stencil = T.LalinStencil
+    require("lalin.stencil_methods")(T)
     local LT = T.LalinLuaTrace
     local ArtifactPlan = require("lalin.stencil_artifact_plan")(T)
     local Meta = require("lalin.stencil_metastencil")(T)
@@ -348,9 +349,7 @@ local function bind_context(T)
     end
 
     local function schedule_facts(schedule)
-        local cls = asdl.classof(schedule)
-        if cls == Stencil.StencilScheduleAutoVector or cls == Stencil.StencilScheduleUnrolled or cls == Stencil.StencilScheduleVector then return schedule.facts end
-        return nil
+        return schedule and schedule:stencil_vectorization_facts() or nil
     end
 
     local function trip_count_multiple_of(facts, group)

@@ -6,7 +6,6 @@
 -- role and emits closed LalinTree ASDL directly.
 
 local asdl = require("lalin.asdl")
-local schema = require("lalin.schema_projection")
 local llbl = require("llbl")
 local ErrorSpan = require("lalin.error.span")
 local SourceAnalysis = require("lalin.source_analysis")
@@ -14,10 +13,20 @@ local SourceAnalysis = require("lalin.source_analysis")
 local M = {}
 local role_region_head = llbl.role_region
 
-local T = asdl.context()
-schema(T)
+local T, C, Ty, B, Tr
+local scalar = {}
+local access = {}
+local type_like_registered = false
 
-local C, Ty, B, Tr = T.LalinCore, T.LalinType, T.LalinBind, T.LalinTree
+local function require_context()
+    assert(T ~= nil, "lalin.dsl must be bound with dsl(T) before use")
+    return T
+end
+
+local function refill(dst, src)
+    for k in pairs(dst) do dst[k] = nil end
+    for k, v in pairs(src) do dst[k] = v end
+end
 
 local function class(name)
     local mt = { __dsl_class = name }
@@ -67,14 +76,7 @@ end
 
 local function is_member(sum, v)
     local cls = classof(v)
-    return cls == sum or (sum and sum.members and sum.members[cls]) or false
-end
-
-if not llbl._lalin_asdl_type_like then
-    llbl._lalin_asdl_type_like = true
-    llbl.register_type_like(function(v)
-        return is_member(Ty.Type, v)
-    end)
+    return cls == sum or asdl.isa(v, sum)
 end
 
 local function name_token(s, origin) return setmetatable({ name = ident(s, "name"), origin = origin }, Name) end
@@ -85,13 +87,6 @@ local function symbol_text(v, site)
     if type(v) == "string" then return ident(v, site or "name") end
     return nil
 end
-
-local scalar = {
-    void = C.ScalarVoid, bool = C.ScalarBool,
-    i8 = C.ScalarI8, i16 = C.ScalarI16, i32 = C.ScalarI32, i64 = C.ScalarI64,
-    u8 = C.ScalarU8, u16 = C.ScalarU16, u32 = C.ScalarU32, u64 = C.ScalarU64,
-    f32 = C.ScalarF32, f64 = C.ScalarF64, index = C.ScalarIndex, rawptr = C.ScalarRawPtr,
-}
 
 local function scalar_type(name) return Ty.TScalar(assert(scalar[name], "unknown scalar")) end
 local tree_expr
@@ -672,7 +667,7 @@ local function native_loop_nd_stmt_tree(loop, domain)
         local coord = lane
         if axis.step ~= 1 then coord = bin(C.BinMul, coord, Tr.ExprCast(Tr.ExprSurface, C.SurfaceCast, axis.ty, tree_expr(axis.step))) end
         coord = bin(C.BinAdd, ref(axis.start_name), coord)
-        coord_stmts[i] = Tr.StmtLet(Tr.StmtSurface, binding(axis.index, axis.ty, B.BindingClassLocalValue), coord)
+        coord_stmts[i] = Tr.StmtLet(Tr.StmtSurface, binding(axis.index, axis.ty, B.BindingRoleLocalValue), coord)
         stride = bin(C.BinMul, stride, ref(axis.trip_name))
     end
 
@@ -838,11 +833,11 @@ local function native_loop_nd_stmt_tree(loop, domain)
     entry_args[#entry_args + 1] = Tr.JumpArg(acc, Tr.ExprCast(Tr.ExprSurface, C.SurfaceCast, acc_ty, tree_expr(sink.init)))
 
     local step_name = "__lln_step_" .. tag
-    body_stmts[#body_stmts + 1] = Tr.StmtLet(Tr.StmtSurface, binding(step_name, acc_ty, B.BindingClassLocalValue), rewrite_expr(tree_expr(sink.step)))
+    body_stmts[#body_stmts + 1] = Tr.StmtLet(Tr.StmtSurface, binding(step_name, acc_ty, B.BindingRoleLocalValue), rewrite_expr(tree_expr(sink.step)))
     local next_acc = native_reducer_expr(sink.by, acc_expr, ref(step_name))
     if sink.kind == "native_scan" then
         local next_name = "__lln_scan_" .. tag
-        body_stmts[#body_stmts + 1] = Tr.StmtLet(Tr.StmtSurface, binding(next_name, acc_ty, B.BindingClassLocalValue), next_acc)
+        body_stmts[#body_stmts + 1] = Tr.StmtLet(Tr.StmtSurface, binding(next_name, acc_ty, B.BindingRoleLocalValue), next_acc)
         body_stmts[#body_stmts + 1] = Tr.StmtSet(Tr.StmtSurface, rewrite_place(tree_place(sink.into)), ref(next_name))
         body_stmts[#body_stmts + 1] = Tr.StmtJump(Tr.StmtSurface, loop_label, loop_jump_args(next_flat, acc, ref(next_name)))
     else
@@ -929,7 +924,7 @@ local function native_loop_stmt_tree(loop)
     local acc_ty = concrete_type(sink.ty)
     local acc_expr = Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(acc))
     local step_name = "__lln_step_" .. tag
-    local step_binding = binding(step_name, acc_ty, B.BindingClassLocalValue)
+    local step_binding = binding(step_name, acc_ty, B.BindingRoleLocalValue)
     local step_ref = Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(step_name))
     body_stmts[#body_stmts + 1] = Tr.StmtLet(Tr.StmtSurface, step_binding, tree_expr(sink.step))
     local next_acc = native_reducer_expr(sink.by, acc_expr, step_ref)
@@ -942,7 +937,7 @@ local function native_loop_stmt_tree(loop)
     end
     if sink.kind == "native_scan" then
         local next_name = "__lln_scan_" .. tag
-        local next_binding = binding(next_name, acc_ty, B.BindingClassLocalValue)
+        local next_binding = binding(next_name, acc_ty, B.BindingRoleLocalValue)
         local next_ref = Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(next_name))
         body_stmts[#body_stmts + 1] = Tr.StmtLet(Tr.StmtSurface, next_binding, next_acc)
         body_stmts[#body_stmts + 1] = Tr.StmtSet(Tr.StmtSurface, tree_place(sink.into), next_ref)
@@ -1040,17 +1035,10 @@ function TypedName:__call(init)
     return setmetatable({ name = self.name, ty = self.ty, init = init }, TypedName)
 end
 
-bin_op = {
-    add = C.BinAdd, sub = C.BinSub, mul = C.BinMul, div = C.BinDiv, rem = C.BinRem,
-    band = C.BinBitAnd, bor = C.BinBitOr, bxor = C.BinBitXor, shl = C.BinShl, lshr = C.BinLShr, ashr = C.BinAShr,
-}
-cmp_op = { eq = C.CmpEq, ne = C.CmpNe, lt = C.CmpLt, le = C.CmpLe, gt = C.CmpGt, ge = C.CmpGe }
-local logic_op = { ["and"] = C.LogicAnd, ["or"] = C.LogicOr }
-local atomic_rmw_op = {
-    add = C.AtomicRmwAdd, sub = C.AtomicRmwSub,
-    band = C.AtomicRmwAnd, bor = C.AtomicRmwOr, bxor = C.AtomicRmwXor,
-    xchg = C.AtomicRmwXchg,
-}
+bin_op = {}
+cmp_op = {}
+local logic_op = {}
+local atomic_rmw_op = {}
 
 function Expr:__add(r) return M.add(self)(r) end
 function Expr:__sub(r) return M.sub(self)(r) end
@@ -1206,8 +1194,8 @@ function Stmt:tree()
         if self.value == nil then return Tr.StmtYieldVoid(Tr.StmtSurface) end
         return Tr.StmtYieldValue(Tr.StmtSurface, tree_expr(self.value))
     end
-    if k == "let" then return Tr.StmtLet(Tr.StmtSurface, binding(self.name, self.ty, B.BindingClassLocalValue), tree_expr(self.init)) end
-    if k == "var" then return Tr.StmtVar(Tr.StmtSurface, binding(self.name, self.ty, B.BindingClassLocalCell), tree_expr(self.init)) end
+    if k == "let" then return Tr.StmtLet(Tr.StmtSurface, binding(self.name, self.ty, B.BindingRoleLocalValue), tree_expr(self.init)) end
+    if k == "var" then return Tr.StmtVar(Tr.StmtSurface, binding(self.name, self.ty, B.BindingRoleLocalCell), tree_expr(self.init)) end
     if k == "when" then return Tr.StmtIf(Tr.StmtSurface, tree_expr(self.cond), stmt_items(self.body), {}) end
     if k == "if" then return Tr.StmtIf(Tr.StmtSurface, tree_expr(self.cond), stmt_items(self.then_body), stmt_items(self.else_body or {})) end
     if k == "set" then return Tr.StmtSet(Tr.StmtSurface, tree_place(self.place), tree_expr(self.value)) end
@@ -1801,16 +1789,46 @@ M.switch = llbl.curried("switch", 1, function(t)
     })
 end)
 
-local access = {
-    ro = Ty.TypeAccessReadonly,
-    readonly = Ty.TypeAccessReadonly,
-    wo = Ty.TypeAccessWriteonly,
-    writeonly = Ty.TypeAccessWriteonly,
-    noalias = Ty.TypeAccessNoAlias,
-    noescape = Ty.TypeAccessNoEscape,
-    preserve = Ty.TypeAccessPreserve,
-    invalidate = Ty.TypeAccessInvalidate,
-}
+local function bind_context(context)
+    assert(context and context.LalinCore and context.LalinType and context.LalinBind and context.LalinTree,
+        "lalin.dsl(T) expects a projected Lalin schema context")
+    T = context
+    C, Ty, B, Tr = T.LalinCore, T.LalinType, T.LalinBind, T.LalinTree
+    refill(scalar, {
+        void = C.ScalarVoid, bool = C.ScalarBool,
+        i8 = C.ScalarI8, i16 = C.ScalarI16, i32 = C.ScalarI32, i64 = C.ScalarI64,
+        u8 = C.ScalarU8, u16 = C.ScalarU16, u32 = C.ScalarU32, u64 = C.ScalarU64,
+        f32 = C.ScalarF32, f64 = C.ScalarF64, index = C.ScalarIndex, rawptr = C.ScalarRawPtr,
+    })
+    refill(bin_op, {
+        add = C.BinAdd, sub = C.BinSub, mul = C.BinMul, div = C.BinDiv, rem = C.BinRem,
+        band = C.BinBitAnd, bor = C.BinBitOr, bxor = C.BinBitXor, shl = C.BinShl, lshr = C.BinLShr, ashr = C.BinAShr,
+    })
+    refill(cmp_op, { eq = C.CmpEq, ne = C.CmpNe, lt = C.CmpLt, le = C.CmpLe, gt = C.CmpGt, ge = C.CmpGe })
+    refill(logic_op, { ["and"] = C.LogicAnd, ["or"] = C.LogicOr })
+    refill(atomic_rmw_op, {
+        add = C.AtomicRmwAdd, sub = C.AtomicRmwSub,
+        band = C.AtomicRmwAnd, bor = C.AtomicRmwOr, bxor = C.AtomicRmwXor,
+        xchg = C.AtomicRmwXchg,
+    })
+    refill(access, {
+        ro = Ty.TypeAccessReadonly,
+        readonly = Ty.TypeAccessReadonly,
+        wo = Ty.TypeAccessWriteonly,
+        writeonly = Ty.TypeAccessWriteonly,
+        noalias = Ty.TypeAccessNoAlias,
+        noescape = Ty.TypeAccessNoEscape,
+        preserve = Ty.TypeAccessPreserve,
+        invalidate = Ty.TypeAccessInvalidate,
+    })
+    if not type_like_registered then
+        type_like_registered = true
+        llbl.register_type_like(function(v)
+            return Ty ~= nil and is_member(Ty.Type, v)
+        end)
+    end
+    return M
+end
 
 local function type_list(xs)
     local out = {}
@@ -2261,11 +2279,13 @@ M.lalin = llbl.zone_head {
 }
 
 function M.unit(name, decls)
+    require_context()
     if is(name, Decl) and name.kind == "unit" and decls == nil then return name end
     return setmetatable({ kind = "unit", name = llbl_name_text(name or "Unit", "unit name"), body = collect_decls({}, decls or {}) }, Decl)
 end
 
 function M.to_unit(name, value)
+    require_context()
     if value == nil then
         value = name
         name = "Unit"
@@ -2375,6 +2395,7 @@ local LALIN_NAMESPACE_KEYS = {
 }
 
 function M.namespace(opts)
+    require_context()
     opts = opts or {}
     local env_opts = {}
     for k, v in pairs(opts) do env_opts[k] = v end
@@ -2404,7 +2425,7 @@ end
 -- which is the same behavior as the dsl.loadstring() isolated environment.
 -- Call this once at the top of any .lua file that authors Lalin DSL.
 --
---   require("lalin").use()       -- or require("lalin.dsl").use()
+--   require("lalin").use()
 --
 -- Returns a managed LLBL UseSession for explicit capture if desired:
 --   local lalin = require("lalin").use()
@@ -2414,6 +2435,7 @@ end
 -- opts.scope = "scoped" installs into _G and is intended for explicit cleanup.
 -- opts.scope = "env" returns an isolated session.env and does not mutate _G.
 function M.use(opts)
+    require_context()
     opts = opts or {}
     local exports = make_env(opts)
     local session = llbl.use(LalinLLB, {
@@ -2574,11 +2596,13 @@ end
 M.source = llbl.process. source { "src", "chunk_name", "opts" } (source_process_body)
 
 function M.loadstring(src, chunk_name, opts)
+    require_context()
     local chunk = compile_source_chunk(src, chunk_name, opts, nil)
     return chunk
 end
 
 function M.loadfile(path_, opts)
+    require_context()
     local f, err = io.open(path_, "rb")
     if not f then die(err, 2) end
     local src = f:read("*a")
@@ -2588,6 +2612,7 @@ end
 
 -- Convenience: load and execute in one call.
 function M.load(src, name, opts)
+    require_context()
     local chunk = M.loadstring(src, name, opts)
     return chunk()
 end
@@ -2647,11 +2672,10 @@ function M.install_searcher()
     table.insert(searchers, searcher)
 end
 
-function M.make_env(opts) return make_env(opts) end
+function M.make_env(opts) require_context(); return make_env(opts) end
 function M.describe(value) return llbl.describe(value or LalinLLB) end
 function M.describe_head(name) return LalinLLB:describe_head(name) end
 function M.describe_role(name) return LalinLLB:describe_role(name) end
-M.T = T
 
 function M.format(value, opts)
     return require("lalin.dsl.format").format(value, opts)
@@ -2665,4 +2689,8 @@ function M.write_format_file(path, opts)
     return require("lalin.dsl.format").write_format_file(path, opts)
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

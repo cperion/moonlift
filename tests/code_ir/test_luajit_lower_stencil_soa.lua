@@ -159,13 +159,13 @@ local artifacts, rejects = {}, {}
 local lj_module, facts = Lower.lower_module(module, {
     contracts = contracts,
     collect_rejects = rejects,
-    stencil_store_artifact_for = function(func, vocab, op, plan, info)
-        local artifact = Backend.artifact_for(vocab, op, nil, plan, info)
+    stencil_store_artifact_for = function(func, vocab, op, plan, descriptor)
+        local artifact = Backend.artifact_for(vocab, op, nil, plan, descriptor)
         artifacts[#artifacts + 1] = artifact
         return artifact
     end,
-    stencil_reduce_artifact_for = function(func, vocab, op, reduction, plan, info)
-        local artifact = Backend.artifact_for(vocab, op, reduction, plan, info)
+    stencil_reduce_artifact_for = function(func, vocab, op, reduction, plan, descriptor)
+        local artifact = Backend.artifact_for(vocab, op, reduction, plan, descriptor)
         artifacts[#artifacts + 1] = artifact
         return artifact
     end,

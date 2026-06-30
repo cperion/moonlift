@@ -77,7 +77,7 @@ local function bind_context(T)
             return flat_map(function(fact) return single(fact) end, facts)
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_binding_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_binding_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -96,7 +96,7 @@ local function bind_context(T)
  return {}
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_value_ref_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_value_ref_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -127,7 +127,7 @@ local function bind_context(T)
  return cat({ pack(index_base_facts(self.base)), pack(expr_facts(self.index)) })
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_place_address_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_place_address_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -154,7 +154,7 @@ local function bind_context(T)
  return cat({ pack(index_base_facts(self.base)), pack(expr_facts(self.index)) })
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_place_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_place_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -193,7 +193,7 @@ local function bind_context(T)
  return cat({ pack(view_facts(self.base)), pack(expr_facts(self.stride)), pack(expr_facts(self.lane)) })
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_view_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_view_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -224,7 +224,7 @@ local function bind_context(T)
  return each(view_facts, self.views)
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_domain_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_domain_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -243,7 +243,7 @@ local function bind_context(T)
  return view_facts(self.view)
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_index_base_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_index_base_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -267,7 +267,7 @@ local function bind_context(T)
             return cat(trips)
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_control_stmt_region_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_control_stmt_region_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -281,7 +281,7 @@ local function bind_context(T)
             return cat(trips)
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_control_expr_region_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_control_expr_region_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -423,7 +423,7 @@ local function bind_context(T)
  return cat({ pack(expr_facts(self.addr)), pack(expr_facts(self.expected)), pack(expr_facts(self.replacement)) })
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_expr_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_expr_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -504,7 +504,7 @@ local function bind_context(T)
  return control_stmt_region_facts(self.region)
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_stmt_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_stmt_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -527,7 +527,7 @@ local function bind_context(T)
  return each(stmt_facts, self.body)
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_func_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_func_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -538,7 +538,7 @@ local function bind_context(T)
  return {}
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_extern_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_extern_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -549,7 +549,7 @@ local function bind_context(T)
  return expr_facts(self.value)
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_const_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_const_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -560,7 +560,7 @@ local function bind_context(T)
  return expr_facts(self.value)
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_static_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_static_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -595,7 +595,7 @@ local function bind_context(T)
  return {}
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_item_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_item_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -606,7 +606,7 @@ local function bind_context(T)
  return each(item_facts, module.items)
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_module_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_module_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

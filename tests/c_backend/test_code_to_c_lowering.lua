@@ -34,7 +34,7 @@ local module = Code.CodeModule(
 
 local unit = CodeToC.module(module)
 assert(#unit.helpers == 1, "float binary lowering should register one helper")
-local helper_kind = unit.helpers[1].kind
-assert(asdl.classof(helper_kind) == C.CBackendHelperFloatBinary, "float binary must lower to CBackendHelperFloatBinary")
+local helper_spec = unit.helpers[1].spec
+assert(asdl.classof(helper_spec) == C.CBackendHelperFloatBinary, "float binary must lower to CBackendHelperFloatBinary")
 
 io.write("lalin code_to_c_lowering ok\n")

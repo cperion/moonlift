@@ -20,10 +20,10 @@ local i32 = Ty.TScalar(C.ScalarI32)
 local arr4 = Ty.TArray(Ty.ArrayLenConst(4), i32)
 local function lit(raw) return Tr.ExprLit(Tr.ExprTyped(i32), C.LitInt(raw)) end
 
-local scalar = B.Binding(C.Id("scalar"), "scalar", i32, B.BindingClassLocalValue)
-local cell = B.Binding(C.Id("cell"), "cell", i32, B.BindingClassLocalCell)
-local aggregate = B.Binding(C.Id("aggregate"), "aggregate", arr4, B.BindingClassLocalValue)
-local addressed = B.Binding(C.Id("addressed"), "addressed", i32, B.BindingClassLocalValue)
+local scalar = B.Binding(C.Id("scalar"), "scalar", i32, B.BindingRoleLocalValue)
+local cell = B.Binding(C.Id("cell"), "cell", i32, B.BindingRoleLocalCell)
+local aggregate = B.Binding(C.Id("aggregate"), "aggregate", arr4, B.BindingRoleLocalValue)
+local addressed = B.Binding(C.Id("addressed"), "addressed", i32, B.BindingRoleLocalValue)
 
 local module = Tr.Module(Tr.ModuleTyped("Demo"), {
     Tr.ItemFunc(Tr.FuncLocal("f", {}, i32, {

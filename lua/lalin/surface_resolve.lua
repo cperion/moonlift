@@ -94,9 +94,9 @@ local function bind_context(T)
         if type(v) ~= "table" then return v end
         local cls = asdl.classof(v)
         if not cls then return v end
-        if Ty.Type.members[cls] then return resolve_type(v, ctx) end
+        if asdl.isa(v, Ty.Type) then return resolve_type(v, ctx) end
 
-        local fields = rawget(cls, "__fields")
+        local fields = asdl.fields(cls)
         if not fields or #fields == 0 then return v end
 
         local changed = false

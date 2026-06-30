@@ -11,19 +11,17 @@ local function bind_context(T)
     local Stencil = T.LalinStencil
     local Value = T.LalinValue
 
-    local function const_int_value(value)
-        if asdl.classof(value) == Value.ValueExprConst
-            and asdl.classof(value.const) == Code.CodeConstLiteral
-            and asdl.classof(value.const.literal) == Core.LitInt then
-            return tonumber(value.const.literal.raw)
-        end
+    function Code.CodeConst:stencil_const_int() return nil end
+    function Code.CodeConstLiteral:stencil_const_int()
+        if asdl.classof(self.literal) == Core.LitInt then return tonumber(self.literal.raw) end
         return nil
     end
 
-    local function const_ty(value)
-        if asdl.classof(value) == Value.ValueExprConst and value.const ~= nil then return value.const.ty end
-        return nil
-    end
+    function Value.ValueExpr:stencil_const_int() return nil end
+    function Value.ValueExprConst:stencil_const_int() return self.const:stencil_const_int() end
+
+    function Value.ValueExpr:stencil_const_ty() return nil end
+    function Value.ValueExprConst:stencil_const_ty() return self.const.ty end
 
     function Core.UnaryOp:stencil_unary_op() return nil end
     function Core.UnaryNeg:stencil_unary_op() return Stencil.StencilUnaryNeg end
@@ -67,6 +65,11 @@ local function bind_context(T)
     function Code.CodeTyImportedC:stencil_supported_type() return true end
     function Code.CodeTyImportedCFuncPtr:stencil_supported_type() return true end
     function Code.CodeTyVector:stencil_supported_type() return true end
+
+    function Stencil.StencilSchedule:stencil_vectorization_facts() return nil end
+    function Stencil.StencilScheduleAutoVector:stencil_vectorization_facts() return self.facts end
+    function Stencil.StencilScheduleUnrolled:stencil_vectorization_facts() return self.facts end
+    function Stencil.StencilScheduleVector:stencil_vectorization_facts() return self.facts end
 
     function Code.CodeType:stencil_same_type(other) return self == other end
     function Code.CodeType:stencil_same_int() return false end
@@ -120,16 +123,16 @@ local function bind_context(T)
     function Code.CodeTyInt:stencil_is_index_data_type() return true end
     function Code.CodeTyIndex:stencil_is_index_data_type() return true end
     function Code.CodeType:stencil_reduction_supported() return false end
-    function Code.CodeTyInt:stencil_reduction_supported(reduction_kind, elem_ty)
+    function Code.CodeTyInt:stencil_reduction_supported(reduction_op, elem_ty)
         if not elem_ty:stencil_same_type(self) then return false end
-        return reduction_kind == Value.ReductionAdd or reduction_kind == Value.ReductionMul
-            or reduction_kind == Value.ReductionAnd or reduction_kind == Value.ReductionOr or reduction_kind == Value.ReductionXor
-            or reduction_kind == Value.ReductionMin or reduction_kind == Value.ReductionMax
+        return reduction_op == Value.ReductionAdd or reduction_op == Value.ReductionMul
+            or reduction_op == Value.ReductionAnd or reduction_op == Value.ReductionOr or reduction_op == Value.ReductionXor
+            or reduction_op == Value.ReductionMin or reduction_op == Value.ReductionMax
     end
-    function Code.CodeTyFloat:stencil_reduction_supported(reduction_kind, elem_ty)
+    function Code.CodeTyFloat:stencil_reduction_supported(reduction_op, elem_ty)
         if not elem_ty:stencil_same_type(self) then return false end
-        return reduction_kind == Value.ReductionAdd or reduction_kind == Value.ReductionMul
-            or reduction_kind == Value.ReductionMin or reduction_kind == Value.ReductionMax
+        return reduction_op == Value.ReductionAdd or reduction_op == Value.ReductionMul
+            or reduction_op == Value.ReductionMin or reduction_op == Value.ReductionMax
     end
 
     function Code.CodeType:stencil_bits() return nil end
@@ -366,19 +369,19 @@ local function bind_context(T)
         return id .. "@" .. tostring(index)
     end
 
-    function SM.StencilMachinePointClass:point_input_named(name)
+    function SM.StencilMachinePointExprFacts:point_input_named(name)
         for _, input in ipairs(self.inputs or {}) do
             if input.name == name then return input end
         end
         return nil
     end
 
-    function SM.StencilMachinePointClass:single_point_input()
+    function SM.StencilMachinePointExprFacts:single_point_input()
         if #(self.inputs or {}) ~= 1 then return nil end
         return self.inputs[1]
     end
 
-    function SM.StencilMachinePointClass:all_inputs_primary()
+    function SM.StencilMachinePointExprFacts:all_inputs_primary()
         for _, input in ipairs(self.inputs or {}) do
             if input.index_primary ~= true then return false end
         end
@@ -386,44 +389,44 @@ local function bind_context(T)
     end
 
     function Stencil.StencilPointExpr:stencil_single_input_expr() return nil end
-    function Stencil.StencilPointInput:stencil_single_input_expr(point_class)
-        return point_class:point_input_named(self.access.name)
+    function Stencil.StencilPointInput:stencil_single_input_expr(point_facts)
+        return point_facts:point_input_named(self.access.name)
     end
 
     function Stencil.StencilPointExpr:stencil_const_int() return nil end
     function Stencil.StencilPointConst:stencil_const_int()
-        return const_int_value(self.value)
+        return self.value:stencil_const_int()
     end
 
     function Stencil.StencilPointExpr:stencil_index_input() return nil end
-    function Stencil.StencilPointInput:stencil_index_input(point_class)
-        return point_class:point_input_named(self.access.name)
+    function Stencil.StencilPointInput:stencil_index_input(point_facts)
+        return point_facts:point_input_named(self.access.name)
     end
-    function Stencil.StencilPointCast:stencil_index_input(point_class)
-        return self.arg:stencil_index_input(point_class)
+    function Stencil.StencilPointCast:stencil_index_input(point_facts)
+        return self.arg:stencil_index_input(point_facts)
     end
-    function Stencil.StencilPointBinary:stencil_index_input(point_class)
+    function Stencil.StencilPointBinary:stencil_index_input(point_facts)
         local lc, rc = self.left:stencil_const_int(), self.right:stencil_const_int()
         if (self.op == Stencil.StencilBinaryMul and rc == 1)
             or (self.op == Stencil.StencilBinaryAdd and rc == 0)
             or (self.op == Stencil.StencilBinarySub and rc == 0) then
-            return self.left:stencil_index_input(point_class)
+            return self.left:stencil_index_input(point_facts)
         end
         if (self.op == Stencil.StencilBinaryMul and lc == 1)
             or (self.op == Stencil.StencilBinaryAdd and lc == 0) then
-            return self.right:stencil_index_input(point_class)
+            return self.right:stencil_index_input(point_facts)
         end
         return nil
     end
 
     function Stencil.StencilPointExpr:stencil_predicate_operand() return nil, nil end
-    function Stencil.StencilPointPredicate:stencil_predicate_operand(point_class)
-        local input = self.arg:stencil_single_input_expr(point_class)
+    function Stencil.StencilPointPredicate:stencil_predicate_operand(point_facts)
+        local input = self.arg:stencil_single_input_expr(point_facts)
         if input == nil then return nil, nil end
         return input, self.pred
     end
-    function Stencil.StencilPointCompare:stencil_predicate_operand(point_class)
-        local input = self.left:stencil_single_input_expr(point_class)
+    function Stencil.StencilPointCompare:stencil_predicate_operand(point_facts)
+        local input = self.left:stencil_single_input_expr(point_facts)
         if input == nil then return nil, nil end
         return self.right:stencil_compare_const_predicate_for_input(input, self.cmp)
     end
@@ -482,13 +485,13 @@ local function bind_context(T)
     end
 
     function SM.StencilMachineExprFill:to_stencil_point_expr(state)
-        local ty = const_ty(self.value)
+        local ty = self.value:stencil_const_ty()
         if ty == nil then return scalar_input_expr(self.value, state), nil end
         return const_expr(self.value, ty), ty
     end
 
     function SM.StencilMachineExprFill:stencil_const_int()
-        return const_int_value(self.value)
+        return self.value:stencil_const_int()
     end
 
     function SM.StencilMachineExprLoad:stencil_compare_const_predicate(op, lhs_expr, lhs_ty, rhs, rhs_expr, rhs_ty)
@@ -561,10 +564,10 @@ local function bind_context(T)
         local state = { inputs = {}, by_key = {} }
         local point_expr, result_ty, err = expr:to_stencil_point_expr(state)
         if point_expr == nil then return nil, err end
-        return SM.StencilMachinePointClass(point_expr, state.inputs, result_ty, expr:stencil_const_int())
+        return SM.StencilMachinePointExprFacts(point_expr, state.inputs, result_ty, expr:stencil_const_int())
     end
 
-    function SM.StencilMachinePointClass:select_index_lane()
+    function SM.StencilMachinePointExprFacts:select_index_lane()
         local input = self.expr:stencil_index_input(self)
         if input ~= nil then return { lane = input.lane, index = input.index } end
         return nil
@@ -596,27 +599,28 @@ local function bind_context(T)
         return out
     end
 
-    function SM.StencilMachineStoreSelectInput:store_n_info(inputs, dst_layout, store_mode)
-        local point_class = self.class
-        inputs = inputs or point_class.inputs
+    function SM.StencilMachineStoreSelectionFacts:store_n_descriptor(inputs, dst_layout, store_mode)
+        local point_facts = self.point_facts
+        inputs = inputs or point_facts.inputs
         store_mode = store_mode or self.store_mode
         if store_mode == nil and self.copy_semantics ~= nil then
             store_mode = Stencil.StencilStoreCopy(self.copy_semantics)
         end
-        local result_ty = point_class.result_ty or self.dst_elem_ty
-        return SM.StencilMachineSelectionInfo(
-            self.step_num, self.producer,
-            nil, result_ty, nil, nil,
-            nil, nil, nil,
-            self.dst, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-            nil, nil,
-            dst_layout or self.dst_layout, nil, nil, nil,
+        local result_ty = point_facts.result_ty or self.dst_elem_ty
+        return SM.StencilMachineStoreNDescriptor(
+            self.step_num,
+            self.producer,
+            result_ty,
+            self.dst,
+            dst_layout or self.dst_layout,
             specialize_scalar_inputs(inputs, result_ty),
-            point_class.expr,
-            self.start, self.stop, self.start_expr, self.stop_expr,
-            nil, nil, store_mode,
+            point_facts.expr,
+            store_mode,
             "expr" .. tostring(#(inputs or {})),
-            nil, nil, nil, nil
+            self.start_expr,
+            self.stop_expr,
+            nil,
+            nil
         )
     end
 
@@ -624,15 +628,15 @@ local function bind_context(T)
         return Stencil.StencilLayoutIndexed(parent, access_ref(idx.name), idx.ty or idx.elem_ty, step_num or 1)
     end
 
-    function SM.StencilMachineStoreSelectInput:select_store_stencil()
-        local point_class = self.class
-        if self.store_index_primary == true and (point_class.result_ty == nil or point_class.result_ty:stencil_same_type(self.dst_elem_ty))
-            and point_class:all_inputs_primary() and (point_class.result_ty or self.dst_elem_ty):stencil_supported_type() and self.dst_elem_ty:stencil_supported_type() then
-            return SM.StencilMachineSelectStoreN(self:store_n_info(), {})
+    function SM.StencilMachineStoreSelectionFacts:select_store_stencil()
+        local point_facts = self.point_facts
+        if self.store_index_primary == true and (point_facts.result_ty == nil or point_facts.result_ty:stencil_same_type(self.dst_elem_ty))
+            and point_facts:all_inputs_primary() and (point_facts.result_ty or self.dst_elem_ty):stencil_supported_type() and self.dst_elem_ty:stencil_supported_type() then
+            return SM.StencilMachineSelectStoreN(self:store_n_descriptor(), {})
         end
-        if self.store_index_primary == true and (point_class.result_ty == nil or point_class.result_ty:stencil_same_type(self.dst_elem_ty))
-            and (point_class.result_ty or self.dst_elem_ty):stencil_supported_type() and self.dst_elem_ty:stencil_supported_type() then
-            local inputs, ok = copy_inputs(point_class.inputs), true
+        if self.store_index_primary == true and (point_facts.result_ty == nil or point_facts.result_ty:stencil_same_type(self.dst_elem_ty))
+            and (point_facts.result_ty or self.dst_elem_ty):stencil_supported_type() and self.dst_elem_ty:stencil_supported_type() then
+            local inputs, ok = copy_inputs(point_facts.inputs), true
             for i, input in ipairs(inputs) do
                 if input.index_primary ~= true then
                     local idx = input.index_lane
@@ -642,12 +646,12 @@ local function bind_context(T)
                 end
             end
             if ok then
-                return SM.StencilMachineSelectStoreN(self:store_n_info(inputs, nil, nil), {})
+                return SM.StencilMachineSelectStoreN(self:store_n_descriptor(inputs, nil, nil), {})
             end
         end
         if self.store_index_lane ~= nil
-            and (point_class.result_ty == nil or point_class.result_ty:stencil_same_type(self.dst_elem_ty)) and point_class:all_inputs_primary()
-            and self.store_index_lane.elem_ty:stencil_is_index_data_type() and (point_class.result_ty or self.dst_elem_ty):stencil_supported_type() and self.dst_elem_ty:stencil_supported_type() then
+            and (point_facts.result_ty == nil or point_facts.result_ty:stencil_same_type(self.dst_elem_ty)) and point_facts:all_inputs_primary()
+            and self.store_index_lane.elem_ty:stencil_is_index_data_type() and (point_facts.result_ty or self.dst_elem_ty):stencil_supported_type() and self.dst_elem_ty:stencil_supported_type() then
             local idx = SM.StencilMachinePointInput(
                 "dst_idx",
                 nil,
@@ -663,10 +667,10 @@ local function bind_context(T)
                 nil,
                 {}
             )
-            local inputs = copy_inputs(point_class.inputs)
+            local inputs = copy_inputs(point_facts.inputs)
             append_input_once(inputs, idx)
             return SM.StencilMachineSelectStoreN(
-                self:store_n_info(
+                self:store_n_descriptor(
                     inputs,
                     indexed_layout(self.dst_layout, idx, self.step_num),
                     Stencil.StencilStoreScatter(self.scatter_conflicts or Stencil.StencilScatterUniqueIndices)
@@ -677,133 +681,132 @@ local function bind_context(T)
         return nil, "unsupported store stencil shape"
     end
 
-    function SM.StencilMachineScanSelectInput:select_scan_stencil()
-        local input = self.class:single_point_input()
+    function SM.StencilMachineScanSelectionFacts:select_scan_stencil()
+        local input = self.point_facts:single_point_input()
         if input ~= nil and self.store_index_primary == true and input.index_primary == true
             and self.result_ty:stencil_same_type(self.dst_elem_ty)
-            and self.result_ty:stencil_reduction_supported(self.reduction_kind, input.ty) then
-            return SM.StencilMachineSelectScan(self.reduction, SM.StencilMachineSelectionInfo(
-                self.step_num, self.producer,
-                input.ty, self.result_ty, nil, nil,
-                self.init, self.mode, self.axis,
-                self.dst, input.base, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-                nil, nil,
-                self.dst_layout, input.layout, nil, nil,
-                {},
+            and self.result_ty:stencil_reduction_supported(self.reduction_op, input.ty) then
+            return SM.StencilMachineSelectScan(self.reduction, SM.StencilMachineScanArrayDescriptor(
+                self.step_num,
+                self.producer,
+                input.ty,
+                self.result_ty,
+                self.init,
+                self.mode,
+                self.axis,
+                self.dst,
+                input.base,
+                self.dst_layout,
+                input.layout,
+                self.start_expr,
+                self.stop_expr,
                 nil,
-                nil, nil, self.start_expr, self.stop_expr,
-                nil, nil, nil, nil, nil, nil, nil, nil
+                nil
             ), { self.dst_expr, input.base_expr, self.start_expr, self.stop_expr, self.init_expr })
         end
         return nil, "unsupported scan stencil shape"
     end
 
-    function SM.StencilMachineFindSelectInput:select_find_stencil()
-        local input = self.class:single_point_input()
+    function SM.StencilMachineFindSelectionFacts:select_find_stencil()
+        local input = self.point_facts:single_point_input()
         if input ~= nil and input.index_primary == true and self.not_found_minus_one == true and input.ty:stencil_supported_type() then
-            return SM.StencilMachineSelectFind(self.pred, SM.StencilMachineSelectionInfo(
-                self.step_num, self.producer,
-                input.ty, nil, nil, nil,
-                nil, nil, nil,
-                nil, input.base, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-                nil, nil,
-                nil, input.layout, nil, nil,
-                {},
+            return SM.StencilMachineSelectFind(self.pred, SM.StencilMachineFindArrayDescriptor(
+                self.step_num,
+                self.producer,
+                input.ty,
+                input.base,
+                input.layout,
+                self.start_expr,
+                self.stop_expr,
                 nil,
-                self.start, self.stop, self.start_expr, self.stop_expr,
-                self.pred, nil, nil, nil, nil, nil, nil, nil
+                nil
             ), { input.base_expr, self.start_expr, self.stop_expr })
         end
         return nil, "unsupported find stencil shape"
     end
 
-    function SM.StencilMachinePartitionSelectInput:select_partition_stencil()
-        local input = self.class:single_point_input()
+    function SM.StencilMachinePartitionSelectionFacts:select_partition_stencil()
+        local input = self.point_facts:single_point_input()
         if input ~= nil and self.store_index_primary == true and input.index_primary == true
             and input.ty:stencil_same_type(self.dst_elem_ty) and input.ty:stencil_supported_type() and self.dst_elem_ty:stencil_supported_type() then
-            return SM.StencilMachineSelectPartition(self.pred, SM.StencilMachineSelectionInfo(
-                self.step_num, self.producer,
-                input.ty, nil, nil, nil,
-                nil, nil, nil,
-                self.dst, input.base, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-                nil, nil,
-                self.dst_layout, input.layout, nil, nil,
-                {},
+            return SM.StencilMachineSelectPartition(self.pred, SM.StencilMachinePartitionArrayDescriptor(
+                self.step_num,
+                self.producer,
+                input.ty,
+                self.dst,
+                input.base,
+                self.dst_layout,
+                input.layout,
+                self.start_expr,
+                self.stop_expr,
+                self.semantics,
                 nil,
-                self.start, self.stop, self.start_expr, self.stop_expr,
-                self.pred, self.semantics, nil, nil, nil, nil, nil, nil
+                nil
             ), { self.dst_expr, input.base_expr, self.start_expr, self.stop_expr })
         end
         return nil, "unsupported partition stencil shape"
     end
 
-    function SM.StencilMachineReduceSelectInput:select_reduce_stencil()
-        local point_class = self.class
-        if point_class:all_inputs_primary()
-            and self.result_ty:stencil_reduction_supported(self.reduction_kind, point_class.result_ty) then
-            return SM.StencilMachineSelectReduceN(SM.StencilMachineSelectionInfo(
-                self.step_num, self.producer,
-                nil, self.result_ty, point_class.result_ty, nil,
-                self.init, nil, nil,
-                nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-                nil, nil,
-                nil, nil, nil, nil,
-                point_class.inputs,
-                point_class.expr,
-                nil, nil, self.start_expr, self.stop_expr,
-                nil, nil, nil,
-                "expr" .. tostring(#(point_class.inputs or {})),
-                nil, nil, nil, nil
+    function SM.StencilMachineReduceSelectionFacts:select_reduce_stencil()
+        local point_facts = self.point_facts
+        if point_facts:all_inputs_primary()
+            and self.result_ty:stencil_reduction_supported(self.reduction_op, point_facts.result_ty) then
+            return SM.StencilMachineSelectReduceN(SM.StencilMachineReduceNDescriptor(
+                self.step_num,
+                self.producer,
+                self.result_ty,
+                point_facts.result_ty,
+                self.init,
+                point_facts.inputs,
+                point_facts.expr,
+                nil,
+                "expr" .. tostring(#(point_facts.inputs or {})),
+                self.start_expr,
+                self.stop_expr,
+                nil,
+                nil
             ), {})
         end
-        local pred_input, pred = point_class.expr:stencil_predicate_operand(point_class)
+        local pred_input, pred = point_facts.expr:stencil_predicate_operand(point_facts)
         if pred_input ~= nil and pred_input.index_primary == true and self.reduction_add == true
             and self.init_zero == true and self.result_i32 == true then
-            return SM.StencilMachineSelectCount(pred, SM.StencilMachineSelectionInfo(
-                self.step_num, self.producer,
-                pred_input.ty, self.result_ty, nil, nil,
-                self.init, nil, nil,
-                nil, pred_input.base, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-                nil, nil,
-                nil, pred_input.layout, nil, nil,
-                {},
+            return SM.StencilMachineSelectCount(pred, SM.StencilMachineCountArrayDescriptor(
+                self.step_num,
+                self.producer,
+                pred_input.ty,
+                self.result_ty,
+                self.init,
+                pred_input.base,
+                pred_input.layout,
+                self.start_expr,
+                self.stop_expr,
                 nil,
-                nil, nil, self.start_expr, self.stop_expr,
-                pred, nil, nil, nil, nil, nil, nil, nil
+                nil
             ), { pred_input.base_expr, self.start_expr, self.stop_expr })
         end
         return nil, "unsupported reduction stencil contribution"
     end
 
     function SM.StencilMachineStorePlanInput:reject_reason(suffix)
-        return ("store stencil is not ready: planned=%s returns_void=%s counted_positive=%s single_store=%s dst_base_present=%s class_ready=%s (%s)"):format(
+        return ("store stencil is not ready: planned=%s returns_void=%s counted_positive=%s single_store=%s dst_base_present=%s point_facts_ready=%s (%s)"):format(
             tostring(self.planned), tostring(self.returns_void), tostring(self.counted_positive),
-            tostring(self.single_store), tostring(self.dst_base_present), tostring(self.class_ready),
+            tostring(self.single_store), tostring(self.dst_base_present), tostring(self.point_facts_ready),
             tostring(suffix or "no matching plan")
         )
     end
 
     function SM.StencilMachineReducePlanInput:reject_reason(suffix)
-        return ("reduction stencil is not ready: planned=%s result_reduction=%s returns_reduction=%s counted_positive=%s class_ready=%s (%s)"):format(
+        return ("reduction stencil is not ready: planned=%s result_reduction=%s returns_reduction=%s counted_positive=%s point_facts_ready=%s (%s)"):format(
             tostring(self.planned), tostring(self.result_reduction), tostring(self.returns_reduction),
-            tostring(self.counted_positive), tostring(self.class_ready), tostring(suffix or "no matching plan")
+            tostring(self.counted_positive), tostring(self.point_facts_ready), tostring(suffix or "no matching plan")
         )
     end
 
     local api = {}
 
-    function SM.StencilMachineSelected:stencil_artifact_kind() return nil end
     function SM.StencilMachineSelected:stencil_artifact_op() return nil end
-    function SM.StencilMachineSelected:stencil_artifact_info() return self.info end
+    function SM.StencilMachineSelected:stencil_artifact_descriptor() return self.descriptor end
     function SM.StencilMachineSelected:stencil_artifact_args() return self.args end
-
-    function SM.StencilMachineSelectStoreN:stencil_artifact_kind() return "store_n" end
-    function SM.StencilMachineSelectReduceN:stencil_artifact_kind() return "reduce_n" end
-    function SM.StencilMachineSelectScan:stencil_artifact_kind() return "scan" end
-    function SM.StencilMachineSelectFind:stencil_artifact_kind() return "find" end
-    function SM.StencilMachineSelectPartition:stencil_artifact_kind() return "partition" end
-    function SM.StencilMachineSelectCount:stencil_artifact_kind() return "count" end
-    function SM.StencilMachineSelectScatterReduce:stencil_artifact_kind() return "scatter_reduce" end
 
     function SM.StencilMachineSelectFind:stencil_artifact_op() return self.op end
     function SM.StencilMachineSelectPartition:stencil_artifact_op() return self.op end
@@ -812,13 +815,13 @@ local function bind_context(T)
     function api.classify_expr(expr, bindings)
         local fact, err = api.expr_fact(expr, bindings or SM.StencilMachineExprBindings({}))
         if fact == nil then return nil, err end
-        local class = classify_expr(fact)
-        if class == nil then return nil, "unsupported store stencil expression" end
-        return class
+        local point_facts = classify_expr(fact)
+        if point_facts == nil then return nil, "unsupported store stencil expression" end
+        return point_facts
     end
 
-    function api.select_index_lane(class)
-        local lane = class:select_index_lane()
+    function api.select_index_lane(point_facts)
+        local lane = point_facts:select_index_lane()
         return lane or nil, lane == nil and "expression is not an index lane" or nil
     end
 
@@ -848,7 +851,7 @@ local function bind_context(T)
             and self.counted_positive == true
             and self.single_store == true
             and self.dst_base_present == true
-            and self.class_ready == true
+            and self.point_facts_ready == true
         if not plan_ready then return nil, self:reject_reason() end
         local selected, err = self.selection:select_store_stencil()
         if selected == nil then return nil, self:reject_reason(err) end
@@ -864,7 +867,7 @@ local function bind_context(T)
             and self.result_reduction == true
             and self.returns_reduction == true
             and self.counted_positive == true
-            and self.class_ready == true
+            and self.point_facts_ready == true
         if not plan_ready then return nil, self:reject_reason() end
         local selected, err = self.selection:select_reduce_stencil()
         if selected == nil then return nil, self:reject_reason(err) end

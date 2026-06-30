@@ -4,15 +4,13 @@
 -- typecheck/lower/codegen pipeline.
 --
 -- Usage: local to_tree = require("lalin.syntax.to_tree")(T)
--- where T is a pvm context with LalinTree/LalinCore/LalinBind/LalinType.
+-- where T is a projected ASDL context with LalinTree/LalinCore/LalinBind/LalinType.
 
 local asdl = require("lalin.asdl")
 
 local function bind_context(T)
-  -- Project the context if not already done.  Idempotent check:
-  if not T.LalinCore then
-    require("lalin.schema_projection")(T)
-  end
+  assert(T and T.LalinCore and T.LalinTree and T.LalinType and T.LalinBind,
+    "lalin.syntax.to_tree(T) expects a projected Lalin schema context")
   local C, Ty, B, Tr = T.LalinCore, T.LalinType, T.LalinBind, T.LalinTree
 
   local ToTree = {}
@@ -282,13 +280,13 @@ local function bind_context(T)
     elseif tag == "StmtLet" then
       local let_ty = parsed.type and ToTree.parsed_type(parsed.type) or Ty.TScalar(C.ScalarVoid)
       return Tr.StmtLet(Tr.StmtSurface,
-        B.Binding(C.Id("parsed." .. parsed.name), parsed.name, let_ty, B.BindingClassLocalValue),
+        B.Binding(C.Id("parsed." .. parsed.name), parsed.name, let_ty, B.BindingRoleLocalValue),
         parsed.init and ToTree.expr(parsed.init) or ToTree.literal(0))
 
     elseif tag == "StmtVar" then
       local var_ty = parsed.type and ToTree.parsed_type(parsed.type) or Ty.TScalar(C.ScalarVoid)
       return Tr.StmtVar(Tr.StmtSurface,
-        B.Binding(C.Id("parsed." .. parsed.name), parsed.name, var_ty, B.BindingClassLocalValue),
+        B.Binding(C.Id("parsed." .. parsed.name), parsed.name, var_ty, B.BindingRoleLocalValue),
         parsed.init and ToTree.expr(parsed.init) or ToTree.literal(0))
 
     elseif tag == "StmtExpr" then

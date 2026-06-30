@@ -17,6 +17,7 @@ local function bind_context(T)
     local Kernel = T.LalinKernel
     local Stencil = T.LalinStencil
     local Schedule = T.LalinSchedule
+    require("lalin.stencil_methods")(T)
     local CodeType = require("lalin.code_type")(T)
     local CEmit = require("lalin.c_emit")(T)
     local C = require("llbl.c")
@@ -52,7 +53,8 @@ local function bind_context(T)
 
     local function access_vector_fact(artifact, name)
         local schedule = artifact.instance and artifact.instance.schedule
-        local facts = schedule and schedule.facts and schedule.facts.access_facts or {}
+        local vector_facts = schedule and schedule:stencil_vectorization_facts() or nil
+        local facts = vector_facts and vector_facts.access_facts or {}
         for _, fact in ipairs(facts or {}) do
             if access_ref_name(fact.access) == name then return fact end
         end
@@ -62,7 +64,8 @@ local function bind_context(T)
     local function alias_relation(artifact, left, right)
         if left == right then return Stencil.StencilAliasNoAlias end
         local schedule = artifact.instance and artifact.instance.schedule
-        local facts = schedule and schedule.facts and schedule.facts.alias_facts or {}
+        local vector_facts = schedule and schedule:stencil_vectorization_facts() or nil
+        local facts = vector_facts and vector_facts.alias_facts or {}
         for _, fact in ipairs(facts or {}) do
             local a = access_ref_name(fact.left)
             local b = access_ref_name(fact.right)
@@ -75,7 +78,7 @@ local function bind_context(T)
         local out = {}
         local desc = artifact.instance and artifact.instance.descriptor
         for _, access in ipairs(descriptor_accesses(desc)) do
-            if asdl.classof(access.layout) ~= Stencil.StencilLayoutScalar then out[#out + 1] = access.name end
+            if not access.layout:stencil_c_is_scalar_layout() then out[#out + 1] = access.name end
         end
         return out
     end
@@ -130,26 +133,48 @@ local function bind_context(T)
         }
     end
 
-    local function producer_param_structs(producer)
-        if producer == nil or producer.kind == "range1d" then
-            return {
-                structured_param("start", C.i32),
-                structured_param("stop", C.i32),
-            }
-        end
-        if producer.kind == "range_nd" or producer.kind == "window_nd" or producer.kind == "tiled_nd" then
-            local params = {}
-            for _, axis in ipairs(producer.axes or {}) do
-                params[#params + 1] = structured_param(axis.start_param, C.i32)
-                params[#params + 1] = structured_param(axis.stop_param, C.i32)
-            end
-            return params
-        end
-        error("stencil_c: unsupported producer plan " .. tostring(producer.kind), 3)
+    local function producer_param_name(axis_index, suffix)
+        return "axis" .. tostring(axis_index) .. "_" .. suffix
     end
 
-    local function append_producer_param_structs(params, producer)
-        local producer_params = producer_param_structs(producer)
+    local function producer_axis_start_param(axis_index)
+        return producer_param_name(axis_index, "start")
+    end
+
+    local function producer_axis_stop_param(axis_index)
+        return producer_param_name(axis_index, "stop")
+    end
+
+    function Stencil.StencilProducerShape:stencil_c_param_structs()
+        error("stencil_c: unsupported producer shape", 3)
+    end
+    function Stencil.StencilProduceRange1D:stencil_c_param_structs()
+        return {
+            structured_param("start", C.i32),
+            structured_param("stop", C.i32),
+        }
+    end
+    function Stencil.StencilProduceRangeND:stencil_c_param_structs()
+        local params = {}
+        for axis_index = 1, #(self.axes or {}) do
+            params[#params + 1] = structured_param(producer_axis_start_param(axis_index), C.i32)
+            params[#params + 1] = structured_param(producer_axis_stop_param(axis_index), C.i32)
+        end
+        return params
+    end
+    function Stencil.StencilProduceWindowND:stencil_c_param_structs()
+        return Stencil.StencilProduceRangeND.stencil_c_param_structs(self)
+    end
+    function Stencil.StencilProduceTiledND:stencil_c_param_structs()
+        return Stencil.StencilProduceRangeND.stencil_c_param_structs(self)
+    end
+
+    local function producer_param_structs(producer_shape)
+        return producer_shape:stencil_c_param_structs()
+    end
+
+    local function append_producer_param_structs(params, producer_shape)
+        local producer_params = producer_param_structs(producer_shape)
         for i = 1, #producer_params do params[#params + 1] = producer_params[i] end
     end
 
@@ -157,7 +182,7 @@ local function bind_context(T)
         local linear = nil
         for axis_index, axis in ipairs(producer.axes or {}) do
             local iv = coords and coords[axis_index] or cn("__ml_axis" .. tostring(axis_index))
-            local offset = iv - cn(axis.start_param)
+            local offset = iv - cn(producer_axis_start_param(axis_index))
             local step = tonumber(axis.step) or 1
             if step ~= 1 then offset = offset / step end
             if linear == nil then
@@ -179,7 +204,7 @@ local function bind_context(T)
         return out
     end
 
-    local function loop_ctx(producer, index, axes)
+    local function stencil_loop_scope(producer, index, axes)
         return { producer = producer, index = index, axis_values = axes or {} }
     end
 
@@ -187,7 +212,7 @@ local function bind_context(T)
         local stmts = {}
         for axis_index, axis in ipairs(producer.axes or {}) do
             local step = tonumber(axis.step) or 1
-            local span = cn(axis.stop_param) - cn(axis.start_param)
+            local span = cn(producer_axis_stop_param(axis_index)) - cn(producer_axis_start_param(axis_index))
             local extent = step == 1 and span or ((span + (step - 1)) / step)
             stmts[#stmts + 1] = C.decl[LLBL.N["__ml_extent" .. tostring(axis_index)]][C.i32](extent)
         end
@@ -201,15 +226,15 @@ local function bind_context(T)
             if axis_index > #axes then
                 return {
                     C.decl. __ml_i[C.i32](range_nd_linear_index(producer)),
-                    _(body_for_index(cn("__ml_i"), loop_ctx(producer, cn("__ml_i"), current_axis_values(producer)))),
+                    _(body_for_index(cn("__ml_i"), stencil_loop_scope(producer, cn("__ml_i"), current_axis_values(producer)))),
                 }
             end
             local axis = axes[axis_index]
             local iv = LLBL.N["__ml_axis" .. tostring(axis_index)]
             return {
                 C.for_ {
-                    C.decl[iv][C.i32](cn(axis.start_param)),
-                    C.lt (cn(iv))(cn(axis.stop_param)),
+                    C.decl[iv][C.i32](cn(producer_axis_start_param(axis_index))),
+                    C.lt (cn(iv))(cn(producer_axis_stop_param(axis_index))),
                     C.assign(cn(iv), cn(iv) + (tonumber(axis.step) or 1))
                 } {
                     _(nest(axis_index + 1)),
@@ -230,16 +255,16 @@ local function bind_context(T)
                     if point_axis > #axes then
                         return {
                             C.decl. __ml_i[C.i32](range_nd_linear_index(producer)),
-                            _(body_for_index(cn("__ml_i"), loop_ctx(producer, cn("__ml_i"), current_axis_values(producer)))),
+                            _(body_for_index(cn("__ml_i"), stencil_loop_scope(producer, cn("__ml_i"), current_axis_values(producer)))),
                         }
                     end
                     local axis = axes[point_axis]
                     local iv = LLBL.N["__ml_axis" .. tostring(point_axis)]
                     local tile_iv = cn("__ml_tile_axis" .. tostring(point_axis))
                     local tile_end = cn("__ml_tile_end" .. tostring(point_axis))
-                    return {
-                        C.decl[LLBL.N["__ml_tile_end" .. tostring(point_axis)]][C.i32](
-                            C.select (C.lt (tile_iv + tonumber(producer.tile_sizes[point_axis] or 1))(cn(axis.stop_param)))(tile_iv + tonumber(producer.tile_sizes[point_axis] or 1))(cn(axis.stop_param))
+                        return {
+                            C.decl[LLBL.N["__ml_tile_end" .. tostring(point_axis)]][C.i32](
+                            C.select (C.lt (tile_iv + tonumber(producer.tile_sizes[point_axis] or 1))(cn(producer_axis_stop_param(point_axis))))(tile_iv + tonumber(producer.tile_sizes[point_axis] or 1))(cn(producer_axis_stop_param(point_axis)))
                         ),
                         C.for_ {
                             C.decl[iv][C.i32](tile_iv),
@@ -258,8 +283,8 @@ local function bind_context(T)
             local tile_step = tile * (tonumber(axis.step) or 1)
             return {
                 C.for_ {
-                    C.decl[iv][C.i32](cn(axis.start_param)),
-                    C.lt (cn(iv))(cn(axis.stop_param)),
+                    C.decl[iv][C.i32](cn(producer_axis_start_param(axis_index))),
+                    C.lt (cn(iv))(cn(producer_axis_stop_param(axis_index))),
                     C.assign(cn(iv), cn(iv) + tile_step)
                 } {
                     _(tile_nest(axis_index + 1)),
@@ -271,17 +296,28 @@ local function bind_context(T)
         return stmts
     end
 
-    local function producer_loop(producer, body_for_index)
-        if producer == nil or producer.kind == "range1d" then
-            local p = producer or { kind = "range1d", order = "forward" }
-            if p.order == "backward" then
-                return { descending_loop_i(p.stride or 1, function(i) return body_for_index(i, loop_ctx(p, i, { i })) end) }
-            end
-            return { loop_i(p.stride or 1, body_for_index(cn("i"), loop_ctx(p, cn("i"), { cn("i") }))) }
+    function Stencil.StencilProducerShape:stencil_c_loop(body_for_index)
+        error("stencil_c: unsupported producer loop", 3)
+    end
+    function Stencil.StencilProduceRange1D:stencil_c_loop(body_for_index)
+        local stride = tonumber(self.step) or 1
+        if self.order == Stencil.StencilProducerBackward then
+            return { descending_loop_i(stride, function(i) return body_for_index(i, stencil_loop_scope(self, i, { i })) end) }
         end
-        if producer.kind == "range_nd" or producer.kind == "window_nd" then return range_nd_loop(producer, body_for_index) end
-        if producer.kind == "tiled_nd" then return tiled_nd_loop(producer, body_for_index) end
-        error("stencil_c: unsupported producer loop " .. tostring(producer.kind), 3)
+        return { loop_i(stride, body_for_index(cn("i"), stencil_loop_scope(self, cn("i"), { cn("i") }))) }
+    end
+    function Stencil.StencilProduceRangeND:stencil_c_loop(body_for_index)
+        return range_nd_loop(self, body_for_index)
+    end
+    function Stencil.StencilProduceWindowND:stencil_c_loop(body_for_index)
+        return range_nd_loop(self, body_for_index)
+    end
+    function Stencil.StencilProduceTiledND:stencil_c_loop(body_for_index)
+        return tiled_nd_loop(self, body_for_index)
+    end
+
+    local function producer_loop(producer_shape, body_for_index)
+        return producer_shape:stencil_c_loop(body_for_index)
     end
 
     local function axis_set_map(axes)
@@ -294,8 +330,8 @@ local function bind_context(T)
         local axis = producer.axes[axis_index]
         local iv = LLBL.N["__ml_axis" .. tostring(axis_index)]
         return C.for_ {
-            C.decl[iv][C.i32](cn(axis.start_param)),
-            C.lt (cn(iv))(cn(axis.stop_param)),
+            C.decl[iv][C.i32](cn(producer_axis_start_param(axis_index))),
+            C.lt (cn(iv))(cn(producer_axis_stop_param(axis_index))),
             C.assign(cn(iv), cn(iv) + (tonumber(axis.step) or 1))
         } {
             _(body),
@@ -322,7 +358,7 @@ local function bind_context(T)
         for axis_index, axis in ipairs(producer.axes or {}) do
             if keep[axis_index] then
                 local iv = cn("__ml_axis" .. tostring(axis_index))
-                local offset = iv - cn(axis.start_param)
+                local offset = iv - cn(producer_axis_start_param(axis_index))
                 local step = tonumber(axis.step) or 1
                 if step ~= 1 then offset = offset / step end
                 if linear == nil then
@@ -597,66 +633,88 @@ local function bind_context(T)
         error("stencil_c: AffineND layout currently requires constant coefficients", 3)
     end
 
-    local function access_offset_c_expr(access, index, access_by_name, ctx)
-        local top = access.layout
-        local cls = asdl.classof(top)
-        if cls == Stencil.StencilLayoutFieldProjection then
-            return access_offset_c_expr({ layout = top.parent, name = access.name }, index, access_by_name, ctx)
-        end
-        if cls == Stencil.StencilLayoutSoAComponent then
-            return access_offset_c_expr({ layout = top.parent, name = access.name }, index, access_by_name, ctx)
-        end
-        if cls == Stencil.StencilLayoutIndexed then
-            local index_name = top.index.name
-            local index_access = access_by_name and access_by_name[index_name] or { layout = Stencil.StencilLayoutContiguous(1), name = index_name }
-            local idx = access_c_expr(index_access, index_name, index, access_by_name, ctx)
-            local stride = tonumber(top.stride) or 1
-            local logical = stride == 1 and idx or idx * stride
-            return access_offset_c_expr({ layout = top.parent, name = access.name }, logical, access_by_name, ctx)
-        end
-        if cls == Stencil.StencilLayoutAffine1D then
-            local scale = tonumber(top.scale) or 1
-            local offset = top.offset ~= nil and cn(affine_offset_param_name(access)) or 0
-            local logical = scale == 1 and (offset + index) or (offset + index * scale)
-            return access_offset_c_expr({ layout = top.parent, name = access.name }, logical, access_by_name, ctx)
-        end
-        if cls == Stencil.StencilLayoutAffineND then
-            if ctx == nil or ctx.axis_values == nil then error("stencil_c: AffineND layout requires producer loop context", 3) end
-            local logical = top.offset ~= nil and cn(affine_offset_param_name(access)) or 0
-            for _, term in ipairs(top.terms or {}) do
-                local axis_value = assert(ctx.axis_values[term.axis.index], "stencil_c: missing AffineND axis value")
-                logical = logical + axis_value * value_expr_c_expr(term.coeff)
-            end
-            return access_offset_c_expr({ layout = top.parent, name = access.name }, logical, access_by_name, ctx)
-        end
-        if cls == Stencil.StencilLayoutViewDescriptor then
-            local stride = top.stride_const or cn(stride_param_name(access))
-            if tonumber(stride) == 1 then return index end
-            return index * stride
-        end
+    local access_offset_c_expr
+    function Stencil.StencilAccessLayout:stencil_c_is_scalar_layout()
+        return false
+    end
+    function Stencil.StencilLayoutScalar:stencil_c_is_scalar_layout()
+        return true
+    end
+    function Stencil.StencilAccessLayout:stencil_c_offset(access, index, access_by_name, loop_scope)
         return index
     end
-
-    access_c_expr = function(access, base, index, access_by_name, ctx)
-        local base_expr = cn(base)
-        local top = access.layout
-        if asdl.classof(top) == Stencil.StencilLayoutFieldProjection then
-            return base_expr[access_offset_c_expr({ layout = top.parent, name = access.name }, index, access_by_name, ctx)][sanitize(top.field_name)]
+    function Stencil.StencilLayoutFieldProjection:stencil_c_offset(access, index, access_by_name, loop_scope)
+        return access_offset_c_expr({ layout = self.parent, name = access.name }, index, access_by_name, loop_scope)
+    end
+    function Stencil.StencilLayoutSoAComponent:stencil_c_offset(access, index, access_by_name, loop_scope)
+        return access_offset_c_expr({ layout = self.parent, name = access.name }, index, access_by_name, loop_scope)
+    end
+    function Stencil.StencilLayoutIndexed:stencil_c_offset(access, index, access_by_name, loop_scope)
+        local index_name = self.index.name
+        local index_access = access_by_name and access_by_name[index_name] or { layout = Stencil.StencilLayoutContiguous(1), name = index_name }
+        local idx = access_c_expr(index_access, index_name, index, access_by_name, loop_scope)
+        local stride = tonumber(self.stride) or 1
+        local logical = stride == 1 and idx or idx * stride
+        return access_offset_c_expr({ layout = self.parent, name = access.name }, logical, access_by_name, loop_scope)
+    end
+    function Stencil.StencilLayoutAffine1D:stencil_c_offset(access, index, access_by_name, loop_scope)
+        local scale = tonumber(self.scale) or 1
+        local offset = self.offset ~= nil and cn(affine_offset_param_name(access)) or 0
+        local logical = scale == 1 and (offset + index) or (offset + index * scale)
+        return access_offset_c_expr({ layout = self.parent, name = access.name }, logical, access_by_name, loop_scope)
+    end
+    function Stencil.StencilLayoutAffineND:stencil_c_offset(access, index, access_by_name, loop_scope)
+        if loop_scope == nil or loop_scope.axis_values == nil then error("stencil_c: AffineND layout requires producer loop context", 3) end
+        local logical = self.offset ~= nil and cn(affine_offset_param_name(access)) or 0
+        for _, term in ipairs(self.terms or {}) do
+            local axis_value = assert(loop_scope.axis_values[term.axis.index], "stencil_c: missing AffineND axis value")
+            logical = logical + axis_value * value_expr_c_expr(term.coeff)
         end
-        return base_expr[access_offset_c_expr(access, index, access_by_name, ctx)]
+        return access_offset_c_expr({ layout = self.parent, name = access.name }, logical, access_by_name, loop_scope)
+    end
+    function Stencil.StencilLayoutViewDescriptor:stencil_c_offset(access, index, access_by_name, loop_scope)
+        local stride = self.stride_const or cn(stride_param_name(access))
+        if tonumber(stride) == 1 then return index end
+        return index * stride
+    end
+
+    access_offset_c_expr = function(access, index, access_by_name, loop_scope)
+        return access.layout:stencil_c_offset(access, index, access_by_name, loop_scope)
+    end
+
+    function Stencil.StencilAccessLayout:stencil_c_access_expr(access, base, index, access_by_name, loop_scope)
+        return cn(base)[access_offset_c_expr(access, index, access_by_name, loop_scope)]
+    end
+    function Stencil.StencilLayoutFieldProjection:stencil_c_access_expr(access, base, index, access_by_name, loop_scope)
+        return cn(base)[access_offset_c_expr({ layout = self.parent, name = access.name }, index, access_by_name, loop_scope)][sanitize(self.field_name)]
+    end
+
+    access_c_expr = function(access, base, index, access_by_name, loop_scope)
+        return access.layout:stencil_c_access_expr(access, base, index, access_by_name, loop_scope)
+    end
+
+    function Stencil.StencilAccessLayout:stencil_c_field_layout_for_param()
+        return nil
+    end
+    function Stencil.StencilLayoutFieldProjection:stencil_c_field_layout_for_param()
+        return self
+    end
+    function Stencil.StencilLayoutIndexed:stencil_c_field_layout_for_param()
+        return self.parent:stencil_c_field_layout_for_param()
+    end
+    function Stencil.StencilLayoutAffine1D:stencil_c_field_layout_for_param()
+        return self.parent:stencil_c_field_layout_for_param()
+    end
+    function Stencil.StencilLayoutAffineND:stencil_c_field_layout_for_param()
+        return self.parent:stencil_c_field_layout_for_param()
     end
 
     local function field_layout_for_param(layout)
-        local cls = asdl.classof(layout)
-        if cls == Stencil.StencilLayoutFieldProjection then return layout end
-        if cls == Stencil.StencilLayoutIndexed then return field_layout_for_param(layout.parent) end
-        if cls == Stencil.StencilLayoutAffine1D then return field_layout_for_param(layout.parent) end
-        if cls == Stencil.StencilLayoutAffineND then return field_layout_for_param(layout.parent) end
-        return nil
+        return layout:stencil_c_field_layout_for_param()
     end
 
     local function c_access_param_type_node(access, mutable, artifact)
-        if asdl.classof(access.layout) == Stencil.StencilLayoutScalar then return c_type_node(access.ty) end
+        if access.layout:stencil_c_is_scalar_layout() then return c_type_node(access.ty) end
         local field = field_layout_for_param(access.layout)
         local base_ty = field and field.record_ty or access.ty
         local ptr_ty = mutable and C.ptr[c_type_node(base_ty)] or C.ptr[C.const[c_type_node(base_ty)]]
@@ -745,9 +803,10 @@ local function bind_context(T)
         return out
     end
 
-    local function axis_last_coord(axis)
+    local function axis_last_coord(producer, axis_index)
+        local axis = producer.axes[axis_index]
         local step = tonumber(axis.step) or 1
-        return cn(axis.start_param) + (((cn(axis.stop_param) - cn(axis.start_param)) - 1) / step) * step
+        return cn(producer_axis_start_param(axis_index)) + (((cn(producer_axis_stop_param(axis_index)) - cn(producer_axis_start_param(axis_index))) - 1) / step) * step
     end
 
     function window_axis_coord(producer, axis_index, base_coord, offset)
@@ -755,21 +814,34 @@ local function bind_context(T)
         local window = producer.windows[axis_index]
         local step = tonumber(axis.step) or 1
         local raw = base_coord + offset * step
-        local in_bounds = C.land (C.ge (raw)(cn(axis.start_param)))(C.lt (raw)(cn(axis.stop_param)))
+        local in_bounds = C.land (C.ge (raw)(cn(producer_axis_start_param(axis_index))))(C.lt (raw)(cn(producer_axis_stop_param(axis_index))))
         if window.boundary == Stencil.StencilWindowBoundaryClamp then
-            return C.select (C.lt (raw)(cn(axis.start_param)))(cn(axis.start_param))(C.select (C.ge (raw)(cn(axis.stop_param)))(axis_last_coord(axis))(raw)), nil
+            return C.select (C.lt (raw)(cn(producer_axis_start_param(axis_index))))(cn(producer_axis_start_param(axis_index)))(C.select (C.ge (raw)(cn(producer_axis_stop_param(axis_index))))(axis_last_coord(producer, axis_index))(raw)), nil
         end
         if window.boundary == Stencil.StencilWindowBoundaryWrap then
             local extent = cn("__ml_extent" .. tostring(axis_index))
-            local logical = ((base_coord - cn(axis.start_param)) / step) + offset
+            local logical = ((base_coord - cn(producer_axis_start_param(axis_index))) / step) + offset
             local wrapped = ((logical % extent) + extent) % extent
-            return cn(axis.start_param) + wrapped * step, nil
+            return cn(producer_axis_start_param(axis_index)) + wrapped * step, nil
         end
         return raw, in_bounds
     end
 
-    local function c_window_input_expr(expr, desc, access_by_name, ctx)
-        if ctx == nil or ctx.producer == nil or ctx.producer.kind ~= "window_nd" then
+    function Stencil.StencilProducerShape:stencil_c_is_window_nd()
+        return false
+    end
+    function Stencil.StencilProduceWindowND:stencil_c_is_window_nd()
+        return true
+    end
+    function Stencil.StencilProducerShape:stencil_c_is_range1d()
+        return false
+    end
+    function Stencil.StencilProduceRange1D:stencil_c_is_range1d()
+        return true
+    end
+
+    local function c_window_input_expr(expr, desc, access_by_name, loop_scope)
+        if loop_scope == nil or loop_scope.producer == nil or not loop_scope.producer:stencil_c_is_window_nd() then
             error("stencil_c: window-relative point input requires a WindowND producer context", 3)
         end
         local name = expr.access.name
@@ -777,18 +849,18 @@ local function bind_context(T)
         local offsets = window_offset_by_axis(expr.offsets)
         local coords = {}
         local bounds = {}
-        for axis_index = 1, #(ctx.producer.axes or {}) do
-            local coord, in_bounds = window_axis_coord(ctx.producer, axis_index, ctx.axis_values[axis_index], offsets[axis_index] or 0)
+        for axis_index = 1, #(loop_scope.producer.axes or {}) do
+            local coord, in_bounds = window_axis_coord(loop_scope.producer, axis_index, loop_scope.axis_values[axis_index], offsets[axis_index] or 0)
             coords[axis_index] = coord
             if in_bounds ~= nil then bounds[#bounds + 1] = in_bounds end
         end
-        local index = range_nd_linear_index_from_coords(ctx.producer, coords)
-        local value = access_c_expr(access, name, index, access_by_name, ctx)
+        local index = range_nd_linear_index_from_coords(loop_scope.producer, coords)
+        local value = access_c_expr(access, name, index, access_by_name, loop_scope)
         if #bounds == 0 then return value end
         local in_bounds = all_c_node(bounds)
         local has_zero = false
         local has_reject = false
-        for _, window in ipairs(ctx.producer.windows or {}) do
+        for _, window in ipairs(loop_scope.producer.windows or {}) do
             has_zero = has_zero or window.boundary == Stencil.StencilWindowBoundaryZero
             has_reject = has_reject or window.boundary == Stencil.StencilWindowBoundaryReject
         end
@@ -872,61 +944,67 @@ local function bind_context(T)
         return c_cast(ty, const_literal_value(value))
     end
 
-    local function c_point_expr(expr, desc, access_by_name, index, ctx)
-        local cls = asdl.classof(expr)
-        if cls == Stencil.StencilPointInput then
-            local name = expr.access.name
-            local access = access_by_name[name] or access_named(desc, name)
-            if asdl.classof(access.layout) == Stencil.StencilLayoutScalar then return cn(name) end
-            return access_c_expr(access, name, index, access_by_name, ctx)
-        end
-        if cls == Stencil.StencilPointWindowInput then
-            return c_window_input_expr(expr, desc, access_by_name, ctx)
-        end
-        if cls == Stencil.StencilPointConst then return c_value_const_expr(expr.value, expr.ty) end
-        if cls == Stencil.StencilPointUnary then
-            local result_ty = assert(expr.result_ty, "stencil_c: generic unary apply requires result_ty")
-            local arg = c_point_expr(expr.arg, desc, access_by_name, index, ctx)
-            if expr.op == Stencil.StencilUnaryIdentity then return c_cast(result_ty, arg) end
-            if expr.op == Stencil.StencilUnaryNeg then return c_cast(result_ty, C.cast[c_unsigned_type_node(result_ty)](0) - c_unsigned_cast(result_ty, arg)) end
-            if expr.op == Stencil.StencilUnaryBitNot then return c_cast(result_ty, C.bnot(c_unsigned_cast(result_ty, arg))) end
-            if expr.op == Stencil.StencilUnaryBoolNot then return c_cast(result_ty, C.not_(arg)) end
-            error("stencil_c: unsupported generic unary apply " .. unary_name(expr.op), 3)
-        end
-        if cls == Stencil.StencilPointBinary then
-            return c_binary_expr(
-                expr.op,
-                c_point_expr(expr.left, desc, access_by_name, index, ctx),
-                c_point_expr(expr.right, desc, access_by_name, index, ctx),
-                assert(expr.result_ty, "stencil_c: generic binary apply requires result_ty"),
-                expr.int_semantics,
-                expr.float_mode
-            )
-        end
-        if cls == Stencil.StencilPointCast then
-            if expr.op == Core.MachineCastBitcast then error("stencil_c: generic point bitcast requires a dedicated lowering", 3) end
-            return c_cast(expr.to, c_point_expr(expr.arg, desc, access_by_name, index, ctx))
-        end
-        if cls == Stencil.StencilPointPredicate then
-            return c_cast(expr.result_ty, c_predicate_expr(expr.pred, c_point_expr(expr.arg, desc, access_by_name, index, ctx)))
-        end
-        if cls == Stencil.StencilPointCompare then
-            return c_cast(
-                expr.result_ty,
-                c_compare_expr(
-                    expr.cmp,
-                    c_point_expr(expr.left, desc, access_by_name, index, ctx),
-                    c_point_expr(expr.right, desc, access_by_name, index, ctx)
-                )
-            )
-        end
-        if cls == Stencil.StencilPointSelect then
-            return c_cast(
-                expr.result_ty,
-                C.select (c_predicate_expr(expr.pred, c_point_expr(expr.cond, desc, access_by_name, index, ctx)))(c_point_expr(expr.then_expr, desc, access_by_name, index, ctx))(c_point_expr(expr.else_expr, desc, access_by_name, index, ctx))
-            )
-        end
+    local c_point_expr
+    function Stencil.StencilPointExpr:stencil_c_expr(desc, access_by_name, index, loop_scope)
         error("stencil_c: unsupported generic point expression", 3)
+    end
+    function Stencil.StencilPointInput:stencil_c_expr(desc, access_by_name, index, loop_scope)
+        local name = self.access.name
+        local access = access_by_name[name] or access_named(desc, name)
+        if access.layout:stencil_c_is_scalar_layout() then return cn(name) end
+        return access_c_expr(access, name, index, access_by_name, loop_scope)
+    end
+    function Stencil.StencilPointWindowInput:stencil_c_expr(desc, access_by_name, index, loop_scope)
+        return c_window_input_expr(self, desc, access_by_name, loop_scope)
+    end
+    function Stencil.StencilPointConst:stencil_c_expr(desc, access_by_name, index, loop_scope)
+        return c_value_const_expr(self.value, self.ty)
+    end
+    function Stencil.StencilPointUnary:stencil_c_expr(desc, access_by_name, index, loop_scope)
+        local result_ty = assert(self.result_ty, "stencil_c: generic unary apply requires result_ty")
+        local arg = c_point_expr(self.arg, desc, access_by_name, index, loop_scope)
+        if self.op == Stencil.StencilUnaryIdentity then return c_cast(result_ty, arg) end
+        if self.op == Stencil.StencilUnaryNeg then return c_cast(result_ty, C.cast[c_unsigned_type_node(result_ty)](0) - c_unsigned_cast(result_ty, arg)) end
+        if self.op == Stencil.StencilUnaryBitNot then return c_cast(result_ty, C.bnot(c_unsigned_cast(result_ty, arg))) end
+        if self.op == Stencil.StencilUnaryBoolNot then return c_cast(result_ty, C.not_(arg)) end
+        error("stencil_c: unsupported generic unary apply " .. unary_name(self.op), 3)
+    end
+    function Stencil.StencilPointBinary:stencil_c_expr(desc, access_by_name, index, loop_scope)
+        return c_binary_expr(
+            self.op,
+            c_point_expr(self.left, desc, access_by_name, index, loop_scope),
+            c_point_expr(self.right, desc, access_by_name, index, loop_scope),
+            assert(self.result_ty, "stencil_c: generic binary apply requires result_ty"),
+            self.int_semantics,
+            self.float_mode
+        )
+    end
+    function Stencil.StencilPointCast:stencil_c_expr(desc, access_by_name, index, loop_scope)
+        if self.op == Core.MachineCastBitcast then error("stencil_c: generic point bitcast requires a dedicated lowering", 3) end
+        return c_cast(self.to, c_point_expr(self.arg, desc, access_by_name, index, loop_scope))
+    end
+    function Stencil.StencilPointPredicate:stencil_c_expr(desc, access_by_name, index, loop_scope)
+        return c_cast(self.result_ty, c_predicate_expr(self.pred, c_point_expr(self.arg, desc, access_by_name, index, loop_scope)))
+    end
+    function Stencil.StencilPointCompare:stencil_c_expr(desc, access_by_name, index, loop_scope)
+        return c_cast(
+            self.result_ty,
+            c_compare_expr(
+                self.cmp,
+                c_point_expr(self.left, desc, access_by_name, index, loop_scope),
+                c_point_expr(self.right, desc, access_by_name, index, loop_scope)
+            )
+        )
+    end
+    function Stencil.StencilPointSelect:stencil_c_expr(desc, access_by_name, index, loop_scope)
+        return c_cast(
+            self.result_ty,
+            C.select (c_predicate_expr(self.pred, c_point_expr(self.cond, desc, access_by_name, index, loop_scope)))(c_point_expr(self.then_expr, desc, access_by_name, index, loop_scope))(c_point_expr(self.else_expr, desc, access_by_name, index, loop_scope))
+        )
+    end
+
+    c_point_expr = function(expr, desc, access_by_name, index, loop_scope)
+        return expr:stencil_c_expr(desc, access_by_name, index, loop_scope)
     end
 
     local function c_reduction_update_expr(kind, acc, item, ty)
@@ -943,6 +1021,7 @@ local function bind_context(T)
     local function store_n_decl(artifact)
         local shape = artifact_shape(artifact)
         local desc = artifact.instance.descriptor
+        local producer_shape = desc.producer.shape
         local dst_name = shape.dst_name or "dst"
         local dst_access = access_named(desc, dst_name)
         local access_by_name = {}
@@ -953,14 +1032,14 @@ local function bind_context(T)
         local scalar_params = {}
         for _, access in ipairs(shape.inputs or {}) do
             if access.name ~= dst_name then
-                if asdl.classof(access.layout) == Stencil.StencilLayoutScalar then
+                if access.layout:stencil_c_is_scalar_layout() then
                     scalar_params[#scalar_params + 1] = structured_param(access.name, c_access_param_type_node(access, false, artifact))
                 else
                     params[#params + 1] = structured_param(access.name, c_access_param_type_node(access, false, artifact))
                 end
             end
         end
-        append_producer_param_structs(params, shape.producer)
+        append_producer_param_structs(params, producer_shape)
         for i = 1, #scalar_params do params[#params + 1] = scalar_params[i] end
         for _, access in ipairs(dynamic_stride_accesses(desc)) do
             params[#params + 1] = structured_param(stride_param_name(access), C.i32)
@@ -968,11 +1047,11 @@ local function bind_context(T)
         for _, access in ipairs(dynamic_affine_offset_accesses(desc)) do
             params[#params + 1] = structured_param(affine_offset_param_name(access), C.i32)
         end
-        local function assign_stmts(i, ctx)
+        local function assign_stmts(i, loop_scope)
             return {
                 C.assign(
-                    access_c_expr(dst_access, dst_name, i, access_by_name, ctx),
-                    c_point_expr(shape.expr, desc, access_by_name, i, ctx)
+                    access_c_expr(dst_access, dst_name, i, access_by_name, loop_scope),
+                    c_point_expr(shape.expr, desc, access_by_name, i, loop_scope)
                 ),
             }
         end
@@ -986,9 +1065,9 @@ local function bind_context(T)
         local copy_src_name = copy_input_name()
         local copy_semantics = asdl.classof(shape.store_mode) == Stencil.StencilStoreCopy and shape.store_mode.semantics or nil
         local name = LLBL.N[artifact.symbol.text]
-        if copy_src_name ~= nil and shape.producer.kind == "range1d" and (copy_semantics == Stencil.StencilCopyMemMove or copy_semantics == Stencil.StencilCopyMayOverlapBackward) then
-            local forward_body = producer_loop(shape.producer, assign_stmts)
-            local backward_body = { reverse_loop_i(shape.stride or 1, function(i) return assign_stmts(i, loop_ctx(shape.producer, i, { i })) end) }
+        if copy_src_name ~= nil and producer_shape:stencil_c_is_range1d() and (copy_semantics == Stencil.StencilCopyMemMove or copy_semantics == Stencil.StencilCopyMayOverlapBackward) then
+            local forward_body = producer_loop(producer_shape, assign_stmts)
+            local backward_body = { reverse_loop_i(shape.stride or 1, function(i) return assign_stmts(i, stencil_loop_scope(producer_shape, i, { i })) end) }
             return C.fn[name] { _(param_fragment(params)) } [C.void] {
                 _(assume_aligned_stmts(artifact, pointer_access_names(artifact))),
                 _(copy_semantics == Stencil.StencilCopyMayOverlapBackward and backward_body or {
@@ -1002,8 +1081,8 @@ local function bind_context(T)
         end
         return C.fn[name] { _(param_fragment(params)) } [C.void] {
             _(assume_aligned_stmts(artifact, pointer_access_names(artifact))),
-            _(producer_loop(shape.producer, function(i, ctx)
-                return assign_stmts(i, ctx)
+            _(producer_loop(producer_shape, function(i, loop_scope)
+                return assign_stmts(i, loop_scope)
             end)),
         }
     end
@@ -1011,6 +1090,7 @@ local function bind_context(T)
     local function reduce_n_decl(artifact)
         local shape = artifact_shape(artifact)
         local desc = artifact.instance.descriptor
+        local producer_shape = desc.producer.shape
         local access_by_name = {}
         for _, access in ipairs(descriptor_accesses(desc)) do access_by_name[access.name] = access end
         local result_ty = c_type(shape.result_ty)
@@ -1024,7 +1104,7 @@ local function bind_context(T)
         for _, access in ipairs(shape.inputs or {}) do
             params[#params + 1] = structured_param(access.name, c_access_param_type_node(access, false, artifact))
         end
-        append_producer_param_structs(params, shape.producer)
+        append_producer_param_structs(params, producer_shape)
         if shape.scope_kind == nil or shape.scope_kind == "domain" and shape.external_init ~= false then
             params[#params + 1] = structured_param("init", c_type_node(shape.result_ty))
         end
@@ -1037,49 +1117,49 @@ local function bind_context(T)
         local name = LLBL.N[artifact.symbol.text]
         if shape.scope_kind == "axes" then
             local reduce_axes = axis_set_map(shape.axes)
-            local kept_axes = axis_indices(shape.producer, function(axis_index) return not reduce_axes[axis_index] end)
-            local folded_axes = axis_indices(shape.producer, function(axis_index) return reduce_axes[axis_index] end)
+            local kept_axes = axis_indices(producer_shape, function(axis_index) return not reduce_axes[axis_index] end)
+            local folded_axes = axis_indices(producer_shape, function(axis_index) return reduce_axes[axis_index] end)
             local function folded_body()
-                local idx = range_nd_linear_index(shape.producer)
-                local ctx = loop_ctx(shape.producer, idx, current_axis_values(shape.producer))
+                local idx = range_nd_linear_index(producer_shape)
+                local loop_scope = stencil_loop_scope(producer_shape, idx, current_axis_values(producer_shape))
                 return {
                     C.assign(
                         cn("acc"),
                         c_reduction_update_expr(
                             shape.reduction,
                             cn("acc"),
-                            c_point_expr(shape.expr, desc, access_by_name, idx, ctx),
+                            c_point_expr(shape.expr, desc, access_by_name, idx, loop_scope),
                             shape.result_ty
                         )
                     ),
                 }
             end
             local function outer_body()
-                local out_idx = subset_linear_index(shape.producer, kept_axes)
+                local out_idx = subset_linear_index(producer_shape, kept_axes)
                 local body = {
                     C.decl. acc[acc_type_node](C.cast[acc_type_node](c_value_const_expr(shape.identity, shape.result_ty))),
-                    _(nest_axis_loops(shape.producer, folded_axes, folded_body)),
+                    _(nest_axis_loops(producer_shape, folded_axes, folded_body)),
                     C.assign(access_c_expr(dst_access, shape.dst_name, out_idx, access_by_name), c_cast(shape.result_ty, cn("acc"))),
                 }
                 return body
             end
             return C.fn[name] { _(param_fragment(params)) } [C.void] {
                 _(assume_aligned_stmts(artifact, pointer_access_names(artifact))),
-                _(nd_axis_extents(shape.producer)),
-                _(nest_axis_loops(shape.producer, kept_axes, outer_body)),
+                _(nd_axis_extents(producer_shape)),
+                _(nest_axis_loops(producer_shape, kept_axes, outer_body)),
             }
         end
         if shape.scope_kind == "window" then
-            local reduce_axes = axis_indices(shape.producer, function(axis_index)
+            local reduce_axes = axis_indices(producer_shape, function(axis_index)
                 local reduce = axis_set_map(shape.axes)
                 return reduce[axis_index]
             end)
-            local has_zero, has_reject = window_boundary_flags(shape.producer)
+            local has_zero, has_reject = window_boundary_flags(producer_shape)
             local function window_update_body(offsets)
-                local coords, bounds = window_coords_with_offsets(shape.producer, offsets)
-                local idx = range_nd_linear_index_from_coords(shape.producer, coords)
-                local ctx = loop_ctx(shape.producer, idx, coords)
-                local item = c_point_expr(shape.expr, desc, access_by_name, idx, ctx)
+                local coords, bounds = window_coords_with_offsets(producer_shape, offsets)
+                local idx = range_nd_linear_index_from_coords(producer_shape, coords)
+                local loop_scope = stencil_loop_scope(producer_shape, idx, coords)
+                local item = c_point_expr(shape.expr, desc, access_by_name, idx, loop_scope)
                 local prefix = {}
                 if #bounds > 0 then
                     local in_bounds = all_c_node(bounds)
@@ -1098,10 +1178,10 @@ local function bind_context(T)
             end
             return C.fn[name] { _(param_fragment(params)) } [C.void] {
                 _(assume_aligned_stmts(artifact, pointer_access_names(artifact))),
-                _(producer_loop(shape.producer, function(i, ctx)
+                _(producer_loop(producer_shape, function(i, loop_scope)
                     return {
                         C.decl. acc[acc_type_node](C.cast[acc_type_node](c_value_const_expr(shape.identity, shape.result_ty))),
-                        _(nest_window_offset_loops(shape.producer, reduce_axes, window_update_body)),
+                        _(nest_window_offset_loops(producer_shape, reduce_axes, window_update_body)),
                         C.assign(access_c_expr(dst_access, shape.dst_name, i, access_by_name), c_cast(shape.result_ty, cn("acc"))),
                     }
                 end)),
@@ -1111,14 +1191,14 @@ local function bind_context(T)
         return C.fn[name] { _(param_fragment(params)) } [C.type[result_ty]] {
             _(assume_aligned_stmts(artifact, pointer_access_names(artifact))),
             C.decl. acc[acc_type_node](C.cast[acc_type_node](init_value)),
-            _(producer_loop(shape.producer, function(i, ctx)
+            _(producer_loop(producer_shape, function(i, loop_scope)
                 return {
                     C.assign(
                         cn("acc"),
                         c_reduction_update_expr(
                             shape.reduction,
                             cn("acc"),
-                            c_point_expr(shape.expr, desc, access_by_name, i, ctx),
+                            c_point_expr(shape.expr, desc, access_by_name, i, loop_scope),
                             shape.result_ty
                         )
                     ),
@@ -1131,6 +1211,7 @@ local function bind_context(T)
     local function scan_n_decl(artifact)
         local shape = artifact_shape(artifact)
         local desc = artifact.instance.descriptor
+        local producer_shape = desc.producer.shape
         local dst_access = access_named(desc, "dst")
         local access_by_name = {}
         for _, access in ipairs(descriptor_accesses(desc)) do access_by_name[access.name] = access end
@@ -1142,7 +1223,7 @@ local function bind_context(T)
         for _, access in ipairs(shape.inputs or {}) do
             params[#params + 1] = structured_param(access.name, c_access_param_type_node(access, false, artifact))
         end
-        append_producer_param_structs(params, shape.producer)
+        append_producer_param_structs(params, producer_shape)
         params[#params + 1] = structured_param("init", c_type_node(shape.result_ty))
         for _, access in ipairs(dynamic_stride_accesses(desc)) do
             params[#params + 1] = structured_param(stride_param_name(access), C.i32)
@@ -1151,13 +1232,13 @@ local function bind_context(T)
             params[#params + 1] = structured_param(affine_offset_param_name(access), C.i32)
         end
         local name = LLBL.N[artifact.symbol.text]
-        if shape.producer.kind ~= "range1d" then
+        if not producer_shape:stencil_c_is_range1d() then
             local scan_axis = tonumber(shape.axis.index)
-            local outer_axes = axis_indices(shape.producer, function(axis_index) return axis_index ~= scan_axis end)
+            local outer_axes = axis_indices(producer_shape, function(axis_index) return axis_index ~= scan_axis end)
             local function scan_line_body()
                 local i = cn("__ml_i")
-                local ctx = loop_ctx(shape.producer, i, current_axis_values(shape.producer))
-                local item = c_point_expr(shape.expr, desc, access_by_name, i, ctx)
+                local loop_scope = stencil_loop_scope(producer_shape, i, current_axis_values(producer_shape))
+                local item = c_point_expr(shape.expr, desc, access_by_name, i, loop_scope)
                 local scan_stmts
                 if shape.mode == Stencil.StencilScanExclusive then
                     scan_stmts = {
@@ -1172,24 +1253,24 @@ local function bind_context(T)
                 end
                 return {
                     C.decl. acc[acc_type_node](C.cast[acc_type_node](cn("init"))),
-                    axis_loop_stmt(shape.producer, scan_axis, {
-                        C.decl. __ml_i[C.i32](range_nd_linear_index(shape.producer)),
+                    axis_loop_stmt(producer_shape, scan_axis, {
+                        C.decl. __ml_i[C.i32](range_nd_linear_index(producer_shape)),
                         _(scan_stmts),
                     }),
                 }
             end
             return C.fn[name] { _(param_fragment(params)) } [C.type[result_ty]] {
                 _(assume_aligned_stmts(artifact, pointer_access_names(artifact))),
-                _(nd_axis_extents(shape.producer)),
-                _(nest_axis_loops(shape.producer, outer_axes, scan_line_body)),
+                _(nd_axis_extents(producer_shape)),
+                _(nest_axis_loops(producer_shape, outer_axes, scan_line_body)),
                 C.return_(c_cast(shape.result_ty, 0)),
             }
         end
         return C.fn[name] { _(param_fragment(params)) } [C.type[result_ty]] {
             _(assume_aligned_stmts(artifact, pointer_access_names(artifact))),
             C.decl. acc[acc_type_node](C.cast[acc_type_node](cn("init"))),
-            _(producer_loop(shape.producer, function(i, ctx)
-                local item = c_point_expr(shape.expr, desc, access_by_name, i, ctx)
+            _(producer_loop(producer_shape, function(i, loop_scope)
+                local item = c_point_expr(shape.expr, desc, access_by_name, i, loop_scope)
                 if shape.mode == Stencil.StencilScanExclusive then
                     return {
                         C.assign(access_c_expr(dst_access, "dst", i, access_by_name), c_cast(shape.result_ty, cn("acc"))),
@@ -1211,6 +1292,7 @@ local function bind_context(T)
             error("stencil_c: unsupported scatter-reduce conflict semantics", 3)
         end
         local desc = artifact.instance.descriptor
+        local producer_shape = desc.producer.shape
         local dst_name = shape.dst_name or "dst"
         local dst_access = access_named(desc, dst_name)
         local access_by_name = {}
@@ -1219,11 +1301,11 @@ local function bind_context(T)
             structured_param(dst_name, c_access_param_type_node(dst_access, true, artifact)),
         }
         for _, access in ipairs(descriptor_accesses(desc)) do
-            if access.name ~= dst_name and asdl.classof(access.layout) ~= Stencil.StencilLayoutScalar then
+            if access.name ~= dst_name and not access.layout:stencil_c_is_scalar_layout() then
                 params[#params + 1] = structured_param(access.name, c_access_param_type_node(access, false, artifact))
             end
         end
-        append_producer_param_structs(params, shape.producer)
+        append_producer_param_structs(params, producer_shape)
         for _, access in ipairs(dynamic_stride_accesses(desc)) do
             params[#params + 1] = structured_param(stride_param_name(access), C.i32)
         end
@@ -1233,7 +1315,7 @@ local function bind_context(T)
         local name = LLBL.N[artifact.symbol.text]
         return C.fn[name] { _(param_fragment(params)) } [C.void] {
             _(assume_aligned_stmts(artifact, pointer_access_names(artifact))),
-            _(producer_loop(shape.producer, function(i, ctx)
+            _(producer_loop(producer_shape, function(i, loop_scope)
                 local slot = access_c_expr(dst_access, dst_name, i, access_by_name)
                 return {
                     C.assign(
@@ -1241,7 +1323,7 @@ local function bind_context(T)
                         c_reduction_update_expr(
                             shape.reduction,
                             slot,
-                            c_point_expr(shape.expr, desc, access_by_name, i, ctx),
+                            c_point_expr(shape.expr, desc, access_by_name, i, loop_scope),
                             shape.result_ty
                         )
                     ),
@@ -1253,13 +1335,14 @@ local function bind_context(T)
     local function find_n_decl(artifact)
         local shape = artifact_shape(artifact)
         local desc = artifact.instance.descriptor
+        local producer_shape = desc.producer.shape
         local access_by_name = {}
         for _, access in ipairs(descriptor_accesses(desc)) do access_by_name[access.name] = access end
         local params = {}
         for _, access in ipairs(shape.inputs or {}) do
             params[#params + 1] = structured_param(access.name, c_access_param_type_node(access, false, artifact))
         end
-        append_producer_param_structs(params, shape.producer)
+        append_producer_param_structs(params, producer_shape)
         for _, access in ipairs(dynamic_stride_accesses(desc)) do
             params[#params + 1] = structured_param(stride_param_name(access), C.i32)
         end
@@ -1269,9 +1352,9 @@ local function bind_context(T)
         local name = LLBL.N[artifact.symbol.text]
         return C.fn[name] { _(param_fragment(params)) } [c_type_node(shape.result_ty)] {
             _(assume_aligned_stmts(artifact, pointer_access_names(artifact))),
-            _(producer_loop(shape.producer, function(i, ctx)
+            _(producer_loop(producer_shape, function(i, loop_scope)
                 return {
-                    C.if_(C.ne (c_point_expr(shape.expr, desc, access_by_name, i, ctx))(0)) {
+                    C.if_(C.ne (c_point_expr(shape.expr, desc, access_by_name, i, loop_scope))(0)) {
                         C.return_(c_cast(shape.result_ty, i)),
                     },
                 }
@@ -1283,6 +1366,7 @@ local function bind_context(T)
     local function partition_n_decl(artifact)
         local shape = artifact_shape(artifact)
         local desc = artifact.instance.descriptor
+        local producer_shape = desc.producer.shape
         local dst_name = shape.dst_name or "dst"
         local dst_access = access_named(desc, dst_name)
         local src_access = access_named(desc, "xs")
@@ -1296,30 +1380,30 @@ local function bind_context(T)
                 params[#params + 1] = structured_param(access.name, c_access_param_type_node(access, false, artifact))
             end
         end
-        append_producer_param_structs(params, shape.producer)
+        append_producer_param_structs(params, producer_shape)
         for _, access in ipairs(dynamic_stride_accesses(desc)) do
             params[#params + 1] = structured_param(stride_param_name(access), C.i32)
         end
         for _, access in ipairs(dynamic_affine_offset_accesses(desc)) do
             params[#params + 1] = structured_param(affine_offset_param_name(access), C.i32)
         end
-        local out_init = shape.producer.kind == "range1d" and cn("start") or 0
+        local out_init = producer_shape:stencil_c_is_range1d() and cn("start") or 0
         local name = LLBL.N[artifact.symbol.text]
         return C.fn[name] { _(param_fragment(params)) } [C.i32] {
             _(assume_aligned_stmts(artifact, pointer_access_names(artifact))),
             C.decl. out[C.i32](out_init),
-            _(producer_loop(shape.producer, function(i, ctx)
+            _(producer_loop(producer_shape, function(i, loop_scope)
                 return {
-                    C.if_(C.ne (c_point_expr(shape.expr, desc, access_by_name, i, ctx))(0)) {
+                    C.if_(C.ne (c_point_expr(shape.expr, desc, access_by_name, i, loop_scope))(0)) {
                         C.assign(access_c_expr(dst_access, dst_name, cn("out"), access_by_name), access_c_expr(src_access, "xs", i, access_by_name)),
                         C.assign(cn("out"), cn("out") + 1),
                     },
                 }
             end)),
             C.decl. split[C.i32](cn("out")),
-            _(producer_loop(shape.producer, function(i, ctx)
+            _(producer_loop(producer_shape, function(i, loop_scope)
                 return {
-                    C.if_(C.eq (c_point_expr(shape.expr, desc, access_by_name, i, ctx))(0)) {
+                    C.if_(C.eq (c_point_expr(shape.expr, desc, access_by_name, i, loop_scope))(0)) {
                         C.assign(access_c_expr(dst_access, dst_name, cn("out"), access_by_name), access_c_expr(src_access, "xs", i, access_by_name)),
                         C.assign(cn("out"), cn("out") + 1),
                     },
@@ -1329,15 +1413,48 @@ local function bind_context(T)
         }
     end
 
+    function Stencil.StencilDescriptor:stencil_c_artifact_decl(artifact)
+        return self.sink:stencil_c_sink_decl(artifact, self)
+    end
+
+    function Stencil.StencilSink:stencil_c_sink_decl(artifact, desc)
+        error("stencil_c: unsupported stencil sink", 3)
+    end
+    function Stencil.StencilSinkStore:stencil_c_sink_decl(artifact, desc)
+        return self.semantics:stencil_c_store_decl(artifact, self, desc)
+    end
+    function Stencil.StencilSinkReduce:stencil_c_sink_decl(artifact, desc)
+        return self.semantics:stencil_c_reduce_decl(artifact, self, desc)
+    end
+    function Stencil.StencilSinkScan:stencil_c_sink_decl(artifact, desc)
+        return scan_n_decl(artifact)
+    end
+    function Stencil.StencilSinkScatterReduce:stencil_c_sink_decl(artifact, desc)
+        return scatter_reduce_n_decl(artifact)
+    end
+
+    function Stencil.StencilStoreSemantics:stencil_c_store_decl(artifact, sink, desc)
+        return store_n_decl(artifact)
+    end
+    function Stencil.StencilStorePartition:stencil_c_store_decl(artifact, sink, desc)
+        return partition_n_decl(artifact)
+    end
+
+    function Stencil.StencilReductionSemantics:stencil_c_reduce_decl(artifact, sink, desc)
+        error("stencil_c: unsupported reduce sink semantics", 3)
+    end
+    function Stencil.StencilReduceFold:stencil_c_reduce_decl(artifact, sink, desc)
+        return reduce_n_decl(artifact)
+    end
+    function Stencil.StencilReduceCount:stencil_c_reduce_decl(artifact, sink, desc)
+        return reduce_n_decl(artifact)
+    end
+    function Stencil.StencilReduceFind:stencil_c_reduce_decl(artifact, sink, desc)
+        return find_n_decl(artifact)
+    end
+
     local function artifact_decl(artifact)
-        local kind = artifact_shape(artifact).kind
-        if kind == "store_n" then return store_n_decl(artifact) end
-        if kind == "reduce_n" then return reduce_n_decl(artifact) end
-        if kind == "scan_n" then return scan_n_decl(artifact) end
-        if kind == "scatter_reduce_n" then return scatter_reduce_n_decl(artifact) end
-        if kind == "find_n" then return find_n_decl(artifact) end
-        if kind == "partition_n" then return partition_n_decl(artifact) end
-        error("stencil_c: unsupported stencil shape", 3)
+        return artifact.instance.descriptor:stencil_c_artifact_decl(artifact)
     end
 
     function api.source(artifacts, opts)

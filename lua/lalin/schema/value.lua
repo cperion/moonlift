@@ -97,7 +97,7 @@ return schema. LalinValue {
       proof [LalinValue.AlgebraProof],
     },
   },
-  sum. ReductionKind {
+  sum. ReductionOp {
     ReductionAdd,
     ReductionMul,
     ReductionMin,
@@ -111,7 +111,7 @@ return schema. LalinValue {
     field. id [LalinValue.AlgebraFactId],
     domain [LalinFlow.FlowDomain],
     accumulator [LalinCode.CodeValueId],
-    kind [LalinValue.ReductionKind],
+    op [LalinValue.ReductionOp],
     init [LalinValue.ValueExpr],
     contribution [LalinValue.ValueExpr],
     field. ty [LalinCode.CodeType],
@@ -164,5 +164,31 @@ return schema. LalinValue {
     values [many [LalinValue.ValueFact]],
     reductions [many [LalinValue.ReductionFact]],
     closed_forms [many [LalinValue.ClosedFormFact]],
+  },
+  product. ValueExprByValueEntry {
+    interned,
+    value_name [str],
+    field. expr [LalinValue.ValueExpr],
+  },
+  product. ValueProofByValueEntry {
+    interned,
+    value_name [str],
+    proof [LalinValue.AlgebraProof],
+  },
+  product. ValueIntSemanticsByValueEntry {
+    interned,
+    value_name [str],
+    sem [LalinCode.CodeIntSemantics],
+  },
+  product. ValueFloatModeByValueEntry {
+    interned,
+    value_name [str],
+    mode [LalinCode.CodeFloatMode],
+  },
+  product. ValueFactProjection {
+    expr_by_value [many [LalinValue.ValueExprByValueEntry]],
+    proof_by_value [many [LalinValue.ValueProofByValueEntry]],
+    no_wrap_by_value [many [LalinValue.ValueIntSemanticsByValueEntry]],
+    float_mode_by_value [many [LalinValue.ValueFloatModeByValueEntry]],
   },
 }

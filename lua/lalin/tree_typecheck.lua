@@ -357,7 +357,7 @@ local function bind_context(T)
             binds[#binds + 1] = { name = "payload", ty = variant.payload }
         end
         for i = 1, #binds do
-            local b = B.Binding(C.Id("variant:" .. tostring(region_id or "switch") .. ":" .. variant.name .. ":" .. binds[i].name), binds[i].name, binds[i].ty, B.BindingClassLocalValue)
+            local b = B.Binding(C.Id("variant:" .. tostring(region_id or "switch") .. ":" .. variant.name .. ":" .. binds[i].name), binds[i].name, binds[i].ty, B.BindingRoleLocalValue)
             out_scope = out_scope:typecheck_tree_add_value(B.ValueEntry(b.name, b))
         end
         return out_scope, binds
@@ -438,8 +438,8 @@ local function bind_context(T)
     local function block_param_bindings(region_id, label, params, is_entry)
         local entries = {}
         for i = 1, #params do
-            local class = is_entry and B.BindingClassEntryBlockParam(region_id, label.name, i) or B.BindingClassBlockParam(region_id, label.name, i)
-            local binding = B.Binding(C.Id("control:param:" .. region_id .. ":" .. label.name .. ":" .. params[i].name), params[i].name, params[i].ty, class)
+            local role = is_entry and B.BindingRoleEntryBlockParam(region_id, label.name, i) or B.BindingRoleBlockParam(region_id, label.name, i)
+            local binding = B.Binding(C.Id("control:param:" .. region_id .. ":" .. label.name .. ":" .. params[i].name), params[i].name, params[i].ty, role)
             entries[#entries + 1] = B.ValueEntry(params[i].name, binding)
         end
         return entries
@@ -678,7 +678,7 @@ local function bind_context(T)
         local runtime_bindings = {}
         for i = 1, #region.params do
             local p = region.params[i]
-            local b = B.Binding(C.Id("region-param:" .. region.name .. ":" .. p.name), p.name, p.ty, B.BindingClassArg(i - 1))
+            local b = B.Binding(C.Id("region-param:" .. region.name .. ":" .. p.name), p.name, p.ty, B.BindingRoleArg(i - 1))
             runtime_bindings[#runtime_bindings + 1] = B.ValueEntry(p.name, b)
         end
         local cont_targets = {}

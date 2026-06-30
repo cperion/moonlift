@@ -32,10 +32,10 @@ local function first_anchor_with_label(anchors, label)
 end
 
 local function anchor_kind_name(anchor)
-    local k = anchor and anchor.kind
+    local k = anchor and anchor.role
     if type(k) == "string" then return k end
-    local ok, cls = pcall(function() return require("lalin.asdl").classof(k) end)
-    return ok and cls and cls.kind or tostring(k)
+    local ok, name = pcall(function() return require("lalin.asdl").class_basename(k) end)
+    return ok and name or tostring(k)
 end
 
 local function anchor_kind_is(anchor, kind)
@@ -299,8 +299,7 @@ local function call_range_from_anchors(anchors, analysis, issue)
 end
 
 local function ordinal_for(tracker, issue)
-    local cls = require("lalin.asdl").classof(issue)
-    local kind = cls and cls.kind or ""
+    local kind = require("lalin.asdl").class_basename(issue) or ""
     local key = kind
     if issue.op then
         key = key .. ":" .. op_symbol_name(issue.op)
@@ -334,8 +333,7 @@ function M.host_resolver(issue, analysis)
     if prior then return prior end
     local anchors = analysis.anchors or {}
     local asdl = require("lalin.asdl")
-    local cls = asdl.classof(issue)
-    if cls and cls.kind == "HostIssueBareBoolInBoundaryStruct" and issue.field_name then
+    if asdl.class_basename(issue) == "HostIssueBareBoolInBoundaryStruct" and issue.field_name then
         local field = first_anchor_kind_label(anchors, "AnchorFieldName", tostring(issue.field_name))
         if field and field.range then
             local best = nil
@@ -422,13 +420,11 @@ function M.typecheck_resolver(issue, analysis)
     if type(anchors) ~= "table" or #anchors == 0 then
         -- No anchors available; try offset-based fallback
         local asdl = require("lalin.asdl")
-        local cls2 = asdl.classof(issue)
-        if cls2 and cls2.kind == "TypeIssueUnresolvedValue" and issue.name then
+        if asdl.class_basename(issue) == "TypeIssueUnresolvedValue" and issue.name then
             -- Without anchors, we can't resolve position. Fall through.
         end
     end
-    local cls = require("lalin.asdl").classof(issue)
-    local kind = cls and cls.kind or ""
+    local kind = require("lalin.asdl").class_basename(issue) or ""
 
     -- Unresolved value: label → anchor
     if kind == "TypeIssueUnresolvedValue" and issue.name then

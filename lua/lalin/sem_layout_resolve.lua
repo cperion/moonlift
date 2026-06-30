@@ -136,7 +136,7 @@ local function bind_context(T)
             return {}
             end)(node, ...)
         else
-            error("phase lalin_sem_type_ref_layout: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_type_ref_layout: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -199,7 +199,7 @@ local function bind_context(T)
  return {}
             end)(node, ...)
         else
-            error("phase lalin_sem_type_layout: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_type_layout: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -228,7 +228,7 @@ local function bind_context(T)
             return {}
             end)(node, ...)
         else
-            error("phase lalin_sem_field_in_layout: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_field_in_layout: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -262,7 +262,7 @@ local function bind_context(T)
             return single(Sem.FieldByOffset(resolved.field_name, resolved.offset, resolved.ty, storage_for_type(resolved.ty)))
             end)(node, ...)
         else
-            error("phase lalin_sem_resolve_field_ref: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_resolve_field_ref: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -288,7 +288,7 @@ local function bind_context(T)
  return single(schema.with(self, { view = one(resolve_view, self.view, env, target) }))
             end)(node, ...)
         else
-            error("phase lalin_sem_layout_index_base: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_layout_index_base: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -331,7 +331,7 @@ local function bind_context(T)
  return single(schema.with(self, { base = one(resolve_index_base, self.base, env, target), index = one(resolve_expr, self.index, env, target) }))
             end)(node, ...)
         else
-            error("phase lalin_sem_layout_place: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_layout_place: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -370,7 +370,7 @@ local function bind_context(T)
  return single(schema.with(self, { base = one(resolve_view, self.base, env, target), stride = one(resolve_expr, self.stride, env, target), lane = one(resolve_expr, self.lane, env, target) }))
             end)(node, ...)
         else
-            error("phase lalin_sem_layout_view: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_layout_view: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -401,7 +401,7 @@ local function bind_context(T)
  local views = {}; for i = 1, #self.views do views[#views + 1] = one(resolve_view, self.views[i], env, target) end; return single(schema.with(self, { views = views }))
             end)(node, ...)
         else
-            error("phase lalin_sem_layout_domain: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_layout_domain: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -580,7 +580,7 @@ local function bind_context(T)
  return single(schema.with(self, { args = map_exprs(self.args, env, target) }))
             end)(node, ...)
         else
-            error("phase lalin_sem_layout_expr: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_layout_expr: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -604,7 +604,7 @@ local function bind_context(T)
             return single(schema.with(self, { entry = resolve_entry_block(self.entry, env, target), blocks = blocks }))
             end)(node, ...)
         else
-            error("phase lalin_sem_layout_control_stmt_region: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_layout_control_stmt_region: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -618,7 +618,7 @@ local function bind_context(T)
             return single(schema.with(self, { entry = resolve_entry_block(self.entry, env, target), blocks = blocks }))
             end)(node, ...)
         else
-            error("phase lalin_sem_layout_control_expr_region: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_layout_control_expr_region: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -693,7 +693,7 @@ local function bind_context(T)
  return single(self)
             end)(node, ...)
         else
-            error("phase lalin_sem_layout_stmt: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_layout_stmt: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -716,7 +716,7 @@ local function bind_context(T)
  return single(schema.with(self, { body = map_stmts(self.body, env, target) }))
             end)(node, ...)
         else
-            error("phase lalin_sem_layout_func: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_layout_func: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -727,7 +727,7 @@ local function bind_context(T)
  return single(schema.with(self, { value = one(resolve_expr, self.value, env, target) }))
             end)(node, ...)
         else
-            error("phase lalin_sem_layout_const: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_layout_const: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -738,7 +738,7 @@ local function bind_context(T)
  return single(schema.with(self, { value = one(resolve_expr, self.value, env, target) }))
             end)(node, ...)
         else
-            error("phase lalin_sem_layout_static: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_layout_static: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -765,7 +765,7 @@ local function bind_context(T)
  return single(self)
             end)(node, ...)
         else
-            error("phase lalin_sem_layout_type_decl: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_layout_type_decl: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -800,7 +800,7 @@ local function bind_context(T)
  return single(self)
             end)(node, ...)
         else
-            error("phase lalin_sem_layout_item: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_layout_item: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -816,7 +816,7 @@ local function bind_context(T)
             return single(schema.with(module, { items = map_items(module.items, resolved_env, target) }))
             end)(node, ...)
         else
-            error("phase lalin_sem_layout_module: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_layout_module: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

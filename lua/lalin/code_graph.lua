@@ -1,40 +1,3 @@
-local schema = require("lalin.schema_runtime")
-local function single(value) return { value } end
-local function as_list(values) return values end
-local function only(values)
-    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
-    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
-    return values[1]
-end
-local function append_all(out, values)
-    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
-    return out
-end
-local function concat_all(lists)
-    local out = {}
-    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
-    return out
-end
-local function concat2(a, b)
-    local out = {}
-    append_all(out, a)
-    append_all(out, b)
-    return out
-end
-local function concat3(a, b, c)
-    local out = {}
-    append_all(out, a)
-    append_all(out, b)
-    append_all(out, c)
-    return out
-end
-local function flat_map(fn, values, n)
-    local out = {}
-    n = n or #(values or {})
-    for i = 1, n do append_all(out, fn(values[i])) end
-    return out
-end
-
 local function sanitize(s)
     s = tostring(s or "x"):gsub("[^%w_]", "_")
     if s:match("^%d") then s = "_" .. s end
@@ -63,157 +26,274 @@ local function bind_context(T)
         if value ~= nil then uses[#uses + 1] = Graph.GraphUse(value, ref, term_block, role) end
     end
 
-    local function add_place_uses(uses, place, ref, role)
-        if place == nil then return end
-        local cls = schema.classof(place)
-        if cls == Code.CodePlaceDeref then
-            add_use(uses, place.addr, ref, nil, role .. ":deref.addr")
-        elseif cls == Code.CodePlaceIndex then
-            add_place_uses(uses, place.base, ref, role .. ":index.base")
-            add_use(uses, place.index, ref, nil, role .. ":index")
-        elseif cls == Code.CodePlaceField then
-            add_place_uses(uses, place.base, ref, role .. ":field.base")
-        elseif cls == Code.CodePlaceBytes then
-            add_use(uses, place.base, ref, nil, role .. ":bytes.base")
+    local function add_dest_edge(edges, func, block_by_id, from, dest, kind)
+        if dest ~= nil and block_by_id[dest.text] ~= nil then
+            edges[#edges + 1] = Graph.GraphEdge(from, Graph.GraphBlockId(func.id, dest), kind)
         end
     end
 
-    local function inst_dst(k)
-        return k and k.dst or nil
+    function Code.CodePlace:code_graph_append_uses(uses, ref, role)
     end
 
-    local function append_defs(func, block, inst, defs)
-        local dst = inst_dst(inst.kind)
-        if dst ~= nil then defs[#defs + 1] = Graph.GraphDef(dst, inst_ref(func, block, inst), nil) end
+    function Code.CodePlaceDeref:code_graph_append_uses(uses, ref, role)
+        add_use(uses, self.addr, ref, nil, role .. ":deref.addr")
     end
 
-    local function append_inst_uses(func, block, inst, uses)
-        local k = inst.kind
-        local cls = schema.classof(k)
-        local ref = inst_ref(func, block, inst)
-        if cls == Code.CodeInstAlias then
-            add_use(uses, k.src, ref, nil, "alias.src")
-        elseif cls == Code.CodeInstUnary then
-            add_use(uses, k.value, ref, nil, "unary.value")
-        elseif cls == Code.CodeInstBinary or cls == Code.CodeInstFloatBinary or cls == Code.CodeInstCompare then
-            add_use(uses, k.lhs, ref, nil, "binary.lhs")
-            add_use(uses, k.rhs, ref, nil, "binary.rhs")
-        elseif cls == Code.CodeInstCast then
-            add_use(uses, k.value, ref, nil, "cast.value")
-        elseif cls == Code.CodeInstSelect then
-            add_use(uses, k.cond, ref, nil, "select.cond")
-            add_use(uses, k.then_value, ref, nil, "select.then")
-            add_use(uses, k.else_value, ref, nil, "select.else")
-        elseif cls == Code.CodeInstIntrinsic then
-            for i, arg in ipairs(k.args or {}) do add_use(uses, arg, ref, nil, "intrinsic.arg" .. tostring(i)) end
-        elseif cls == Code.CodeInstAddrOf then
-            add_place_uses(uses, k.place, ref, "addr_of.place")
-        elseif cls == Code.CodeInstPtrOffset then
-            add_use(uses, k.base, ref, nil, "ptr_offset.base")
-            add_use(uses, k.index, ref, nil, "ptr_offset.index")
-        elseif cls == Code.CodeInstLoad then
-            add_place_uses(uses, k.place, ref, "load.place")
-        elseif cls == Code.CodeInstStore then
-            add_place_uses(uses, k.place, ref, "store.place")
-            add_use(uses, k.value, ref, nil, "store.value")
-        elseif cls == Code.CodeInstAggregate then
-            for i, field in ipairs(k.fields or {}) do add_use(uses, field.value, ref, nil, "aggregate.field" .. tostring(i)) end
-        elseif cls == Code.CodeInstArray then
-            for i, elem in ipairs(k.elems or {}) do add_use(uses, elem.value, ref, nil, "array.elem" .. tostring(i)) end
-        elseif cls == Code.CodeInstViewMake then
-            add_use(uses, k.data, ref, nil, "view.data")
-            add_use(uses, k.len, ref, nil, "view.len")
-            add_use(uses, k.stride, ref, nil, "view.stride")
-        elseif cls == Code.CodeInstViewData or cls == Code.CodeInstViewLen or cls == Code.CodeInstViewStride then
-            add_use(uses, k.view, ref, nil, "view")
-        elseif cls == Code.CodeInstSliceMake then
-            add_use(uses, k.data, ref, nil, "slice.data")
-            add_use(uses, k.len, ref, nil, "slice.len")
-        elseif cls == Code.CodeInstSliceData or cls == Code.CodeInstSliceLen then
-            add_use(uses, k.slice, ref, nil, "slice")
-        elseif cls == Code.CodeInstByteSpanMake then
-            add_use(uses, k.data, ref, nil, "bytespan.data")
-            add_use(uses, k.len, ref, nil, "bytespan.len")
-        elseif cls == Code.CodeInstByteSpanData or cls == Code.CodeInstByteSpanLen then
-            add_use(uses, k.span, ref, nil, "bytespan")
-        elseif cls == Code.CodeInstClosure then
-            add_use(uses, k.fn, ref, nil, "closure.fn")
-            add_use(uses, k.ctx, ref, nil, "closure.ctx")
-        elseif cls == Code.CodeInstVariantCtor then
-            add_use(uses, k.payload, ref, nil, "variant.payload")
-        elseif cls == Code.CodeInstVariantTag or cls == Code.CodeInstVariantPayload then
-            add_use(uses, k.value, ref, nil, "variant.value")
-        elseif cls == Code.CodeInstCall then
-            local tcls = schema.classof(k.target)
-            if tcls == Code.CodeCallIndirect then add_use(uses, k.target.callee, ref, nil, "call.callee") end
-            if tcls == Code.CodeCallClosure then add_use(uses, k.target.closure, ref, nil, "call.closure") end
-            for i, arg in ipairs(k.args or {}) do add_use(uses, arg, ref, nil, "call.arg" .. tostring(i)) end
-        elseif cls == Code.CodeInstAtomicLoad then
-            add_place_uses(uses, k.place, ref, "atomic_load.place")
-        elseif cls == Code.CodeInstAtomicStore then
-            add_place_uses(uses, k.place, ref, "atomic_store.place")
-            add_use(uses, k.value, ref, nil, "atomic_store.value")
-        elseif cls == Code.CodeInstAtomicRmw then
-            add_place_uses(uses, k.place, ref, "atomic_rmw.place")
-            add_use(uses, k.value, ref, nil, "atomic_rmw.value")
-        elseif cls == Code.CodeInstAtomicCas then
-            add_place_uses(uses, k.place, ref, "atomic_cas.place")
-            add_use(uses, k.expected, ref, nil, "atomic_cas.expected")
-            add_use(uses, k.replacement, ref, nil, "atomic_cas.replacement")
-        end
+    function Code.CodePlaceIndex:code_graph_append_uses(uses, ref, role)
+        self.base:code_graph_append_uses(uses, ref, role .. ":index.base")
+        add_use(uses, self.index, ref, nil, role .. ":index")
     end
 
-    local function append_term_uses(func, block, uses)
-        local term = block.term and block.term.kind or nil
-        local term_block = block_id(func, block)
-        local cls = schema.classof(term)
-        if cls == Code.CodeTermBranch then
-            add_use(uses, term.cond, nil, term_block, "branch.cond")
-            for i, arg in ipairs(term.then_args or {}) do add_use(uses, arg, nil, term_block, "branch.then_arg" .. tostring(i)) end
-            for i, arg in ipairs(term.else_args or {}) do add_use(uses, arg, nil, term_block, "branch.else_arg" .. tostring(i)) end
-        elseif cls == Code.CodeTermJump then
-            for i, arg in ipairs(term.args or {}) do add_use(uses, arg, nil, term_block, "jump.arg" .. tostring(i)) end
-        elseif cls == Code.CodeTermSwitch then
-            add_use(uses, term.value, nil, term_block, "switch.value")
-            for i, case in ipairs(term.cases or {}) do
-                for j, arg in ipairs(case.args or {}) do add_use(uses, arg, nil, term_block, "switch.case" .. tostring(i) .. ".arg" .. tostring(j)) end
-            end
-            for i, arg in ipairs(term.default_args or {}) do add_use(uses, arg, nil, term_block, "switch.default_arg" .. tostring(i)) end
-        elseif cls == Code.CodeTermVariantSwitch then
-            add_use(uses, term.tag, nil, term_block, "variant_switch.tag")
-            for i, case in ipairs(term.cases or {}) do
-                for j, arg in ipairs(case.args or {}) do add_use(uses, arg, nil, term_block, "variant.case" .. tostring(i) .. ".arg" .. tostring(j)) end
-            end
-            for i, arg in ipairs(term.default_args or {}) do add_use(uses, arg, nil, term_block, "variant.default_arg" .. tostring(i)) end
-        elseif cls == Code.CodeTermReturn then
-            for i, value in ipairs(term.values or {}) do add_use(uses, value, nil, term_block, "return.value" .. tostring(i)) end
-        end
+    function Code.CodePlaceField:code_graph_append_uses(uses, ref, role)
+        self.base:code_graph_append_uses(uses, ref, role .. ":field.base")
     end
 
-    local function append_edges(func, block_by_id, block, edges)
-        local term = block.term and block.term.kind or nil
-        local from = block_id(func, block)
-        local cls = schema.classof(term)
-        local function add(dest, kind)
-            if dest ~= nil and block_by_id[dest.text] ~= nil then
-                edges[#edges + 1] = Graph.GraphEdge(from, Graph.GraphBlockId(func.id, dest), kind)
-            end
+    function Code.CodePlaceBytes:code_graph_append_uses(uses, ref, role)
+        add_use(uses, self.base, ref, nil, role .. ":bytes.base")
+    end
+
+    function Code.CodeCallTarget:code_graph_append_uses(uses, ref, role)
+    end
+
+    function Code.CodeCallIndirect:code_graph_append_uses(uses, ref, role)
+        add_use(uses, self.callee, ref, nil, role .. ".callee")
+    end
+
+    function Code.CodeCallClosure:code_graph_append_uses(uses, ref, role)
+        add_use(uses, self.closure, ref, nil, role .. ".closure")
+    end
+
+    function Code.CodeInstOp:code_graph_dst()
+        return rawget(self, "dst")
+    end
+
+    function Code.CodeInstOp:code_graph_append_uses(uses, ref)
+    end
+
+    function Code.CodeInstAlias:code_graph_append_uses(uses, ref)
+        add_use(uses, self.src, ref, nil, "alias.src")
+    end
+
+    function Code.CodeInstUnary:code_graph_append_uses(uses, ref)
+        add_use(uses, self.value, ref, nil, "unary.value")
+    end
+
+    function Code.CodeInstBinary:code_graph_append_uses(uses, ref)
+        add_use(uses, self.lhs, ref, nil, "binary.lhs")
+        add_use(uses, self.rhs, ref, nil, "binary.rhs")
+    end
+
+    function Code.CodeInstFloatBinary:code_graph_append_uses(uses, ref)
+        add_use(uses, self.lhs, ref, nil, "binary.lhs")
+        add_use(uses, self.rhs, ref, nil, "binary.rhs")
+    end
+
+    function Code.CodeInstCompare:code_graph_append_uses(uses, ref)
+        add_use(uses, self.lhs, ref, nil, "binary.lhs")
+        add_use(uses, self.rhs, ref, nil, "binary.rhs")
+    end
+
+    function Code.CodeInstCast:code_graph_append_uses(uses, ref)
+        add_use(uses, self.value, ref, nil, "cast.value")
+    end
+
+    function Code.CodeInstSelect:code_graph_append_uses(uses, ref)
+        add_use(uses, self.cond, ref, nil, "select.cond")
+        add_use(uses, self.then_value, ref, nil, "select.then")
+        add_use(uses, self.else_value, ref, nil, "select.else")
+    end
+
+    function Code.CodeInstIntrinsic:code_graph_append_uses(uses, ref)
+        for i, arg in ipairs(self.args or {}) do add_use(uses, arg, ref, nil, "intrinsic.arg" .. tostring(i)) end
+    end
+
+    function Code.CodeInstAddrOf:code_graph_append_uses(uses, ref)
+        self.place:code_graph_append_uses(uses, ref, "addr_of.place")
+    end
+
+    function Code.CodeInstPtrOffset:code_graph_append_uses(uses, ref)
+        add_use(uses, self.base, ref, nil, "ptr_offset.base")
+        add_use(uses, self.index, ref, nil, "ptr_offset.index")
+    end
+
+    function Code.CodeInstLoad:code_graph_append_uses(uses, ref)
+        self.place:code_graph_append_uses(uses, ref, "load.place")
+    end
+
+    function Code.CodeInstStore:code_graph_append_uses(uses, ref)
+        self.place:code_graph_append_uses(uses, ref, "store.place")
+        add_use(uses, self.value, ref, nil, "store.value")
+    end
+
+    function Code.CodeInstAggregate:code_graph_append_uses(uses, ref)
+        for i, field in ipairs(self.fields or {}) do add_use(uses, field.value, ref, nil, "aggregate.field" .. tostring(i)) end
+    end
+
+    function Code.CodeInstArray:code_graph_append_uses(uses, ref)
+        for i, elem in ipairs(self.elems or {}) do add_use(uses, elem.value, ref, nil, "array.elem" .. tostring(i)) end
+    end
+
+    function Code.CodeInstViewMake:code_graph_append_uses(uses, ref)
+        add_use(uses, self.data, ref, nil, "view.data")
+        add_use(uses, self.len, ref, nil, "view.len")
+        add_use(uses, self.stride, ref, nil, "view.stride")
+    end
+
+    function Code.CodeInstViewData:code_graph_append_uses(uses, ref)
+        add_use(uses, self.view, ref, nil, "view")
+    end
+
+    function Code.CodeInstViewLen:code_graph_append_uses(uses, ref)
+        add_use(uses, self.view, ref, nil, "view")
+    end
+
+    function Code.CodeInstViewStride:code_graph_append_uses(uses, ref)
+        add_use(uses, self.view, ref, nil, "view")
+    end
+
+    function Code.CodeInstSliceMake:code_graph_append_uses(uses, ref)
+        add_use(uses, self.data, ref, nil, "slice.data")
+        add_use(uses, self.len, ref, nil, "slice.len")
+    end
+
+    function Code.CodeInstSliceData:code_graph_append_uses(uses, ref)
+        add_use(uses, self.slice, ref, nil, "slice")
+    end
+
+    function Code.CodeInstSliceLen:code_graph_append_uses(uses, ref)
+        add_use(uses, self.slice, ref, nil, "slice")
+    end
+
+    function Code.CodeInstByteSpanMake:code_graph_append_uses(uses, ref)
+        add_use(uses, self.data, ref, nil, "bytespan.data")
+        add_use(uses, self.len, ref, nil, "bytespan.len")
+    end
+
+    function Code.CodeInstByteSpanData:code_graph_append_uses(uses, ref)
+        add_use(uses, self.span, ref, nil, "bytespan")
+    end
+
+    function Code.CodeInstByteSpanLen:code_graph_append_uses(uses, ref)
+        add_use(uses, self.span, ref, nil, "bytespan")
+    end
+
+    function Code.CodeInstClosure:code_graph_append_uses(uses, ref)
+        add_use(uses, self.fn, ref, nil, "closure.fn")
+        add_use(uses, self.ctx, ref, nil, "closure.ctx")
+    end
+
+    function Code.CodeInstVariantCtor:code_graph_append_uses(uses, ref)
+        add_use(uses, self.payload, ref, nil, "variant.payload")
+    end
+
+    function Code.CodeInstVariantTag:code_graph_append_uses(uses, ref)
+        add_use(uses, self.value, ref, nil, "variant.value")
+    end
+
+    function Code.CodeInstVariantPayload:code_graph_append_uses(uses, ref)
+        add_use(uses, self.value, ref, nil, "variant.value")
+    end
+
+    function Code.CodeInstCall:code_graph_append_uses(uses, ref)
+        self.target:code_graph_append_uses(uses, ref, "call")
+        for i, arg in ipairs(self.args or {}) do add_use(uses, arg, ref, nil, "call.arg" .. tostring(i)) end
+    end
+
+    function Code.CodeInstAtomicLoad:code_graph_append_uses(uses, ref)
+        self.place:code_graph_append_uses(uses, ref, "atomic_load.place")
+    end
+
+    function Code.CodeInstAtomicStore:code_graph_append_uses(uses, ref)
+        self.place:code_graph_append_uses(uses, ref, "atomic_store.place")
+        add_use(uses, self.value, ref, nil, "atomic_store.value")
+    end
+
+    function Code.CodeInstAtomicRmw:code_graph_append_uses(uses, ref)
+        self.place:code_graph_append_uses(uses, ref, "atomic_rmw.place")
+        add_use(uses, self.value, ref, nil, "atomic_rmw.value")
+    end
+
+    function Code.CodeInstAtomicCas:code_graph_append_uses(uses, ref)
+        self.place:code_graph_append_uses(uses, ref, "atomic_cas.place")
+        add_use(uses, self.expected, ref, nil, "atomic_cas.expected")
+        add_use(uses, self.replacement, ref, nil, "atomic_cas.replacement")
+    end
+
+    function Code.CodeInst:code_graph_append_def(func, block, defs)
+        local dst = self.op:code_graph_dst()
+        if dst ~= nil then defs[#defs + 1] = Graph.GraphDef(dst, inst_ref(func, block, self), nil) end
+    end
+
+    function Code.CodeInst:code_graph_append_uses(func, block, uses)
+        self.op:code_graph_append_uses(uses, inst_ref(func, block, self))
+    end
+
+    function Code.CodeTermOp:code_graph_append_uses(uses, term_block)
+    end
+
+    function Code.CodeTermBranch:code_graph_append_uses(uses, term_block)
+        add_use(uses, self.cond, nil, term_block, "branch.cond")
+        for i, arg in ipairs(self.then_args or {}) do add_use(uses, arg, nil, term_block, "branch.then_arg" .. tostring(i)) end
+        for i, arg in ipairs(self.else_args or {}) do add_use(uses, arg, nil, term_block, "branch.else_arg" .. tostring(i)) end
+    end
+
+    function Code.CodeTermJump:code_graph_append_uses(uses, term_block)
+        for i, arg in ipairs(self.args or {}) do add_use(uses, arg, nil, term_block, "jump.arg" .. tostring(i)) end
+    end
+
+    function Code.CodeTermSwitch:code_graph_append_uses(uses, term_block)
+        add_use(uses, self.value, nil, term_block, "switch.value")
+        for i, case in ipairs(self.cases or {}) do
+            for j, arg in ipairs(case.args or {}) do add_use(uses, arg, nil, term_block, "switch.case" .. tostring(i) .. ".arg" .. tostring(j)) end
         end
-        if cls == Code.CodeTermJump then
-            add(term.dest, "jump")
-        elseif cls == Code.CodeTermBranch then
-            add(term.then_dest, "then")
-            add(term.else_dest, "else")
-        elseif cls == Code.CodeTermSwitch then
-            for i, case in ipairs(term.cases or {}) do
-                local lit = case.literal and (case.literal.raw or tostring(case.literal.value)) or tostring(i)
-                add(case.dest, "switch:" .. tostring(lit))
-            end
-            add(term.default_dest, "switch:default")
-        elseif cls == Code.CodeTermVariantSwitch then
-            for _, case in ipairs(term.cases or {}) do add(case.dest, "variant:" .. tostring(case.variant.variant_name)) end
-            add(term.default_dest, "variant:default")
+        for i, arg in ipairs(self.default_args or {}) do add_use(uses, arg, nil, term_block, "switch.default_arg" .. tostring(i)) end
+    end
+
+    function Code.CodeTermVariantSwitch:code_graph_append_uses(uses, term_block)
+        add_use(uses, self.tag, nil, term_block, "variant_switch.tag")
+        for i, case in ipairs(self.cases or {}) do
+            for j, arg in ipairs(case.args or {}) do add_use(uses, arg, nil, term_block, "variant.case" .. tostring(i) .. ".arg" .. tostring(j)) end
         end
+        for i, arg in ipairs(self.default_args or {}) do add_use(uses, arg, nil, term_block, "variant.default_arg" .. tostring(i)) end
+    end
+
+    function Code.CodeTermReturn:code_graph_append_uses(uses, term_block)
+        for i, value in ipairs(self.values or {}) do add_use(uses, value, nil, term_block, "return.value" .. tostring(i)) end
+    end
+
+    function Code.CodeTermOp:code_graph_append_edges(func, block_by_id, from, edges)
+    end
+
+    function Code.CodeTermJump:code_graph_append_edges(func, block_by_id, from, edges)
+        add_dest_edge(edges, func, block_by_id, from, self.dest, "jump")
+    end
+
+    function Code.CodeTermBranch:code_graph_append_edges(func, block_by_id, from, edges)
+        add_dest_edge(edges, func, block_by_id, from, self.then_dest, "then")
+        add_dest_edge(edges, func, block_by_id, from, self.else_dest, "else")
+    end
+
+    function Code.CodeTermSwitch:code_graph_append_edges(func, block_by_id, from, edges)
+        for i, case in ipairs(self.cases or {}) do
+            local lit = case.literal and (case.literal.raw or tostring(case.literal.value)) or tostring(i)
+            add_dest_edge(edges, func, block_by_id, from, case.dest, "switch:" .. tostring(lit))
+        end
+        add_dest_edge(edges, func, block_by_id, from, self.default_dest, "switch:default")
+    end
+
+    function Code.CodeTermVariantSwitch:code_graph_append_edges(func, block_by_id, from, edges)
+        for _, case in ipairs(self.cases or {}) do
+            add_dest_edge(edges, func, block_by_id, from, case.dest, "variant:" .. tostring(case.variant.variant_name))
+        end
+        add_dest_edge(edges, func, block_by_id, from, self.default_dest, "variant:default")
+    end
+
+    function Code.CodeTerm:code_graph_append_uses(func, block, uses)
+        self.op:code_graph_append_uses(uses, block_id(func, block))
+    end
+
+    function Code.CodeTerm:code_graph_append_edges(func, block_by_id, block, edges)
+        self.op:code_graph_append_edges(func, block_by_id, block_id(func, block), edges)
     end
 
     local function natural_loop(header_key, latch_key, preds)
@@ -269,47 +349,44 @@ local function bind_context(T)
         return loops
     end
 
-    local function func_graph(func)
+    function Code.CodeFunc:code_graph_func()
         local block_by_id, order = {}, {}
-        for i, block in ipairs(func.blocks or {}) do
+        for i, block in ipairs(self.blocks or {}) do
             block_by_id[block.id.text] = block
             order[block.id.text] = i
         end
 
         local edges, defs, uses = {}, {}, {}
-        for _, param in ipairs(func.params or {}) do defs[#defs + 1] = Graph.GraphDef(param.value, nil, param.value) end
-        for _, block in ipairs(func.blocks or {}) do
+        for _, param in ipairs(self.params or {}) do defs[#defs + 1] = Graph.GraphDef(param.value, nil, param.value) end
+        for _, block in ipairs(self.blocks or {}) do
             for _, param in ipairs(block.params or {}) do defs[#defs + 1] = Graph.GraphDef(param.value, nil, param.value) end
-            append_edges(func, block_by_id, block, edges)
+            if block.term ~= nil then block.term:code_graph_append_edges(self, block_by_id, block, edges) end
             for _, inst in ipairs(block.insts or {}) do
-                append_defs(func, block, inst, defs)
-                append_inst_uses(func, block, inst, uses)
+                inst:code_graph_append_def(self, block, defs)
+                inst:code_graph_append_uses(self, block, uses)
             end
-            append_term_uses(func, block, uses)
+            if block.term ~= nil then block.term:code_graph_append_uses(self, block, uses) end
         end
 
-        return Graph.CodeFuncGraph(func.id, edges, defs, uses, detect_natural_loops(func, func.blocks, order, edges))
+        return Graph.CodeFuncGraph(self.id, edges, defs, uses, detect_natural_loops(self, self.blocks, order, edges))
+    end
+
+    function Code.CodeModule:code_graph_module()
+        local funcs = {}
+        for i, func in ipairs(self.funcs or {}) do funcs[i] = func:code_graph_func() end
+        return Graph.CodeGraph(self.id, funcs)
     end
 
     local function graph(module)
-        local funcs = {}
-        for i, func in ipairs(module.funcs or {}) do funcs[i] = func_graph(func) end
-        return Graph.CodeGraph(module.id, funcs)
+        return module:code_graph_module()
     end
 
     api.block_id = block_id
     api.inst_ref = inst_ref
     api.graph = graph
     api.module = graph
-    function api.phase(node, ...)
-        local cls = schema.classof(node)
-        if schema.isa(node, Code.CodeModule) then
-            return (function(self)
- return single(graph(self))
-            end)(node, ...)
-        else
-            error("phase code_graph: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
-        end
+    function api.phase(node)
+        return { node:code_graph_module() }
     end
 
     T._lalin_api_cache.code_graph = api

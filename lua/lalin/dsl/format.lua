@@ -6,14 +6,9 @@
 
 local llbl = require("llbl")
 local asdl = require("lalin.asdl")
-local schema = require("lalin.schema_projection")
 
 local M = {}
 
-local T = asdl.context()
-schema(T)
-
-local C, Ty, Tr = T.LalinCore, T.LalinType, T.LalinTree
 local d = llbl.doc
 
 local scalar_labels = {
@@ -49,8 +44,7 @@ local access_names = {
 }
 
 local function cls_kind(v)
-    local cls = asdl.classof(v)
-    return cls and cls.kind or nil
+    return asdl.class_basename(v)
 end
 
 local function dsl_class(v)
@@ -330,20 +324,39 @@ fmt_tree_expr = function(e, f)
     return d.text("<" .. tostring(k or "expr") .. ">")
 end
 
-function Tr.SwitchKeyInt:format_tree_switch_key()
-    return d.text(tostring(self.raw))
+local bound_contexts = setmetatable({}, { __mode = "k" })
+
+local function bind_context(T)
+    assert(T and T.LalinTree, "lalin.dsl.format(T) expects a projected Lalin schema context")
+    if bound_contexts[T] then return M end
+    local Tr = T.LalinTree
+
+    function Tr.SwitchKeyInt:format_tree_switch_key()
+        return d.text(tostring(self.raw))
+    end
+
+    function Tr.SwitchKeyBool:format_tree_switch_key()
+        return d.text(self.value and "true" or "false")
+    end
+
+    function Tr.SwitchKeyName:format_tree_switch_key()
+        return d.text(tostring(self.name))
+    end
+
+    function Tr.SwitchKeyExpr:format_tree_switch_key(f)
+        return fmt_tree_expr(self.expr, f)
+    end
+
+    bound_contexts[T] = true
+    return M
 end
 
-function Tr.SwitchKeyBool:format_tree_switch_key()
-    return d.text(self.value and "true" or "false")
-end
-
-function Tr.SwitchKeyName:format_tree_switch_key()
-    return d.text(tostring(self.name))
-end
-
-function Tr.SwitchKeyExpr:format_tree_switch_key(f)
-    return fmt_tree_expr(self.expr, f)
+local function bind_from_value(value)
+    if type(value) ~= "table" then return end
+    local ok, cls = pcall(asdl.classof, value)
+    if not ok then return end
+    local T = cls and asdl.context_of(cls)
+    if T ~= nil and T.LalinTree ~= nil then bind_context(T) end
 end
 
 fmt_expr = function(v, f)
@@ -555,6 +568,7 @@ fmt_decl = function(x, f)
 end
 
 function M.doc(value, opts)
+    bind_from_value(value)
     local f = make_context(opts)
     return fmt_value(value, f)
 end
@@ -577,7 +591,7 @@ function M.file_text(value, opts)
 end
 
 function M.format_file(path, opts)
-    local dsl = require("lalin.dsl")
+    local dsl = require("lalin").dsl
     local chunk = dsl.loadfile(path, opts)
     local value = chunk()
     return M.file_text(value, opts)
@@ -591,4 +605,8 @@ function M.write_format_file(path, opts)
     return text
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

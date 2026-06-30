@@ -39,7 +39,7 @@ local function bind_context(T)
 
     local function term_edge_args(func, block_by_id, block)
         local out = {}
-        local term = block.term and block.term.kind or nil
+        local term = block.term and block.term.op or nil
         local cls = asdl.classof(term)
         local function add(dest, args)
             if dest ~= nil then out[dest.text] = edge_args(block_by_id[dest.text], args or {}) end
@@ -78,7 +78,7 @@ local function bind_context(T)
         for _, block in ipairs(func.blocks or {}) do
             for _, param in ipairs(block.params or {}) do types[param.value.text] = param.ty end
             for _, inst in ipairs(block.insts or {}) do
-                local k = inst.kind
+                local k = inst.op
                 local cls = asdl.classof(k)
                 if cls == Code.CodeInstConst then
                     defs[k.dst.text] = { cls = cls, inst = inst, const = k.const }
@@ -95,7 +95,9 @@ local function bind_context(T)
                 elseif cls == Code.CodeInstCast then
                     defs[k.dst.text] = { cls = cls, inst = inst, value = k.value, from = k.from, to = k.to }
                     types[k.dst.text] = k.to
-                elseif k.dst ~= nil then
+                else
+                    local dst = rawget(k, "dst")
+                    if dst == nil then goto continue_inst end
                     local ty = k.ty or k.ptr_ty or k.tag_ty
                     if cls == Code.CodeInstViewMake then ty = Code.CodeTyView(k.elem_ty) end
                     if cls == Code.CodeInstViewData then
@@ -115,9 +117,10 @@ local function bind_context(T)
                     if cls == Code.CodeInstByteSpanData then ty = Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned)) end
                     if cls == Code.CodeInstByteSpanLen then ty = Code.CodeTyIndex end
                     if cls == Code.CodeInstLoad then ty = k.access.ty end
-                    defs[k.dst.text] = { cls = cls, inst = inst }
-                    types[k.dst.text] = ty
+                    defs[dst.text] = { cls = cls, inst = inst }
+                    types[dst.text] = ty
                 end
+                ::continue_inst::
             end
         end
         return defs, types
@@ -128,7 +131,8 @@ local function bind_context(T)
         for key, def in pairs(defs or {}) do
             if def.cls == Code.CodeInstConst and asdl.classof(def.const) == Code.CodeConstLiteral then
                 local lit = def.const.literal
-                local n = lit and lit.raw and tonumber(lit.raw) or nil
+                local raw = lit and rawget(lit, "raw") or nil
+                local n = raw and tonumber(raw) or nil
                 if n ~= nil then out[key] = n end
             end
         end
@@ -144,7 +148,8 @@ local function bind_context(T)
             local def = defs[key]
             if def.cls == Code.CodeInstConst and asdl.classof(def.const) == Code.CodeConstLiteral then
                 local lit = def.const.literal
-                if lit ~= nil and lit.raw ~= nil then ranges[#ranges + 1] = Flow.FlowRangeExact(Code.CodeValueId(key), Flow.FlowBoundConst(lit.raw)) end
+                local raw = lit and rawget(lit, "raw") or nil
+                if raw ~= nil then ranges[#ranges + 1] = Flow.FlowRangeExact(Code.CodeValueId(key), Flow.FlowBoundConst(raw)) end
             end
         end
         return ranges
@@ -152,7 +157,7 @@ local function bind_context(T)
 
     local function edge_condition(block_by_id, edge)
         local block = edge and edge.from and edge.from.block and block_by_id[edge.from.block.text]
-        local term = block and block.term and block.term.kind or nil
+        local term = block and block.term and block.term.op or nil
         if asdl.classof(term) == Code.CodeTermBranch then return term.cond end
         return nil
     end
@@ -265,14 +270,14 @@ local function bind_context(T)
                 if step ~= nil then
                     local stop, exclusive = compare_stop(cond, param.value, defs)
                     local range = Flow.FlowRangeUnknown(param.value)
-                    local kind = Flow.FlowDerivedInduction(param.value)
+                    local role = Flow.FlowDerivedInduction(param.value)
                     if stop ~= nil then
                         local _, min, max, max_exclusive = range_for_induction(param.value, init, stop, exclusive, consts)
                         range = Flow.FlowRangeDerived(param.value, min, max, "primary induction of counted loop")
                         counted = counted or Flow.FlowCountedDomain(init, stop, step, exclusive == true)
-                        kind = Flow.FlowPrimaryInduction
+                        role = Flow.FlowPrimaryInduction
                     end
-                    inductions[#inductions + 1] = Flow.FlowInduction(param.value, types[param.value.text] or Code.CodeTyIndex, init, step, kind, range)
+                    inductions[#inductions + 1] = Flow.FlowInduction(param.value, types[param.value.text] or Code.CodeTyIndex, init, step, role, range)
                     if note ~= nil then rejects[#rejects + 1] = Flow.FlowRejectUnsupportedInduction(graph_loop.id, param.value, note) end
                 end
             end
@@ -291,7 +296,7 @@ local function bind_context(T)
 
     local function primary_induction(loop_fact)
         for _, induction in ipairs(loop_fact and loop_fact.inductions or {}) do
-            if induction.kind == Flow.FlowPrimaryInduction then return induction end
+            if induction.role == Flow.FlowPrimaryInduction then return induction end
         end
         return nil
     end
@@ -451,7 +456,7 @@ local function bind_context(T)
     end
 
     local function is_primary_induction(induction)
-        return asdl.classof(induction.kind) == nil and induction.kind == Flow.FlowPrimaryInduction
+        return asdl.classof(induction.role) == nil and induction.role == Flow.FlowPrimaryInduction
     end
 
     local function direction_for(primary, defs, consts)

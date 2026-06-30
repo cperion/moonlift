@@ -235,10 +235,10 @@ local function compile_with_stencil(case, values, ctype, stem, expected_values)
         end,
     })
     assert(#rejects == 0, case.name .. " rejected through stencil: " .. tostring(rejects[1] and rejects[1].reason))
-    assert(#facts.value.reductions == 1 and facts.value.reductions[1].kind == case.reduction, case.name .. " should derive expected ReductionKind")
+    assert(#facts.value.reductions == 1 and facts.value.reductions[1].op == case.reduction, case.name .. " should derive expected ReductionOp")
     assert(#artifacts == 1, case.name .. " should collect one stencil artifact")
     assert(asdl.classof(artifacts[1].instance.schedule) == Stencil.StencilScheduleAutoVector, case.name .. " should carry an auto-vector stencil schedule")
-    assert(asdl.classof(lj_module.funcs[1].machines[1].kind) == LJ.LJMachineStencilCall, case.name .. " should emit LJMachineStencilCall")
+    assert(asdl.classof(lj_module.funcs[1].machines[1].op) == LJ.LJMachineStencilCall, case.name .. " should emit LJMachineStencilCall")
     local build, build_err = StencilBinary.compile(T, artifacts, { stem = stem or ("test_luajit_lower_reductions_" .. case.name) })
     assert(build ~= nil, tostring(build_err))
     local compiled, err, src = Emit.compile_module(lj_module, {

@@ -87,7 +87,7 @@ local function bind_context(T)
  return single(execute(self))
             end)(node, ...)
         else
-            error("phase lalin_link_execute: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_link_execute: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

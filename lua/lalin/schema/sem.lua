@@ -64,7 +64,46 @@ return schema. LalinSem {
     field. value [LalinSem.ConstValue],
   },
   product. ConstLocalEnv { interned, entries [many [LalinSem.ConstLocalEntry]], },
-  sum. FlowClass {
+  product. ConstEvalInput {
+    interned,
+    const_env [LalinBind.ConstEnv],
+    local_env [LalinSem.ConstLocalEnv],
+  },
+  sum. ConstExprResult {
+    ConstKnown { variant_unique, field. value [LalinSem.ConstValue], },
+    ConstNotFoldable { variant_unique, reason [str], },
+    ConstRejected { variant_unique, reason [str], },
+  },
+  sum. ConstStmtFlow {
+    ConstFallsThrough {
+      variant_unique,
+      env [LalinSem.ConstLocalEnv],
+    },
+    ConstReturnVoid {
+      variant_unique,
+      env [LalinSem.ConstLocalEnv],
+    },
+    ConstReturnValue {
+      variant_unique,
+      env [LalinSem.ConstLocalEnv],
+      field. value [LalinSem.ConstValue],
+    },
+    ConstYieldVoid {
+      variant_unique,
+      env [LalinSem.ConstLocalEnv],
+    },
+    ConstYieldValue {
+      variant_unique,
+      env [LalinSem.ConstLocalEnv],
+      field. value [LalinSem.ConstValue],
+    },
+    ConstJump {
+      variant_unique,
+      env [LalinSem.ConstLocalEnv],
+      target [str],
+    },
+  },
+  sum. FlowOutcome {
     FlowUnknown,
     FlowFallsThrough,
     FlowJumps,

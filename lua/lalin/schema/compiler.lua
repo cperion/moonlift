@@ -3,7 +3,7 @@ S.use()
 
 return schema. LalinCompiler {
   sum. CodeResultIssue {
-    CodeResultIssueWrongClass {
+    CodeResultIssueUnexpectedValue {
       variant_unique,
       expected [str],
       actual [str],
@@ -33,7 +33,7 @@ return schema. LalinCompiler {
   },
 
   sum. FlatlineImageIssue {
-    FlatlineImageIssueWrongClass {
+    FlatlineImageIssueUnexpectedValue {
       variant_unique,
       expected [str],
       actual [str],

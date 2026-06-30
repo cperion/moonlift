@@ -54,10 +54,10 @@ function M.emit(registry, issue, phase, analysis)
 
     -- Unresolved names are root causes
     local asdl = require("lalin.asdl")
+    local issue_class = asdl.class_basename(issue)
     if pvm then
-        local cls = asdl.classof and asdl.classof(issue)
-        if cls then
-            if cls.kind == "TypeIssueUnresolvedValue" and issue.name then
+        if issue_class then
+            if issue_class == "TypeIssueUnresolvedValue" and issue.name then
                 root_key = "unresolved:" .. issue.name
                 if not registry.unresolved_names[issue.name] then
                     registry.unresolved_names[issue.name] = idx
@@ -73,16 +73,15 @@ function M.emit(registry, issue, phase, analysis)
         local function is_void_type(ty)
             if not ty then return false end
             if type(ty) == "string" and ty == "void" then return true end
-            local cls2 = pvm and asdl.classof and asdl.classof(ty)
-            if cls2 then
-                return cls2.kind == "TScalar" and ty.scalar
-                    and asdl.classof(ty.scalar) and asdl.classof(ty.scalar).kind == "ScalarVoid"
+            local ty_class = pvm and asdl.class_basename(ty)
+            if ty_class then
+                return ty_class == "TScalar" and ty.scalar
+                    and asdl.class_basename(ty.scalar) == "ScalarVoid"
             end
             return false
         end
 
-        -- Check by class kind (real ASDL issues) or by plain kind field (test issues)
-        local issue_kind = cls and cls.kind or issue.kind
+        local issue_kind = issue_class or issue.kind
 
         if issue_kind == "TypeIssueExpected"
             or issue_kind == "TypeIssueNotCallable"

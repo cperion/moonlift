@@ -50,14 +50,14 @@ local function bind_context(T)
         return tostring(-(2 ^ (bits - 1)))
     end
 
-    local function reduction_name(kind)
-        if kind == Value.ReductionAdd then return "add" end
-        if kind == Value.ReductionMul then return "mul" end
-        if kind == Value.ReductionAnd then return "and" end
-        if kind == Value.ReductionOr then return "or" end
-        if kind == Value.ReductionXor then return "xor" end
-        if kind == Value.ReductionMin then return "min" end
-        if kind == Value.ReductionMax then return "max" end
+    local function reduction_name(op)
+        if op == Value.ReductionAdd then return "add" end
+        if op == Value.ReductionMul then return "mul" end
+        if op == Value.ReductionAnd then return "and" end
+        if op == Value.ReductionOr then return "or" end
+        if op == Value.ReductionXor then return "xor" end
+        if op == Value.ReductionMin then return "min" end
+        if op == Value.ReductionMax then return "max" end
         return nil
     end
 
@@ -115,14 +115,14 @@ local function bind_context(T)
         return name == "min" and Back.BackVecUIcmpLe or Back.BackVecUIcmpGe
     end
 
-    local function entry(kind, ty)
-        local name = reduction_name(kind)
-        if name == nil then return nil, "unknown reduction kind " .. class_name(kind) end
+    local function entry(op, ty)
+        local name = reduction_name(op)
+        if name == nil then return nil, "unknown reduction op " .. class_name(op) end
         local info = type_info(ty)
         if info.class == "unsupported" or info.scalar == nil then return nil, info.reason or "unsupported reduction type" end
 
         local e = {
-            kind = kind,
+            op = op,
             name = name,
             ty = ty,
             type = info,
@@ -150,12 +150,12 @@ local function bind_context(T)
     end
 
     function api.type_info(ty) return type_info(ty) end
-    function api.reduction_name(kind) return reduction_name(kind) end
-    function api.entry(kind, ty) return entry(kind, ty) end
+    function api.reduction_name(op) return reduction_name(op) end
+    function api.entry(op, ty) return entry(op, ty) end
 
-    function api.identity_expr(kind, ty)
-        local name = reduction_name(kind)
-        if name == nil then return nil, "unknown reduction kind " .. class_name(kind) end
+    function api.identity_expr(op, ty)
+        local name = reduction_name(op)
+        if name == nil then return nil, "unknown reduction op " .. class_name(op) end
         local info = type_info(ty)
         if info.class == "unsupported" then return nil, info.reason or "unsupported reduction type" end
         local raw = identity_raw(name, info)
@@ -163,7 +163,7 @@ local function bind_context(T)
         local literal
         if info.class == "float" then literal = Core.LitFloat(raw)
         else literal = Core.LitInt(raw) end
-        return Value.ValueExprConst(Code.CodeConstLiteral(ty, literal)), nil, { kind = kind, name = name, ty = ty, type = info, identity_raw = raw }
+        return Value.ValueExprConst(Code.CodeConstLiteral(ty, literal)), nil, { op = op, name = name, ty = ty, type = info, identity_raw = raw }
     end
 
     function api.literal_identity_raw(expr)
@@ -176,13 +176,13 @@ local function bind_context(T)
         return nil
     end
 
-    function api.identity_matches(expr, kind, ty)
-        local _, why, e = api.identity_expr(kind, ty)
+    function api.identity_matches(expr, op, ty)
+        local _, why, e = api.identity_expr(op, ty)
         if e == nil then return false, why end
         return api.literal_identity_raw(expr) == tostring(e.identity_raw), "expected identity " .. tostring(e.identity_raw)
     end
 
-    function api.binary_reduction_kind(op, is_float)
+    function api.binary_reduction_op(op, is_float)
         if op == Core.BinAdd then return Value.ReductionAdd end
         if op == Core.BinMul then return Value.ReductionMul end
         if not is_float then
@@ -193,14 +193,14 @@ local function bind_context(T)
         return nil
     end
 
-    function api.select_minmax_kind(cmp_op, true_value_is_lhs)
+    function api.select_minmax_op(cmp_op, true_value_is_lhs)
         if cmp_op == Core.CmpLt or cmp_op == Core.CmpLe then return true_value_is_lhs and Value.ReductionMin or Value.ReductionMax end
         if cmp_op == Core.CmpGt or cmp_op == Core.CmpGe then return true_value_is_lhs and Value.ReductionMax or Value.ReductionMin end
         return nil
     end
 
     function api.vector_support(reduction, elem_ty)
-        local e, why = entry(reduction.kind, elem_ty or reduction.ty)
+        local e, why = entry(reduction.op, elem_ty or reduction.ty)
         if e == nil then return false, why end
         return true, nil, e
     end

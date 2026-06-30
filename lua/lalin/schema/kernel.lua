@@ -81,6 +81,20 @@ return schema. LalinKernel {
     field. ty [LalinCode.CodeType],
     field. expr [LalinKernel.KernelExpr],
   },
+  product. KernelBindingByValueEntry {
+    interned,
+    kernel_value_name [str],
+    binding [LalinKernel.KernelBinding],
+  },
+  product. KernelAliasByValueEntry {
+    interned,
+    value_name [str],
+    aliased_value [LalinCode.CodeValueId],
+  },
+  product. KernelExprProjection {
+    binding_by_kernel_value [many [LalinKernel.KernelBindingByValueEntry]],
+    alias_by_value [many [LalinKernel.KernelAliasByValueEntry]],
+  },
   sum. KernelEffect {
     KernelEffectStore {
       variant_unique,
@@ -132,22 +146,52 @@ return schema. LalinKernel {
     KernelResultClosedForm { variant_unique, closed_form [LalinValue.ClosedFormFact], },
     KernelResultOriginalControl { variant_unique, reason [str], },
   },
+  sum. KernelSkeletonSelection {
+    KernelSkeletonScan {
+      variant_unique,
+      effects [many [LalinKernel.KernelEffect]],
+      result [LalinKernel.KernelResult],
+    },
+    KernelSkeletonCopy {
+      variant_unique,
+      effects [many [LalinKernel.KernelEffect]],
+      result [LalinKernel.KernelResult],
+    },
+    KernelSkeletonScatterReduce {
+      variant_unique,
+      effects [many [LalinKernel.KernelEffect]],
+      result [LalinKernel.KernelResult],
+    },
+    KernelSkeletonFind {
+      variant_unique,
+      effects [many [LalinKernel.KernelEffect]],
+      result [LalinKernel.KernelResult],
+    },
+  },
+  sum. KernelFunctionSkeletonSelection {
+    KernelFunctionSkeletonPartition { variant_unique, plan [LalinKernel.KernelPlanned], },
+    KernelFunctionSkeletonNoSelection {
+      variant_unique,
+      subject [LalinKernel.KernelSubject],
+      rejects [many [LalinKernel.KernelReject]],
+    },
+  },
   sum. KernelEquivalence {
     KernelEquivalenceProof { variant_unique, proofs [many [LalinKernel.KernelProof]], },
     KernelEquivalenceRejected { variant_unique, rejects [many [LalinKernel.KernelReject]], },
   },
-  product. KernelLoopPlanInput {
-    interned,
-    counted [bool],
-    has_func_id [bool],
-    has_func [bool],
-    rejects [many [LalinKernel.KernelReject]],
-    not_counted_rejects [many [LalinKernel.KernelReject]],
-    no_owner_rejects [many [LalinKernel.KernelReject]],
-    closed_form [optional [LalinValue.ClosedFormFact]],
-    reduction [optional [LalinValue.ReductionFact]],
-    skeleton_result [optional [LalinKernel.KernelResult]],
-    trip_count [LalinFlow.FlowTripCount],
+  sum. KernelLoopCandidate {
+    KernelLoopNotCounted { variant_unique, rejects [many [LalinKernel.KernelReject]], },
+    KernelLoopMissingOwner { variant_unique, rejects [many [LalinKernel.KernelReject]], },
+    KernelLoopRejectedFacts { variant_unique, rejects [many [LalinKernel.KernelReject]], },
+    KernelLoopClosedFormCandidate {
+      variant_unique,
+      closed_form [LalinValue.ClosedFormFact],
+      trip_count [LalinFlow.FlowTripCount],
+    },
+    KernelLoopReductionCandidate { variant_unique, reduction [LalinValue.ReductionFact], },
+    KernelLoopSkeletonCandidate { variant_unique, result [LalinKernel.KernelResult], },
+    KernelLoopOriginalControlCandidate,
   },
   sum. KernelLoopPlanSelection {
     KernelLoopNoPlan { variant_unique, rejects [many [LalinKernel.KernelReject]], },

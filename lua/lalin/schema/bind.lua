@@ -2,29 +2,29 @@ local S = require("lalin.schema.dsl")
 S.use()
 
 return schema. LalinBind {
-  sum. BindingClass {
-    BindingClassLocalValue,
-    BindingClassLocalCell,
-    BindingClassArg { variant_unique, index [number], },
-    BindingClassBlockParam { variant_unique, region_id [str], block_name [str], index [number], },
-    BindingClassEntryBlockParam {
+  sum. BindingRole {
+    BindingRoleLocalValue,
+    BindingRoleLocalCell,
+    BindingRoleArg { variant_unique, index [number], },
+    BindingRoleBlockParam { variant_unique, region_id [str], block_name [str], index [number], },
+    BindingRoleEntryBlockParam {
       variant_unique,
       region_id [str],
       block_name [str],
       index [number],
     },
-    BindingClassContParam { variant_unique, region_id [str], cont_name [str], index [number], },
-    BindingClassGlobalFunc { variant_unique, module_name [str], item_name [str], },
-    BindingClassGlobalConst { variant_unique, module_name [str], item_name [str], },
-    BindingClassGlobalStatic { variant_unique, module_name [str], item_name [str], },
-    BindingClassExtern { variant_unique, symbol [str], },
+    BindingRoleContParam { variant_unique, region_id [str], cont_name [str], index [number], },
+    BindingRoleGlobalFunc { variant_unique, module_name [str], item_name [str], },
+    BindingRoleGlobalConst { variant_unique, module_name [str], item_name [str], },
+    BindingRoleGlobalStatic { variant_unique, module_name [str], item_name [str], },
+    BindingRoleExtern { variant_unique, symbol [str], },
   },
   product. Binding {
     interned,
     field. id [LalinCore.Id],
     field. name [str],
     field. ty [LalinType.Type],
-    class [LalinBind.BindingClass],
+    role [LalinBind.BindingRole],
   },
   sum. Residence { ResidenceUnknown, ResidenceValue, ResidenceStack, ResidenceCell, },
   sum. ResidenceReason {

@@ -139,7 +139,7 @@ assert(kplan ~= nil, "CodeKernelPlan should produce a planned loop kernel")
 
 local fn = lj_module.funcs[1]
 assert(asdl.classof(fn.body) == LJ.LJBodyMachine, "kernel reduction should lower to a LuaJIT machine body")
-assert(asdl.classof(fn.machines[1].kind) == LJ.LJMachineStencilCall, "planned reduction should lower to a stencil call")
+assert(asdl.classof(fn.machines[1].op) == LJ.LJMachineStencilCall, "planned reduction should lower to a stencil call")
 assert(#artifacts == 1, "planned reduction should produce one C stencil artifact")
 
 local bank, bank_err = Backend.build_mc_bank(artifacts, { stem = "test_luajit_lower" })

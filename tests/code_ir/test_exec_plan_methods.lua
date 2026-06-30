@@ -9,7 +9,9 @@ require("lalin.exec_plan")(T)
 
 local Code = T.LalinCode
 local Exec = T.LalinExec
+local Flow = T.LalinFlow
 local Stencil = T.LalinStencil
+local Kernel = T.LalinKernel
 local Value = T.LalinValue
 
 local function provenance()
@@ -46,6 +48,27 @@ local artifact = Stencil.StencilArtifact(
     {}
 )
 local fake_selection = Stencil.StencilSelected(instance, provenance())
+local func_id = Code.CodeFuncId("fn:test")
+local kernel_id = Kernel.KernelId("kernel:test")
+local kernel_plan = Kernel.KernelPlanned(
+    kernel_id,
+    Kernel.KernelSubjectFragment(func_id, Code.CodeBlockId("block:entry"), Code.CodeBlockId("block:exit")),
+    Kernel.KernelBody(
+        Kernel.KernelDomainFlow(Flow.FlowDomainFunction(func_id), Flow.FlowTripCountUnknown("test"), nil),
+        {},
+        {},
+        {},
+        Kernel.KernelResultVoid,
+        Kernel.KernelEquivalenceProof({})
+    )
+)
+local kernel_entry = { kernel = kernel_id }
+
+local function materialize(selection)
+    local entries, by_func = {}, {}
+    selection:add_exec_stencil(entries, by_func, kernel_entry, 1, kernel_plan, {}, artifact, func_id)
+    return entries[1], by_func
+end
 
 local function input(fields)
     return Exec.ExecStencilInput(
@@ -61,29 +84,34 @@ end
 do
     local selection = fake_selection:select_exec_stencil(input {
         artifact = artifact,
-        func = Code.CodeFuncId("fn:test"),
+        func = func_id,
         selected_reason = "materialize",
     })
-    assert(selection:exec_plan_is_stencil())
     assert(selection.reason == "materialize")
+    local entry, by_func = materialize(selection)
+    assert(entry.decision.reason == "materialize")
+    assert(entry.decision.fragment.source_func == func_id)
+    assert(#by_func[func_id.text] == 1)
 end
 
 do
     local selection = Stencil.StencilNoSelection(Stencil.StencilStore, {}, provenance()):select_exec_stencil(input {
         unselected_reason = "entry skipped",
     })
-    assert(selection:exec_plan_is_skip())
     assert(selection.reason == "entry skipped")
+    local entry = materialize(selection)
+    assert(entry.decision.reason == "entry skipped")
 end
 
 do
     local selection = fake_selection:select_exec_stencil(input {
         artifact = nil,
-        func = Code.CodeFuncId("fn:test"),
+        func = func_id,
         missing_artifact_reason = "artifact absent",
     })
-    assert(selection:exec_plan_is_skip())
     assert(selection.reason == "artifact absent")
+    local entry = materialize(selection)
+    assert(entry.decision.reason == "artifact absent")
 end
 
 do
@@ -92,8 +120,9 @@ do
         func = nil,
         missing_func_reason = "function absent",
     })
-    assert(selection:exec_plan_is_skip())
     assert(selection.reason == "function absent")
+    local entry = materialize(selection)
+    assert(entry.decision.reason == "function absent")
 end
 
 local ok = pcall(require, "lalin.exec_plan_rules")

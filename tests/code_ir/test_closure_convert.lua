@@ -18,7 +18,7 @@ local closure = Tr.ExprClosure(Tr.ExprSurface, { Ty.Param("x", i32) }, i32, {
         Tr.ExprBinary(Tr.ExprSurface, C.BinAdd, name_ref("x"), Tr.ExprLit(Tr.ExprSurface, C.LitInt("1"))))
 })
 
-local y_binding = B.Binding(C.Id("local:y"), "y", i32, B.BindingClassLocalValue)
+local y_binding = B.Binding(C.Id("local:y"), "y", i32, B.BindingRoleLocalValue)
 local capture_closure = Tr.ExprClosure(Tr.ExprSurface, { Ty.Param("x", i32) }, i32, {
     Tr.StmtReturnValue(Tr.StmtSurface, Tr.ExprBinary(Tr.ExprSurface, C.BinAdd, name_ref("x"), name_ref("y")))
 })

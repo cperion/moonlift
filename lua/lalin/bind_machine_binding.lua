@@ -49,7 +49,7 @@ local function bind_context(T)
             return single(B.MachineBinding(decision.binding, decision.residence))
             end)(node, ...)
         else
-            error("phase lalin_bind_decision_machine_binding: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_decision_machine_binding: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -65,7 +65,7 @@ local function bind_context(T)
             return single(B.MachineBindingSet(out))
             end)(node, ...)
         else
-            error("phase lalin_bind_plan_machine_bindings: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_plan_machine_bindings: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

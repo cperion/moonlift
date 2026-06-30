@@ -75,7 +75,7 @@ local function bind_context(T)
             return single(P.ProjectReport(facts, ready, blocked, done, deferred))
             end)(node, ...)
         else
-            error("phase lalin_project_report: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_project_report: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

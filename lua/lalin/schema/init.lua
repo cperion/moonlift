@@ -14,7 +14,6 @@ local SCHEMA_MODULES = {
     "luajit",
     "luatrace",
     "c_ast",
-    "dasm",
     "link",
     "type",
     "bind",

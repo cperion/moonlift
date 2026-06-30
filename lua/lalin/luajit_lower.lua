@@ -76,36 +76,32 @@ local function bind_context(T)
         return SM.StencilMachineKernelNoPlan(self.reject_reason)
     end
 
-    function SM.StencilMachineKernelSelection:stencil_machine_kernel_is_reduce() return false end
-    function SM.StencilMachineKernelReduce:stencil_machine_kernel_is_reduce() return true end
-    function SM.StencilMachineKernelSelection:stencil_machine_kernel_is_store() return false end
-    function SM.StencilMachineKernelStore:stencil_machine_kernel_is_store() return true end
-    function SM.StencilMachineKernelSelection:stencil_machine_kernel_is_skeleton() return false end
-    function SM.StencilMachineKernelSkeleton:stencil_machine_kernel_is_skeleton() return true end
-    function SM.StencilMachineKernelSelection:stencil_machine_kernel_is_no_plan() return false end
-    function SM.StencilMachineKernelNoPlan:stencil_machine_kernel_is_no_plan() return true end
-
     function SM.StencilMachineSkeletonInput:select_stencil_machine_skeleton()
-        if self.scan ~= nil then return SM.StencilMachineSkeletonScan(self.scan) end
-        if self.find ~= nil then return SM.StencilMachineSkeletonFind(self.find) end
-        if self.partition ~= nil then return SM.StencilMachineSkeletonPartition(self.partition) end
-        if self.copy ~= nil then return SM.StencilMachineSkeletonCopy(self.copy) end
-        if self.scatter_reduce ~= nil then return SM.StencilMachineSkeletonScatterReduce(self.scatter_reduce) end
+        for _, candidate in ipairs(self.candidates or {}) do
+            return candidate:select_stencil_machine_skeleton_candidate()
+        end
         return SM.StencilMachineSkeletonNoPlan(self.reject_reason)
     end
 
-    function SM.StencilMachineSkeletonSelection:stencil_machine_skeleton_is_scan() return false end
-    function SM.StencilMachineSkeletonScan:stencil_machine_skeleton_is_scan() return true end
-    function SM.StencilMachineSkeletonSelection:stencil_machine_skeleton_is_find() return false end
-    function SM.StencilMachineSkeletonFind:stencil_machine_skeleton_is_find() return true end
-    function SM.StencilMachineSkeletonSelection:stencil_machine_skeleton_is_partition() return false end
-    function SM.StencilMachineSkeletonPartition:stencil_machine_skeleton_is_partition() return true end
-    function SM.StencilMachineSkeletonSelection:stencil_machine_skeleton_is_copy() return false end
-    function SM.StencilMachineSkeletonCopy:stencil_machine_skeleton_is_copy() return true end
-    function SM.StencilMachineSkeletonSelection:stencil_machine_skeleton_is_scatter_reduce() return false end
-    function SM.StencilMachineSkeletonScatterReduce:stencil_machine_skeleton_is_scatter_reduce() return true end
-    function SM.StencilMachineSkeletonSelection:stencil_machine_skeleton_is_no_plan() return false end
-    function SM.StencilMachineSkeletonNoPlan:stencil_machine_skeleton_is_no_plan() return true end
+    function SM.StencilMachineSkeletonCandidate:select_stencil_machine_skeleton_candidate()
+        return SM.StencilMachineSkeletonNoPlan("unsupported stencil skeleton candidate")
+    end
+
+    function SM.StencilMachineSkeletonScanCandidate:select_stencil_machine_skeleton_candidate()
+        return SM.StencilMachineSkeletonScan(self.planned)
+    end
+    function SM.StencilMachineSkeletonFindCandidate:select_stencil_machine_skeleton_candidate()
+        return SM.StencilMachineSkeletonFind(self.planned)
+    end
+    function SM.StencilMachineSkeletonPartitionCandidate:select_stencil_machine_skeleton_candidate()
+        return SM.StencilMachineSkeletonPartition(self.planned)
+    end
+    function SM.StencilMachineSkeletonCopyCandidate:select_stencil_machine_skeleton_candidate()
+        return SM.StencilMachineSkeletonCopy(self.planned)
+    end
+    function SM.StencilMachineSkeletonScatterReduceCandidate:select_stencil_machine_skeleton_candidate()
+        return SM.StencilMachineSkeletonScatterReduce(self.planned)
+    end
 
     function SM.StencilMachineSkeletonReductionFact:stencil_machine_artifact_reduction()
         return self.reduction
@@ -113,10 +109,35 @@ local function bind_context(T)
 
     function SM.StencilMachineSkeletonReducer:stencil_machine_artifact_reduction()
         return {
-            kind = self.reducer.reduction,
+            op = self.reducer.reduction,
             int_semantics = self.reducer.int_semantics,
             float_mode = self.reducer.float_mode,
         }
+    end
+
+    function SM.StencilMachineSelected:select_stencil_artifact(provider, func, reduction, plan)
+        return nil
+    end
+    function SM.StencilMachineSelectStoreN:select_stencil_artifact(provider, func, reduction, plan)
+        return provider(func, "store_n", self:stencil_artifact_op(), reduction, plan, self:stencil_artifact_descriptor())
+    end
+    function SM.StencilMachineSelectReduceN:select_stencil_artifact(provider, func, reduction, plan)
+        return provider(func, "reduce_n", self:stencil_artifact_op(), reduction, plan, self:stencil_artifact_descriptor())
+    end
+    function SM.StencilMachineSelectScan:select_stencil_artifact(provider, func, reduction, plan)
+        return provider(func, "scan", self:stencil_artifact_op(), reduction, plan, self:stencil_artifact_descriptor())
+    end
+    function SM.StencilMachineSelectFind:select_stencil_artifact(provider, func, reduction, plan)
+        return provider(func, "find", self:stencil_artifact_op(), reduction, plan, self:stencil_artifact_descriptor())
+    end
+    function SM.StencilMachineSelectPartition:select_stencil_artifact(provider, func, reduction, plan)
+        return provider(func, "partition", self:stencil_artifact_op(), reduction, plan, self:stencil_artifact_descriptor())
+    end
+    function SM.StencilMachineSelectCount:select_stencil_artifact(provider, func, reduction, plan)
+        return provider(func, "count", self:stencil_artifact_op(), reduction, plan, self:stencil_artifact_descriptor())
+    end
+    function SM.StencilMachineSelectScatterReduce:select_stencil_artifact(provider, func, reduction, plan)
+        return provider(func, "scatter_reduce", self:stencil_artifact_op(), reduction, plan, self:stencil_artifact_descriptor())
     end
 
     local function vid(id) return LJ.LJValueId((id.text or ""):gsub("^v:", "")) end
@@ -253,8 +274,9 @@ local function bind_context(T)
         for _, block in ipairs(func.blocks or {}) do
             for _, param in ipairs(block.params or {}) do defs[param.value.text] = { param = param, ty = param.ty } end
             for _, inst in ipairs(block.insts or {}) do
-                local k = inst.kind
-                if k.dst ~= nil then defs[k.dst.text] = { inst = inst, kind = k } end
+                local k = inst.op
+                local dst = rawget(k, "dst")
+                if dst ~= nil then defs[dst.text] = { inst = inst, op = k } end
             end
         end
         return defs
@@ -266,7 +288,7 @@ local function bind_context(T)
         local def = ctx.defs and id and ctx.defs[id.text] or nil
         if def == nil then return Code.CodeTyIndex end
         if def.ty ~= nil then return def.ty end
-        local k = def.kind
+        local k = def.op
         local cls = asdl.classof(k)
         if cls == Code.CodeInstConst then return k.const.ty end
         if cls == Code.CodeInstAlias or cls == Code.CodeInstUnary or cls == Code.CodeInstBinary or cls == Code.CodeInstFloatBinary or cls == Code.CodeInstSelect or cls == Code.CodeInstAggregate or cls == Code.CodeInstArray then return k.ty end
@@ -290,15 +312,15 @@ local function bind_context(T)
 
     local function value_id_expr(ctx, id)
         local def = ctx.defs and id and ctx.defs[id.text] or nil
-        if def ~= nil and asdl.classof(def.kind) == Code.CodeInstConst and asdl.classof(def.kind.const) == Code.CodeConstLiteral then
-            return LJ.LJExprLiteral(def.kind.const.literal, physical(ctx, def.kind.const.ty))
+        if def ~= nil and asdl.classof(def.op) == Code.CodeInstConst and asdl.classof(def.op.const) == Code.CodeConstLiteral then
+            return LJ.LJExprLiteral(def.op.const.literal, physical(ctx, def.op.const.ty))
         end
         return LJ.LJExprValue(vid(id))
     end
 
     local function captured_closure_descriptor(ctx, id)
         local def = ctx.defs and id and ctx.defs[id.text] or nil
-        local k = def and def.kind or nil
+        local k = def and def.op or nil
         if asdl.classof(k) ~= Code.CodeInstAggregate then return false end
         if asdl.classof(k.ty) ~= Code.CodeTyClosure then return false end
         return #(k.fields or {}) > 1
@@ -331,7 +353,7 @@ local function bind_context(T)
     local producer_value_expr
     local function producer_value_id_expr(ctx, id, seen)
         local def = ctx.defs and id and ctx.defs[id.text] or nil
-        local k = def and def.kind
+        local k = def and def.op
         local cls = asdl.classof(k)
         if cls == Code.CodeInstConst and asdl.classof(k.const) == Code.CodeConstLiteral then
             return Expr.const_expr(ctx, k.const)
@@ -371,7 +393,7 @@ local function bind_context(T)
     end
 
     local function lower_term(ctx, term)
-        local k = term.kind
+        local k = term.op
         local cls = asdl.classof(k)
         local function exprs(ids)
             local out = {}
@@ -445,7 +467,7 @@ local function bind_context(T)
 
     local function const_int_value(ctx, id, seen)
         local def = ctx.defs and id and ctx.defs[id.text] or nil
-        local k = def and def.kind
+        local k = def and def.op
         local cls = asdl.classof(k)
         if cls == Code.CodeInstConst and asdl.classof(k.const) == Code.CodeConstLiteral and asdl.classof(k.const.literal) == Core.LitInt then
             return tonumber(k.const.literal.raw)
@@ -466,7 +488,7 @@ local function bind_context(T)
     end
 
     local function term_args_to_dest(term, dest)
-        local k = term and term.kind
+        local k = term and term.op
         local cls = asdl.classof(k)
         if cls == Code.CodeTermJump and k.dest == dest then return k.args or {} end
         if cls == Code.CodeTermBranch then
@@ -487,7 +509,7 @@ local function bind_context(T)
     end
 
     local function term_successors(term)
-        local k = term and term.kind
+        local k = term and term.op
         local cls = asdl.classof(k)
         local out = {}
         if cls == Code.CodeTermJump then
@@ -518,7 +540,7 @@ local function bind_context(T)
         seen = seen or {}
         if seen[key] then return false end
         seen[key] = true
-        local term = block.term and block.term.kind or nil
+        local term = block.term and block.term.op or nil
         if asdl.classof(term) == Code.CodeTermReturn then
             return #(term.values or {}) == 1 and same_value_id(term.values[1], value)
         end
@@ -534,7 +556,7 @@ local function bind_context(T)
         seen = seen or {}
         if seen[block.id.text] then return false end
         seen[block.id.text] = true
-        local term = block.term and block.term.kind or nil
+        local term = block.term and block.term.op or nil
         if asdl.classof(term) == Code.CodeTermReturn then return #(term.values or {}) == 0 end
         for _, succ in ipairs(term_successors(block.term)) do
             if reaches_void_return(blocks, blocks[succ.dest.text], seen) then return true end
@@ -549,7 +571,7 @@ local function bind_context(T)
         local from = blocks[edge.from.block.text]
         local exit = blocks[edge.to.block.text]
         if from == nil or exit == nil then return false end
-        local ret = exit.term and exit.term.kind or nil
+        local ret = exit.term and exit.term.op or nil
         if asdl.classof(ret) == Code.CodeTermReturn and #(ret.values or {}) == 1 then
             if same_value_id(ret.values[1], reduction.accumulator) then return true end
             for i, param in ipairs(exit.params or {}) do
@@ -566,7 +588,7 @@ local function bind_context(T)
         if graph_loop == nil or #(graph_loop.exits or {}) ~= 1 then return false end
         local blocks = block_index(func)
         local exit = blocks[graph_loop.exits[1].to.block.text]
-        local ret = exit and exit.term and exit.term.kind or nil
+        local ret = exit and exit.term and exit.term.op or nil
         return asdl.classof(ret) == Code.CodeTermReturn and #(ret.values or {}) == 0 or reaches_void_return(blocks, exit)
     end
 
@@ -629,7 +651,7 @@ local function bind_context(T)
         if object ~= nil then
             local provenance = object.provenance
             local pcls = asdl.classof(provenance)
-            if object.kind == Mem.MemObjectDerived and pcls == Mem.MemProvProjection and provenance.projection == Mem.MemProjectField then
+            if object.form == Mem.MemObjectDerived and pcls == Mem.MemProvProjection and provenance.projection == Mem.MemProjectField then
                 local parent = ctx.mem_objects and ctx.mem_objects[provenance.parent.text] or nil
                 local parent_layout = lane_layout(ctx, {
                     object = provenance.parent,
@@ -643,7 +665,7 @@ local function bind_context(T)
                     return wrap_soa(Stencil.StencilLayoutFieldProjection(parent_layout, record_ty, field_name, provenance.byte_offset or 0))
                 end
             end
-            if object.kind == Mem.MemObjectView and pcls == Mem.MemProvView then
+            if object.form == Mem.MemObjectView and pcls == Mem.MemProvView then
                 if provenance.stride == nil then return nil end
                 return wrap_soa(Stencil.StencilLayoutViewDescriptor(
                     provenance.view,
@@ -653,14 +675,14 @@ local function bind_context(T)
                     mem_stride_const(object.stride)
                 ))
             end
-            if object.kind == Mem.MemObjectSlice and pcls == Mem.MemProvSlice then
+            if object.form == Mem.MemObjectSlice and pcls == Mem.MemProvSlice then
                 return wrap_soa(Stencil.StencilLayoutSliceDescriptor(
                     provenance.slice,
                     provenance.data,
                     extent_len(object.extent) or provenance.len
                 ))
             end
-            if object.kind == Mem.MemObjectByteSpan and pcls == Mem.MemProvByteSpan then
+            if object.form == Mem.MemObjectByteSpan and pcls == Mem.MemProvByteSpan then
                 return wrap_soa(Stencil.StencilLayoutByteSpanDescriptor(
                     provenance.span,
                     provenance.data,
@@ -698,7 +720,7 @@ local function bind_context(T)
 
     local function primary_induction(loop_fact)
         for _, induction in ipairs(loop_fact and loop_fact.inductions or {}) do
-            if induction.kind == Flow.FlowPrimaryInduction then return induction.value end
+            if induction.role == Flow.FlowPrimaryInduction then return induction.value end
         end
         return nil
     end
@@ -784,7 +806,7 @@ local function bind_context(T)
         if seen[value.text] then return Value.ValueExprValue(value) end
         seen[value.text] = true
         local def = ctx.defs and ctx.defs[value.text] or nil
-        local k = def and def.kind or nil
+        local k = def and def.op or nil
         local cls = asdl.classof(k)
         if cls == Code.CodeInstConst then return Value.ValueExprConst(k.const) end
         if cls == Code.CodeInstAlias then return value_expr_from_code(ctx, k.src, seen) end
@@ -1027,9 +1049,9 @@ local function bind_context(T)
     end
 
     local function index_lane_for(expr, bindings)
-        local class, class_err = StencilMethods.classify_expr(Kernel.KernelExprAlgebra(expr), bindings)
-        if class == nil then return nil, class_err end
-        return StencilMethods.select_index_lane(class)
+        local point_facts, point_facts_err = StencilMethods.classify_expr(Kernel.KernelExprAlgebra(expr), bindings)
+        if point_facts == nil then return nil, point_facts_err end
+        return StencilMethods.select_index_lane(point_facts)
     end
 
     local function lane_selection_fact(ctx, lane)
@@ -1047,7 +1069,7 @@ local function bind_context(T)
         }
     end
 
-    local function enrich_point_class(ctx, class, graph_loop, loop_fact, bindings)
+    local function enrich_point_facts(ctx, point_facts, graph_loop, loop_fact, bindings)
         local producer_fact = ctx and ctx.producer_facts and loop_fact and loop_fact.domain and ctx.producer_facts[flow_domain_key(loop_fact.domain)] or nil
         local producer_shape = producer_fact and producer_fact.producer and StencilArtifactPlan.producer_shape(producer_fact.producer) or nil
         local window_1d = producer_shape ~= nil and asdl.classof(producer_shape) == Stencil.StencilProduceWindowND and #(producer_shape.axes or {}) == 1
@@ -1085,7 +1107,7 @@ local function bind_context(T)
         end
         local window_by_input = {}
         local inputs = {}
-        for i, input in ipairs(class.inputs or {}) do
+        for i, input in ipairs(point_facts.inputs or {}) do
             if input.scalar_value ~= nil then
                 inputs[i] = asdl.with(input, { index_primary = true })
             else
@@ -1156,19 +1178,19 @@ local function bind_context(T)
             if cls == Stencil.StencilPointSelect then return Stencil.StencilPointSelect(expr.pred, rewrite_expr(expr.cond), rewrite_expr(expr.then_expr), rewrite_expr(expr.else_expr), expr.result_ty) end
             return expr
         end
-        local expr = class.expr
+        local expr = point_facts.expr
         if next(window_by_input) ~= nil then expr = rewrite_expr(expr) end
-        return SM.StencilMachinePointClass(expr, inputs, class.result_ty, class.const_int)
+        return SM.StencilMachinePointExprFacts(expr, inputs, point_facts.result_ty, point_facts.const_int)
     end
 
-    local function enrich_stencil_class(ctx, class, graph_loop, loop_fact, bindings, dst_base, dst_ty)
-        return enrich_point_class(ctx, class, graph_loop, loop_fact, bindings)
+    local function enrich_stencil_point_facts(ctx, point_facts, graph_loop, loop_fact, bindings, dst_base, dst_ty)
+        return enrich_point_facts(ctx, point_facts, graph_loop, loop_fact, bindings)
     end
 
-    local function enriched_class_for_expr(ctx, expr, graph_loop, loop_fact, bindings, dst_base, dst_ty)
-        local classified, reason = classify_store_expr(expr, bindings)
-        if classified == nil then return nil, reason end
-        return enrich_stencil_class(ctx, classified, graph_loop, loop_fact, bindings, dst_base, dst_ty)
+    local function enriched_point_facts_for_expr(ctx, expr, graph_loop, loop_fact, bindings, dst_base, dst_ty)
+        local raw_point_facts, reason = classify_store_expr(expr, bindings)
+        if raw_point_facts == nil then return nil, reason end
+        return enrich_stencil_point_facts(ctx, raw_point_facts, graph_loop, loop_fact, bindings, dst_base, dst_ty)
     end
 
     local function index_lane_selection_fact(ctx, expr, graph_loop, loop_fact, bindings)
@@ -1176,12 +1198,13 @@ local function bind_context(T)
         if idx == nil then return nil end
         local fact = lane_selection_fact(ctx, idx.lane)
         if fact == nil then return nil end
-        return {
-            base = fact.base,
-            base_expr = fact.base_expr,
-            elem_ty = fact.elem_ty,
-            index_primary = expr_is_primary(ctx, idx.index, graph_loop, loop_fact, bindings),
-        }
+        return SM.StencilMachineIndexLane(
+            fact.base,
+            fact.base_expr,
+            fact.elem_ty,
+            fact.layout,
+            expr_is_primary(ctx, idx.index, graph_loop, loop_fact, bindings)
+        )
     end
 
     local function producer_from_loop(ctx, loop_fact, step_num)
@@ -1231,8 +1254,8 @@ local function bind_context(T)
         if dst_base == nil then return nil, "store destination lane has no value base" end
         local dst_fact = lane_selection_fact(ctx, store.dst)
         local bindings = binding_index(kernel_plan_body(plan))
-        local classified, reason = classify_store_expr(store.value, bindings)
-        if classified == nil then return nil, reason end
+        local raw_point_facts, reason = classify_store_expr(store.value, bindings)
+        if raw_point_facts == nil then return nil, reason end
         local start_expr, stop_expr = producer_value_id_expr(ctx, loop_fact.counted.start), producer_value_id_expr(ctx, loop_fact.counted.stop)
         local dst_expr = value_id_expr(ctx, dst_base)
         local store_index_is_primary = expr_is_primary(ctx, store.index, graph_loop, loop_fact, bindings)
@@ -1251,9 +1274,9 @@ local function bind_context(T)
                 store_index_is_primary = true
             end
         end
-        local class, class_reason = enrich_stencil_class(ctx, classified, graph_loop, loop_fact, bindings, dst_base, store.dst.elem_ty)
-        if class == nil then return nil, class_reason end
-        local selection_input = SM.StencilMachineStoreSelectInput(
+        local point_facts, point_facts_reason = enrich_stencil_point_facts(ctx, raw_point_facts, graph_loop, loop_fact, bindings, dst_base, store.dst.elem_ty)
+        if point_facts == nil then return nil, point_facts_reason end
+        local selection_input = SM.StencilMachineStoreSelectionFacts(
             producer_from_loop(ctx, loop_fact, descriptor_step),
             descriptor_step,
             store.dst.elem_ty,
@@ -1268,7 +1291,7 @@ local function bind_context(T)
             store_index_is_primary and nil or index_lane_selection_fact(ctx, store.index, graph_loop, loop_fact, bindings),
             Stencil.StencilScatterUniqueIndices,
             nil,
-            class
+            point_facts
         )
         local stencil_plan, select_reason = SM.StencilMachineStorePlanInput(
             asdl.classof(plan) == Kernel.KernelPlanned,
@@ -1276,7 +1299,7 @@ local function bind_context(T)
             step_num ~= nil and step_num ~= 0,
             store ~= nil,
             dst_base ~= nil,
-            class ~= nil,
+            point_facts ~= nil,
             selection_input
         ):plan_store_stencil()
         if stencil_plan == nil then return nil, select_reason end
@@ -1302,29 +1325,29 @@ local function bind_context(T)
         return nil
     end
 
-    local function access_arg_value(info, name)
-        if info == nil or name == nil then return nil end
-        if name == "dst" then return info.dst end
-        if name == "xs" then return info.array or info.src or info.xs end
-        if name == "src" then return info.src or info.array end
-        if name == "lhs" then return info.lhs end
-        if name == "rhs" then return info.rhs end
-        if name == "idx" then return info.index or info.idx end
-        if name == "cond" then return info.cond end
-        if name == "then_xs" then return info.then_xs or info.then_base end
-        if name == "else_xs" then return info.else_xs or info.else_base end
-        for _, input in ipairs(info.inputs or {}) do
+    local function access_arg_value(operation_descriptor, name)
+        if operation_descriptor == nil or name == nil then return nil end
+        if name == "dst" then return operation_descriptor.dst end
+        if name == "xs" then return operation_descriptor.array or operation_descriptor.src or operation_descriptor.xs end
+        if name == "src" then return operation_descriptor.src or operation_descriptor.array end
+        if name == "lhs" then return operation_descriptor.lhs end
+        if name == "rhs" then return operation_descriptor.rhs end
+        if name == "idx" then return operation_descriptor.index or operation_descriptor.idx end
+        if name == "cond" then return operation_descriptor.cond end
+        if name == "then_xs" then return operation_descriptor.then_xs or operation_descriptor.then_base end
+        if name == "else_xs" then return operation_descriptor.else_xs or operation_descriptor.else_base end
+        for _, input in ipairs(operation_descriptor.inputs or {}) do
             if input.name == name then return input.base end
         end
-        return info[name]
+        return operation_descriptor[name]
     end
 
-    local function append_access_args(ctx, desc, info, out)
+    local function append_access_args(ctx, desc, operation_descriptor, out)
         for _, access in ipairs(StencilArtifactPlan.descriptor_accesses(desc)) do
             if asdl.classof(access.layout) ~= Stencil.StencilLayoutScalar then
                 local role = access.role
                 if role == Stencil.StencilAccessRead or role == Stencil.StencilAccessWrite or role == Stencil.StencilAccessReadWrite or role == Stencil.StencilAccessIndex then
-                    local id = access_arg_value(info, access.name)
+                    local id = access_arg_value(operation_descriptor, access.name)
                     if id ~= nil then out[#out + 1] = value_id_expr(ctx, id) end
                 end
             end
@@ -1351,23 +1374,23 @@ local function bind_context(T)
         error("luajit_lower: unsupported stencil producer call shape " .. class_name(shape), 3)
     end
 
-    local function append_trailing_scalar_args(ctx, desc, info, out)
+    local function append_trailing_scalar_args(ctx, desc, operation_descriptor, out)
         for _, access in ipairs(StencilArtifactPlan.descriptor_accesses(desc)) do
             if asdl.classof(access.layout) == Stencil.StencilLayoutScalar and access.role == Stencil.StencilAccessRead then
-                local init = access.layout.value or (info and info.value)
+                local init = access.layout.value or (operation_descriptor and operation_descriptor.value)
                 if init ~= nil then out[#out + 1] = value_expr(ctx, init) end
             end
         end
         local sink = desc.sink
         local sink_cls = asdl.classof(sink)
         if sink_cls == Stencil.StencilSinkScan then
-            out[#out + 1] = value_expr(ctx, assert(info and info.init, "scan stencil call is missing init"))
+            out[#out + 1] = value_expr(ctx, assert(operation_descriptor and operation_descriptor.init, "scan stencil call is missing init"))
         elseif sink_cls == Stencil.StencilSinkReduce then
             local scope = sink.scope
             local scope_cls = asdl.classof(scope)
             local domain_scope = scope == Stencil.StencilReduceScopeDomain or scope_cls == Stencil.StencilReduceScopeDomain
-            if domain_scope and asdl.classof(sink.mode) == Stencil.StencilReduceFold then
-                out[#out + 1] = value_expr(ctx, assert(info and info.init, "reduce stencil call is missing init"))
+            if domain_scope and asdl.classof(sink.semantics) == Stencil.StencilReduceFold then
+                out[#out + 1] = value_expr(ctx, assert(operation_descriptor and operation_descriptor.init, "reduce stencil call is missing init"))
             end
         end
     end
@@ -1375,11 +1398,11 @@ local function bind_context(T)
     local function stencil_args(ctx, artifact, selection)
         local out = {}
         local desc = artifact and artifact.instance and artifact.instance.descriptor or nil
-        local info = selection and selection:stencil_artifact_info() or nil
-        if desc ~= nil and info ~= nil then
-            append_access_args(ctx, desc, info, out)
-            append_producer_args(ctx, desc.producer, out, info)
-            append_trailing_scalar_args(ctx, desc, info, out)
+        local operation_descriptor = selection and selection:stencil_artifact_descriptor() or nil
+        if desc ~= nil and operation_descriptor ~= nil then
+            append_access_args(ctx, desc, operation_descriptor, out)
+            append_producer_args(ctx, desc.producer, out, operation_descriptor)
+            append_trailing_scalar_args(ctx, desc, operation_descriptor, out)
         else
             local args = selection and selection:stencil_artifact_args() or selection
             for i = 1, #(args or {}) do out[i] = args[i] end
@@ -1404,7 +1427,9 @@ local function bind_context(T)
         local planned, reason = stencil_store_plan(ctx, func, plan, graph_loop, loop_fact)
         if planned == nil then return nil, reason end
         local selection = planned.selection
-        local artifact = opts.stencil_store_artifact_for(func, selection:stencil_artifact_kind(), selection:stencil_artifact_op(), plan, selection:stencil_artifact_info())
+        local artifact = selection:select_stencil_artifact(function(provider_func, vocab, op, _reduction, provider_plan, descriptor)
+            return opts.stencil_store_artifact_for(provider_func, vocab, op, provider_plan, descriptor)
+        end, func, nil, plan)
         if artifact == nil then return nil, "store stencil artifact provider did not select an artifact" end
         local id = LJ.LJMachineId("machine:" .. sanitize(func.name) .. ":stencil_store:" .. sanitize(loop_fact.loop.text))
         return LJ.LJMachine(id, LJ.LJMachineStencilEffect(artifact, stencil_args(ctx, artifact, selection)), nil, LJ.LJStateScalar, LJ.LJTraceHot), nil
@@ -1412,11 +1437,6 @@ local function bind_context(T)
 
     local function plan_kernel_stencil_store(ctx, func, plan, graph_loop, loop_fact, opts)
         return lower_kernel_stencil_store(ctx, func, plan, graph_loop, loop_fact, opts)
-    end
-
-    local function select_reduction_artifact(opts, func, vocab, op, reduction, plan, info)
-        if opts.stencil_reduce_artifact_for ~= nil then return opts.stencil_reduce_artifact_for(func, vocab, op, reduction, plan, info) end
-        return nil
     end
 
     local function stencil_reduce_plan(ctx, func, plan, graph_loop, loop_fact)
@@ -1429,14 +1449,14 @@ local function bind_context(T)
         local step_num = const_int_value(ctx, loop_fact.counted.step)
         if step_num == nil or step_num == 0 then return nil, "reduction stencil requires a non-zero constant step" end
         local descriptor_step = math.abs(step_num)
-        local classified, reason = classify_store_expr(Kernel.KernelExprAlgebra(reduction.contribution), binding_index(kernel_plan_body(plan)))
-        if classified == nil then return nil, reason end
+        local raw_point_facts, reason = classify_store_expr(Kernel.KernelExprAlgebra(reduction.contribution), binding_index(kernel_plan_body(plan)))
+        if raw_point_facts == nil then return nil, reason end
         local start_expr, stop_expr = producer_value_id_expr(ctx, loop_fact.counted.start), producer_value_id_expr(ctx, loop_fact.counted.stop)
         local init_expr = value_expr(ctx, reduction.init)
-        local class, class_reason = enrich_stencil_class(ctx, classified, graph_loop, loop_fact, binding_index(kernel_plan_body(plan)), nil, nil)
-        if class == nil then return nil, class_reason end
+        local point_facts, point_facts_reason = enrich_stencil_point_facts(ctx, raw_point_facts, graph_loop, loop_fact, binding_index(kernel_plan_body(plan)), nil, nil)
+        if point_facts == nil then return nil, point_facts_reason end
         local i32 = Code.CodeTyInt(32, Code.CodeSigned)
-        local selection_input = SM.StencilMachineReduceSelectInput(
+        local selection_input = SM.StencilMachineReduceSelectionFacts(
             producer_from_loop(ctx, loop_fact, descriptor_step),
             descriptor_step,
             reduction.ty,
@@ -1446,18 +1466,18 @@ local function bind_context(T)
             loop_fact.counted.stop,
             start_expr,
             stop_expr,
-            reduction.kind,
-            reduction.kind == Value.ReductionAdd,
+            reduction.op,
+            reduction.op == Value.ReductionAdd,
             is_zero_const(reduction.init),
             same_code_type(reduction.ty, i32),
-            class
+            point_facts
         )
         local stencil_plan, select_reason = SM.StencilMachineReducePlanInput(
             asdl.classof(plan) == Kernel.KernelPlanned,
             asdl.classof(result) == Kernel.KernelResultReduction,
             function_returns_reduction(func, graph_loop, reduction),
             step_num ~= nil and step_num ~= 0,
-            class ~= nil,
+            point_facts ~= nil,
             reduction,
             selection_input
         ):plan_reduce_stencil()
@@ -1470,7 +1490,7 @@ local function bind_context(T)
         local planned, reason = stencil_reduce_plan(ctx, func, plan, graph_loop, loop_fact)
         if planned == nil then return nil, reason end
         local reduction, selection = planned.reduction, planned.selection
-        local artifact = select_reduction_artifact(opts, func, selection:stencil_artifact_kind(), selection:stencil_artifact_op(), reduction, plan, selection:stencil_artifact_info())
+        local artifact = selection:select_stencil_artifact(opts.stencil_reduce_artifact_for, func, reduction, plan)
         if artifact == nil then return nil, "reduction stencil artifact provider did not select an artifact" end
         local id = LJ.LJMachineId("machine:" .. sanitize(func.name) .. ":stencil_reduce:" .. sanitize(loop_fact.loop.text))
         return LJ.LJMachine(id, LJ.LJMachineStencilCall(artifact, stencil_args(ctx, artifact, selection), physical(ctx, reduction.ty)), physical(ctx, reduction.ty), LJ.LJStateScalar, LJ.LJTraceHot), nil
@@ -1536,11 +1556,6 @@ local function bind_context(T)
         return false
     end
 
-    local function select_skeleton_artifact(opts, func, vocab, op, reduction, plan, info)
-        if opts.stencil_skeleton_artifact_for ~= nil then return opts.stencil_skeleton_artifact_for(func, vocab, op, reduction, plan, info) end
-        return nil
-    end
-
     local function skeleton_scan_plan(ctx, func, plan, graph_loop, loop_fact)
         local effect, effect_reason = single_effect(kernel_plan_body(plan), Kernel.KernelEffectScan)
         if effect == nil then return nil, effect_reason end
@@ -1554,8 +1569,8 @@ local function bind_context(T)
         if dst_base == nil then return nil, "scan destination lane has no value base" end
         local dst_fact = lane_selection_fact(ctx, effect.dst)
         local bindings = binding_index(kernel_plan_body(plan))
-        local class, class_reason = enriched_class_for_expr(ctx, Kernel.KernelExprAlgebra(reduction.contribution), graph_loop, loop_fact, bindings, dst_base, effect.dst.elem_ty)
-        if class == nil then return nil, class_reason end
+        local point_facts, point_facts_reason = enriched_point_facts_for_expr(ctx, Kernel.KernelExprAlgebra(reduction.contribution), graph_loop, loop_fact, bindings, dst_base, effect.dst.elem_ty)
+        if point_facts == nil then return nil, point_facts_reason end
         local start_expr, stop_expr = producer_value_id_expr(ctx, loop_fact.counted.start), producer_value_id_expr(ctx, loop_fact.counted.stop)
         local step_num = const_int_value(ctx, loop_fact.counted.step)
         if step_num == nil or step_num == 0 then return nil, "scan stencil requires a non-zero constant step" end
@@ -1577,7 +1592,7 @@ local function bind_context(T)
             end
         end
         local producer = producer_from_loop(ctx, loop_fact, descriptor_step)
-        local selection, select_reason = SM.StencilMachineScanSelectInput(
+        local selection, select_reason = SM.StencilMachineScanSelectionFacts(
             producer,
             descriptor_step,
             effect.dst.elem_ty,
@@ -1591,12 +1606,12 @@ local function bind_context(T)
             stop_expr,
             store_index_is_primary,
             reduction,
-            reduction.kind,
+            reduction.op,
             reduction.init,
             value_expr(ctx, reduction.init),
             effect.mode,
             effect.axis or scan_axis_from_loop(ctx, loop_fact, producer),
-            class
+            point_facts
         ):select_scan_stencil()
         if selection == nil then return nil, select_reason end
         return SM.StencilMachineSkeletonPlan(selection, SM.StencilMachineSkeletonReductionFact(reduction), returns_reduction and reduction.ty or nil), nil
@@ -1607,10 +1622,10 @@ local function bind_context(T)
         if asdl.classof(result) ~= Kernel.KernelResultFind then return nil, "kernel result is not find" end
         if graph_loop == nil then return nil, "find skeleton requires a graph loop" end
         local bindings = binding_index(kernel_plan_body(plan))
-        local class, class_reason = enriched_class_for_expr(ctx, result.src, graph_loop, loop_fact, bindings, nil, nil)
-        if class == nil then return nil, class_reason end
+        local point_facts, point_facts_reason = enriched_point_facts_for_expr(ctx, result.src, graph_loop, loop_fact, bindings, nil, nil)
+        if point_facts == nil then return nil, point_facts_reason end
         local step_num = const_int_value(ctx, loop_fact.counted.step)
-        local selection, select_reason = SM.StencilMachineFindSelectInput(
+        local selection, select_reason = SM.StencilMachineFindSelectionFacts(
             producer_from_loop(ctx, loop_fact, step_num),
             step_num,
             loop_fact.counted.start,
@@ -1619,7 +1634,7 @@ local function bind_context(T)
             producer_value_id_expr(ctx, loop_fact.counted.stop),
             result.pred,
             is_minus_one_const(result.not_found),
-            class
+            point_facts
         ):select_find_stencil()
         if selection == nil then return nil, select_reason end
         return SM.StencilMachineSkeletonPlan(selection, nil, Code.CodeTyInt(32, Code.CodeSigned)), nil
@@ -1632,10 +1647,10 @@ local function bind_context(T)
         if dst_base == nil then return nil, "partition destination lane has no value base" end
         local dst_fact = lane_selection_fact(ctx, effect.dst)
         local bindings = binding_index(kernel_plan_body(plan))
-        local class, class_reason = enriched_class_for_expr(ctx, effect.src, graph_loop, loop_fact, bindings, dst_base, effect.dst.elem_ty)
-        if class == nil then return nil, class_reason end
+        local point_facts, point_facts_reason = enriched_point_facts_for_expr(ctx, effect.src, graph_loop, loop_fact, bindings, dst_base, effect.dst.elem_ty)
+        if point_facts == nil then return nil, point_facts_reason end
         local step_num = const_int_value(ctx, loop_fact.counted.step)
-        local selection, select_reason = SM.StencilMachinePartitionSelectInput(
+        local selection, select_reason = SM.StencilMachinePartitionSelectionFacts(
             producer_from_loop(ctx, loop_fact, step_num),
             step_num,
             effect.dst.elem_ty,
@@ -1649,7 +1664,7 @@ local function bind_context(T)
             true,
             effect.pred,
             effect.semantics,
-            class
+            point_facts
         ):select_partition_stencil()
         if selection == nil then return nil, select_reason end
         return SM.StencilMachineSkeletonPlan(selection, nil, Code.CodeTyInt(32, Code.CodeSigned)), nil
@@ -1662,12 +1677,12 @@ local function bind_context(T)
         if dst_base == nil then return nil, "copy destination lane has no value base" end
         local dst_fact = lane_selection_fact(ctx, effect.dst)
         local bindings = binding_index(kernel_plan_body(plan))
-        local class, class_reason = enriched_class_for_expr(ctx, effect.src, graph_loop, loop_fact, bindings, dst_base, effect.dst.elem_ty)
-        if class == nil then return nil, class_reason end
+        local point_facts, point_facts_reason = enriched_point_facts_for_expr(ctx, effect.src, graph_loop, loop_fact, bindings, dst_base, effect.dst.elem_ty)
+        if point_facts == nil then return nil, point_facts_reason end
         local step_num = const_int_value(ctx, loop_fact.counted.step)
         if step_num == nil or step_num == 0 then return nil, "copy skeleton requires a non-zero constant step" end
         local descriptor_step = math.abs(step_num)
-        local selection, select_reason = SM.StencilMachineStoreSelectInput(
+        local selection, select_reason = SM.StencilMachineStoreSelectionFacts(
             producer_from_loop(ctx, loop_fact, descriptor_step),
             descriptor_step,
             effect.dst.elem_ty,
@@ -1682,7 +1697,7 @@ local function bind_context(T)
             nil,
             Stencil.StencilScatterUniqueIndices,
             effect.semantics,
-            class
+            point_facts
         ):select_store_stencil()
         if selection == nil then return nil, select_reason end
         return SM.StencilMachineSkeletonPlan(selection, nil, nil), nil
@@ -1697,15 +1712,15 @@ local function bind_context(T)
         local dst_fact = lane_selection_fact(ctx, effect.dst)
         if dst_fact == nil then return nil, "scatter-reduce destination lane has no layout fact" end
         local bindings = binding_index(kernel_plan_body(plan))
-        local class, class_reason = enriched_class_for_expr(ctx, effect.value, graph_loop, loop_fact, bindings, dst_base, effect.dst.elem_ty)
-        if class == nil then return nil, class_reason end
-        for _, input in ipairs(class.inputs or {}) do
+        local point_facts, point_facts_reason = enriched_point_facts_for_expr(ctx, effect.value, graph_loop, loop_fact, bindings, dst_base, effect.dst.elem_ty)
+        if point_facts == nil then return nil, point_facts_reason end
+        for _, input in ipairs(point_facts.inputs or {}) do
             if input.index_primary ~= true then return nil, "scatter-reduce contribution inputs must be primary-indexed" end
         end
         local contribution = {
-            ty = class.result_ty,
-            expr = class.expr,
-            inputs = class.inputs,
+            ty = point_facts.result_ty,
+            expr = point_facts.expr,
+            inputs = point_facts.inputs,
         }
         local index_lane = index_lane_selection_fact(ctx, effect.index, graph_loop, loop_fact, bindings)
         if index_lane == nil then return nil, "scatter-reduce destination index must come from an index lane" end
@@ -1715,23 +1730,31 @@ local function bind_context(T)
         local descriptor_step = math.abs(step_num)
         return SM.StencilMachineSkeletonPlan(
             SM.StencilMachineSelectScatterReduce(
-                SM.StencilMachineSelectionInfo(
-                    descriptor_step, producer_from_loop(ctx, loop_fact, descriptor_step),
-                    nil, effect.reducer.result_ty, contribution.ty, index_lane.elem_ty,
-                    nil, nil, nil,
-                    dst_base, nil, nil, nil, nil, nil, index_lane.base, nil, nil, nil, nil, nil, nil,
-                    "dst", "idx",
+                SM.StencilMachineScatterReduceNDescriptor(
+                    descriptor_step,
+                    producer_from_loop(ctx, loop_fact, descriptor_step),
+                    effect.reducer.result_ty,
+                    contribution.ty,
+                    index_lane.elem_ty,
+                    dst_base,
+                    index_lane.base,
+                    "dst",
+                    "idx",
                     Stencil.StencilLayoutIndexed(
                         dst_fact.layout,
                         Stencil.StencilAccessRef("idx"),
                         index_lane.elem_ty,
                         descriptor_step
                     ),
-                    nil, nil, index_lane.layout,
+                    index_lane.layout,
                     contribution.inputs,
                     contribution.expr,
-                    nil, nil, nil, nil,
-                    nil, nil, nil, nil, nil, nil, nil, nil
+                    nil,
+                    "arity" .. tostring(#(contribution.inputs or {})),
+                    nil,
+                    nil,
+                    nil,
+                    nil
                 ),
                 {
                     value_id_expr(ctx, dst_base),
@@ -1756,7 +1779,13 @@ local function bind_context(T)
         local copy, copy_reason = skeleton_copy_plan(ctx, func, plan, graph_loop, loop_fact)
         local scatter_reduce, scatter_reduce_reason = skeleton_scatter_reduce_plan(ctx, func, plan, graph_loop, loop_fact)
         local reject_reason = scan_reason or find_reason or partition_reason or copy_reason or scatter_reduce_reason or "no stencil skeleton selected"
-        local selection = SM.StencilMachineSkeletonInput(scan, find, partition, copy, scatter_reduce, reject_reason):select_stencil_machine_skeleton()
+        local candidates = {}
+        if scan ~= nil then candidates[#candidates + 1] = SM.StencilMachineSkeletonScanCandidate(scan) end
+        if find ~= nil then candidates[#candidates + 1] = SM.StencilMachineSkeletonFindCandidate(find) end
+        if partition ~= nil then candidates[#candidates + 1] = SM.StencilMachineSkeletonPartitionCandidate(partition) end
+        if copy ~= nil then candidates[#candidates + 1] = SM.StencilMachineSkeletonCopyCandidate(copy) end
+        if scatter_reduce ~= nil then candidates[#candidates + 1] = SM.StencilMachineSkeletonScatterReduceCandidate(scatter_reduce) end
+        local selection = SM.StencilMachineSkeletonInput(candidates, reject_reason):select_stencil_machine_skeleton()
         return selection:planned_stencil_machine_skeleton()
     end
 
@@ -1766,7 +1795,7 @@ local function bind_context(T)
         if planned == nil then return nil, reason end
         local selection = planned.selection
         local reduction = planned.reduction and planned.reduction:stencil_machine_artifact_reduction() or nil
-        local artifact = select_skeleton_artifact(opts, func, selection:stencil_artifact_kind(), selection:stencil_artifact_op(), reduction, plan, selection:stencil_artifact_info())
+        local artifact = selection:select_stencil_artifact(opts.stencil_skeleton_artifact_for, func, reduction, plan)
         if artifact == nil then return nil, "skeleton stencil artifact provider did not select an artifact" end
         local id = LJ.LJMachineId("machine:" .. sanitize(func.name) .. ":stencil_skeleton:" .. sanitize(loop_fact.loop.text))
         if planned.result_ty ~= nil then
@@ -1981,7 +2010,7 @@ local function bind_context(T)
                 local loop_fact = flow_loops[loop_id.text]
                 local machine, reason = select_kernel_machine(ctx, func, plan, graph_loop, loop_fact, owner, kernel, opts)
                 if machine ~= nil then
-                    local artifact = machine.kind and machine.kind.artifact or nil
+                    local artifact = machine.op and machine.op.artifact or nil
                     return LJ.LJStencilMachinePlan(func.id, plan.id, machine, artifact), pending_rejects
                 end
                 if kernel_plan_requires_stencil_lowering(plan) then

@@ -24,6 +24,12 @@ local BUILTIN_ALIASES = {
     bool = "boolean",
 }
 
+local FORBIDDEN_TYPE_NAMES = {
+    any = true,
+    table = true,
+    table_ty = true,
+}
+
 local function tag(v)
     return type(v) == "table" and rawget(v, "__lalinschema_tag") or nil
 end
@@ -78,6 +84,10 @@ function M.type(name)
     if llbl.is(name, "Type") then name = name.name end
     if type(name) ~= "string" or name == "" then error("lalinschema: expected type name", 2) end
     name = BUILTIN_ALIASES[name] or name
+    local leaf = name:match("([^%.]+)$") or name
+    if FORBIDDEN_TYPE_NAMES[leaf] then
+        error("lalinschema: forbidden untyped ASDL escape hatch '" .. leaf .. "'", 2)
+    end
     return node("Type", { kind = BUILTINS[name] and "builtin" or "name", name = name })
 end
 
@@ -98,7 +108,7 @@ function M.id(ty)
 end
 
 function M.map(key, value)
-    return node("Type", { kind = "map", key = M.type(key), value = M.type(value) })
+    error("lalinschema: forbidden ASDL side-table type 'map'; model keyed relations as named entry products under many", 2)
 end
 
 function M.field(name, ty, attrs)
@@ -159,7 +169,6 @@ local function to_asdl_type(A, ty)
     if ty.kind == "many" then return A.TypeList(to_asdl_type(A, ty.elem)) end
     if ty.kind == "optional" then return A.TypeOptional(to_asdl_type(A, ty.elem)) end
     if ty.kind == "ref" or ty.kind == "id" then return to_asdl_type(A, ty.elem) end
-    if ty.kind == "map" then return A.TypeList(to_asdl_type(A, ty.value)) end
     error("lalinschema: unsupported type kind " .. tostring(ty.kind), 2)
 end
 
@@ -433,7 +442,6 @@ local Lang = llbl.dialect "LalinSchema" {
     g.helper .optional { value = type_ctor("optional", 1, M.optional) },
     g.helper .ref { value = type_ctor("ref", 1, M.ref) },
     g.helper .id { value = type_ctor("id", 1, M.id) },
-    g.helper .map { value = type_ctor("map", 2, M.map) },
 }
 
 function M.make_env(opts)
@@ -484,7 +492,6 @@ function M.namespace(opts)
         optional = env.optional,
         ref = env.ref,
         id = env.id,
-        map = env.map,
         },
     }
 end
@@ -506,7 +513,7 @@ local FIELD_CAPTURE_RESERVED = {
     str = true, bool = true, number = true,
     function_ty = true, nil_ty = true,
     interned = true, unique = true, variant_unique = true,
-    many = true, optional = true, ref = true, id = true, map = true,
+    many = true, optional = true, ref = true, id = true,
     llbl = true, N = true, spread = true, _ = true, process = true, process_opts = true,
     here = true, at_origin = true, with_origin = true,
     decls = true, product_body = true, sum_body = true, schema_type = true,
@@ -540,8 +547,6 @@ local function type_doc(ty, f)
         return f:text(ty.name)
     elseif ty.kind == "many" or ty.kind == "optional" or ty.kind == "ref" or ty.kind == "id" then
         return f:group { ty.kind, " [", type_doc(ty.elem, f), "]" }
-    elseif ty.kind == "map" then
-        return f:group { "map [", type_doc(ty.key, f), "] [", type_doc(ty.value, f), "]" }
     end
     return f:text("<type>")
 end

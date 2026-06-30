@@ -188,7 +188,7 @@ local function bind_context(T)
         local cls = asdl.classof(ty)
         if cls == Ty.TArray or cls == Ty.TNamed then return true end
         local tcls = classify_api.classify(ty)
-        return asdl.classof(tcls) == Ty.TypeClassAggregate
+        return asdl.classof(tcls) == Ty.TypeShapeAggregate
     end
 
     local function issue(sig_id, site, reason)

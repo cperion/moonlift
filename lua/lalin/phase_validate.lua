@@ -9,12 +9,8 @@ local asdl = require("lalin.asdl")
 
 local M = {}
 
-local function classof(v) return asdl.classof(v) end
-
 local function class_name(v)
-    local cls = classof(v)
-    if type(cls) ~= "table" then return nil end
-    return tostring(cls):match("^Class%((.+)%)$")
+    return asdl.class_name(v)
 end
 
 local function is_class(v, name)
@@ -37,12 +33,10 @@ local function same_id(a, b)
 end
 
 local function impl_kind(impl)
-    local cls = classof(impl)
-    if type(cls) ~= "table" then return "unknown" end
-    if cls.kind == "ImplLalin" then return "lalin" end
-    if cls.kind == "ImplLua" then return "lua" end
-    if cls.kind == "ImplC" then return "c" end
-    if cls.kind == "ImplExternal" then return "external" end
+    if is_class(impl, "ImplLalin") then return "lalin" end
+    if is_class(impl, "ImplLua") then return "lua" end
+    if is_class(impl, "ImplC") then return "c" end
+    if is_class(impl, "ImplExternal") then return "external" end
     return "unknown"
 end
 

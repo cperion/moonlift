@@ -44,8 +44,17 @@ long checklist below remains the full audit.
       rewrite work.
 - [x] `lua/lalin/asdl.lua` is the active ASDL runtime surface.
 - [x] Direct ASDL method assignment works, including nullary singleton variants.
-- [x] ASDL sum parents provide nil-returning default methods to variants, so
-      unsupported leaf behavior can be expressed by absence instead of dispatch.
+- [x] ASDL sum parents propagate explicitly installed parent methods to
+      variants; missing methods are absent and do not synthesize nil-returning
+      functions.
+- [x] ASDL runtime values no longer expose synthetic `.kind` tags or class
+      metadata through instance lookup; diagnostics use explicit class-name
+      reflection helpers.
+- [x] ASDL class runtime metadata now lives in private side tables; compiler
+      code uses `asdl.fields`, `asdl.members`, `asdl.context_of`, and
+      `asdl.isa` instead of reading class internals.
+- [x] ASDL parent methods are inherited by class lookup without copying into
+      leaves, so child overrides survive later parent defaults.
 - [x] `lua/lalin/tree_typecheck_rules.lua` is deleted.
 - [x] `lua/lalin/tree_typecheck_type.lua` installs direct schema-context methods.
 - [x] `lua/lalin/tree_typecheck_layout.lua` installs direct schema-context methods.
@@ -132,13 +141,360 @@ long checklist below remains the full audit.
       - [x] Production `tree_to_code.lua` is clean for `asdl.classof`,
             `schema.isa`, `.kind`, selector-table, and rule-module dispatch.
 - [x] Continue `lua/lalin/code_to_back.lua` method rewrite.
-      - [x] `CodeInstKind` and `CodeTermKind` behavior lives on concrete ASDL
+      - [x] `CodeInstOp` and `CodeTermOp` behavior lives on concrete ASDL
             leaf methods; the old instruction/terminator ladders are gone.
       - [x] Code-to-Back facts, state, inputs, and state/value/address/memory
             results are explicit ASDL products.
       - [x] Code-to-Back semantic helpers no longer mutate `state.cmds`,
             scratch maps, or `next_tmp` directly; state changes are returned
             through typed products and synced by the driver.
+
+## ASDL Tower Review TODO
+
+This section records the 2026-06-30 ASDL tower/lowering review. These are not
+style notes. They are architecture debt against `docs/ASDL_GUIDE.md`: type and
+dispatch must live in ASDL, leaf methods own semantic behavior, and semantic
+methods return typed ASDL results instead of ad hoc tables, nil protocols,
+manual dispatch, or large mutable context bags.
+
+- [x] Keep the ASDL runtime escape hatch closed.
+      - [x] No ASDL `any`, `table`, `table_ty`, or `map` field type is
+            currently exposed.
+      - [x] Keep schema guard tests that reject `any`, `table`, `table_ty`,
+            `map`, and equivalent catch-all field types loudly.
+      - [x] Remove ASDL `map` support from `lalin.schema.dsl`; keyed relations
+            must be named ASDL entry products carried under `many`.
+      - [x] Remove runtime `.kind` tags from generated ASDL classes; semantic
+            dispatch must be direct method lookup, with class-name reflection
+            reserved for diagnostics and formatting.
+      - [x] Remove synthetic default nil methods from ASDL sum parents; parent
+            defaults must be explicitly installed methods.
+      - [x] Hide class metadata from ASDL instances by exposing only fields and
+            real methods through instance lookup.
+      - [x] Move constructor plans, field lists, context ownership, singleton
+            values, membership sets, raw getters, and unique-slot counters into
+            private runtime side metadata.
+      - [x] Replace active compiler reads of raw ASDL metadata with explicit
+            runtime helpers.
+- [ ] Semantic naming audit: make ASDL type and method names say what they are.
+      This is not a cosmetic old-name replacement pass; names must expose the
+      semantic role of the value or method.
+      - [x] Replace generic payload names such as `*Info`, `*Data`, `*Payload`,
+            and broad `*Input` products when the fields describe a concrete
+            domain object. Current high-priority examples:
+            `StencilMachineStoreNInfo`, `StencilMachineReduceNInfo`,
+            `StencilMachineScanArrayInfo`, `StencilMachineFindArrayInfo`,
+            `StencilMachinePartitionArrayInfo`,
+            `StencilMachineScatterReduceNInfo`, and select inputs containing
+            a field named `class`.
+            Closed by renaming the stencil-machine operation payloads to
+            `*Descriptor`, selection inputs to `*SelectionFacts`, selected
+            payload fields to `descriptor`, and the selected point-expression
+            field to `point_facts`.
+      - [x] Rename `StencilMachinePointClass`; it is not a runtime/class tag.
+            Use a semantic name for the grouped point-input facts/capabilities.
+            Closed as `StencilMachinePointExprFacts`.
+      - [x] Audit all `*Kind` and `*Class` sums. Keep only names where
+            `kind` or `class` is the actual domain term; otherwise rename to
+            the semantic choice being modeled. The only remaining schema
+            `*Class` names are intentional domain terms: C `StorageClass` and
+            ABI `AbiClass`.
+            - [x] `BindingClass` became `BindingRole`; `Binding.class` became
+                  `Binding.role`.
+            - [x] `TypeClass` became `TypeShape`; unavailable type-layout and
+                  scalar results now carry `shape`, and `AbiDecision.class`
+                  became `AbiDecision.abi`.
+            - [x] Memory schema category names became semantic names:
+                  `MemAccessKind` -> `MemAccessOp`,
+                  `MemObjectKind` -> `MemObjectForm`, and
+                  `MemProjectionKind` -> `MemProjectionStep`; access/object
+                  fields now use `op` and `form`.
+            - [x] Code instruction and terminator operation sums became
+                  `CodeInstOp` and `CodeTermOp`.
+            - [x] LuaJIT machine operation sum became `LJMachineOp`; machines
+                  now carry `op`.
+            - [x] Exec fragment, source anchor, and C type category names became
+                  semantic schema names: `ExecFragmentKind` ->
+                  `ExecFragmentBody`, `AnchorKind` -> `AnchorRole`, and
+                  `CTypeKind` -> `CTypeShape`; their fields are now `body`,
+                  `role`, and `shape`.
+            - [x] C AST directive/include/macro category names became semantic
+                  names: `CDirectiveKind` -> `CDirectiveToken`,
+                  `CIncludeKind` -> `CIncludeDelimiter`, and `CMacroKind` ->
+                  `CMacroForm`; their payload fields are now `directive`,
+                  `delimiter`, and `form`.
+            - [x] Host category names became semantic names:
+                  `HostLayoutKind` -> `HostLayoutShape`, `HostValueKind` ->
+                  `HostValueSubject`, `HostProxyKind` -> `HostProxyShape`, and
+                  `HostProducerKind` -> `HostProducerBackend`; fields are now
+                  `shape`, `subject`, `proxy`, and `backend`.
+            - [x] Link artifact/tool category names became semantic names:
+                  `LinkArtifactKind` -> `LinkOutputForm` and `LinkerKind` ->
+                  `LinkToolDriver`; plan/tool fields are now `output_form` and
+                  `driver`.
+            - [x] MLua island category names became semantic names:
+                  `IslandKind` -> `IslandRole`; island text and malformed
+                  island payloads now carry `role`.
+            - [x] Flow induction category names became semantic names:
+                  `FlowInductionKind` -> `FlowInductionRole`; induction facts
+                  now carry `role`.
+            - [x] Stencil proof category names became semantic names:
+                  `StencilProofObligationKind` -> `StencilProofRequirement`;
+                  proof obligation records now carry `requirement`.
+            - [x] DASM was removed from the codebase: no `LalinDasm` schema,
+                  no `back/dasm` backend, and no retired DASM tests.
+            - [x] Schedule category names became semantic names:
+                  `ScheduleKind` -> `ScheduleForm`; planned schedules and
+                  schedule selections now carry `form`.
+            - [x] C backend helper category names became semantic names:
+                  `CBackendHelperKind` -> `CBackendHelperSpec`; helper uses
+                  now carry `spec`.
+            - [x] Core open-symbol category names became semantic names:
+                  `SymKind` -> `SymRole`; `OpenSym` now carries `role`.
+            - [x] Core operator grouping names became semantic names:
+                  `UnaryOpClass`, `BinaryOpClass`, `CmpOpClass`, and
+                  `IntrinsicClass` became `UnaryOpFamily`, `BinaryOpFamily`,
+                  `CmpOpFamily`, and `IntrinsicFamily`.
+            - [x] Statement flow category names became semantic names:
+                  `FlowClass` -> `FlowOutcome`.
+            - [x] C AST struct/union category names became semantic names:
+                  `StructKind` -> `StructForm`; struct-or-union type specs now
+                  carry `form`.
+            - [x] Compiler diagnostics stopped using schema-class wording:
+                  `CodeResultIssueWrongClass` and
+                  `FlatlineImageIssueWrongClass` became
+                  `CodeResultIssueUnexpectedValue` and
+                  `FlatlineImageIssueUnexpectedValue`.
+            - [x] Host layout reject names stopped using field-kind wording:
+                  `HostRejectUnknownFieldKind` became
+                  `HostRejectUnknownFieldRep`.
+            - [x] Reduction category names became explicit operation names:
+                  `ReductionKind` -> `ReductionOp`; reduction facts and
+                  stencil-machine descriptors now carry `op`/`reduction_op`.
+      - [x] Audit `*Mode` sums. Keep `mode` only when it is a real user/domain
+            mode; otherwise rename to the policy/semantics being chosen.
+            Only `CodeFloatMode` and `StencilScanMode` remain as intentional
+            domain modes.
+            - [x] Trap/div/shift choices became policies:
+                  `CodeTrapMode` -> `CodeTrapPolicy`, `CodeDivMode` ->
+                  `CodeDivPolicy`, `CodeShiftMode` -> `CodeShiftPolicy`,
+                  `CBackendTrapMode` -> `CBackendTrapPolicy`,
+                  `CBackendDivMode` -> `CBackendDivPolicy`, and
+                  `CBackendShiftMode` -> `CBackendShiftPolicy`.
+            - [x] Read/write access choices became effects:
+                  `CodeMemoryMode` -> `CodeMemoryEffect`,
+                  `BackAccessMode` -> `BackAccessEffect`, and memory/access
+                  products now carry `effect`.
+            - [x] Store/reduce sink choices became semantics:
+                  `StencilStoreMode` -> `StencilStoreSemantics` and
+                  `StencilReduceMode` -> `StencilReductionSemantics`; store
+                  and reduce sinks now carry `semantics`.
+            - [x] Host exposure choice became strategy:
+                  `HostExposeMode` -> `HostExposeStrategy`; expose facets now
+                  carry `strategy`.
+            - [x] Typechecking yield choice became result:
+                  `TypeYieldMode` -> `TypeYieldResult`.
+      - [ ] Replace methods that return selector strings or booleans for later
+            branching with direct leaf behavior or typed ASDL result values.
+            Current high-priority examples: `stencil_artifact_kind`,
+            `lower_emit_is_*`, `lower_plan_is_*`, `exec_plan_is_*`,
+            `stencil_machine_kernel_is_*`, `stencil_machine_skeleton_is_*`,
+            and `lower_emit_needs_schedule`.
+            - [x] Removed `stencil_artifact_kind`; concrete stencil-machine
+                  selections now call artifact providers through
+                  `select_stencil_artifact`.
+            - [x] Removed `lower_emit_needs_schedule`; lowering strategies now
+                  resolve schedules through `lower_emit_schedule`.
+            - [x] Removed `lower_emit_is_*`, `lower_plan_is_*`,
+                  `exec_plan_is_*`, `stencil_machine_kernel_is_*`,
+                  `stencil_machine_skeleton_is_*`, and `schedule_plan_is_*`;
+                  focused tests now assert selected ASDL values or exercise
+                  the selected leaf behavior directly.
+            - [ ] Continue the broader predicate audit. Remaining visible
+                  families include `kernel_plan_is_*`,
+                  `typecheck_tree_is_*`, and local legality predicates that
+                  should become direct leaf behavior or typed result values.
+            - [x] Removed `kernel_plan_is_*` loop-plan selectors; tests now
+                  assert the selected ASDL value payloads directly and the
+                  planner continues through `add_selected_loop_plan`.
+            - [x] Removed memory read/write selector predicates from kernel
+                  planning and semantic Back/C lowerers. Memory access op
+                  leaves now add dependence rejects or select read/write lane
+                  accesses directly.
+      - [ ] Rename method parameters named `ctx`, `context`, `env`, `state`,
+            `info`, or `input` unless the parameter type name is already narrow
+            and exact. Broad examples still visible in the audit include
+            `tree_code_*` helpers taking `ctx`, `stencil_c_*` methods taking
+            `ctx`, and `emit_to_back`/`emit_to_c` methods taking long loose
+            argument lists.
+            - [x] `lua/lalin/stencil_c.lua` no longer uses `ctx` for producer
+                  loop semantics. The producer loop object is named
+                  `loop_scope`, and its constructor is named
+                  `stencil_loop_scope`.
+            - [x] `LowerEmitSelection:emit_to_back` and
+                  `LowerEmitSelection:emit_to_c` no longer receive long loose
+                  argument lists. They take a named emission builder plus
+                  `LowerBackEmitInput`/`LowerCEmitInput` ASDL products carrying
+                  the exact fragment facts.
+            - [x] `lua/lalin/lower_to_c.lua` no longer uses a `ctx` identifier
+                  for semantic C lowering. The mutable driver-side builder is
+                  named `c_emission`, and type lookup is named
+                  `c_type_projection`.
+            - [x] `lua/lalin/lower_to_back.lua` no longer uses a `ctx`
+                  identifier for semantic Back lowering. The mutable
+                  driver-side builder is named `back_emission`, and memory
+                  backend metadata parameters are named `backend_access`.
+            - [x] `lua/lalin/code_to_c.lua` no longer uses a `ctx` identifier
+                  for generic Code-to-C lowering. The mutable builder is named
+                  `c_emission`, and the type lookup table is named
+                  `c_type_projection`.
+            - [x] `lua/lalin/tree_to_code.lua` no longer uses `ctx` for typed
+                  TreeCode method inputs. The active lowering input is named
+                  `tree_code_input`; remaining `input` parameters are explicit
+                  ASDL products such as `TreeCodeExprInput`,
+                  `TreeCodeStmtInput`, and `TreeCodeItemLowerInput`.
+      - [ ] Rename files whose module name hides the semantic owner. Current
+            candidates: `schema_runtime.lua`, `schema_context.lua`,
+            `compiler_driver.lua`, `phase_execute.lua`, `exec_plan.lua`,
+            `code_lower_plan.lua`, `lower_to_back.lua`, `lower_to_c.lua`, and
+            the `luajit_*` family if the schema/module is no longer strictly
+            LuaJIT-specific.
+      - [ ] Treat `Plan`, `Selection`, `Candidate`, and `Result` as acceptable
+            only when the type name also states the specific thing being
+            planned, selected, considered, or returned.
+- [x] Repair module/context ownership for the active Lalin compiler surfaces.
+      - [x] `lalin.ast` no longer creates a private default schema context or
+            exposes raw context/builders through its constructor API.
+      - [x] `lalin.dsl` binds through `dsl(T)`; the public `lalin` facade owns
+            and passes its default authoring context.
+      - [x] `lalin.dsl.format` installs ASDL formatting methods on the value's
+            owning context instead of allocating its own context.
+      - [x] `lalin.phase_dsl`, `compiler_package`, and `phase_plan` no longer
+            allocate private fallback phase contexts.
+      - [x] Parsed syntax submodules require a projected context instead of
+            silently installing schema projection.
+- [x] Rewrite `lua/lalin/sem_const_eval.lua` as ASDL leaf methods.
+      - [x] Add explicit `ConstEvalInput` in `LalinSem`.
+      - [x] Add `ConstExprResult` ASDL leaves such as `ConstKnown`,
+            `ConstNotFoldable`, and `ConstRejected`.
+      - [x] Add `ConstStmtFlow` ASDL leaves such as `ConstFallsThrough`,
+            `ConstReturnVoid`, `ConstReturnValue`, `ConstYieldVoid`,
+            `ConstYieldValue`, and `ConstJump`.
+      - [x] Install `Expr*` constant-eval behavior on concrete `LalinTree.Expr`
+            leaves.
+      - [x] Install `Stmt*` constant-eval behavior on concrete `LalinTree.Stmt`
+            leaves.
+      - [x] Delete the generated/manual `schema.isa`/`schema.classof` ladders.
+      - [x] Delete `yes/no`, nil-as-not-constant, `single(...)` phase wrappers,
+            and `{ kind = ..., env = ... }` result records.
+- [ ] Repair `lua/lalin/tree_to_code.lua` state semantics.
+      - [x] Split `TreeCodeFuncContext` into precise ASDL products such as
+            module facts, function facts, block state, control state, binding
+            projection, and emission result.
+      - [x] Stop treating one mutable context product as the default semantic
+            input for all leaf methods.
+      - [ ] Make leaf methods return typed state/result products instead of
+            mutating maps, counters, current block slots, control-region slots,
+            and alpha-renaming slots in place.
+            - [x] Removed illegal ASDL product-field mutation from the active
+                  Tree-to-Code path. Current block, alpha suffix, control-region
+                  stack/exit flags, and module string counters now live in
+                  typed keyed state collections instead of optional/scalar
+                  product fields.
+            - [x] Control target storage now uses
+                  `TreeCodeControlTargetEntry` values instead of a hidden
+                  string-keyed map inside `TreeCodeControlRegion.targets`.
+            - [x] Module lowering reads back `funcs`, `data`, `globals`, and
+                  contract facts from the typed input products after ASDL
+                  construction, rather than relying on pre-constructor tables.
+      - [x] Rename `TreeCodeFuncContext` only if the resulting shape is honest:
+            use `TreeCodeFuncState` for explicit state, or split it instead of
+            renaming a bag.
+      - [x] Remove the old Tree-to-Code free lowering helpers for expressions,
+            places, calls, if/switch/control lowering, view index lowering,
+            variant payload binds, globals, and function bodies; those semantics
+            now live on ASDL input products or concrete ASDL leaves.
+        progress: `TreeCodeFuncContext` and `TreeCodeModuleContext` are removed.
+        Tree-to-Code now separates `TreeCodeModuleFacts`,
+        `TreeCodeModuleSigState`, `TreeCodeModuleRegistrationState`,
+        `TreeCodeModuleEmissionState`, `TreeCodeFuncFacts`, and
+        `TreeCodeFuncState`. The remaining debt is no longer free-helper
+        dispatch; it is the mutable state protocol inside the Tree-to-Code
+        state products.
+- [x] Repair Code-to-Back state shape after the method rewrite.
+      - [x] Audit `CodeBackModuleFacts`, `CodeBackFunctionFacts`, and
+            `CodeBackFunctionState` for map-heavy side state.
+      - [x] Replace aggregate-address, capture, local-slot, tmp-counter, and
+            readonly side maps with named ASDL facts/projections where they are
+            semantic state.
+      - [x] Keep private lookup indexes only inside local driver scopes; do not
+            pass raw maps as semantic method inputs.
+        debt paid: `CodeBackFunctionState` now carries
+        `CodeBackAggregateState`, `CodeBackClosureState`,
+        `CodeBackLocalSlotState`, and `CodeBackTempState`; module readonly
+        facts are carried by `CodeBackReadonlyProjection`.
+- [x] Methodize `lua/lalin/code_to_c.lua`.
+      - [x] Move `CodeConst` to C atom lowering onto `CodeConst` leaves.
+      - [x] Move `CodePlace` to C place lowering onto `CodePlace` leaves.
+      - [x] Move `CodeGlobalRef` name/signature/reloc behavior onto
+            `CodeGlobalRef` leaves.
+      - [x] Move `CodeInstOp` to C statement lowering onto `CodeInstOp`
+            leaves.
+      - [x] Move `CodeTermOp` to C terminator lowering onto `CodeTermOp`
+            leaves.
+      - [x] Delete the `asdl.classof` ladders in `inst_to_stmts`, `term_to_c`,
+            `place_to_c`, `const_atom`, and related helpers.
+- [x] Methodize `lua/lalin/stencil_c.lua`.
+      - [x] Move producer parameter and loop emission onto `StencilProducerShape`
+            leaves.
+      - [x] Move point-expression C emission onto `StencilPointExpr` leaves.
+      - [x] Move access-layout offset/address emission onto
+            `StencilAccessLayout` leaves.
+      - [x] Move artifact declaration selection onto typed stencil artifact,
+            body, sink, or descriptor leaves.
+      - [x] Remove `producer.kind` checks and `artifact_shape(...).kind`
+            dispatch from compiler semantics.
+- [x] Repair `lua/lalin/code_kernel_plan.lua` skeleton semantics.
+      - [x] Move primary-index recognition and value-key construction for
+            `ValueExpr` leaves out of local `asdl.classof` switches and onto
+            parent/default plus leaf ASDL methods.
+      - [x] Move scatter-reduce expression classification onto `ValueExpr`
+            parent/default plus leaf ASDL methods.
+      - [x] Replace ad hoc skeleton records such as
+            `{ effects = ..., result = ..., handles_dependences = ... }` with
+            an ASDL `KernelSkeletonSelection` or equivalent union.
+      - [x] Move skeleton inference outcomes into typed leaves for scan, find,
+            partition, copy, scatter-reduce, and no-plan/reject.
+      - [x] Keep temporary indexes local; do not pass side maps as semantic
+            inputs when a named ASDL fact/projection is needed.
+- [x] Replace optional-soup candidate products with unions.
+      - [x] Replace `KernelLoopPlanInput` booleans plus optional candidates with
+            a `KernelLoopCandidate` union: not-counted, missing-owner,
+            rejected-facts, closed-form, reduction, skeleton, original-control.
+      - [x] Replace `LowerFragmentPlanInput` option clusters with a
+            `LowerFragmentCandidate` union.
+      - [x] Replace `LowerEmitInput` option clusters with an explicit
+            `LowerEmitCandidate` or selection union.
+- [x] Delete `StencilMachineSelectionInfo` optional soup.
+      - [x] Move store/reduce/scan/find/partition/copy/scatter-reduce payloads
+            into leaf-specific ASDL products.
+      - [x] Ensure each `StencilMachineSelected` leaf consumes the exact ASDL
+            payload it needs, not a shared product with dozens of nullable
+            fields.
+      - [x] Ensure `StencilMachineSkeletonInput` becomes a candidate/selection
+            union rather than several optional plan slots plus a reason string.
+- [x] Methodize remaining fact/type helpers that still dispatch manually.
+      - [x] Move `code_graph` def/use/edge extraction onto `CodeInstOp`,
+            `CodeTermOp`, `CodePlace`, and `CodeCallTarget` leaves.
+      - [x] Move `code_value_facts` expression/fact extraction onto
+            `CodeInstOp`, `Core.BinaryOp`, and `ValueExpr` leaves.
+      - [x] Move `type_size_align` scalar/class layout behavior onto
+            `Core.Scalar`, `TypeShape`, `TypeRef`, and `Type` leaves.
+      - [x] Move `type_to_back_scalar` behavior onto `Core.Scalar` and
+            `TypeShape` leaves.
+      - [x] Replace raw index products such as `expr_by_value`, `proof_by_value`,
+            and `backend_by_access` with named ASDL lookup/projection products
+            whenever they cross a semantic method boundary.
 
 ## Goal
 
@@ -627,8 +983,8 @@ These are the current freeform rule/dispatch modules to eliminate or shrink.
         runner surface.
   - [x] Replace legacy stencil selection `{ kind, vocab, op, info, args }`
         tables with `StencilMachineSelected` ASDL leaves.
-  - [x] Replace selected-info bags with explicit
-        `StencilMachineSelectionInfo` ASDL values.
+  - [x] Replace selected-info bags with leaf-specific stencil-machine payload
+        ASDL values.
   - [x] Split pure vocabulary legality from lowering behavior.
   - [x] Attach stencil expression/sink legality to stencil classes.
   - [x] Keep global saturation vocabulary as data, not rule-table control flow.
@@ -638,6 +994,12 @@ These are the current freeform rule/dispatch modules to eliminate or shrink.
         `ValueExpr` ASDL leaf methods.
   - [x] Return typed `StencilMachineStorePlan` and
         `StencilMachineReducePlan` values instead of ad hoc plan tables.
+  - [x] Return typed `StencilMachineIndexLane` values from stencil-machine
+        index-lane selection instead of plain Lua tables.
+  - [x] Add schedule leaf methods for vectorization facts so scalar schedules
+        do not expose absent `facts` fields through method fallback.
+  - [x] Add kernel-plan leaf methods for reject reporting so `KernelPlanned`
+        is not probed for `KernelNoPlan` fields.
 
 ## Major Lowering Modules To Refactor Around Methods
 
@@ -660,40 +1022,61 @@ These are the current freeform rule/dispatch modules to eliminate or shrink.
   - [x] delegates typed operations to node methods
   - [ ] Replace remaining `ctx`/`module_ctx` driver bags with precise typed
         Tree-to-Code ASDL input/state/result products.
-        - [x] Added typed Tree-to-Code module context fields, function
+        - [x] Added typed Tree-to-Code module facts/state fields, function
               registrations, variant definitions, local binding snapshots,
               block builders, and control-region state to the ASDL schema.
         - [x] Split constant Tree-to-Code module facts from phase-resolved
               module state: `TreeCodeModuleFacts` owns module name, layout
               environment, target, constant environment, and variant
-              definitions; `TreeCodeModuleContext` owns generated signatures,
-              registrations, externs, data, and counters.
-        - [x] `build_module_ctx` now constructs `TreeCodeModuleContext`;
-              function registrations and variant definitions use typed ASDL
-              products instead of raw registration tables.
+              definitions; `TreeCodeModuleSigState`,
+              `TreeCodeModuleRegistrationState`, and
+              `TreeCodeModuleEmissionState` own signatures, registrations,
+              externs, generated data, and counters.
+        - [x] `build_module_parts` constructs separate module facts/signature/
+              registration/emission ASDL products; function registrations and
+              variant definitions use typed ASDL products instead of raw
+              registration tables.
         - [x] Tree-to-Code function-local binding snapshots and local binding
               entries now use typed ASDL products.
-        - [x] Function lowering now constructs `TreeCodeFuncContext` ASDL
-              objects; block assembly, counters, binding snapshots, locals,
-              alpha scopes, and active control regions are changed through
-              installed context methods instead of a raw driver table.
+        - [x] Function lowering now constructs `TreeCodeFuncFacts` and
+              `TreeCodeFuncState` ASDL values; block assembly, counters,
+              binding snapshots, locals, alpha scopes, and active control
+              regions are changed through installed state/input methods instead
+              of a raw driver table.
         - [x] Tree-to-Code mutable state products are not interned; function
               blocks, locals, counters, and generated module data no longer
               share empty ASDL collection tables across functions.
-        - [ ] Continue replacing broad `ctx` method parameters with narrower
-              typed Tree-to-Code input products where a leaf does not need full
-              function state.
-- [ ] `lua/lalin/code_to_back.lua`
-  - [ ] methodize type, place, expr, inst lowering
+        - [x] Split `TreeCodeFuncState` into named binding, residence,
+              emission, counter, alpha-renaming, and control-state ASDL
+              products instead of top-level side maps and slots.
+        - [x] Expression, place, and statement lowering leaf methods now receive
+              typed `TreeCodeExprInput`, `TreeCodePlaceInput`, and
+              `TreeCodeStmtInput` products instead of the function state object
+              directly.
+        - [x] Removed free helper lowering entrypoints such as `lower_expr`,
+              `lower_place`, `lower_call`, `lower_stmt_if`,
+              `lower_stmt_switch`, `lower_expr_if`, `lower_expr_switch`,
+              `lower_control_region`, `lower_variant_binds`, and
+              `lower_func`; call sites now invoke installed ASDL methods
+              directly.
+        - [ ] Convert remaining mutable state methods on `TreeCodeFuncState`
+              and Tree-to-Code input products into typed state/result-returning
+              methods instead of in-place updates.
+- [x] `lua/lalin/code_to_back.lua`
+  - [x] Finish the remaining `CodeInst.kind` / `CodeTerm.kind` wrapper schema
+        debt: wrapper fields are now named `op`, and compiler consumers no
+        longer reach through a generic `kind` field for Code IR instruction or
+        terminator payloads.
+  - [x] methodize type, place, expr, inst lowering
   - [x] Added explicit `CodeBack*` ASDL products for module facts, function
         facts, function state, instruction input, terminator input, place input,
         state result, and place result.
   - [x] Added typed Code-to-Back value/address/memory result products for
         helpers that produce Back values, addresses, or synthetic memory facts
         while threading `CodeBackFunctionState`.
-  - [x] `CodeInst` lowering now delegates through `CodeInstKind` ASDL leaf
+  - [x] `CodeInst` lowering now delegates through `CodeInstOp` ASDL leaf
         methods; the central instruction-kind class ladder is removed.
-  - [x] `CodeTerm` lowering now delegates through `CodeTermKind` ASDL leaf
+  - [x] `CodeTerm` lowering now delegates through `CodeTermOp` ASDL leaf
         methods; the central terminator-kind class ladder is removed.
   - [x] `CodeDataInit`, `CodeGlobalRef`, and `CodeCallTarget` lowering now live
         on their concrete ASDL leaves.
@@ -705,6 +1088,9 @@ These are the current freeform rule/dispatch modules to eliminate or shrink.
         `CodeBackStateResult` instead of receiving loose state/info arguments.
   - [x] Driver-local Code-to-Back orchestration table is named `lowering`; ASDL
         semantic methods only use `input.state` for `CodeBackFunctionState`.
+  - [x] `CodeBackFunctionState` now carries named aggregate, closure,
+        local-slot, and temporary-counter state products; module readonly
+        lowering facts are carried by `CodeBackReadonlyProjection`.
   - [x] Renamed the last Code-to-Back `make_ctx` boundary to
         `make_lowering`; no `ctx` identifier remains in the file.
   - [x] Remove the temporary Code-to-Back builder adapter and replace command/
@@ -728,9 +1114,9 @@ These are the current freeform rule/dispatch modules to eliminate or shrink.
         methods instead of helper dispatch.
   - [x] `CodePlace` address formation and address-of lowering delegate to
         concrete place methods instead of dispatching on place class.
-  - [x] Move `CodeInstKind` lowering out of the instruction driver ladder and
+  - [x] Move `CodeInstOp` lowering out of the instruction driver ladder and
         onto concrete instruction-kind methods.
-  - [x] Move `CodeTermKind` lowering out of the terminator driver ladder and
+  - [x] Move `CodeTermOp` lowering out of the terminator driver ladder and
         onto concrete terminator-kind methods.
 - [ ] `lua/lalin/code_to_c.lua`
   - [ ] methodize C backend projection
@@ -740,6 +1126,8 @@ These are the current freeform rule/dispatch modules to eliminate or shrink.
   - [ ] methodize semantic-to-C lowering
 - [ ] `lua/lalin/luajit_lower.lua`
   - [x] methodize kernel/skeleton stencil lowering selection
+  - [x] remove remaining ad hoc stencil-machine input table from index-lane
+        lowering
   - [ ] methodize remaining code/LJ/stencil lowering where class-specific
   - [ ] keep artifact selection orchestration separate
 - [ ] `lua/lalin/luajit_emit.lua`
@@ -822,7 +1210,9 @@ These are the current freeform rule/dispatch modules to eliminate or shrink.
 - [x] `rg -n 'require\\("pvm"\\)|require\\('\\''pvm'\\''\\)' lua/lalin lua/llpvm tests tools`
       returns nothing outside UI/mlui/retired surfaces tracked above.
 - [x] `rg -n 'pvm\\.phase|phase\\(' lua/lalin` has no PVM recording-phase hits.
-- [ ] `rg -n 'M\\.pvm|\\.pvm\\b' lua/lalin docs tests` has no Lalin public API hits.
+- [x] `rg -n 'M\\.pvm|\\.pvm\\b' lua/lalin docs tests` has no Lalin public
+      API hits outside this checklist and the separately tracked LLPVM member
+      surface.
 - [x] `rg -n '_rules' lua/lalin` only shows files that are intentionally still
       waiting in the migration checklist.
 - [x] `luajit tests/run.lua asdl`

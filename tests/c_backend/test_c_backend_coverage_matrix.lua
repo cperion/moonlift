@@ -23,11 +23,12 @@ end
 
 local function sum_variants(mod_name, sum_name)
     local sum = T[mod_name][sum_name]
-    assert(sum and sum.members, "missing sum " .. mod_name .. "." .. sum_name)
+    assert(sum and asdl.members(sum), "missing sum " .. mod_name .. "." .. sum_name)
     local variants = {}
-    for cls in pairs(sum.members) do
-        if cls.kind then
-            variants[cls.kind] = true
+    for cls in pairs(asdl.members(sum)) do
+        if not asdl.is_sum_parent(cls) then
+            local name = asdl.class_basename(cls)
+            variants[name] = true
         end
     end
     return variants

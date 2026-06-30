@@ -243,13 +243,13 @@ local function bind_context(T)
     end
 
     local function inst_to_stmt(ctx, inst)
-        local k = inst.kind
+        local k = inst.op
         local cls = asdl.classof(k)
         if cls == Code.CodeInstStore then
             return LJ.LJStmtStore(place(ctx, k.place), value_expr(k.value), physical(ctx, k.access.ty), k.access)
-        elseif cls == Code.CodeInstCall and k.dst == nil then
+        elseif cls == Code.CodeInstCall and rawget(k, "dst") == nil then
             return LJ.LJStmtCall(call_target(ctx, k.target), LJ.LJFuncSigId(k.sig.text), expr_list(k.args))
-        elseif cls == Code.CodeInstIntrinsic and k.dst == nil then
+        elseif cls == Code.CodeInstIntrinsic and rawget(k, "dst") == nil then
             return LJ.LJStmtIntrinsic(k.op, physical(ctx, k.ty), expr_list(k.args))
         elseif cls == Code.CodeInstAtomicStore then
             return LJ.LJStmtAtomicStore(place(ctx, k.place), value_expr(k.value), k.access, k.ordering)
@@ -257,7 +257,7 @@ local function bind_context(T)
             return LJ.LJStmtAtomicFence(k.ordering)
         end
         local expr, ty = inst_expr(ctx, k)
-        local dst = k.dst
+        local dst = rawget(k, "dst")
         if dst == nil then error("luajit_expr: instruction has no value destination " .. class_name(k), 2) end
         note_value(ctx, dst, ty)
         return LJ.LJStmtLet(vid(dst), physical(ctx, ty), expr)

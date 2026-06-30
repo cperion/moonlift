@@ -68,7 +68,7 @@ local function bind_context(T)
  state.backend[self.binding] = true; return {}
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_mark_fact: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_mark_fact: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -108,7 +108,7 @@ local function bind_context(T)
             return single(B.ResidencePlan(decisions))
             end)(node, ...)
         else
-            error("phase lalin_bind_residence_decide_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_bind_residence_decide_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

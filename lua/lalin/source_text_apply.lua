@@ -122,7 +122,7 @@ function M.explain_source_issue(issue, analysis)
     if not cls then
         return { code = "E9999", severity = "error", primary = { span = nil, message = tostring(issue) } }
     end
-    local kind = cls.kind
+    local kind = schema.class_basename(issue)
 
     if kind == "SourceIssueWrongDocument" then
         local expected = issue.expected and issue.expected.text or "?"

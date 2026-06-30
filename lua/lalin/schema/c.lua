@@ -3,7 +3,7 @@ S.use()
 
 return schema. LalinC {
   product. CTypeId { interned, module_name [str], spelling [str], },
-  sum. CTypeKind {
+  sum. CTypeShape {
     CVoid,
     CScalar { variant_unique, scalar [LalinBack.BackScalar], },
     CPointer { variant_unique, pointee [LalinC.CTypeId], },
@@ -17,7 +17,7 @@ return schema. LalinC {
   product. CTypeFact {
     interned,
     field. id [LalinC.CTypeId],
-    kind [LalinC.CTypeKind],
+    shape [LalinC.CTypeShape],
     complete [bool],
     size [optional [number]],
     align [optional [number]],
@@ -339,12 +339,12 @@ return schema. LalinC {
     },
     CBackendRAddrOfPlace { variant_unique, place [LalinC.CBackendPlace], },
   },
-  sum. CBackendTrapMode { CBackendMayTrap, CBackendMustNotTrap, CBackendCheckedTrap, },
+  sum. CBackendTrapPolicy { CBackendMayTrap, CBackendMustNotTrap, CBackendCheckedTrap, },
   product. CBackendMemoryAccess {
     interned,
     field. ty [LalinC.CBackendType],
     align [number],
-    trap [LalinC.CBackendTrapMode],
+    trap [LalinC.CBackendTrapPolicy],
     volatile [bool],
     ordering [optional [LalinCore.AtomicOrdering]],
   },
@@ -353,8 +353,8 @@ return schema. LalinC {
     CBackendIntTrapOnOverflow,
     CBackendIntAssumeNoOverflow,
   },
-  sum. CBackendDivMode { CBackendDivTrapOnZero, CBackendDivTrapOnZeroOrOverflow, },
-  sum. CBackendShiftMode { CBackendShiftMaskCount, CBackendShiftTrapOutOfRange, },
+  sum. CBackendDivPolicy { CBackendDivTrapOnZero, CBackendDivTrapOnZeroOrOverflow, },
+  sum. CBackendShiftPolicy { CBackendShiftMaskCount, CBackendShiftTrapOutOfRange, },
   sum. CBackendTargetFeature {
     CBackendFeatureC11Atomics,
     CBackendFeatureLibm,
@@ -370,7 +370,7 @@ return schema. LalinC {
     size [number],
     align [number],
   },
-  sum. CBackendHelperKind {
+  sum. CBackendHelperSpec {
     CBackendHelperUnary {
       variant_unique,
       op [LalinCore.UnaryOp],
@@ -404,13 +404,13 @@ return schema. LalinC {
       variant_unique,
       op [LalinCore.BinaryOp],
       field. ty [LalinC.CBackendType],
-      mode [LalinC.CBackendDivMode],
+      mode [LalinC.CBackendDivPolicy],
     },
     CBackendHelperShift {
       variant_unique,
       op [LalinCore.BinaryOp],
       field. ty [LalinC.CBackendType],
-      mode [LalinC.CBackendShiftMode],
+      mode [LalinC.CBackendShiftPolicy],
     },
     CBackendHelperIntrinsic {
       variant_unique,
@@ -459,7 +459,7 @@ return schema. LalinC {
   product. CBackendHelperUse {
     interned,
     field. id [LalinC.CBackendHelperId],
-    kind [LalinC.CBackendHelperKind],
+    spec [LalinC.CBackendHelperSpec],
   },
   product. CBackendLocal {
     interned,

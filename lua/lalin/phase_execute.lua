@@ -21,8 +21,7 @@ local function id_text(id)
 end
 
 local function class_kind(v)
-    local cls = asdl.classof(v)
-    return type(cls) == "table" and cls.kind or nil
+    return asdl.class_basename(v)
 end
 
 local function impl_key(impl)

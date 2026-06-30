@@ -481,12 +481,12 @@ local function bind_context(T)
         return nil
     end
 
-    local function reduction_binary_op(kind)
-        if kind == Value.ReductionAdd then return Core.BinAdd end
-        if kind == Value.ReductionMul then return Core.BinMul end
-        if kind == Value.ReductionAnd then return Core.BinBitAnd end
-        if kind == Value.ReductionOr then return Core.BinBitOr end
-        if kind == Value.ReductionXor then return Core.BinBitXor end
+    local function reduction_binary_op(op)
+        if op == Value.ReductionAdd then return Core.BinAdd end
+        if op == Value.ReductionMul then return Core.BinMul end
+        if op == Value.ReductionAnd then return Core.BinBitAnd end
+        if op == Value.ReductionOr then return Core.BinBitOr end
+        if op == Value.ReductionXor then return Core.BinBitXor end
         return nil
     end
 
@@ -524,38 +524,38 @@ local function bind_context(T)
         return nil
     end
 
-    local function reduction_identity(kind, reg)
-        if kind == Value.ReductionAdd or kind == Value.ReductionOr or kind == Value.ReductionXor then return normalize_trace(reg, "0") end
-        if kind == Value.ReductionMul then return normalize_trace(reg, "1") end
-        if kind == Value.ReductionAnd then return normalize_trace(reg, "-1") end
-        if kind == Value.ReductionMin then
+    local function reduction_identity(op, reg)
+        if op == Value.ReductionAdd or op == Value.ReductionOr or op == Value.ReductionXor then return normalize_trace(reg, "0") end
+        if op == Value.ReductionMul then return normalize_trace(reg, "1") end
+        if op == Value.ReductionAnd then return normalize_trace(reg, "-1") end
+        if op == Value.ReductionMin then
             if reg.signedness == Code.CodeSigned then return signed_max(reg) end
             return unsigned_max(reg)
         end
-        if kind == Value.ReductionMax then
+        if op == Value.ReductionMax then
             if reg.signedness == Code.CodeSigned then return signed_min(reg) end
             return "0"
         end
         return nil
     end
 
-    local function reduction_update(kind, reg, acc, value)
-        if kind == Value.ReductionAdd then return normalize_trace(reg, "(" .. acc .. ") + (" .. value .. ")") end
-        if kind == Value.ReductionMul then
+    local function reduction_update(op, reg, acc, value)
+        if op == Value.ReductionAdd then return normalize_trace(reg, "(" .. acc .. ") + (" .. value .. ")") end
+        if op == Value.ReductionMul then
             if reg.bits == 32 then return normalize_trace(reg, "__ml_mul32(" .. acc .. ", " .. value .. ")") end
             return normalize_trace(reg, "(" .. acc .. ") * (" .. value .. ")")
         end
-        if kind == Value.ReductionAnd then return normalize_trace(reg, "__ml_band(" .. acc .. ", " .. value .. ")") end
-        if kind == Value.ReductionOr then return normalize_trace(reg, "__ml_bor(" .. acc .. ", " .. value .. ")") end
-        if kind == Value.ReductionXor then return normalize_trace(reg, "__ml_bxor(" .. acc .. ", " .. value .. ")") end
-        if kind == Value.ReductionMin or kind == Value.ReductionMax then
-            local cmp = kind == Value.ReductionMin and "<=" or ">="
+        if op == Value.ReductionAnd then return normalize_trace(reg, "__ml_band(" .. acc .. ", " .. value .. ")") end
+        if op == Value.ReductionOr then return normalize_trace(reg, "__ml_bor(" .. acc .. ", " .. value .. ")") end
+        if op == Value.ReductionXor then return normalize_trace(reg, "__ml_bxor(" .. acc .. ", " .. value .. ")") end
+        if op == Value.ReductionMin or op == Value.ReductionMax then
+            local cmp = op == Value.ReductionMin and "<=" or ">="
             return "(((" .. acc .. ") " .. cmp .. " (" .. value .. ")) and (" .. acc .. ") or (" .. value .. "))"
         end
         return nil
     end
 
-    local function fold_reduce_support(kind, sem, elem_ty, result_ty)
+    local function fold_reduce_support(op, sem, elem_ty, result_ty)
         local elem_reg = trace_int_reg(elem_ty)
         local result_reg = trace_int_reg(result_ty)
         if elem_reg == nil or result_reg == nil then
@@ -567,10 +567,10 @@ local function bind_context(T)
         if result_reg.bits ~= 8 and result_reg.bits ~= 16 and result_reg.bits ~= 32 then
             return false, "scalar LuaJIT fallback supports only 8/16/32-bit trace-int reductions"
         end
-        if reduction_binary_op(kind) == nil and kind ~= Value.ReductionMin and kind ~= Value.ReductionMax then
-            return false, "scalar LuaJIT fallback does not support this reduction kind"
+        if reduction_binary_op(op) == nil and op ~= Value.ReductionMin and op ~= Value.ReductionMax then
+            return false, "scalar LuaJIT fallback does not support this reduction op"
         end
-        if (kind == Value.ReductionAdd or kind == Value.ReductionMul) and (sem == nil or sem.overflow ~= Code.CodeIntWrap) then
+        if (op == Value.ReductionAdd or op == Value.ReductionMul) and (sem == nil or sem.overflow ~= Code.CodeIntWrap) then
             return false, "add/mul scalar LuaJIT fallback requires wrapping integer semantics"
         end
         return true, nil
@@ -614,7 +614,7 @@ local function bind_context(T)
     local function emit_machine_loop(out, n, machines, machine_id, item_name, body_cb)
         local m = machines[machine_id.text]
         if m == nil then error("luajit_emit: missing machine " .. tostring(machine_id.text), 3) end
-        local k = m.kind
+        local k = m.op
         local cls = asdl.classof(k)
         if cls == LJ.LJMachineSourceArray then
             local arr = id_name(k.array)
@@ -645,8 +645,8 @@ local function bind_context(T)
             for i = 1, #k.inputs do emit_machine_loop(out, n, machines, k.inputs[i], item_name, body_cb) end
         elseif cls == LJ.LJMachineFold then
             local source = machines[k.input.text]
-            local source_kind = source and source.kind
-            local source_cls = asdl.classof(source_kind)
+            local source_op = source and source.op
+            local source_cls = asdl.classof(source_op)
             local step_cls = asdl.classof(k.step)
             local sem_ok = step_cls == LJ.LJExprIntBinary
             local reduction = step_cls == LJ.LJExprIntBinary and (
@@ -664,11 +664,11 @@ local function bind_context(T)
             local expr_ok = step_cls == LJ.LJExprIntBinary
                 and ((is_value(k.step.lhs, k.acc) and is_value(k.step.rhs, k.item))
                     or (is_value(k.step.lhs, k.item) and is_value(k.step.rhs, k.acc)))
-            if source_cls == LJ.LJMachineSourceArray and source_kind.length ~= nil and sem_ok and support_ok and expr_ok then
+            if source_cls == LJ.LJMachineSourceArray and source_op.length ~= nil and sem_ok and support_ok and expr_ok then
                 local prefix = sanitize(m.id.text)
-                local arr = id_name(source_kind.array)
+                local arr = id_name(source_op.array)
                 local acc = id_name(k.acc)
-                emit_trace_fold_reduce_array(out, n, prefix, arr, "0", expr(source_kind.length), "1", k.init, 8, acc, k.item, reduction, k.step.ty)
+                emit_trace_fold_reduce_array(out, n, prefix, arr, "0", expr(source_op.length), "1", k.init, 8, acc, k.item, reduction, k.step.ty)
                 body_cb(n, acc)
                 return
             end
@@ -722,7 +722,7 @@ local function bind_context(T)
             line(out, n, "return __out")
         elseif tcls == LJ.LJTerminalFirst then
             local m = machines[body.machine.text]
-            local mcls = m ~= nil and asdl.classof(m.kind) or nil
+            local mcls = m ~= nil and asdl.classof(m.op) or nil
             if m ~= nil and mcls == LJ.LJMachineStencilEffect and term.default == nil then
                 emit_machine_loop(out, n, machines, body.machine, "__terminal_item", function() end)
                 line(out, n, "return")
@@ -886,10 +886,6 @@ local function bind_context(T)
         return (tostring(s):gsub("([^%w])", "%%%1"))
     end
 
-    local function native_symbol_addr_token(symbol)
-        return "__LALIN_STENCIL_ADDR_" .. sanitize(symbol) .. "__"
-    end
-
     local function machine_by_id(func)
         local out = {}
         for _, machine in ipairs(func.machines or {}) do out[machine.id.text] = machine end
@@ -901,47 +897,48 @@ local function bind_context(T)
         local term = func.body.terminal
         if asdl.classof(term) ~= LJ.LJTerminalFirst or term.default ~= nil then return nil end
         local machine = machine_by_id(func)[func.body.machine.text]
-        local kind = machine and machine.kind or nil
-        local cls = asdl.classof(kind)
-        if cls == LJ.LJMachineStencilCall or cls == LJ.LJMachineStencilEffect then return kind, cls end
+        local op = machine and machine.op or nil
+        local cls = asdl.classof(op)
+        if cls == LJ.LJMachineStencilCall or cls == LJ.LJMachineStencilEffect then return op, cls end
         return nil
     end
 
-    local function native_wrapper_result_type(func, sig, kind, kind_cls)
-        if kind_cls == LJ.LJMachineStencilEffect then return "void" end
-        local result = kind.result_ty or (sig and sig.result)
+    local function native_wrapper_result_type(func, sig, op, op_cls)
+        if op_cls == LJ.LJMachineStencilEffect then return "void" end
+        local result = op.result_ty or (sig and sig.result)
         if result == nil then return "void" end
         return ctype_spelling(result.abi)
     end
 
-    local function native_wrapper_source(func, sig, kind, kind_cls)
+    local function native_wrapper_source(func, sig, op, op_cls)
         local wrapper = native_c_name("fn", func.name)
-        local ret = native_wrapper_result_type(func, sig, kind, kind_cls)
+        local ret = native_wrapper_result_type(func, sig, op, op_cls)
         local params = {}
         for i = 1, #func.params do params[i] = native_param_decl(func.params[i]) end
         local args = {}
-        for i = 1, #kind.args do args[i] = native_expr(kind.args[i]) end
-        local symbol = kind.artifact.symbol.text
-        local stencil_ret, stencil_params = c_signature_parts(symbol, kind.artifact.c_signature)
-        local stencil_callee = "((" .. stencil_ret .. " (*)(" .. stencil_params .. "))((uintptr_t)" .. native_symbol_addr_token(symbol) .. "))"
+        for i = 1, #op.args do args[i] = native_expr(op.args[i]) end
+        local symbol = op.artifact.symbol.text
+        local stencil_ret, stencil_params = c_signature_parts(symbol, op.artifact.c_signature)
         local out = {
+            stencil_ret .. " " .. symbol .. "(" .. stencil_params .. ");",
+            "",
             ret .. " " .. wrapper .. "(" .. (#params > 0 and table.concat(params, ", ") or "void") .. ") {",
         }
-        if kind_cls == LJ.LJMachineStencilEffect then
-            out[#out + 1] = "  " .. stencil_callee .. "(" .. table.concat(args, ", ") .. ");"
+        if op_cls == LJ.LJMachineStencilEffect then
+            out[#out + 1] = "  " .. symbol .. "(" .. table.concat(args, ", ") .. ");"
             out[#out + 1] = "}"
         elseif ret == "void" then
-            out[#out + 1] = "  " .. stencil_callee .. "(" .. table.concat(args, ", ") .. ");"
+            out[#out + 1] = "  " .. symbol .. "(" .. table.concat(args, ", ") .. ");"
             out[#out + 1] = "}"
         else
-            out[#out + 1] = "  return " .. stencil_callee .. "(" .. table.concat(args, ", ") .. ");"
+            out[#out + 1] = "  return " .. symbol .. "(" .. table.concat(args, ", ") .. ");"
             out[#out + 1] = "}"
         end
         return table.concat(out, "\n"), wrapper, symbol
     end
 
-    local function native_func_pointer_ctype(func, sig, kind, kind_cls)
-        local ret = native_wrapper_result_type(func, sig, kind, kind_cls)
+    local function native_func_pointer_ctype(func, sig, op, op_cls)
+        local ret = native_wrapper_result_type(func, sig, op, op_cls)
         local params = {}
         for i = 1, #func.params do params[i] = ctype_spelling(func.params[i].ty.abi) end
         return ret .. " (*)(" .. (#params > 0 and table.concat(params, ", ") or "void") .. ")"
@@ -1138,19 +1135,19 @@ local function bind_context(T)
         unsupported(e, "C expression")
     end
 
-    local function c_stencil_call_expr(ctx, kind)
+    local function c_stencil_call_expr(ctx, op)
         local args = {}
-        for i = 1, #kind.args do args[i] = c_expr(ctx, kind.args[i]) end
-        return kind.artifact.symbol.text .. "(" .. table.concat(args, ", ") .. ")"
+        for i = 1, #op.args do args[i] = c_expr(ctx, op.args[i]) end
+        return op.artifact.symbol.text .. "(" .. table.concat(args, ", ") .. ")"
     end
 
-    local function c_stencil_wrapper_source(ctx, func, sig, kind, kind_cls)
-        local ret = native_wrapper_result_type(func, sig, kind, kind_cls)
+    local function c_stencil_wrapper_source(ctx, func, sig, op, op_cls)
+        local ret = native_wrapper_result_type(func, sig, op, op_cls)
         local params = {}
         for i = 1, #func.params do params[i] = c_param_decl(func.params[i]) end
-        local call = c_stencil_call_expr(ctx, kind)
+        local call = c_stencil_call_expr(ctx, op)
         local out = { ret .. " " .. c_func_name(func.name) .. "(" .. (#params > 0 and table.concat(params, ", ") or "void") .. ") {" }
-        if kind_cls == LJ.LJMachineStencilEffect or ret == "void" then
+        if op_cls == LJ.LJMachineStencilEffect or ret == "void" then
             out[#out + 1] = "    " .. call .. ";"
             out[#out + 1] = "}"
         else
@@ -1171,13 +1168,13 @@ local function bind_context(T)
     local function c_emit_machine_stmt(out, n, ctx, machine_id)
         local machine = ctx.machine_by_id[machine_id.text]
         if machine == nil then error("luajit_emit: missing C machine " .. tostring(machine_id.text), 3) end
-        local kind = machine.kind
-        local cls = asdl.classof(kind)
+        local op = machine.op
+        local cls = asdl.classof(op)
         if cls == LJ.LJMachineStencilEffect or cls == LJ.LJMachineStencilCall then
-            line(out, n, c_stencil_call_expr(ctx, kind) .. ";")
+            line(out, n, c_stencil_call_expr(ctx, op) .. ";")
             return
         end
-        unsupported(kind, "C emitted machine")
+        unsupported(op, "C emitted machine")
     end
 
     local function c_emit_stmt(out, n, ctx, stmt)
@@ -1326,8 +1323,8 @@ local function bind_context(T)
             return c_emit_blocks_func(ctx, func, sig)
         end
         if body_cls == LJ.LJBodyMachine then
-            local kind, kind_cls = native_residual_candidate(func)
-            if kind ~= nil then return c_stencil_wrapper_source(ctx, func, sig, kind, kind_cls) end
+            local op, op_cls = native_residual_candidate(func)
+            if op ~= nil then return c_stencil_wrapper_source(ctx, func, sig, op, op_cls) end
         end
         unsupported(func.body, "C function body")
     end
@@ -1470,15 +1467,15 @@ local function bind_context(T)
         local c_units, replacements, host_symbols = {}, {}, {}
         local seen_symbols = {}
         for _, func in ipairs(module.funcs or {}) do
-            local kind, kind_cls = native_residual_candidate(func)
-            if kind ~= nil then
+            local op, op_cls = native_residual_candidate(func)
+            if op ~= nil then
                 local sig = sigs[func.sig.text]
-                local source, wrapper, stencil_symbol = native_wrapper_source(func, sig, kind, kind_cls)
+                local source, wrapper, stencil_symbol = native_wrapper_source(func, sig, op, op_cls)
                 c_units[#c_units + 1] = source
                 replacements[#replacements + 1] = {
                     func_name = func_name(func.name),
                     wrapper = wrapper,
-                    ctype = native_func_pointer_ctype(func, sig, kind, kind_cls),
+                    ctype = native_func_pointer_ctype(func, sig, op, op_cls),
                 }
                 seen_symbols[stencil_symbol] = true
             end
@@ -1494,11 +1491,12 @@ local function bind_context(T)
         line(out, 0, "do")
         line(out, 1, "local __c_tcc = require('lalin.c_tcc')")
         line(out, 1, "local __native_source = " .. native_c_string(table.concat(c_units, "\n\n") .. "\n"))
+        line(out, 1, "local __native_host_symbols = {}")
         for _, symbol in ipairs(host_symbols) do
             line(out, 1, "if __lalin_luajit_stencil_symbols[" .. lua_string(symbol) .. "] == nil then error(" .. lua_string("missing LalinStencil symbol " .. symbol) .. ", 0) end")
-            line(out, 1, "__native_source = __native_source:gsub(" .. lua_string(native_symbol_addr_token(symbol)) .. ", tostring(ffi.cast('uintptr_t', __lalin_luajit_stencil_symbols[" .. lua_string(symbol) .. "])))")
+            line(out, 1, "__native_host_symbols[" .. lua_string(symbol) .. "] = ffi.cast('void *', ffi.cast('uintptr_t', __lalin_luajit_stencil_symbols[" .. lua_string(symbol) .. "]))")
         end
-        line(out, 1, "local __session, __err = __c_tcc.compile(__native_source, { libraries = { 'm' } })")
+        line(out, 1, "local __session, __err = __c_tcc.compile(__native_source, { libraries = { 'm' }, host_symbols = __native_host_symbols })")
         line(out, 1, "if not __session then error((__err and __err.message) or 'native residual TCC compile failed', 0) end")
         line(out, 1, "__lalin_native_residual_sessions[#__lalin_native_residual_sessions + 1] = __session")
         for _, replacement in ipairs(replacements) do

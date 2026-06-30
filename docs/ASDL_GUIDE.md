@@ -103,6 +103,44 @@ Parent union methods are only shared defaults or explicit delegation contracts.
 They must not inspect child classes, `kind` strings, action names, tags, or
 selector tables to choose behavior.
 
+## Methodification
+
+When a Lua API mainly operates on one semantic thing, make that thing an ASDL
+product or union and install the API as a method on it.
+
+Correct:
+
+```lua
+local result = request:compile()
+local code = typed_module:lower_to_code(input)
+local artifact = plan:materialize()
+```
+
+Wrong:
+
+```lua
+local result = compile(source, opts)
+local code = lower(module, ctx, facts, flags)
+local artifact = materialize(kind, payload, tables)
+```
+
+The receiver should be a deep semantic object: it owns the data, invariants,
+operation vocabulary, and typed result shape. If there is no honest receiver for
+an operation, the schema is probably missing a product such as
+`CompilationRequest`, `TypedModule`, `CodeEmissionRequest`, `KernelPlanRequest`,
+or another domain-specific value.
+
+Free helper functions are allowed only for small implementation details whose
+main subject is not an ASDL semantic value. If a helper takes an ASDL value as
+the thing it is really about, move it onto that ASDL type. If a public function
+takes loose Lua arguments, replace the argument bundle with an ASDL request
+product and call a method on that product.
+
+Avoid half-methodification. A method that returns a string, boolean, or selector
+only so another function can branch later is still external dispatch. Prefer a
+leaf method that performs the next semantic action directly, or return a typed
+ASDL result union whose leaves own the next method.
+
 ## Object Wiring Is The Good Part
 
 ASDL objects make compiler Lua sane because the semantic entrypoint is attached
@@ -200,13 +238,19 @@ Do not pass:
 If an operation can succeed, fail, reject, choose, classify, explain, or lower,
 define an ASDL result product or union for that operation.
 
-## No Any, No Table Type
+## No Any, No Table, No Map Type
 
-Lalin ASDL must not provide `any`, `table`, `table_ty`, userdata-like escape
-hatches, or equivalent catch-all field types for compiler semantics.
+Lalin ASDL must not provide `any`, `table`, `table_ty`, `map`,
+userdata-like escape hatches, or equivalent catch-all field types for compiler
+semantics.
 
 If a value cannot be typed precisely, the schema is incomplete. Stop and model
 the missing shape.
+
+A keyed relation is not a `map`. Model it as a named ASDL product with fields
+for the key and value, then carry `many [ThatEntry]`. The entry type is where
+the relation gets a name, can grow methods, and can be reviewed as compiler
+semantics instead of hiding as a side table.
 
 ## No Side Tables
 

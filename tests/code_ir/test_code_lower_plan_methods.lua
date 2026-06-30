@@ -62,20 +62,16 @@ local cf_plan = Kernel.KernelPlanned(kernel_id, subject, cf_body)
 local cf_sched = Schedule.SchedulePlanned(schedule_id, kernel_id, Schedule.ScheduleClosedForm, {}, {})
 
 local function input(fields)
-    return Lower.LowerFragmentPlanInput(
-        fields.kernel,
-        fields.kernel_no_plan,
-        fields.schedule,
-        fields.closed_form,
-        fields.closed_form_missing_reason or "missing closed form",
-        fields.no_schedule_reason or "missing schedule",
-        fields.kernel_no_plan_reason or "kernel rejected"
-    )
+    if fields.closed_form ~= nil then return Lower.LowerFragmentClosedFormCandidate(fields.closed_form) end
+    if fields.closed_form_missing_reason ~= nil then return Lower.LowerFragmentClosedFormMissing(fields.closed_form_missing_reason) end
+    if fields.kernel ~= nil and fields.schedule ~= nil then return Lower.LowerFragmentKernelCandidate(fields.kernel, fields.schedule) end
+    if fields.kernel ~= nil then return Lower.LowerFragmentNoSchedule(fields.no_schedule_reason or "missing schedule") end
+    if fields.kernel_no_plan ~= nil then return Lower.LowerFragmentKernelRejected(fields.kernel_no_plan_reason or "kernel rejected") end
+    return Lower.LowerFragmentNoCandidate
 end
 
 do
     local selection = input { kernel = cf_plan, schedule = cf_sched, closed_form = cf }:select_lower_fragment()
-    assert(selection:lower_plan_is_closed_form())
     assert(selection.closed_form == cf)
 end
 
@@ -85,30 +81,27 @@ do
         schedule = cf_sched,
         closed_form_missing_reason = "closed-form schedule lacks fact",
     }:select_lower_fragment()
-    assert(selection:lower_plan_is_fallback())
     assert(selection.reason == "closed-form schedule lacks fact")
 end
 
 do
     local selection = input { kernel = kplan, schedule = sched }:select_lower_fragment()
-    assert(selection:lower_plan_is_kernel())
+    assert(selection == Lower.LowerSelectKernel)
 end
 
 do
     local selection = input { kernel = kplan, no_schedule_reason = "no schedule selected" }:select_lower_fragment()
-    assert(selection:lower_plan_is_fallback())
     assert(selection.reason == "no schedule selected")
 end
 
 do
     local selection = input { kernel_no_plan = no_plan, kernel_no_plan_reason = "kernel plan rejected" }:select_lower_fragment()
-    assert(selection:lower_plan_is_fallback())
     assert(selection.reason == "kernel plan rejected")
 end
 
 do
     local selection = input {}:select_lower_fragment()
-    assert(selection:lower_plan_is_none())
+    assert(selection == Lower.LowerSelectNone)
 end
 
 local ok = pcall(require, "lalin.code_lower_plan_rules")

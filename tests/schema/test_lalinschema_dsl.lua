@@ -5,6 +5,25 @@ local S = require("lalin.schema.dsl")
 
 local T = asdl.context()
 
+local function assert_rejects_escape_hatch(label, fn)
+    local ok, err = pcall(fn)
+    assert(not ok, label .. " should reject forbidden ASDL escape hatch")
+    assert(tostring(err):match("forbidden untyped ASDL escape hatch"), label .. " should explain the rejected escape hatch")
+end
+
+assert_rejects_escape_hatch("type any", function() S.type("any") end)
+assert_rejects_escape_hatch("type table", function() S.type("table") end)
+assert_rejects_escape_hatch("type table_ty", function() S.type("table_ty") end)
+assert_rejects_escape_hatch("qualified any", function() S.type("Demo.any") end)
+assert_rejects_escape_hatch("many any", function() S.many("any") end)
+assert_rejects_escape_hatch("optional table", function() S.optional("table") end)
+assert_rejects_escape_hatch("field table_ty", function() S.field("payload", "table_ty") end)
+do
+    local ok, err = pcall(function() S.map("string", "LalinSchemaDslTest.Name") end)
+    assert(not ok, "map type should reject ASDL side-table modelling")
+    assert(tostring(err):match("forbidden ASDL side%-table type 'map'"), "map rejection should explain the side-table smell")
+end
+
 local Demo = S.schema("LalinSchemaDslTest", {
     S.product("Name", {
         S.field("text", "string"),
@@ -17,7 +36,6 @@ local Demo = S.schema("LalinSchemaDslTest", {
         S.field("children", S.many(S.ref("LalinSchemaDslTest.Name"))),
         S.field("maybe_name", S.optional("LalinSchemaDslTest.Name")),
         S.field("stable_id", S.id("LalinSchemaDslTest.Name")),
-        S.field("by_key", S.map("string", "LalinSchemaDslTest.Name")),
     }, { S.unique }),
 
     S.sum("Node", {
@@ -46,23 +64,22 @@ local alias = D.NameAlias(x)
 assert(alias.value == x, "alias should project to a unique value product")
 assert(alias == D.NameAlias(x), "alias projection should be interned")
 
-local item = D.Item(x, { y }, nil, x, { x, y })
+local item = D.Item(x, { y }, nil, x)
 assert(item.name == x, "plain field should preserve value")
 assert(item.children[1] == y, "many/ref wrapper should project as a list of values")
 assert(item.maybe_name == nil, "optional wrapper should accept nil")
 assert(item.stable_id == x, "id wrapper should project as its payload value")
-assert(item.by_key[1] == x and item.by_key[2] == y, "map wrapper should project as value records for runtime classes")
-assert(item == D.Item(x, { y }, nil, x, { x, y }), "unique product with list fields should intern canonical lists")
+assert(item == D.Item(x, { y }, nil, x), "unique product with list fields should intern canonical lists")
 
 local leaf = D.Leaf("ok")
 assert(D.Node:isclassof(leaf), "sum parent should recognize variant instance")
-assert(leaf.kind == "Leaf" and leaf.value == "ok", "variant fields should project")
+assert(asdl.classof(leaf) == D.Leaf and leaf.value == "ok", "variant fields should project")
 
 local pair = D.Pair(item, item)
 assert(D.Node:isclassof(pair), "sum parent should recognize non-leaf variant instance")
 assert(pair.left == item and pair.right == item, "ref wrapper should project as payload value")
 
-assert(D.Empty.kind == "Empty", "empty variant should project to singleton")
+assert(asdl.class_basename(D.Empty) == "Empty", "empty variant should project to singleton")
 assert(D.Node:isclassof(D.Empty), "sum parent should recognize empty singleton variant")
 
 local asdl_schema = S.to_asdl_schema(asdl.context(), { Demo })

@@ -104,7 +104,7 @@ local function bind_context(T)
  return single(B.StmtEnvNoBinding)
             end)(node, ...)
         else
-            error("phase lalin_tree_stmt_env_effect: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_stmt_env_effect: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

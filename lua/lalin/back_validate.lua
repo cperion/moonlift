@@ -128,11 +128,11 @@ local function bind_context(T)
     end
 
     local function validate_memory_info(issues, index, shape, memory, expected_mode)
-        local mode = memory.mode
+        local mode = memory.effect
         if expected_mode == B.BackAccessRead and mode ~= B.BackAccessRead and mode ~= B.BackAccessReadWrite and mode ~= B.BackAccessReadonly then
-            add_issue(issues, B.BackIssueLoadAccessMode(index, mode))
+            add_issue(issues, B.BackIssueLoadAccessEffect(index, mode))
         elseif expected_mode == B.BackAccessWrite and mode ~= B.BackAccessWrite and mode ~= B.BackAccessReadWrite then
-            add_issue(issues, B.BackIssueStoreAccessMode(index, mode))
+            add_issue(issues, B.BackIssueStoreAccessEffect(index, mode))
         end
         local align = alignment_bytes(memory.alignment)
         if align ~= nil and not is_power_of_two(align) then
@@ -187,7 +187,7 @@ local function bind_context(T)
             return single(B.BackFactValueUse(index, self.callee))
             end)(node, ...)
         else
-            error("phase lalin_back_call_target_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_back_call_target_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -204,7 +204,7 @@ local function bind_context(T)
             return single(B.BackFactValueDef(index, self.dst))
             end)(node, ...)
         else
-            error("phase lalin_back_call_result_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_back_call_result_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -607,7 +607,7 @@ local function bind_context(T)
             return facts_triplet({ body(index) })
             end)(node, ...)
         else
-            error("phase lalin_back_cmd_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_back_cmd_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -854,7 +854,7 @@ local function explain_back_issue(issue, analysis)
     local span = resolvers.backend_resolver(issue, analysis)
     local cls = schema.classof(issue)
     if not cls then return { code = "E9999", severity = "error", primary = { span = span, message = tostring(issue) } } end
-    local kind = cls.kind
+    local kind = schema.class_basename(issue)
 
     -- Entity name helper: extracts a user-visible name from an ASDL identifier
     local function entity_name(field)
@@ -1011,14 +1011,14 @@ local function explain_back_issue(issue, analysis)
     end
 
     --===== Type-related back issues =====--
-    if kind == "BackIssueLoadAccessMode" then
+    if kind == "BackIssueLoadAccessEffect" then
         return { code = "E0301", severity = "error", phase_context = "while compiling",
-            primary = { span = span, message = "type mismatch for load access mode `" .. Format.access_mode_name(issue.mode) .. "`" },
+            primary = { span = span, message = "type mismatch for load access mode `" .. Format.access_mode_name(issue.effect) .. "`" },
             notes = { { message = "the loaded value type does not match the expected type for this access mode" } } }
     end
-    if kind == "BackIssueStoreAccessMode" then
+    if kind == "BackIssueStoreAccessEffect" then
         return { code = "E0301", severity = "error", phase_context = "while compiling",
-            primary = { span = span, message = "type mismatch for store access mode `" .. Format.access_mode_name(issue.mode) .. "`" },
+            primary = { span = span, message = "type mismatch for store access mode `" .. Format.access_mode_name(issue.effect) .. "`" },
             notes = { { message = "the stored value type does not match the expected type for this access mode" } } }
     end
     if kind == "BackIssueDereferenceTooSmall" then
@@ -1060,7 +1060,7 @@ local function explain_back_issue(issue, analysis)
     --===== Alignment issues =====--
     if kind == "BackIssueInvalidAlignment" then
         return { code = "E0506", severity = "error", phase_context = "while compiling",
-            primary = { span = span, message = "invalid alignment for access mode `" .. Format.access_mode_name(issue.mode) .. "`" } }
+            primary = { span = span, message = "invalid alignment for access mode `" .. Format.access_mode_name(issue.effect) .. "`" } }
     end
 
     -- Fallback

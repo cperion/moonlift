@@ -40,12 +40,46 @@ function asdl.classof(node)
 	return (mt and mt.__class) or false
 end
 
+local function class_from(value)
+	return get_schema_context().Class(value)
+end
+
+function asdl.class_name(value)
+	return get_schema_context().ClassName(value)
+end
+
+function asdl.class_basename(value)
+	return get_schema_context().ClassBasename(value)
+end
+
+function asdl.context_of(value)
+	return get_schema_context().ContextOf(value)
+end
+
+function asdl.fields(value)
+	return get_schema_context().Fields(value)
+end
+
+function asdl.members(value)
+	return get_schema_context().Members(value)
+end
+
+function asdl.is_sum_parent(value)
+	return get_schema_context().IsSumParent(value)
+end
+
+function asdl.isa(node, class_or_singleton)
+	local node_class = asdl.classof(node)
+	if not node_class then return false end
+	if node_class == class_or_singleton then return true end
+	local target_class = class_from(class_or_singleton)
+	if not target_class then return false end
+	local members = asdl.members(target_class)
+	return node_class == target_class or (members and members[node_class]) or false
+end
+
 function asdl.with(node, overrides)
-	local cls = asdl.classof(node)
-	if not cls or not cls.__fields then
-		error("asdl.with: not an ASDL node", 2)
-	end
-	return cls.__with(node, overrides, asdl.NIL)
+	return get_schema_context().With(node, overrides, asdl.NIL)
 end
 
 function asdl.singleton(T, class)

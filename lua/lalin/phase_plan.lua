@@ -7,7 +7,6 @@
 
 local llbl = require("llbl")
 local asdl = require("lalin.asdl")
-local PhaseModel = require("lalin.phase_model")
 local PhaseValidate = require("lalin.phase_validate")
 
 local M = {}
@@ -25,11 +24,9 @@ end
 
 local function phase_namespace(package)
     local cls = asdl.classof(package)
-    local ctx = cls and rawget(cls, "__context")
+    local ctx = cls and asdl.context_of(cls)
     if ctx and ctx.LalinPhase and ctx.LalinPhase.Plan then return ctx.LalinPhase end
-    local T = asdl.context()
-    PhaseModel(T)
-    return T.LalinPhase
+    error("phase_plan: package must be a LalinPhase ASDL value with its schema context", 3)
 end
 
 local function report_new(package)

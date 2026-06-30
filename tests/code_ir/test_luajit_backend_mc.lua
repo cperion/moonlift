@@ -101,7 +101,7 @@ assert(facts.luajit_stencil_machines.machines[1].artifact == artifacts[1], "plan
 assert(asdl.classof(facts.exec_plan) == Exec.ExecModulePlan, "expected ASDL exec plan")
 assert(#facts.exec_plan.entries == 1, "expected one exec stencil decision")
 assert(asdl.classof(facts.exec_plan.entries[1].decision) == Exec.ExecMaterializeStencil, "selected artifact should materialize an exec stencil fragment")
-assert(facts.exec_plan.entries[1].decision.fragment.kind.artifact == artifacts[1], "exec materialization should reference selected artifact")
+assert(facts.exec_plan.entries[1].decision.fragment.body.artifact == artifacts[1], "exec materialization should reference selected artifact")
 assert(result.realization.kind == "MCStencilBankRealization", "expected mc bank realization")
 assert(#result.realization.installed == 1, "expected one installed mc stencil")
 local installed_artifact = result.realization.installed[1].entry.artifact

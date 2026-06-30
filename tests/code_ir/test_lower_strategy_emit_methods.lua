@@ -30,16 +30,17 @@ local vector_schedule = Schedule.SchedulePlanned(
 )
 
 local function input(schedule, missing, unsupported)
-    return Lower.LowerEmitInput(schedule, missing or "missing schedule", unsupported or "unsupported strategy")
+    if unsupported ~= nil then return Lower.LowerEmitUnsupportedCandidate(unsupported) end
+    if schedule ~= nil then return Lower.LowerEmitKernelCandidate(schedule) end
+    return Lower.LowerEmitMissingScheduleCandidate(missing or "missing schedule")
 end
 
-assert(Lower.LowerStrategyCode("ordinary"):select_lower_emit(input()):lower_emit_is_code())
-assert(Lower.LowerStrategyClosedForm(kernel, closed_form):select_lower_emit(input()):lower_emit_is_closed_form())
-assert(Lower.LowerStrategyKernel(kernel, scalar_schedule.id):select_lower_emit(input(scalar_schedule)):lower_emit_is_scalar_kernel())
-assert(Lower.LowerStrategyKernel(kernel, vector_schedule.id):select_lower_emit(input(vector_schedule)):lower_emit_is_vector_kernel())
+assert(Lower.LowerEmitCodeCandidate:select_lower_emit() == Lower.LowerEmitCode)
+assert(Lower.LowerEmitClosedFormCandidate:select_lower_emit() == Lower.LowerEmitClosedForm)
+assert(input(scalar_schedule):select_lower_emit() == Lower.LowerEmitScalarKernel)
+assert(input(vector_schedule):select_lower_emit() == Lower.LowerEmitVectorKernel)
 
-local missing = Lower.LowerStrategyKernel(kernel, scalar_schedule.id):select_lower_emit(input(nil, "kernel schedule is absent"))
-assert(missing:lower_emit_is_missing_schedule())
+local missing = input(nil, "kernel schedule is absent"):select_lower_emit()
 assert(missing.reason == "kernel schedule is absent")
 
 local ok = pcall(require, "lalin.lower_strategy_emit_rules")

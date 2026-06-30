@@ -114,7 +114,7 @@ return schema. LalinFlow {
     FlowRejectUnsupportedTerminator {
       variant_unique,
       block [LalinGraph.GraphBlockId],
-      term [LalinCode.CodeTermKind],
+      term [LalinCode.CodeTermOp],
     },
     FlowRejectUnsupportedInduction {
       variant_unique,
@@ -169,7 +169,7 @@ return schema. LalinFlow {
     stop_exclusive [bool],
   },
   sum. FlowLoopDirection { FlowLoopIncreasing, FlowLoopDecreasing, FlowLoopDirectionUnknown, },
-  sum. FlowInductionKind {
+  sum. FlowInductionRole {
     FlowPrimaryInduction,
     FlowDerivedInduction { variant_unique, base [LalinCode.CodeValueId], },
     FlowPointerInduction { variant_unique, base [LalinCode.CodeValueId], elem_size [number], },
@@ -180,7 +180,7 @@ return schema. LalinFlow {
     field. ty [LalinCode.CodeType],
     init [LalinCode.CodeValueId],
     step [LalinCode.CodeValueId],
-    kind [LalinFlow.FlowInductionKind],
+    role [LalinFlow.FlowInductionRole],
     range [LalinFlow.FlowValueRange],
   },
   product. FlowLoopExit {

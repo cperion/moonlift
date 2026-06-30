@@ -19,7 +19,7 @@ local Tr = T.LalinTree
 local i32 = Ty.TScalar(C.ScalarI32)
 local fn_ty = Ty.TFunc({ i32 }, i32)
 local function lit(raw) return Tr.ExprLit(Tr.ExprTyped(i32), C.LitInt(raw)) end
-local function binding(id, name, ty, class) return B.Binding(C.Id(id), name, ty, class) end
+local function binding(id, name, ty, role) return B.Binding(C.Id(id), name, ty, role) end
 local function use(binding_node)
     return Tr.StmtExpr(Tr.StmtSurface, Tr.ExprRef(Tr.ExprTyped(binding_node.ty), B.ValueRefBinding(binding_node)))
 end
@@ -29,15 +29,15 @@ local function has(xs, needle)
 end
 
 local bindings = {
-    binding("local.value", "local_value", i32, B.BindingClassLocalValue),
-    binding("local.cell", "local_cell", i32, B.BindingClassLocalCell),
-    binding("arg", "arg", i32, B.BindingClassArg(0)),
-    binding("control.entry.acc", "acc", i32, B.BindingClassEntryBlockParam("control.sum", "loop", 2)),
-    binding("control.block.i", "i", i32, B.BindingClassBlockParam("control.sum", "loop", 1)),
-    binding("global.func", "gf", fn_ty, B.BindingClassGlobalFunc("M", "gf")),
-    binding("global.const", "gc", i32, B.BindingClassGlobalConst("M", "gc")),
-    binding("global.static", "gs", i32, B.BindingClassGlobalStatic("M", "gs")),
-    binding("extern", "ex", fn_ty, B.BindingClassExtern("puts")),
+    binding("local.value", "local_value", i32, B.BindingRoleLocalValue),
+    binding("local.cell", "local_cell", i32, B.BindingRoleLocalCell),
+    binding("arg", "arg", i32, B.BindingRoleArg(0)),
+    binding("control.entry.acc", "acc", i32, B.BindingRoleEntryBlockParam("control.sum", "loop", 2)),
+    binding("control.block.i", "i", i32, B.BindingRoleBlockParam("control.sum", "loop", 1)),
+    binding("global.func", "gf", fn_ty, B.BindingRoleGlobalFunc("M", "gf")),
+    binding("global.const", "gc", i32, B.BindingRoleGlobalConst("M", "gc")),
+    binding("global.static", "gs", i32, B.BindingRoleGlobalStatic("M", "gs")),
+    binding("extern", "ex", fn_ty, B.BindingRoleExtern("puts")),
 }
 
 local stmts = {

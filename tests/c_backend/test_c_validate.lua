@@ -19,8 +19,8 @@ local sig = C.CBackendFuncSig(sig_id, { i32, i32 }, i32)
 local a = C.CBackendLocal(C.CBackendLocalId("a"), C.CBackendName("a"), i32)
 local b = C.CBackendLocal(C.CBackendLocalId("b"), C.CBackendName("b"), i32)
 local r = C.CBackendLocal(C.CBackendLocalId("r"), C.CBackendName("r"), i32)
-local helper_kind = C.CBackendHelperIntBinary(Core.BinAdd, i32, C.CBackendIntWrap)
-local helper = C.CBackendHelperUse(Helpers.helper_id(helper_kind), helper_kind)
+local helper_spec = C.CBackendHelperIntBinary(Core.BinAdd, i32, C.CBackendIntWrap)
+local helper = C.CBackendHelperUse(Helpers.helper_id(helper_spec), helper_spec)
 local entry = C.CBackendBlock(
     C.CBackendLabel("entry"),
     {},
@@ -83,8 +83,8 @@ local place_func = C.CBackendFunc(C.CBackendName("badplace"), "badplace", Core.V
 assert(has_issue(Validate.validate(C.CBackendUnit("m", target, { sig }, {}, {}, {}, {}, { place_func })), C.CBackendIssuePlaceTypeMismatch), "place mismatch reported")
 
 local atomic_access = C.CBackendMemoryAccess(i32, 4, C.CBackendMayTrap, false, Core.AtomicSeqCst)
-local atomic_kind = C.CBackendHelperAtomicLoad(atomic_access)
-local atomic = C.CBackendHelperUse(Helpers.helper_id(atomic_kind), atomic_kind)
+local atomic_spec = C.CBackendHelperAtomicLoad(atomic_access)
+local atomic = C.CBackendHelperUse(Helpers.helper_id(atomic_spec), atomic_spec)
 assert(has_issue(Validate.validate(C.CBackendUnit("m", CodeType.default_target({ dialect = "c99" }), {}, {}, {}, {}, { atomic }, {})), C.CBackendIssueInvalidTargetFeature), "invalid atomic feature reported")
 
 local td = C.CBackendStructDecl(C.CTypeId("m", "NoAssert"), { C.CBackendField(C.CBackendName("x"), i32, 0, 4, 4) }, nil, nil)

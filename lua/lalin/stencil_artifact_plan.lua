@@ -41,7 +41,7 @@ local function stable_repr(v, seen)
     if cls then
         out[#out + 1] = tostring(cls)
         out[#out + 1] = "{"
-        for i, field in ipairs(rawget(cls, "__fields") or {}) do
+        for i, field in ipairs(asdl.fields(cls) or {}) do
             if i > 1 then out[#out + 1] = "," end
             out[#out + 1] = field.name
             out[#out + 1] = "="
@@ -411,24 +411,24 @@ local function bind_context(T)
         if not same_type(elem_ty, result_ty) then return false, "reduce_array stencil currently requires matching element/result types" end
         local ok_type, err = pcall(function() c_type(elem_ty); c_type(result_ty) end)
         if not ok_type then return false, tostring(err) end
-        local kind = reduction.kind
+        local op = reduction.op
         if is_integer_like(result_ty) then
-            if kind == Value.ReductionAdd or kind == Value.ReductionMul
-                or kind == Value.ReductionAnd or kind == Value.ReductionOr or kind == Value.ReductionXor
-                or kind == Value.ReductionMin or kind == Value.ReductionMax then
+            if op == Value.ReductionAdd or op == Value.ReductionMul
+                or op == Value.ReductionAnd or op == Value.ReductionOr or op == Value.ReductionXor
+                or op == Value.ReductionMin or op == Value.ReductionMax then
                 return true
             end
             return false, "unsupported integer reduction"
         end
         if result_ty == Code.CodeTyBool8 then
-            if kind == Value.ReductionAnd or kind == Value.ReductionOr or kind == Value.ReductionXor then
+            if op == Value.ReductionAnd or op == Value.ReductionOr or op == Value.ReductionXor then
                 return true
             end
             return false, "bool8 reduce_array stencil only supports and/or/xor"
         end
         if is_float(result_ty) then
-            if kind == Value.ReductionAdd or kind == Value.ReductionMul
-                or kind == Value.ReductionMin or kind == Value.ReductionMax then
+            if op == Value.ReductionAdd or op == Value.ReductionMul
+                or op == Value.ReductionMin or op == Value.ReductionMax then
                 return true
             end
             return false, "float reduce_array stencil only supports add/mul/min/max"
@@ -532,13 +532,13 @@ local function bind_context(T)
     end
 
     local function reducer_identity(reduction, result_ty)
-        local identity, reason = ReductionAlgebra.identity_expr(reduction.kind, result_ty)
+        local identity, reason = ReductionAlgebra.identity_expr(reduction.op, result_ty)
         if identity == nil then error("stencil_artifact_plan: reduction has no identity: " .. tostring(reason), 3) end
         return identity
     end
 
     local function reducer_desc(reduction, result_ty)
-        return Stencil.StencilReducer(reduction.kind, result_ty, reducer_identity(reduction, result_ty), reduction.int_semantics, reduction.float_mode)
+        return Stencil.StencilReducer(reduction.op, result_ty, reducer_identity(reduction, result_ty), reduction.int_semantics, reduction.float_mode)
     end
 
     local function predicate_expr_pred(expr)
@@ -601,9 +601,9 @@ local function bind_context(T)
         return nil
     end
 
-    local function descriptor_reduce_mode(desc)
+    local function descriptor_reduction_semantics(desc)
         if desc == nil or asdl.classof(desc.sink) ~= Stencil.StencilSinkReduce then return nil end
-        return desc.sink.mode
+        return desc.sink.semantics
     end
 
     local function descriptor_reducer(desc)
@@ -611,7 +611,7 @@ local function bind_context(T)
         local sink_cls = asdl.classof(desc.sink)
         if sink_cls == Stencil.StencilSinkScan then return desc.sink.reducer end
         if sink_cls == Stencil.StencilSinkScatterReduce then return desc.sink.reducer end
-        if sink_cls == Stencil.StencilSinkReduce and asdl.classof(desc.sink.mode) == Stencil.StencilReduceFold then return desc.sink.mode.reducer end
+        if sink_cls == Stencil.StencilSinkReduce and asdl.classof(desc.sink.semantics) == Stencil.StencilReduceFold then return desc.sink.semantics.reducer end
         return nil
     end
 
@@ -677,7 +677,7 @@ local function bind_context(T)
             if cls then
                 out[#out + 1] = tostring(cls)
                 out[#out + 1] = "{"
-                for i, field in ipairs(rawget(cls, "__fields") or {}) do
+                for i, field in ipairs(asdl.fields(cls) or {}) do
                     if i > 1 then out[#out + 1] = "," end
                     out[#out + 1] = field.name
                     out[#out + 1] = "="
@@ -1310,10 +1310,10 @@ local function bind_context(T)
         if sink_cls == Stencil.StencilSinkScan then return true end
         if sink_cls == Stencil.StencilSinkScatterReduce then return false end
         if sink_cls == Stencil.StencilSinkStore then
-            return asdl.classof(desc.sink.mode) ~= Stencil.StencilStorePartition
+            return asdl.classof(desc.sink.semantics) ~= Stencil.StencilStorePartition
         end
         if sink_cls == Stencil.StencilSinkReduce then
-            return asdl.classof(desc.sink.mode) ~= Stencil.StencilReduceFind
+            return asdl.classof(desc.sink.semantics) ~= Stencil.StencilReduceFind
         end
         return false
     end
@@ -1709,8 +1709,8 @@ local function bind_context(T)
         )
         local selected_schedule = schedule_for_descriptor_with_info(desc, info)
         local suffix, symbol_suffix = schedule_suffix(selected_schedule)
-        local id = Stencil.StencilInstanceId(reduce_instance_id(elem_ty, result_ty, reduction.kind, stride).text .. suffix)
-        local symbol = Stencil.StencilSymbolId(reduce_symbol_id(elem_ty, result_ty, reduction.kind, stride).text .. symbol_suffix)
+        local id = Stencil.StencilInstanceId(reduce_instance_id(elem_ty, result_ty, reduction.op, stride).text .. suffix)
+        local symbol = Stencil.StencilSymbolId(reduce_symbol_id(elem_ty, result_ty, reduction.op, stride).text .. symbol_suffix)
         local abi, args = descriptor_abi_args(desc, { { ty = result_ty, decl = c_type(result_ty) .. " init" } })
         local inst = instance(
             id,
@@ -1731,8 +1731,8 @@ local function bind_context(T)
         local ok, reason = api.reduce_array_supported(reduction, { elem_ty = elem_ty, result_ty = result_ty })
         if not ok then error("stencil_artifact_plan: unsupported scan_array artifact: " .. tostring(reason), 2) end
         local ptag = producer_tag(producer)
-        local id = Stencil.StencilInstanceId("stencil:scan_array:" .. type_name(elem_ty) .. ":" .. reduction_name(reduction.kind) .. ":to:" .. type_name(result_ty) .. ":" .. scan_mode_name(mode) .. ":" .. ptag)
-        local symbol = Stencil.StencilSymbolId("ml_stencil_scan_array_" .. type_name(elem_ty) .. "_" .. reduction_name(reduction.kind) .. "_to_" .. type_name(result_ty) .. "_" .. scan_mode_name(mode) .. "_" .. ptag)
+        local id = Stencil.StencilInstanceId("stencil:scan_array:" .. type_name(elem_ty) .. ":" .. reduction_name(reduction.op) .. ":to:" .. type_name(result_ty) .. ":" .. scan_mode_name(mode) .. ":" .. ptag)
+        local symbol = Stencil.StencilSymbolId("ml_stencil_scan_array_" .. type_name(elem_ty) .. "_" .. reduction_name(reduction.op) .. "_to_" .. type_name(result_ty) .. "_" .. scan_mode_name(mode) .. "_" .. ptag)
         local desc = descriptor(
             "scan",
             stride,
@@ -1833,8 +1833,8 @@ local function bind_context(T)
         local ptag = producer_tag(producer)
         local conflicts = info.conflicts or info.scatter_reduce_conflicts or Stencil.StencilScatterReduceSequential
         local conflict_tag = scatter_reduce_conflict_name(conflicts)
-        local id = Stencil.StencilInstanceId("stencil:scatter_reduce_n:" .. type_name(item_ty) .. ":" .. reduction_name(reduction.kind) .. ":to:" .. type_name(result_ty) .. ":" .. conflict_tag .. ":" .. tag .. ":" .. ptag)
-        local symbol = Stencil.StencilSymbolId("ml_stencil_scatter_reduce_n_" .. type_name(item_ty) .. "_" .. reduction_name(reduction.kind) .. "_to_" .. type_name(result_ty) .. "_" .. conflict_tag .. "_" .. tag .. "_" .. ptag)
+        local id = Stencil.StencilInstanceId("stencil:scatter_reduce_n:" .. type_name(item_ty) .. ":" .. reduction_name(reduction.op) .. ":to:" .. type_name(result_ty) .. ":" .. conflict_tag .. ":" .. tag .. ":" .. ptag)
+        local symbol = Stencil.StencilSymbolId("ml_stencil_scatter_reduce_n_" .. type_name(item_ty) .. "_" .. reduction_name(reduction.op) .. "_to_" .. type_name(result_ty) .. "_" .. conflict_tag .. "_" .. tag .. "_" .. ptag)
         local reducer = reducer_desc(reduction, result_ty)
         local desc = descriptor("scatter_reduce", stride, accesses, expr, reducer, { producer = producer, store_dst = dst_name, scatter_reduce_conflicts = conflicts }, memory({ scatter_reduce = true, scatter_reduce_conflicts = conflicts }), result_ty)
         local sink_reason = sink_materializer_reject_reason(desc)
@@ -2014,8 +2014,8 @@ local function bind_context(T)
         if sink_reason ~= nil then error("stencil_artifact_plan: unsupported reduce_n sink/body: " .. tostring(sink_reason), 2) end
         local tag = sanitize((info.tag or ("arity" .. tostring(#inputs))) .. "_" .. stable_hash128(descriptor_identity_repr(desc)))
         local ptag = producer_tag(producer)
-        local id = Stencil.StencilInstanceId("stencil:reduce_n:" .. type_name(item_ty) .. ":" .. reduction_name(reduction.kind) .. ":to:" .. type_name(result_ty) .. ":" .. tag .. ":" .. ptag)
-        local symbol = Stencil.StencilSymbolId("ml_stencil_reduce_n_" .. type_name(item_ty) .. "_" .. reduction_name(reduction.kind) .. "_to_" .. type_name(result_ty) .. "_" .. tag .. "_" .. ptag)
+        local id = Stencil.StencilInstanceId("stencil:reduce_n:" .. type_name(item_ty) .. ":" .. reduction_name(reduction.op) .. ":to:" .. type_name(result_ty) .. ":" .. tag .. ":" .. ptag)
+        local symbol = Stencil.StencilSymbolId("ml_stencil_reduce_n_" .. type_name(item_ty) .. "_" .. reduction_name(reduction.op) .. "_to_" .. type_name(result_ty) .. "_" .. tag .. "_" .. ptag)
         local inst
         inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, abi, scoped_output and nil or result_ty), proof_list(plan), info)
         if scoped_output then return artifact(inst, symbol, void_desc_decl(symbol, desc, args)) end
@@ -2054,8 +2054,8 @@ local function bind_context(T)
         if sink_reason ~= nil then error("stencil_artifact_plan: unsupported scan_n sink/body: " .. tostring(sink_reason), 2) end
         local tag = sanitize((info.tag or ("arity" .. tostring(#inputs))) .. "_" .. stable_hash128(descriptor_identity_repr(desc)))
         local ptag = producer_tag(producer)
-        local id = Stencil.StencilInstanceId("stencil:scan_n:" .. type_name(item_ty) .. ":" .. reduction_name(reduction.kind) .. ":to:" .. type_name(result_ty) .. ":" .. scan_mode_name(mode) .. ":" .. tag .. ":" .. ptag)
-        local symbol = Stencil.StencilSymbolId("ml_stencil_scan_n_" .. type_name(item_ty) .. "_" .. reduction_name(reduction.kind) .. "_to_" .. type_name(result_ty) .. "_" .. scan_mode_name(mode) .. "_" .. tag .. "_" .. ptag)
+        local id = Stencil.StencilInstanceId("stencil:scan_n:" .. type_name(item_ty) .. ":" .. reduction_name(reduction.op) .. ":to:" .. type_name(result_ty) .. ":" .. scan_mode_name(mode) .. ":" .. tag .. ":" .. ptag)
+        local symbol = Stencil.StencilSymbolId("ml_stencil_scan_n_" .. type_name(item_ty) .. "_" .. reduction_name(reduction.op) .. "_to_" .. type_name(result_ty) .. "_" .. scan_mode_name(mode) .. "_" .. tag .. "_" .. ptag)
         local inst
         inst, symbol = scheduled_instance(id, symbol, desc, abi_with_dynamic_strides(desc, abi, nil), proof_list(plan), info)
         return artifact(inst, symbol, void_desc_decl(symbol, desc, args))
@@ -2243,7 +2243,7 @@ local function bind_context(T)
         local red = Stencil.StencilReducer(
             Value.ReductionAdd,
             desc.sink.result_ty,
-            reducer_identity({ kind = Value.ReductionAdd }, desc.sink.result_ty),
+            reducer_identity({ op = Value.ReductionAdd }, desc.sink.result_ty),
             default_int_semantics(),
             nil
         )
@@ -2276,7 +2276,7 @@ local function bind_context(T)
             expr = expr,
             result_ty = Code.CodeTyInt(32, Code.CodeSigned),
             dst_name = sink.dst.name,
-            mode = sink.mode,
+            mode = sink.semantics,
             producer = producer,
             stride = producer.kind == "range1d" and producer.stride or nil,
         })
@@ -2329,24 +2329,24 @@ local function bind_context(T)
         local sink = desc.sink
         local sink_cls = asdl.classof(sink)
         if sink_cls == Stencil.StencilSinkReduce then
-            local mode = sink.mode
-            local mode_cls = asdl.classof(mode)
-            if mode_cls == Stencil.StencilReduceFold then
-                return reduce_n_shape(desc, mode.reducer)
+            local semantics = sink.semantics
+            local semantics_cls = asdl.classof(semantics)
+            if semantics_cls == Stencil.StencilReduceFold then
+                return reduce_n_shape(desc, semantics.reducer)
             end
-            if mode_cls == Stencil.StencilReduceCount then
-                return count_reduce_shape(desc, mode)
+            if semantics_cls == Stencil.StencilReduceCount then
+                return count_reduce_shape(desc, semantics)
             end
-            if mode_cls == Stencil.StencilReduceFind then
-                return find_n_shape(desc, mode)
+            if semantics_cls == Stencil.StencilReduceFind then
+                return find_n_shape(desc, semantics)
             end
-            error("stencil_artifact_plan: unsupported reduce sink mode", 3)
+            error("stencil_artifact_plan: unsupported reduce sink semantics", 3)
         end
         if sink_cls == Stencil.StencilSinkStore then
-            if asdl.classof(sink.mode) == Stencil.StencilStorePartition then
+            if asdl.classof(sink.semantics) == Stencil.StencilStorePartition then
                 return partition_n_shape(desc, sink)
             end
-            return store_n_shape(desc, access_named(desc, sink.dst.name).ty, sink.dst.name, sink.mode)
+            return store_n_shape(desc, access_named(desc, sink.dst.name).ty, sink.dst.name, sink.semantics)
         end
         if sink_cls == Stencil.StencilSinkScan then
             return scan_n_shape(desc, sink)

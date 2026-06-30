@@ -7,9 +7,8 @@
 local asdl = require("lalin.asdl")
 
 local function bind_context(T)
-  if not T.LalinCore then
-    require("lalin.schema_projection")(T)
-  end
+  assert(T and T.LalinCore and T.LalinTree and T.LalinType and T.LalinBind,
+    "lalin.syntax.for_to_loop(T) expects a projected Lalin schema context")
   local C, Ty, B, Tr = T.LalinCore, T.LalinType, T.LalinBind, T.LalinTree
 
   local to_tree = require("lalin.syntax.to_tree")(T)
@@ -18,7 +17,7 @@ local function bind_context(T)
   local idx_ty = Ty.TScalar(C.ScalarIndex)
 
   local function binding(name, ty)
-    return B.Binding(C.Id("parsed." .. tostring(name)), name, ty, B.BindingClassLocalValue)
+    return B.Binding(C.Id("parsed." .. tostring(name)), name, ty, B.BindingRoleLocalValue)
   end
 
   local function lit(n)
@@ -499,7 +498,7 @@ local function bind_context(T)
       local acc_ty = to_tree.parsed_type(sink.type)
       local acc_ref = Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(acc))
       local step_name = "__lln_step_" .. tag
-      local step_binding = B.Binding(C.Id("parsed." .. step_name), step_name, acc_ty, B.BindingClassLocalValue)
+      local step_binding = B.Binding(C.Id("parsed." .. step_name), step_name, acc_ty, B.BindingRoleLocalValue)
       local step_ref = Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(step_name))
       body_stmts[#body_stmts + 1] = Tr.StmtLet(Tr.StmtSurface, step_binding, to_tree.expr(sink.step))
       local next_acc = reducer_expr(sink.by, acc_ref, step_ref)
@@ -513,7 +512,7 @@ local function bind_context(T)
 
       if sink.tag == "StmtScan" then
         local next_name = "__lln_scan_" .. tag
-        local next_binding = B.Binding(C.Id("parsed." .. next_name), next_name, acc_ty, B.BindingClassLocalValue)
+        local next_binding = B.Binding(C.Id("parsed." .. next_name), next_name, acc_ty, B.BindingRoleLocalValue)
         local next_ref = Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(next_name))
         body_stmts[#body_stmts + 1] = Tr.StmtLet(Tr.StmtSurface, next_binding, next_acc)
         body_stmts[#body_stmts + 1] = Tr.StmtSet(Tr.StmtSurface, to_tree.place(sink.into), next_ref)

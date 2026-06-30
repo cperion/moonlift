@@ -47,18 +47,18 @@ local function bind_context(T)
         local cls = schema.classof(node)
         if schema.isa(node, C.UnaryNeg) then
             return (function()
- return single(C.UnaryClassArithmetic)
+ return single(C.UnaryFamilyArithmetic)
             end)(node, ...)
         elseif schema.isa(node, C.UnaryNot) then
             return (function()
- return single(C.UnaryClassLogical)
+ return single(C.UnaryFamilyLogical)
             end)(node, ...)
         elseif schema.isa(node, C.UnaryBitNot) then
             return (function()
- return single(C.UnaryClassBitwise)
+ return single(C.UnaryFamilyBitwise)
             end)(node, ...)
         else
-            error("phase lalin_core_unary_op_class: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_core_unary_op_class: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -66,50 +66,50 @@ local function bind_context(T)
         local cls = schema.classof(node)
         if schema.isa(node, C.BinAdd) then
             return (function()
- return single(C.BinaryClassArithmetic)
+ return single(C.BinaryFamilyArithmetic)
             end)(node, ...)
         elseif schema.isa(node, C.BinSub) then
             return (function()
- return single(C.BinaryClassArithmetic)
+ return single(C.BinaryFamilyArithmetic)
             end)(node, ...)
         elseif schema.isa(node, C.BinMul) then
             return (function()
- return single(C.BinaryClassArithmetic)
+ return single(C.BinaryFamilyArithmetic)
             end)(node, ...)
         elseif schema.isa(node, C.BinDiv) then
             return (function()
- return single(C.BinaryClassDivision)
+ return single(C.BinaryFamilyDivision)
             end)(node, ...)
         elseif schema.isa(node, C.BinRem) then
             return (function()
- return single(C.BinaryClassRemainder)
+ return single(C.BinaryFamilyRemainder)
             end)(node, ...)
         elseif schema.isa(node, C.BinBitAnd) then
             return (function()
- return single(C.BinaryClassBitwise)
+ return single(C.BinaryFamilyBitwise)
             end)(node, ...)
         elseif schema.isa(node, C.BinBitOr) then
             return (function()
- return single(C.BinaryClassBitwise)
+ return single(C.BinaryFamilyBitwise)
             end)(node, ...)
         elseif schema.isa(node, C.BinBitXor) then
             return (function()
- return single(C.BinaryClassBitwise)
+ return single(C.BinaryFamilyBitwise)
             end)(node, ...)
         elseif schema.isa(node, C.BinShl) then
             return (function()
- return single(C.BinaryClassShift)
+ return single(C.BinaryFamilyShift)
             end)(node, ...)
         elseif schema.isa(node, C.BinLShr) then
             return (function()
- return single(C.BinaryClassShift)
+ return single(C.BinaryFamilyShift)
             end)(node, ...)
         elseif schema.isa(node, C.BinAShr) then
             return (function()
- return single(C.BinaryClassShift)
+ return single(C.BinaryFamilyShift)
             end)(node, ...)
         else
-            error("phase lalin_core_binary_op_class: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_core_binary_op_class: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -117,30 +117,30 @@ local function bind_context(T)
         local cls = schema.classof(node)
         if schema.isa(node, C.CmpEq) then
             return (function()
- return single(C.CmpClassEquality)
+ return single(C.CmpFamilyEquality)
             end)(node, ...)
         elseif schema.isa(node, C.CmpNe) then
             return (function()
- return single(C.CmpClassEquality)
+ return single(C.CmpFamilyEquality)
             end)(node, ...)
         elseif schema.isa(node, C.CmpLt) then
             return (function()
- return single(C.CmpClassOrdering)
+ return single(C.CmpFamilyOrdering)
             end)(node, ...)
         elseif schema.isa(node, C.CmpLe) then
             return (function()
- return single(C.CmpClassOrdering)
+ return single(C.CmpFamilyOrdering)
             end)(node, ...)
         elseif schema.isa(node, C.CmpGt) then
             return (function()
- return single(C.CmpClassOrdering)
+ return single(C.CmpFamilyOrdering)
             end)(node, ...)
         elseif schema.isa(node, C.CmpGe) then
             return (function()
- return single(C.CmpClassOrdering)
+ return single(C.CmpFamilyOrdering)
             end)(node, ...)
         else
-            error("phase lalin_core_cmp_op_class: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_core_cmp_op_class: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -148,66 +148,66 @@ local function bind_context(T)
         local cls = schema.classof(node)
         if schema.isa(node, C.IntrinsicPopcount) then
             return (function()
- return single(C.IntrinsicClassBit)
+ return single(C.IntrinsicFamilyBit)
             end)(node, ...)
         elseif schema.isa(node, C.IntrinsicClz) then
             return (function()
- return single(C.IntrinsicClassBit)
+ return single(C.IntrinsicFamilyBit)
             end)(node, ...)
         elseif schema.isa(node, C.IntrinsicCtz) then
             return (function()
- return single(C.IntrinsicClassBit)
+ return single(C.IntrinsicFamilyBit)
             end)(node, ...)
         elseif schema.isa(node, C.IntrinsicRotl) then
             return (function()
- return single(C.IntrinsicClassBit)
+ return single(C.IntrinsicFamilyBit)
             end)(node, ...)
         elseif schema.isa(node, C.IntrinsicRotr) then
             return (function()
- return single(C.IntrinsicClassBit)
+ return single(C.IntrinsicFamilyBit)
             end)(node, ...)
         elseif schema.isa(node, C.IntrinsicBswap) then
             return (function()
- return single(C.IntrinsicClassBit)
+ return single(C.IntrinsicFamilyBit)
             end)(node, ...)
         elseif schema.isa(node, C.IntrinsicFma) then
             return (function()
- return single(C.IntrinsicClassFused)
+ return single(C.IntrinsicFamilyFused)
             end)(node, ...)
         elseif schema.isa(node, C.IntrinsicSqrt) then
             return (function()
- return single(C.IntrinsicClassFloat)
+ return single(C.IntrinsicFamilyFloat)
             end)(node, ...)
         elseif schema.isa(node, C.IntrinsicAbs) then
             return (function()
- return single(C.IntrinsicClassFloat)
+ return single(C.IntrinsicFamilyFloat)
             end)(node, ...)
         elseif schema.isa(node, C.IntrinsicFloor) then
             return (function()
- return single(C.IntrinsicClassFloat)
+ return single(C.IntrinsicFamilyFloat)
             end)(node, ...)
         elseif schema.isa(node, C.IntrinsicCeil) then
             return (function()
- return single(C.IntrinsicClassFloat)
+ return single(C.IntrinsicFamilyFloat)
             end)(node, ...)
         elseif schema.isa(node, C.IntrinsicTruncFloat) then
             return (function()
- return single(C.IntrinsicClassFloat)
+ return single(C.IntrinsicFamilyFloat)
             end)(node, ...)
         elseif schema.isa(node, C.IntrinsicRound) then
             return (function()
- return single(C.IntrinsicClassFloat)
+ return single(C.IntrinsicFamilyFloat)
             end)(node, ...)
         elseif schema.isa(node, C.IntrinsicTrap) then
             return (function()
- return single(C.IntrinsicClassControl)
+ return single(C.IntrinsicFamilyControl)
             end)(node, ...)
         elseif schema.isa(node, C.IntrinsicAssume) then
             return (function()
- return single(C.IntrinsicClassControl)
+ return single(C.IntrinsicFamilyControl)
             end)(node, ...)
         else
-            error("phase lalin_core_intrinsic_class: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_core_intrinsic_class: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

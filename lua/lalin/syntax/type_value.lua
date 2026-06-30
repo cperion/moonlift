@@ -4,7 +4,8 @@
 local asdl = require("lalin.asdl")
 
 local function bind_context(T)
-  if not T.LalinCore then require("lalin.schema_projection")(T) end
+  assert(T and T.LalinCore and T.LalinType and T.LalinC,
+    "lalin.syntax.type_value(T) expects a projected Lalin schema context")
   local C, Ty, CT = T.LalinCore, T.LalinType, T.LalinC
   local M = {}
 

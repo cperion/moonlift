@@ -16,7 +16,7 @@ function M.lower_module(module, opts)
     local T = opts.context
     if T == nil then
         local cls = asdl.classof(module)
-        T = cls and rawget(cls, "__context")
+        T = cls and asdl.context_of(cls)
     end
     T = T or asdl.context()
 

@@ -27,5 +27,4 @@ Directories:
 - `debug/` - debug interpreter/debugger and ELF parser tests
 - `ui/` - retired SDL/UI tests; still depends on the old top-level PVM runtime and is not in aggregate suites
 - `experiments/` - experiment/spongejit tests; may require experiment modules
-- `retired/dasm/` - retired DynASM tests, kept out of default runs
 - `fixtures/` - `.mlua` fixtures consumed by tests

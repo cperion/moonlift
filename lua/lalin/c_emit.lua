@@ -11,8 +11,7 @@ local function bind_context(T)
 
     local function append_all(out, xs) for i = 1, #(xs or {}) do out[#out + 1] = xs[i] end end
     local function class_name(x)
-        local cls = asdl.classof(x) or x
-        return tostring(cls):match("Class%((.-)%)") or tostring(cls)
+        return asdl.class_name(x) or tostring(x)
     end
 
     local function sanitize(s)
@@ -28,10 +27,12 @@ local function bind_context(T)
 
     local function descriptor_type_name(kind, ty)
         if kind == "bytespan" then return "ml_bytespan" end
-        local elem = ty and ty.elem and sanitize(tostring(asdl.classof(ty.elem) and asdl.classof(ty.elem).kind or ty.elem)) or "any"
+        local elem = ty and ty.elem and sanitize(asdl.class_basename(ty.elem) or ty.elem) or "any"
         if ty and ty.elem then
-            local ecls = asdl.classof(ty.elem)
-            if ecls and ecls.kind then elem = sanitize(ecls.kind .. "_" .. tostring(ty.elem.scalar and ty.elem.scalar.kind or ty.elem.id and ty.elem.id.spelling or "elem")) end
+            local elem_class = asdl.class_basename(ty.elem)
+            if elem_class then
+                elem = sanitize(elem_class .. "_" .. tostring(ty.elem.scalar and asdl.class_basename(ty.elem.scalar) or ty.elem.id and ty.elem.id.spelling or "elem"))
+            end
         end
         return "ml_" .. kind .. "_" .. elem
     end
@@ -121,7 +122,7 @@ local function bind_context(T)
             return place(p.base) .. "[" .. atom(p.index) .. "]"
         end
         if cls == C.CBackendPlaceBytes then return "(*(" .. emit_type(p.ty) .. "*)((unsigned char*)" .. atom(p.base) .. " + " .. tostring(p.offset) .. "))" end
-        error("c_emit: unsupported CBackendPlace " .. tostring(cls and cls.kind or cls), 2)
+        error("c_emit: unsupported CBackendPlace " .. tostring(cls or nil), 2)
     end
 
     local function cmp_op(op)
@@ -148,7 +149,7 @@ local function bind_context(T)
         if cls == C.CBackendRExternAddr then return rv["extern"].text end
         if cls == C.CBackendRPtrOffset then return "((char*)" .. atom(rv.base) .. " + (" .. atom(rv.index) .. ") * " .. tostring(rv.elem_size) .. " + " .. tostring(rv.const_offset) .. ")" end
         if cls == C.CBackendRAddrOfPlace then return "&" .. place(rv.place) end
-        error("c_emit: unsupported CBackendRValue " .. tostring(cls and cls.kind or cls), 2)
+        error("c_emit: unsupported CBackendRValue " .. tostring(cls or nil), 2)
     end
 
     local function decl(ty, name)
@@ -489,11 +490,11 @@ local function bind_context(T)
     end
 
     local function exec_fragment_symbol(fragment)
-        local kind = fragment and fragment.kind or nil
-        local cls = asdl.classof(kind)
-        if cls == Exec.ExecFragmentStencil then return kind.artifact.symbol.text end
-        if cls == Exec.ExecFragmentCall then return code_symbol_from_id(kind.callee) end
-        error("c_emit: unsupported exec fragment kind " .. class_name(kind), 3)
+        local body = fragment and fragment.body or nil
+        local cls = asdl.classof(body)
+        if cls == Exec.ExecFragmentStencil then return body.artifact.symbol.text end
+        if cls == Exec.ExecFragmentCall then return code_symbol_from_id(body.callee) end
+        error("c_emit: unsupported exec fragment body " .. class_name(body), 3)
     end
 
     local function emit_exec_site(site, out)
@@ -575,7 +576,7 @@ local function bind_context(T)
     end
 
     local function helper_is_atomic(h)
-        local k = h.kind or h
+        local k = h.spec or h
         local cls = asdl.classof(k)
         return cls == C.CBackendHelperAtomicLoad or cls == C.CBackendHelperAtomicStore
             or cls == C.CBackendHelperAtomicRmw or cls == C.CBackendHelperAtomicCas
@@ -646,9 +647,9 @@ local function bind_context(T)
     local function emit_exec_prototypes(unit, out)
         local seen = {}
         for _, site in ipairs(collect_exec_sites(unit)) do
-            local kind = site.fragment and site.fragment.kind or nil
-            if asdl.classof(kind) == Exec.ExecFragmentStencil then
-                local decl = kind.artifact.c_signature
+            local body = site.fragment and site.fragment.body or nil
+            if asdl.classof(body) == Exec.ExecFragmentStencil then
+                local decl = body.artifact.c_signature
                 if decl ~= nil and decl ~= "" and not seen[decl] then
                     seen[decl] = true
                     out[#out + 1] = decl:match(";%s*$") and decl or (decl .. ";")

@@ -16,6 +16,22 @@ local ty1 = Code1.CodeTyInt(32, Code1.CodeSigned)
 local origin1 = Code1.CodeOriginGenerated("methods")
 local param1 = Code1.CodeParam(Code1.CodeValueId("v:a"), "a", ty1, origin1)
 
+assert(ty1.kind == nil)
+assert(Code1.CodeTyInt.kind == nil)
+assert(ty1.__plan == nil)
+assert(Code1.CodeTyInt.__plan == nil)
+assert(Code1.CodeTyInt.__fields == nil)
+assert(Code1.CodeTyInt.__context == nil)
+assert(ty1.no_such_method == nil)
+assert(asdl.class_name(ty1) == "LalinCode.CodeTyInt")
+assert(asdl.class_basename(ty1) == "CodeTyInt")
+assert(asdl.context_of(ty1) == T1)
+assert(#asdl.fields(ty1) == 2)
+assert(asdl.members(Code1.CodeType)[Code1.CodeTyInt] == true)
+
+function Code1.CodeType:default_nil_sum_method_test()
+    return nil
+end
 assert(ty1:default_nil_sum_method_test() == nil)
 
 function Code1.CodeParam:describe_test_method(ctx)
@@ -31,13 +47,21 @@ Code1.CodeParam.describe_test_method = replacement
 assert(param1:describe_test_method({}) == "a:replaced")
 
 local literal = Code1.CodeConstLiteral(ty1, Core1.LitInt("1"))
-assert(literal:describe_test_method() == nil)
+assert(literal.describe_test_method == nil)
 
 function Code1.CodeType:type_family_test_method()
     return "code-type"
 end
 assert(ty1:type_family_test_method() == "code-type")
 assert(Code1.CodeTyInt.type_family_test_method == Code1.CodeType.type_family_test_method)
+
+function Code1.CodeTyInt:override_order_test()
+    return "child"
+end
+function Code1.CodeType:override_order_test()
+    return "parent"
+end
+assert(ty1:override_order_test() == "child")
 
 function Core1.LitNil:test_nullary_method()
     return "nil-literal"

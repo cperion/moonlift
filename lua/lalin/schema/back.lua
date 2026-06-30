@@ -111,7 +111,7 @@ return schema. LalinBack {
     BackChecked { variant_unique, reason [str], },
   },
   sum. BackMotion { BackMayNotMove, BackCanMove { variant_unique, reason [str], }, },
-  sum. BackAccessMode { BackAccessRead, BackAccessWrite, BackAccessReadWrite, BackAccessReadonly, },
+  sum. BackAccessEffect { BackAccessRead, BackAccessWrite, BackAccessReadWrite, BackAccessReadonly, },
   sum. BackAtomicOrdering { BackAtomicSeqCst, },
   sum. BackAtomicRmwOp {
     BackAtomicRmwAdd,
@@ -128,7 +128,7 @@ return schema. LalinBack {
     dereference [LalinBack.BackDereference],
     trap [LalinBack.BackTrap],
     motion [LalinBack.BackMotion],
-    mode [LalinBack.BackAccessMode],
+    effect [LalinBack.BackAccessEffect],
   },
   sum. BackIntOverflow {
     BackIntWrap,
@@ -669,11 +669,11 @@ return schema. LalinBack {
     },
     BackIssueMissingAccess { variant_unique, index [number], access [LalinBack.BackAccessId], },
     BackIssueInvalidAlignment { variant_unique, index [number], bytes [number], },
-    BackIssueLoadAccessMode { variant_unique, index [number], mode [LalinBack.BackAccessMode], },
-    BackIssueStoreAccessMode {
+    BackIssueLoadAccessEffect { variant_unique, index [number], effect [LalinBack.BackAccessEffect], },
+    BackIssueStoreAccessEffect {
       variant_unique,
       index [number],
-      mode [LalinBack.BackAccessMode],
+      effect [LalinBack.BackAccessEffect],
     },
     BackIssueDereferenceTooSmall {
       variant_unique,
@@ -724,7 +724,7 @@ return schema. LalinBack {
     dereference [LalinBack.BackDereference],
     trap [LalinBack.BackTrap],
     motion [LalinBack.BackMotion],
-    mode [LalinBack.BackAccessMode],
+    effect [LalinBack.BackAccessEffect],
   },
   product. BackAddressInspection { interned, index [number], address [LalinBack.BackAddress], },
   product. BackPointerOffsetInspection {

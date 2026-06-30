@@ -3,10 +3,8 @@
 -- Builds live ASDL classes from parser output:
 --   - callable classes
 --   - structural interning for `unique`
---   - sum type dispatch via `members`
---   - field metadata (`__fields`)
---   - structural update via generated `__with`
---   - generated raw getters for hot paths (`__raw`, `__raw_<field>`)
+--   - sum membership and reflection through private side metadata
+--   - structural update and raw getters through generated side-table plans
 --
 -- Memory model:
 --   ASDL values are ordinary GC-managed Lua objects. Old worlds die by
@@ -38,21 +36,23 @@ local unpack = table.unpack or unpack
 local NIL = {}
 local LEAF = {}
 local WEAK_VALUE_MT = { __mode = "v" }
+local CLASS_META = setmetatable({}, { __mode = "k" })
 local MAX_SPECIAL_ARITY = 16
 local normalize_field
 local classof_fast
 
-local DEFAULT_NIL_METHODS = setmetatable({}, { __mode = "v" })
+local function class_meta(class)
+    return type(class) == "table" and CLASS_META[class] or nil
+end
 
-local function default_nil_method_for(key)
-    local fn = DEFAULT_NIL_METHODS[key]
-    if fn == nil then
-        fn = function()
-            return nil
-        end
-        DEFAULT_NIL_METHODS[key] = fn
-    end
-    return fn
+local function is_class(class)
+    return class_meta(class) ~= nil
+end
+
+local function class_from(value)
+    if type(value) ~= "table" then return false end
+    if is_class(value) then return value end
+    return classof_fast(value)
 end
 
 -- ── Builtin type checks ─────────────────────────────────────
@@ -90,9 +90,10 @@ function Context:Extern(name, check_fn)
 end
 
 local function make_named_builder(class, trusted)
-    local fields = rawget(class, "__fields")
-    local plan = rawget(class, "__plan")
-    local name = plan and plan.name or tostring(class)
+    local meta = class_meta(class)
+    local fields = meta and meta.fields
+    local plan = meta and meta.plan
+    local name = meta and meta.name or tostring(class)
     local allowed = {}
     for i = 1, #fields do
         allowed[fields[i].name] = true
@@ -138,11 +139,12 @@ end
 local function build_builder_tree(src, trusted)
     local out = {}
     for k, v in pairs(src) do
-        if type(v) == "table" and not classof_fast(v) and rawget(v, "members") ~= nil then
-            if rawget(v, "__fields") then
+        if is_class(v) then
+            local meta = class_meta(v)
+            if meta.fields then
                 local slot = trusted and "__fast_builder" or "__builder"
-                out[k] = rawget(v, slot) or make_named_builder(v, trusted)
-                rawset(v, slot, out[k])
+                out[k] = meta[slot] or make_named_builder(v, trusted)
+                meta[slot] = out[k]
             else
                 out[k] = v
             end
@@ -177,10 +179,10 @@ function Context:Singleton(class)
     local node_class = classof_fast(class)
     if node_class ~= false then
         class = node_class
-    elseif rawget(class, "__class") ~= class then
+    elseif not is_class(class) then
         error("ASDL singleton: expected class or singleton", 2)
     end
-    local singleton = rawget(class, "__singleton")
+    local singleton = class_meta(class).singleton
     if singleton == nil then
         error("ASDL singleton: class is not a nullary singleton variant", 2)
     end
@@ -201,6 +203,65 @@ end
 
 function M.ClassOf(v)
     return classof_fast(v)
+end
+
+function M.Class(value)
+    return class_from(value)
+end
+
+function M.ClassName(value)
+    local cls = class_from(value)
+    local meta = cls and class_meta(cls)
+    return meta and meta.name or nil
+end
+
+function M.ClassBasename(value)
+    local cls = class_from(value)
+    local meta = cls and class_meta(cls)
+    return meta and meta.basename or nil
+end
+
+function M.ContextOf(value)
+    local cls = class_from(value)
+    local meta = cls and class_meta(cls)
+    return meta and meta.context or nil
+end
+
+function M.Fields(value)
+    local cls = class_from(value)
+    local meta = cls and class_meta(cls)
+    return meta and meta.fields or nil
+end
+
+function M.Members(value)
+    local cls = class_from(value)
+    local meta = cls and class_meta(cls)
+    return meta and meta.members or nil
+end
+
+function M.IsSumParent(value)
+    local cls = class_from(value)
+    local meta = cls and class_meta(cls)
+    return meta and meta.is_sum_parent or false
+end
+
+function M.With(node, overrides, nil_sentinel)
+    local cls = classof_fast(node)
+    local meta = cls and class_meta(cls)
+    if not meta or not meta.fields then
+        error("asdl.with: not an ASDL node", 3)
+    end
+    return meta.with(node, overrides, nil_sentinel)
+end
+
+function M.Raw(class)
+    local meta = class_meta(class)
+    return meta and meta.raw or nil
+end
+
+function M.RawField(class, name)
+    local meta = class_meta(class)
+    return meta and meta.raw_fields and meta.raw_fields[name] or nil
 end
 
 -- ── Interning helpers ───────────────────────────────────────
@@ -362,7 +423,11 @@ local function make_instance_mt(class, instance_tostring, field_lookup)
             if field_lookup[k] then
                 return nil
             end
-            return class[k]
+            local method = class[k]
+            if type(method) == "function" then
+                return method
+            end
+            return nil
         end,
         __newindex = function()
             error("ASDL nodes are immutable; use asdl.with(...)", 2)
@@ -524,6 +589,7 @@ local function make_raw_getter(fields)
 end
 
 local function build_ctor_plan(ctx, name, class, unique, fields, instance_tostring)
+    local meta = class_meta(class)
     for _, f in ipairs(fields) do
         if f.namespace then
             local fq = f.namespace .. f.type
@@ -550,10 +616,10 @@ local function build_ctor_plan(ctx, name, class, unique, fields, instance_tostri
 
     local instance_mt = make_instance_mt(class, instance_tostring, field_lookup)
     local alloc_instance
-    if rawget(class, "__ref_class_id") ~= nil then
+    if meta ~= nil and meta.ref_class_id ~= nil then
         alloc_instance = function(values, mt)
-            local slot = rawget(class, "__next_ref_slot") or 1
-            rawset(class, "__next_ref_slot", slot + 1)
+            local slot = meta.next_ref_slot or 1
+            meta.next_ref_slot = slot + 1
             values.__slot = slot
             return setmetatable(values, mt)
         end
@@ -582,20 +648,31 @@ end
 
 local function build_class(ctx, name, unique, fields, is_sum_parent)
     local class = ctx.definitions[name]
-    if unique and rawget(class, "__ref_class_id") == nil then
-        class.__ref_class_id = ctx._next_ref_class_id
-        class.__next_ref_slot = 1
+    local meta = CLASS_META[class]
+    if meta == nil then
+        meta = {
+            name = name,
+            basename = basename(name),
+            context = ctx,
+            members = {},
+            fields = fields,
+            is_sum_parent = is_sum_parent or false,
+        }
+        CLASS_META[class] = meta
+    end
+    meta.name = name
+    meta.basename = basename(name)
+    meta.context = ctx
+    meta.fields = fields
+    meta.is_sum_parent = is_sum_parent or false
+    meta.members = meta.members or {}
+    meta.members[class] = true
+
+    if unique and meta.ref_class_id == nil then
+        meta.ref_class_id = ctx._next_ref_class_id
+        meta.next_ref_slot = 1
         ctx._next_ref_class_id = ctx._next_ref_class_id + 1
     end
-    class.__fields = fields
-    class.__context = ctx
-    class.__index = class
-    class.__class = class
-    class.__cacheclass = false
-    class.__cachekey = false
-    class.members = class.members or {}
-    class.members[class] = true
-    class.__is_sum_parent = is_sum_parent or false
 
     local mt = {}
 
@@ -619,16 +696,17 @@ local function build_class(ctx, name, unique, fields, is_sum_parent)
 
         local plan = build_ctor_plan(ctx, name, class, unique, fields, instance_tostring)
         mt.__call = make_ctor(plan)
-        class.__storage = plan.backend
-        class.__ctype = nil
-        class.__plan = plan
-        class.__instance_mt = plan.instance_mt
-        class.__with = make_with_updater(class, plan, fields)
-        class.__raw = make_raw_getter(fields)
-        class.__tostring = instance_tostring
+        meta.storage = plan.backend
+        meta.ctype = nil
+        meta.plan = plan
+        meta.instance_mt = plan.instance_mt
+        meta.with = make_with_updater(class, plan, fields)
+        meta.raw = make_raw_getter(fields)
+        meta.tostring = instance_tostring
+        meta.raw_fields = {}
         for i = 1, #fields do
             if fields[i].list then
-                class["__raw_" .. fields[i].name] = function(self)
+                meta.raw_fields[fields[i].name] = function(self)
                     local v = rawget(self, fields[i].name)
                     if v == nil then
                         return nil, nil, 0, false
@@ -645,7 +723,11 @@ local function build_class(ctx, name, unique, fields, is_sum_parent)
         local instance_mt = {
             __class = class,
             __index = function(self, k)
-                return class[k]
+                local method = class[k]
+                if type(method) == "function" then
+                    return method
+                end
+                return nil
             end,
             __newindex = function(_, k, v)
                 if type(k) == "string" and type(v) == "function" then
@@ -658,9 +740,9 @@ local function build_class(ctx, name, unique, fields, is_sum_parent)
         }
 
         local singleton = {}
-        if rawget(class, "__ref_class_id") ~= nil then
+        if meta.ref_class_id ~= nil then
             singleton.__slot = 1
-            rawset(class, "__next_ref_slot", 2)
+            meta.next_ref_slot = 2
         end
         singleton = setmetatable(singleton, instance_mt)
 
@@ -668,9 +750,9 @@ local function build_class(ctx, name, unique, fields, is_sum_parent)
             return singleton
         end
 
-        class.__storage = "gc_singleton"
-        class.__ctype = nil
-        class.__plan = {
+        meta.storage = "gc_singleton"
+        meta.ctype = nil
+        meta.plan = {
             name = name,
             class = class,
             arity = 0,
@@ -681,27 +763,19 @@ local function build_class(ctx, name, unique, fields, is_sum_parent)
             backend = "gc_singleton",
             instance_mt = instance_mt,
         }
-        class.__instance_mt = instance_mt
-        class.__singleton = singleton
-        class.__tostring = instance_tostring
+        meta.instance_mt = instance_mt
+        meta.singleton = singleton
+        meta.tostring = instance_tostring
     end
 
     function mt:__newindex(k, v)
-        for member in pairs(self.members) do
-            rawset(member, k, v)
-        end
+        rawset(self, k, v)
     end
 
     function mt:__index(k)
-        local parent = rawget(self, "__sum_parent")
+        local parent = class_meta(self).parent
         if parent ~= nil then
-            local inherited = parent[k]
-            if inherited ~= nil then
-                return inherited
-            end
-        end
-        if rawget(self, "__is_sum_parent") then
-            return default_nil_method_for(k)
+            return parent[k]
         end
         return nil
     end
@@ -711,7 +785,8 @@ local function build_class(ctx, name, unique, fields, is_sum_parent)
     end
 
     function class:isclassof(obj)
-        return self.members[classof_fast(obj)] or false
+        local self_meta = class_meta(self)
+        return self_meta and self_meta.members[classof_fast(obj)] or false
     end
 
     setmetatable(class, mt)
@@ -722,22 +797,26 @@ end
 
 function M.define(ctx, definitions)
     for _, d in ipairs(definitions) do
-        ctx.definitions[d.name] = ctx.definitions[d.name] or { members = {} }
+        ctx.definitions[d.name] = ctx.definitions[d.name] or {}
         do
-            local members = ctx.definitions[d.name].members
+            local definition = ctx.definitions[d.name]
             ctx.checks[d.name] = function(v)
-                return members[classof_fast(v)] or false
+                local meta = class_meta(definition)
+                local members = meta and meta.members
+                return members and members[classof_fast(v)] or false
             end
         end
         ctx:_SetDefinition(d.name, ctx.definitions[d.name])
 
         if d.type.kind == "sum" then
             for _, c in ipairs(d.type.constructors) do
-                ctx.definitions[c.name] = ctx.definitions[c.name] or { members = {} }
+                ctx.definitions[c.name] = ctx.definitions[c.name] or {}
                 do
-                    local members = ctx.definitions[c.name].members
+                    local definition = ctx.definitions[c.name]
                     ctx.checks[c.name] = function(v)
-                        return members[classof_fast(v)] or false
+                        local meta = class_meta(definition)
+                        local members = meta and meta.members
+                        return members and members[classof_fast(v)] or false
                     end
                 end
                 ctx:_SetDefinition(c.name, ctx.definitions[c.name])
@@ -750,9 +829,10 @@ function M.define(ctx, definitions)
             local parent = build_class(ctx, d.name, false, nil, true)
             for _, c in ipairs(d.type.constructors) do
                 local child = build_class(ctx, c.name, c.unique, c.fields, false)
-                parent.members[child] = true
-                child.__sum_parent = parent
-                child.kind = basename(c.name)
+                local parent_meta = class_meta(parent)
+                local child_meta = class_meta(child)
+                parent_meta.members[child] = true
+                child_meta.parent = parent
                 if not c.fields then
                     ctx:_SetDefinition(c.name, child())
                 end

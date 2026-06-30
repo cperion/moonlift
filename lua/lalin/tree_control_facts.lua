@@ -93,7 +93,7 @@ local function bind_context(T, opts)
  return {}
             end)(node, ...)
         else
-            error("phase lalin_tree_control_expr_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_control_expr_type: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -205,7 +205,7 @@ local function bind_context(T, opts)
  return {}
             end)(node, ...)
         else
-            error("phase lalin_tree_control_stmt_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_control_stmt_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -288,7 +288,7 @@ local function bind_context(T, opts)
  return single(true)
             end)(node, ...)
         else
-            error("phase lalin_tree_control_stmt_terminates: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_control_stmt_terminates: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -330,7 +330,7 @@ local function bind_context(T, opts)
             return flat_map(function(fact) return single(fact) end, facts_for(region.region_id, region.entry, region.blocks))
             end)(node, ...)
         else
-            error("phase lalin_tree_control_region_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_control_region_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -440,7 +440,7 @@ local function bind_context(T, opts)
             return single(decide_from_facts(region, facts))
             end)(node, ...)
         else
-            error("phase lalin_tree_control_decide: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_control_decide: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

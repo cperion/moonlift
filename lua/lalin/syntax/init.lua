@@ -106,7 +106,7 @@ end
 -- ── Convert parsed AST to LalinTree for the compiler pipeline ──────────
 
 function LalinSyntax.to_module(parsed_decls, name, T)
-  -- Use caller's pvm context or create a default one.
+  -- Use the caller's schema context, or create one at this public boundary.
   local asdl = require("lalin.asdl")
   T = T or asdl.context()
   if not T.LalinTree then

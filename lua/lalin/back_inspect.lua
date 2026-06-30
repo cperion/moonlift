@@ -26,7 +26,7 @@ local function bind_context(T)
                 pointer_offsets[#pointer_offsets + 1] = Back.BackPointerOffsetInspection(index, cmd.dst, cmd.base, cmd.index, cmd.elem_size, cmd.const_offset, cmd.provenance, cmd.bounds)
             elseif cmd.kind == "CmdLoadInfo" or cmd.kind == "CmdStoreInfo" then
                 local m = cmd.memory
-                memory[#memory + 1] = Back.BackMemoryInspection(index, m.access, m.alignment, m.dereference, m.trap, m.motion, m.mode)
+                memory[#memory + 1] = Back.BackMemoryInspection(index, m.access, m.alignment, m.dereference, m.trap, m.motion, m.effect)
                 addresses[#addresses + 1] = Back.BackAddressInspection(index, cmd.addr)
             elseif cmd.kind == "CmdIntBinary" then
                 int_semantics[#int_semantics + 1] = Back.BackIntSemanticsInspection(index, cmd.dst, cmd.op, cmd.scalar, cmd.semantics)

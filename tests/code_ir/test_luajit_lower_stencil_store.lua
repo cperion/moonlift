@@ -123,8 +123,8 @@ local function build_case(case)
     return module, Code.CodeContractFactSet(module.id, facts)
 end
 
-local function select_artifact(func, vocab, op, plan, info)
-    return Backend.artifact_for(vocab, op, nil, plan, info)
+local function select_artifact(func, vocab, op, plan, descriptor)
+    return Backend.artifact_for(vocab, op, nil, plan, descriptor)
 end
 
 local function compile_case(case)
@@ -133,13 +133,13 @@ local function compile_case(case)
     local lj_module = Lower.lower_module(module, {
         contracts = contracts,
         collect_rejects = rejects,
-        stencil_store_artifact_for = function(func, vocab, op, plan, info)
-            local artifact = select_artifact(func, vocab, op, plan, info)
+        stencil_store_artifact_for = function(func, vocab, op, plan, descriptor)
+            local artifact = select_artifact(func, vocab, op, plan, descriptor)
             artifacts[#artifacts + 1] = artifact
             return artifact
         end,
-        stencil_skeleton_artifact_for = function(func, vocab, op, reduction, plan, info)
-            local artifact = select_artifact(func, vocab, op, plan, info)
+        stencil_skeleton_artifact_for = function(func, vocab, op, reduction, plan, descriptor)
+            local artifact = select_artifact(func, vocab, op, plan, descriptor)
             artifacts[#artifacts + 1] = artifact
             return artifact
         end,
@@ -147,7 +147,7 @@ local function compile_case(case)
     assert(#rejects == 0, case.name .. " rejected: " .. tostring(rejects[1] and rejects[1].reason))
     assert(#artifacts == 1, case.name .. " should select one store stencil artifact")
     assert(asdl.classof(lj_module.funcs[1].body) == LJ.LJBodyMachine, case.name .. " should lower to machine body")
-    assert(asdl.classof(lj_module.funcs[1].machines[1].kind) == LJ.LJMachineStencilEffect, case.name .. " should lower to stencil effect")
+    assert(asdl.classof(lj_module.funcs[1].machines[1].op) == LJ.LJMachineStencilEffect, case.name .. " should lower to stencil effect")
 
     local build, build_err, csrc = StencilBinary.compile(T, artifacts, { stem = "test_luajit_lower_stencil_store_" .. case.name })
     assert(build ~= nil, tostring(build_err) .. "\n" .. tostring(csrc))

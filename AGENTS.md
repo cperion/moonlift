@@ -10,8 +10,8 @@ Before continuing the PVM hard-yank or compiler method rewrite, read
 `docs/PVM_HARD_YANK_CHECKLIST.md`, especially `Non-Negotiable Rewrite Doctrine`,
 and `docs/ASDL_GUIDE.md`. Those rules are binding: ASDL reasoning first, leaf
 ASDL methods own semantics, no class/kind/action dispatch, no generic context
-bags, no `any`/`table` type escape hatches, no ad hoc Lua constructor payloads,
-and no compatibility shims.
+bags, no `any`/`table`/`map` type escape hatches, no ad hoc Lua constructor
+payloads, and no compatibility shims.
 
 ## ASDL Method Doctrine
 
@@ -25,6 +25,8 @@ needs to classify a value, choose among alternatives, remember facts by node, or
 route to an implementation, that is schema pressure. Add the missing ASDL sum,
 product, typed field, projection, or leaf method. Do not encode type or dispatch
 with Lua tables, strings, booleans, handler maps, side maps, or external caches.
+Do not use an ASDL `map` field to hide the same side table in the schema; model
+keyed relations as named entry products carried under `many`.
 
 When implementation pressure appears, go back to ASDL first. If code seems to
 need a side table, manual dispatch, a large mutable context, optional fields

@@ -44,7 +44,7 @@ local function bind_context(T)
     local layout_api = require("lalin.type_size_align")(T)
     local classify_api = require("lalin.type_classify")(T)
 
-    local abi_class_from_type_class
+    local abi_class_from_type_shape
     local abi_decision
 
     local function known_layout(ty, env)
@@ -53,9 +53,9 @@ local function bind_context(T)
         return nil
     end
 
-    function abi_class_from_type_class(node, ...)
+    function abi_class_from_type_shape(node, ...)
         local cls = schema.classof(node)
-        if schema.isa(node, Ty.TypeClassScalar) then
+        if schema.isa(node, Ty.TypeShapeScalar) then
             return (function(self, ty)
 
             local r = scalar_api.result(ty)
@@ -66,80 +66,80 @@ local function bind_context(T)
             if self.scalar == T.LalinCore.ScalarVoid then return single(Ty.AbiIgnore) end
             return single(Ty.AbiUnknown(self))
             end)(node, ...)
-        elseif schema.isa(node, Ty.TypeClassPointer) then
+        elseif schema.isa(node, Ty.TypeShapePointer) then
             return (function()
  return single(Ty.AbiDirect(Back.BackPtr))
             end)(node, ...)
-        elseif schema.isa(node, Ty.TypeClassCallable) then
+        elseif schema.isa(node, Ty.TypeShapeCallable) then
             return (function()
  return single(Ty.AbiDirect(Back.BackPtr))
             end)(node, ...)
-        elseif schema.isa(node, Ty.TypeClassSlice) then
+        elseif schema.isa(node, Ty.TypeShapeSlice) then
             return (function(_, ty, env)
 
             return single(Ty.AbiDescriptor(known_layout(ty, env) or Sem.MemLayout(16, 8)))
             end)(node, ...)
-        elseif schema.isa(node, Ty.TypeClassView) then
+        elseif schema.isa(node, Ty.TypeShapeView) then
             return (function(_, ty, env)
 
             return single(Ty.AbiDescriptor(known_layout(ty, env) or Sem.MemLayout(24, 8)))
             end)(node, ...)
-        elseif schema.isa(node, Ty.TypeClassLease) then
+        elseif schema.isa(node, Ty.TypeShapeLease) then
             return (function(self, ty, env)
 
-            local base_class = classify_api.classify(self.base)
-            return abi_class_from_type_class(base_class, self.base, env)
+            local base_shape = classify_api.classify(self.base)
+            return abi_class_from_type_shape(base_shape, self.base, env)
             end)(node, ...)
-        elseif schema.isa(node, Ty.TypeClassOwned) then
+        elseif schema.isa(node, Ty.TypeShapeOwned) then
             return (function(self, ty, env)
 
-            local base_class = classify_api.classify(self.base)
-            return abi_class_from_type_class(base_class, self.base, env)
+            local base_shape = classify_api.classify(self.base)
+            return abi_class_from_type_shape(base_shape, self.base, env)
             end)(node, ...)
-        elseif schema.isa(node, Ty.TypeClassHandle) then
+        elseif schema.isa(node, Ty.TypeShapeHandle) then
             return (function(self, ty)
 
             local r = scalar_api.result(ty)
             if schema.classof(r) == Ty.TypeBackScalarKnown then return single(Ty.AbiDirect(r.scalar)) end
             return single(Ty.AbiUnknown(self))
             end)(node, ...)
-        elseif schema.isa(node, Ty.TypeClassClosure) then
+        elseif schema.isa(node, Ty.TypeShapeClosure) then
             return (function(_, ty, env)
 
             return single(Ty.AbiDescriptor(known_layout(ty, env) or Sem.MemLayout(16, 8)))
             end)(node, ...)
-        elseif schema.isa(node, Ty.TypeClassArray) then
+        elseif schema.isa(node, Ty.TypeShapeArray) then
             return (function(_, ty, env)
 
             local layout = known_layout(ty, env)
             if layout == nil then return single(Ty.AbiUnknown(classify_api.classify(ty))) end
             return single(Ty.AbiIndirect(layout))
             end)(node, ...)
-        elseif schema.isa(node, Ty.TypeClassAggregate) then
+        elseif schema.isa(node, Ty.TypeShapeAggregate) then
             return (function(_, ty, env)
 
             local layout = known_layout(ty, env)
             if layout == nil then return single(Ty.AbiUnknown(classify_api.classify(ty))) end
             return single(Ty.AbiIndirect(layout))
             end)(node, ...)
-        elseif schema.isa(node, Ty.TypeClassUnknown) then
+        elseif schema.isa(node, Ty.TypeShapeUnknown) then
             return (function(self)
 
             return single(Ty.AbiUnknown(self))
             end)(node, ...)
         else
-            error("phase lalin_type_abi_class_from_type_class: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_type_abi_class_from_type_shape: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
     function abi_decision(ty, env)
-        local class = classify_api.classify(ty)
-        local abi = only(abi_class_from_type_class(class, ty, env or Sem.LayoutEnv({})))
+        local shape = classify_api.classify(ty)
+        local abi = only(abi_class_from_type_shape(shape, ty, env or Sem.LayoutEnv({})))
         return Ty.AbiDecision(ty, abi)
     end
 
     return {
-        abi_class_from_type_class = abi_class_from_type_class,
+        abi_class_from_type_shape = abi_class_from_type_shape,
         abi_decision = abi_decision,
         decide = function(ty, env) return abi_decision(ty, env or Sem.LayoutEnv({})) end,
     }

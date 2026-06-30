@@ -24,40 +24,48 @@ local function bind_context(T)
 
     local api = {}
     local block_set_for
+    local schedule_summary
 
-    function Schedule.KernelSchedule:lower_plan_is_planned_schedule() return false end
-    function Schedule.SchedulePlanned:lower_plan_is_planned_schedule() return true end
-    function Schedule.KernelSchedule:lower_plan_is_closed_form_schedule() return false end
-    function Schedule.SchedulePlanned:lower_plan_is_closed_form_schedule()
-        return self.kind == Schedule.ScheduleClosedForm
+    function Schedule.KernelSchedule:lower_plan_fragment_candidate(kplan, closed_form, skipped)
+        return Lower.LowerFragmentNoSchedule("explicit Code fallback for " .. skipped .. ": " .. schedule_summary(self))
+    end
+    function Schedule.SchedulePlanned:lower_plan_fragment_candidate(kplan, closed_form, skipped)
+        return self.form:lower_plan_fragment_candidate(kplan, closed_form, skipped, self)
+    end
+    function Schedule.ScheduleForm:lower_plan_fragment_candidate(kplan, closed_form, skipped, schedule)
+        return Lower.LowerFragmentKernelCandidate(kplan, schedule)
+    end
+    function Schedule.ScheduleClosedForm:lower_plan_fragment_candidate(kplan, closed_form, skipped, schedule)
+        if closed_form ~= nil then return Lower.LowerFragmentClosedFormCandidate(closed_form) end
+        return Lower.LowerFragmentClosedFormMissing("explicit Code fallback because ScheduleClosedForm has no ClosedFormFact")
     end
 
     function Kernel.KernelResult:lower_plan_closed_form_fact() return nil end
     function Kernel.KernelResultClosedForm:lower_plan_closed_form_fact() return self.closed_form end
 
-    function Lower.LowerFragmentPlanInput:select_lower_fragment()
-        if self.kernel ~= nil then
-            if self.schedule ~= nil and self.schedule:lower_plan_is_planned_schedule() then
-                if self.schedule:lower_plan_is_closed_form_schedule() then
-                    if self.closed_form ~= nil then return Lower.LowerSelectClosedForm(self.closed_form) end
-                    return Lower.LowerSelectFallback(self.closed_form_missing_reason)
-                end
-                return Lower.LowerSelectKernel
-            end
-            return Lower.LowerSelectFallback(self.no_schedule_reason)
-        end
-        if self.kernel_no_plan ~= nil then return Lower.LowerSelectFallback(self.kernel_no_plan_reason) end
+    function Lower.LowerFragmentCandidate:select_lower_fragment()
         return Lower.LowerSelectNone
     end
 
-    function Lower.LowerFragmentSelection:lower_plan_is_closed_form() return false end
-    function Lower.LowerSelectClosedForm:lower_plan_is_closed_form() return true end
-    function Lower.LowerFragmentSelection:lower_plan_is_kernel() return false end
-    function Lower.LowerSelectKernel:lower_plan_is_kernel() return true end
-    function Lower.LowerFragmentSelection:lower_plan_is_fallback() return false end
-    function Lower.LowerSelectFallback:lower_plan_is_fallback() return true end
-    function Lower.LowerFragmentSelection:lower_plan_is_none() return false end
-    function Lower.LowerSelectNone:lower_plan_is_none() return true end
+    function Lower.LowerFragmentClosedFormCandidate:select_lower_fragment()
+        return Lower.LowerSelectClosedForm(self.closed_form)
+    end
+
+    function Lower.LowerFragmentClosedFormMissing:select_lower_fragment()
+        return Lower.LowerSelectFallback(self.reason)
+    end
+
+    function Lower.LowerFragmentKernelCandidate:select_lower_fragment()
+        return Lower.LowerSelectKernel
+    end
+
+    function Lower.LowerFragmentNoSchedule:select_lower_fragment()
+        return Lower.LowerSelectFallback(self.reason)
+    end
+
+    function Lower.LowerFragmentKernelRejected:select_lower_fragment()
+        return Lower.LowerSelectFallback(self.reason)
+    end
 
     function Lower.LowerFragmentSelection:lower_plan_add_loop_fragment(func, loop, cover, fragments, covered, issues, kplan, sched)
         error("code_lower_plan: unsupported lower fragment selection", 2)
@@ -175,7 +183,7 @@ local function bind_context(T)
         return #out > 0 and table.concat(out, ",") or "no detailed rejects"
     end
 
-    local function schedule_summary(sched)
+    schedule_summary = function(sched)
         if sched == nil then return "no schedule was produced" end
         if asdl.classof(sched) == Schedule.ScheduleNoPlan then return "schedule rejected: " .. reject_summary(sched.rejects) end
         return "schedule selected"
@@ -192,15 +200,14 @@ local function bind_context(T)
             skipped = "loop " .. loop.id.text
         end
 
-        return Lower.LowerFragmentPlanInput(
-            kplan,
-            no_plan,
-            sched,
-            cf,
-            "explicit Code fallback because ScheduleClosedForm has no ClosedFormFact",
-            "explicit Code fallback for " .. skipped .. ": " .. schedule_summary(sched),
-            no_plan ~= nil and ("explicit Code fallback because KernelNoPlan rejected loop: " .. reject_summary(no_plan.rejects)) or ""
-        )
+        if kplan ~= nil then
+            if sched ~= nil then return sched:lower_plan_fragment_candidate(kplan, cf, skipped) end
+            return Lower.LowerFragmentNoSchedule("explicit Code fallback for " .. skipped .. ": " .. schedule_summary(sched))
+        end
+        if no_plan ~= nil then
+            return Lower.LowerFragmentKernelRejected("explicit Code fallback because KernelNoPlan rejected loop: " .. reject_summary(no_plan.rejects))
+        end
+        return Lower.LowerFragmentNoCandidate
     end
 
     local function plan_func(func, graph_func, kernel_for_loop, kernel_no_plan_for_loop, schedule_for_kernel, issues)

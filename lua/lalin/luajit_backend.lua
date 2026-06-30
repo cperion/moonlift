@@ -51,23 +51,23 @@ local function bind_context(T)
         return by_kernel
     end
 
-    local function attach_schedule(info, kernel_plan, schedules)
+    local function attach_schedule(descriptor, kernel_plan, schedules)
         local sched = kernel_plan and schedules[kernel_plan.id.text] or nil
         if sched ~= nil then
-            return asdl.with(info, { kernel_schedule = sched, schedule = sched.kind })
+            return asdl.with(descriptor, { kernel_schedule = sched, schedule = sched.form })
         end
-        return info
+        return descriptor
     end
 
-    local function artifact_for(kind, op, reduction, plan, info)
-        if kind == "scatter_reduce" then return StencilArtifactPlan.scatter_reduce_n_artifact(reduction, plan, info) end
-        if kind == "store_n" then return StencilArtifactPlan.store_n_artifact(info) end
-        if kind == "scan" then return StencilArtifactPlan.scan_array_artifact(reduction, plan, info) end
-        if kind == "find" then return StencilArtifactPlan.find_array_artifact(op, info) end
-        if kind == "partition" then return StencilArtifactPlan.partition_array_artifact(op, info) end
-        if kind == "reduce" then return StencilArtifactPlan.reduce_array_artifact(reduction, plan, info) end
-        if kind == "reduce_n" then return StencilArtifactPlan.reduce_n_artifact(reduction, plan, info) end
-        if kind == "count" then return StencilArtifactPlan.count_array_artifact(op, info) end
+    local function artifact_for(kind, op, reduction, plan, descriptor)
+        if kind == "scatter_reduce" then return StencilArtifactPlan.scatter_reduce_n_artifact(reduction, plan, descriptor) end
+        if kind == "store_n" then return StencilArtifactPlan.store_n_artifact(descriptor) end
+        if kind == "scan" then return StencilArtifactPlan.scan_array_artifact(reduction, plan, descriptor) end
+        if kind == "find" then return StencilArtifactPlan.find_array_artifact(op, descriptor) end
+        if kind == "partition" then return StencilArtifactPlan.partition_array_artifact(op, descriptor) end
+        if kind == "reduce" then return StencilArtifactPlan.reduce_array_artifact(reduction, plan, descriptor) end
+        if kind == "reduce_n" then return StencilArtifactPlan.reduce_n_artifact(reduction, plan, descriptor) end
+        if kind == "count" then return StencilArtifactPlan.count_array_artifact(op, descriptor) end
         error("luajit_backend: unsupported selected stencil kind " .. tostring(kind), 3)
     end
 
@@ -92,9 +92,9 @@ local function bind_context(T)
         return artifact
     end
 
-    local function collect_artifact(artifacts, selections, vocab, op, reduction, plan, info, opts)
-        info = info or {}
-        local artifact = artifact_with_provider(artifact_for(vocab, op, reduction, plan, info), opts)
+    local function collect_artifact(artifacts, selections, vocab, op, reduction, plan, descriptor, opts)
+        descriptor = descriptor or {}
+        local artifact = artifact_with_provider(artifact_for(vocab, op, reduction, plan, descriptor), opts)
         artifacts[#artifacts + 1] = artifact
         selections[#selections + 1] = Stencil.StencilPlanEntry(
             plan.id,
@@ -125,14 +125,14 @@ local function bind_context(T)
             kernel = kernel,
             layout_env = opts.layout_env,
             target = target,
-            stencil_store_artifact_for = function(_func, vocab, op, plan, info)
-                return collect_artifact(artifacts, selections, vocab, op, nil, plan, attach_schedule(info, plan, schedules), opts)
+            stencil_store_artifact_for = function(_func, vocab, op, plan, descriptor)
+                return collect_artifact(artifacts, selections, vocab, op, nil, plan, attach_schedule(descriptor, plan, schedules), opts)
             end,
-            stencil_reduce_artifact_for = function(_func, vocab, op, reduction, plan, info)
-                return collect_artifact(artifacts, selections, vocab, op, reduction, plan, attach_schedule(info, plan, schedules), opts)
+            stencil_reduce_artifact_for = function(_func, vocab, op, reduction, plan, descriptor)
+                return collect_artifact(artifacts, selections, vocab, op, reduction, plan, attach_schedule(descriptor, plan, schedules), opts)
             end,
-            stencil_skeleton_artifact_for = function(_func, vocab, op, reduction, plan, info)
-                return collect_artifact(artifacts, selections, vocab, op, reduction, plan, attach_schedule(info, plan, schedules), opts)
+            stencil_skeleton_artifact_for = function(_func, vocab, op, reduction, plan, descriptor)
+                return collect_artifact(artifacts, selections, vocab, op, reduction, plan, attach_schedule(descriptor, plan, schedules), opts)
             end,
         })
         for _, reject in ipairs(stencil_machines.rejects or {}) do rejects[#rejects + 1] = reject end

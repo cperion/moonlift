@@ -24,11 +24,11 @@ local u8, u16, u32, u64 = cty("ScalarU8"), cty("ScalarU16"), cty("ScalarU32"), c
 local f64 = cty("ScalarF64")
 
 local helper_order, helper_seen = {}, {}
-local function use(kind)
-    local id = H.helper_id(kind)
+local function use(spec)
+    local id = H.helper_id(spec)
     if not helper_seen[id.text] then
         helper_seen[id.text] = true
-        helper_order[#helper_order + 1] = C.CBackendHelperUse(id, kind)
+        helper_order[#helper_order + 1] = C.CBackendHelperUse(id, spec)
     end
     return id.text
 end

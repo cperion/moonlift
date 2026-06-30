@@ -2,7 +2,7 @@ local S = require("lalin.schema.dsl")
 S.use()
 
 return schema. LalinMlua {
-  sum. IslandKind {
+  sum. IslandRole {
     IslandStruct,
     IslandExpose,
     IslandFunc,
@@ -19,7 +19,7 @@ return schema. LalinMlua {
     IslandMalformedName { variant_unique, text [str], },
   },
   product. IslandText {
-    kind [LalinMlua.IslandKind],
+    role [LalinMlua.IslandRole],
     field. name [LalinMlua.IslandName],
     source [LalinSource.SourceSlice],
   },
@@ -27,7 +27,7 @@ return schema. LalinMlua {
     LuaOpaque { occurrence [LalinSource.SourceOccurrence], },
     HostedIsland { island [LalinMlua.IslandText], range [LalinSource.SourceRange], },
     MalformedIsland {
-      kind [LalinMlua.IslandKind],
+      role [LalinMlua.IslandRole],
       occurrence [LalinSource.SourceOccurrence],
       reason [str],
     },

@@ -326,14 +326,14 @@ function M.compile(c_source, opts)
     if not ok then return fail(err) end
     apply_defines(lib, state, opts.defines)
     for _, name in ipairs(listify(opts.undefines)) do lib.tcc_undefine_symbol(state, tostring(name)) end
-    ok, err = apply_host_symbols(lib, state, opts.host_symbols or opts.add_symbols)
-    if not ok then return fail(err) end
 
     ok, err = check_rc(lib.tcc_set_output_type(state, opts.output_type or TCC_OUTPUT_MEMORY), "set_output_type", errors)
     if not ok then return fail(err) end
     ok, err = check_rc(lib.tcc_compile_string(state, c_source), "compile_string", errors)
     if not ok then return fail(err) end
     ok, err = add_each(lib, state, opts.libraries or opts.library_names, "tcc_add_library", "add_library")
+    if not ok then return fail(err) end
+    ok, err = apply_host_symbols(lib, state, opts.host_symbols or opts.add_symbols)
     if not ok then return fail(err) end
 
     if opts.relocate ~= false then

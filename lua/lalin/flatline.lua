@@ -51,7 +51,7 @@ local function bind_context(T)
     function api.validate_image(image)
         local issues = {}
         if asdl.classof(image) ~= Compiler.FlatlineImage then
-            add(issues, Compiler.FlatlineImageIssueWrongClass("LalinCompiler.FlatlineImage", class_name(image)))
+            add(issues, Compiler.FlatlineImageIssueUnexpectedValue("LalinCompiler.FlatlineImage", class_name(image)))
             return Compiler.FlatlineImageReport(issues)
         end
         if image.format ~= M.FORMAT then
@@ -93,7 +93,7 @@ local function bind_context(T)
 
     function api.issue_text(issue)
         local cls = asdl.classof(issue)
-        if cls == Compiler.FlatlineImageIssueWrongClass then
+        if cls == Compiler.FlatlineImageIssueUnexpectedValue then
             return "expected " .. tostring(issue.expected) .. ", got " .. tostring(issue.actual)
         elseif cls == Compiler.FlatlineImageIssueBadHeader then
             return tostring(issue.reason)

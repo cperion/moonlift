@@ -23,6 +23,52 @@ local function bind_context(T)
 
     local api = {}
 
+    local function access_key(id)
+        if id == nil then return nil end
+        if type(id) == "string" then return id end
+        return id.text
+    end
+
+    function Mem.MemProof:code_mem_projection_index(projection)
+    end
+
+    function Mem.MemProofBackend:code_mem_projection_index(projection)
+        projection.proof_by_access[self.access.text] = self
+    end
+
+    function Mem.MemProofInterval:code_mem_projection_index(projection)
+        projection.proof_by_access[self.interval.access.text] = self
+    end
+
+    function Mem.MemAccessProjection:mem_access(id)
+        local key = access_key(id)
+        return key and self.access_by_id[key] or nil
+    end
+
+    function Mem.MemAccessProjection:object_for_access(id)
+        local key = access_key(id)
+        return key and self.object_by_access[key] or nil
+    end
+
+    function Mem.MemAccessProjection:backend_for_access(id)
+        local key = access_key(id)
+        return key and self.backend_by_access[key] or nil
+    end
+
+    function Mem.MemAccessProjection:proof_for_access(id)
+        local key = access_key(id)
+        return key and self.proof_by_access[key] or nil
+    end
+
+    local function access_projection(mem)
+        local projection = Mem.MemAccessProjection({}, {}, {}, {})
+        for _, access in ipairs(mem and mem.accesses or {}) do projection.access_by_id[access.id.text] = access end
+        for _, interval in ipairs(mem and mem.intervals or {}) do projection.object_by_access[interval.access.text] = interval.object end
+        for _, info in ipairs(mem and mem.backend_info or {}) do projection.backend_by_access[info.access.text] = info end
+        for _, proof in ipairs(mem and mem.proofs or {}) do proof:code_mem_projection_index(projection) end
+        return projection
+    end
+
     local function object_id(...)
         local parts = { ... }
         for i = 1, #parts do parts[i] = sanitize(parts[i]) end
@@ -120,10 +166,11 @@ local function bind_context(T)
         local out = {}
         for _, block in ipairs(func.blocks or {}) do
             for _, inst in ipairs(block.insts or {}) do
-                local k = inst.kind
+                local k = inst.op
                 if asdl.classof(k) == Code.CodeInstConst and asdl.classof(k.const) == Code.CodeConstLiteral then
                     local lit = k.const.literal
-                    local n = lit and lit.raw and tonumber(lit.raw) or nil
+                    local raw = lit and rawget(lit, "raw") or nil
+                    local n = raw and tonumber(raw) or nil
                     if n ~= nil then out[k.dst.text] = n end
                 end
             end
@@ -131,7 +178,7 @@ local function bind_context(T)
         return out
     end
 
-    local function access_kind(k)
+    local function access_op(k)
         local cls = asdl.classof(k)
         if cls == Code.CodeInstLoad then return Mem.MemLoad end
         if cls == Code.CodeInstStore then return Mem.MemStore end
@@ -142,8 +189,8 @@ local function bind_context(T)
         return nil
     end
 
-    local function is_write_kind(kind)
-        return kind == Mem.MemStore or kind == Mem.MemAtomicStore or kind == Mem.MemAtomicRmw or kind == Mem.MemAtomicCas
+    local function is_write_op(op)
+        return op == Mem.MemStore or op == Mem.MemAtomicStore or op == Mem.MemAtomicRmw or op == Mem.MemAtomicCas
     end
 
     local function access_value(k)
@@ -201,7 +248,7 @@ local function bind_context(T)
         if cls == Value.ValueExprCast then return "cast:" .. tostring(expr.op) .. ":" .. tostring(expr.from) .. ":" .. tostring(expr.to) .. "(" .. tostring(value_expr_key(expr.value, seen)) .. ")" end
         if cls == Value.ValueExprUnary then return "unary:" .. tostring(expr.op) .. "(" .. tostring(value_expr_key(expr.value, seen)) .. ")" end
         if cls == Value.ValueExprAdd or cls == Value.ValueExprSub or cls == Value.ValueExprMul then
-            return tostring(cls.__name) .. "(" .. tostring(value_expr_key(expr.a, seen)) .. "," .. tostring(value_expr_key(expr.b, seen)) .. ")"
+            return tostring(asdl.class_name(cls)) .. "(" .. tostring(value_expr_key(expr.a, seen)) .. "," .. tostring(value_expr_key(expr.b, seen)) .. ")"
         end
         return tostring(expr)
     end
@@ -210,7 +257,7 @@ local function bind_context(T)
         local cls = asdl.classof(index)
         if index == Mem.MemIndexNone then return "none" end
         if cls == Mem.MemIndexValue then
-            local expr = value_index and value_index.expr_by_value and value_index.expr_by_value[index.value.text] or nil
+            local expr = value_index and value_index:expr_for_value_or_nil(index.value) or nil
             return "value_expr:" .. tostring(value_expr_key(expr) or index.value.text) .. ":" .. tostring(index.elem_size) .. ":" .. tostring(index.const_offset or 0)
         end
         return index_key(index)
@@ -240,26 +287,26 @@ local function bind_context(T)
                 local fact = object_fact(id)
                 if fact == nil then return false, "access object is unknown" end
                 local extent_cls = asdl.classof(fact.extent)
-            local kind = fact.kind
-            if kind == Mem.MemObjectLocal or kind == Mem.MemObjectGlobal or kind == Mem.MemObjectData then
+            local form = fact.form
+            if form == Mem.MemObjectLocal or form == Mem.MemObjectGlobal or form == Mem.MemObjectData then
                 return true, "direct local/global/data object access"
             end
-            if kind == Mem.MemObjectContract then
+            if form == Mem.MemObjectContract then
                 return true, "bounds contract proves object extent"
             end
-            if kind == Mem.MemObjectLease then
+            if form == Mem.MemObjectLease then
                 return true, "lease grant proves object access"
             end
-            if kind == Mem.MemObjectView and extent_cls ~= Mem.MemExtentUnknown then
+            if form == Mem.MemObjectView and extent_cls ~= Mem.MemExtentUnknown then
                 return true, "view descriptor length proves object extent"
             end
-            if kind == Mem.MemObjectSlice and extent_cls ~= Mem.MemExtentUnknown then
+            if form == Mem.MemObjectSlice and extent_cls ~= Mem.MemExtentUnknown then
                 return true, "slice descriptor length proves object extent"
             end
-            if kind == Mem.MemObjectByteSpan and extent_cls ~= Mem.MemExtentUnknown then
+            if form == Mem.MemObjectByteSpan and extent_cls ~= Mem.MemExtentUnknown then
                 return true, "byte span descriptor length proves object extent"
             end
-            if kind == Mem.MemObjectDerived and extent_cls ~= Mem.MemExtentUnknown then
+            if form == Mem.MemObjectDerived and extent_cls ~= Mem.MemExtentUnknown then
                 return true, "derived object has explicit bounded extent"
             end
             if extent_cls == Mem.MemExtentUnknown then
@@ -405,7 +452,7 @@ local function bind_context(T)
 
             for _, block in ipairs(func.blocks or {}) do
                 for _, inst in ipairs(block.insts or {}) do
-                    local k = inst.kind
+                    local k = inst.op
                     local cls = asdl.classof(k)
                     if cls == Code.CodeInstGlobalRef then
                         local rcls = asdl.classof(k.ref)
@@ -491,8 +538,8 @@ local function bind_context(T)
                         end
                     end
 
-                    local kind = access_kind(k)
-                    if kind ~= nil then
+                    local op = access_op(k)
+                    if op ~= nil then
                         local place = access_place(k)
                         local object, base, index = object_for_place(place)
                         local id = access_id(func, block, inst)
@@ -509,14 +556,14 @@ local function bind_context(T)
                         local align = backend_alignment(k.access)
                         local pattern = pattern_for_index(index)
                         local loop_id = loops_by_func_block[func.id.text] and loops_by_func_block[func.id.text][block.id.text] or nil
-                        local access_fact = Mem.MemAccessFact(id, func.id, Graph.GraphBlockId(func.id, block.id), inst.id, kind, place, k.access, base, index, pattern, align, bounds, trap)
+                        local access_fact = Mem.MemAccessFact(id, func.id, Graph.GraphBlockId(func.id, block.id), inst.id, op, place, k.access, base, index, pattern, align, bounds, trap)
                         accesses[#accesses + 1] = access_fact
-                        access_records[#access_records + 1] = { id = id, object = object, kind = kind, index = index, index_key = canonical_index_key(index, value_index), loop = loop_id, in_bounds = in_bounds, trap = trap, order = #access_records + 1 }
+                        access_records[#access_records + 1] = { id = id, object = object, op = op, index = index, index_key = canonical_index_key(index, value_index), loop = loop_id, in_bounds = in_bounds, trap = trap, order = #access_records + 1 }
 
                         local proof = Mem.MemProofBackend(id, "backend access info derived from structured MemAccessFact")
                         proofs[#proofs + 1] = proof
                         local deref = scalar_bytes(k.access.ty)
-                        local is_atomic = kind == Mem.MemAtomicLoad or kind == Mem.MemAtomicStore or kind == Mem.MemAtomicRmw or kind == Mem.MemAtomicCas or k.access.ordering ~= nil
+                        local is_atomic = op == Mem.MemAtomicLoad or op == Mem.MemAtomicStore or op == Mem.MemAtomicRmw or op == Mem.MemAtomicCas or k.access.ordering ~= nil
                         local explicit_nontrap = k.access.trap == Code.CodeMustNotTrap
                         local movable = (asdl.classof(trap) == Mem.MemNonTrapping) and (in_bounds or explicit_nontrap) and not k.access.volatile and not is_atomic
                         backend_info[#backend_info + 1] = Mem.MemBackendAccessInfo(id, trap, align, bounds, deref, movable, { proof })
@@ -601,7 +648,7 @@ local function bind_context(T)
                 for j = i + 1, #access_records do
                     local a, b = access_records[i], access_records[j]
                     if a.loop ~= nil and b.loop ~= nil and a.loop == b.loop then
-                        if not is_write_kind(a.kind) and not is_write_kind(b.kind) then
+                        if not is_write_op(a.op) and not is_write_op(b.op) then
                             dependences[#dependences + 1] = Mem.MemReadReadIndependent(a.id, b.id, "two reads in the same loop do not carry dependence")
                         elseif a.in_bounds and b.in_bounds and asdl.classof(a.trap) == Mem.MemNonTrapping and asdl.classof(b.trap) == Mem.MemNonTrapping then
                             local safe, reason = object_pair_safe(a, b)
@@ -630,6 +677,7 @@ local function bind_context(T)
     api.semantics = semantic_facts
     api.facts = facts
     api.module = semantic_facts
+    api.access_projection = access_projection
 
     T._lalin_api_cache.code_mem_facts = api
     return api

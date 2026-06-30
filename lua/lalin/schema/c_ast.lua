@@ -42,7 +42,7 @@ return schema. LalinCAst {
     CKwInline2,
     CKwRestrict2,
   },
-  sum. CDirectiveKind {
+  sum. CDirectiveToken {
     CDirDefine,
     CDirUndef,
     CDirInclude,
@@ -64,14 +64,14 @@ return schema. LalinCAst {
     CTokCharLiteral { variant_unique, raw [str], },
     CTokStringLiteral { variant_unique, raw [str], prefix [str], },
     CTokPunct { variant_unique, text [str], },
-    CTokDirective { variant_unique, kind [LalinCAst.CDirectiveKind], },
+    CTokDirective { variant_unique, directive [LalinCAst.CDirectiveToken], },
     CTokNewline,
     CTokEOF,
   },
   sum. CppDirective {
     CCppDefine { variant_unique, macro [LalinCAst.CMacro], },
     CCppUndef { variant_unique, field. name [str], },
-    CCppInclude { variant_unique, kind [LalinCAst.CIncludeKind], path [str], },
+    CCppInclude { variant_unique, delimiter [LalinCAst.CIncludeDelimiter], path [str], },
     CCppIf { variant_unique, tokens [many [LalinCAst.CToken]], },
     CCppIfdef { variant_unique, field. name [str], },
     CCppIfndef { variant_unique, field. name [str], },
@@ -82,15 +82,15 @@ return schema. LalinCAst {
     CCppPragma { variant_unique, tokens [many [LalinCAst.CToken]], },
     CCppLine { variant_unique, line [number], file [optional [str]], },
   },
-  sum. CIncludeKind { CIncludeAngle, CIncludeQuoted, },
-  sum. CMacroKind {
+  sum. CIncludeDelimiter { CIncludeAngle, CIncludeQuoted, },
+  sum. CMacroForm {
     CObjectLike,
     CFunctionLike { variant_unique, params [many [str]], variadic [bool], },
   },
   product. CMacro {
     interned,
     field. name [str],
-    kind [LalinCAst.CMacroKind],
+    form [LalinCAst.CMacroForm],
     body [many [LalinCAst.CToken]],
     location [LalinSource.SourceRange],
   },
@@ -124,7 +124,7 @@ return schema. LalinCAst {
     CTyComplex,
     CTyStructOrUnion {
       variant_unique,
-      kind [LalinCAst.StructKind],
+      form [LalinCAst.StructForm],
       field. name [optional [str]],
       members [optional [many [LalinCAst.FieldDecl]]],
     },
@@ -136,7 +136,7 @@ return schema. LalinCAst {
     CTyNamed { variant_unique, field. name [str], },
     CTyTypeof { variant_unique, field. expr [LalinCAst.Expr], },
   },
-  sum. StructKind { CStructKindStruct, CStructKindUnion, },
+  sum. StructForm { CStructKindStruct, CStructKindUnion, },
   product. Decl {
     interned,
     storage [optional [LalinCAst.StorageClass]],

@@ -32,7 +32,7 @@ return function(T)
         local scope = self
         for i = 1, #(params or {}) do
             local p = params[i]
-            local binding = B.Binding(C.Id("arg:" .. scope_name .. ":" .. p.name), p.name, p.ty, B.BindingClassArg(i - 1))
+            local binding = B.Binding(C.Id("arg:" .. scope_name .. ":" .. p.name), p.name, p.ty, B.BindingRoleArg(i - 1))
             scope = scope:typecheck_tree_add_value(B.ValueEntry(p.name, binding))
         end
         return scope
@@ -167,6 +167,26 @@ return function(T)
     end
 
     function Tr.FuncContract:typecheck_tree_append_effect_names(readonly, preserve, invalidate)
+    end
+
+    function Tr.Expr:typecheck_tree_contract_name()
+        return nil
+    end
+
+    function Tr.ExprRef:typecheck_tree_contract_name()
+        return self.ref:typecheck_tree_contract_name()
+    end
+
+    function B.ValueRef:typecheck_tree_contract_name()
+        return nil
+    end
+
+    function B.ValueRefName:typecheck_tree_contract_name()
+        return self.name
+    end
+
+    function B.ValueRefBinding:typecheck_tree_contract_name()
+        return self.binding and self.binding.name or nil
     end
 
     function Tr.FuncContract:typecheck_tree_contract(input)

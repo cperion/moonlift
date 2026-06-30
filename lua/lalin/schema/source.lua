@@ -41,7 +41,7 @@ return schema. LalinSource {
     range [LalinSource.SourceRange],
   },
   product. AnchorId { interned, text [str], },
-  sum. AnchorKind {
+  sum. AnchorRole {
     AnchorDocument,
     AnchorLuaOpaque,
     AnchorHostedIsland,
@@ -72,13 +72,13 @@ return schema. LalinSource {
   product. Anchor {
     interned,
     field. id [LalinSource.AnchorId],
-    kind [LalinSource.AnchorKind],
+    role [LalinSource.AnchorRole],
     label [str],
   },
   product. AnchorSpan {
     interned,
     field. id [LalinSource.AnchorId],
-    kind [LalinSource.AnchorKind],
+    role [LalinSource.AnchorRole],
     label [str],
     range [LalinSource.SourceRange],
   },

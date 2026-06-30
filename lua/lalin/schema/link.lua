@@ -36,13 +36,13 @@ return schema. LalinLink {
     object_format [LalinLink.LinkObjectFormat],
     relocation [LalinLink.LinkRelocationModel],
   },
-  sum. LinkArtifactKind {
+  sum. LinkOutputForm {
     LinkArtifactObject,
     LinkArtifactStaticArchive,
     LinkArtifactSharedLibrary,
     LinkArtifactExecutable,
   },
-  sum. LinkerKind {
+  sum. LinkToolDriver {
     LinkerSystemCc,
     LinkerCc,
     LinkerClang,
@@ -53,7 +53,7 @@ return schema. LalinLink {
     LinkerLibtool,
     LinkerCustom { variant_unique, field. name [str], },
   },
-  product. LinkTool { interned, kind [LalinLink.LinkerKind], path [LalinLink.LinkPath], },
+  product. LinkTool { interned, driver [LalinLink.LinkToolDriver], path [LalinLink.LinkPath], },
   sum. LinkInput {
     LinkInputObject { variant_unique, path [LalinLink.LinkPath], },
     LinkInputStaticArchive { variant_unique, path [LalinLink.LinkPath], },
@@ -91,7 +91,7 @@ return schema. LalinLink {
   product. LinkPlan {
     interned,
     target [LalinLink.LinkTargetModel],
-    kind [LalinLink.LinkArtifactKind],
+    output_form [LalinLink.LinkOutputForm],
     tool [LalinLink.LinkTool],
     output [LalinLink.LinkPath],
     inputs [many [LalinLink.LinkInput]],
@@ -106,7 +106,7 @@ return schema. LalinLink {
     LinkIssueUnsupportedPlatform {
       variant_unique,
       platform [LalinLink.LinkPlatform],
-      kind [LalinLink.LinkArtifactKind],
+      output_form [LalinLink.LinkOutputForm],
     },
     LinkIssueUnsupportedInput { variant_unique, input [LalinLink.LinkInput], reason [str], },
     LinkIssueUnsupportedOption { variant_unique, option [LalinLink.LinkOption], reason [str], },

@@ -23,9 +23,9 @@ local function iconst(raw)
     return Value.ValueExprConst(Code.CodeConstLiteral(i32, Core.LitInt(tostring(raw))))
 end
 
-local function reduction(kind, init)
+local function reduction(op, init)
     return {
-        kind = kind,
+        op = op,
         init = iconst(init),
         int_semantics = sem,
         float_mode = nil,

@@ -24,27 +24,26 @@ function M.type_name(ty)
     if not ty then return "<unknown>" end
     if type(ty) ~= "table" then return tostring(ty) end
     local asdl = require("lalin.asdl")
-    local cls = asdl.classof(ty)
+    local class = asdl.class_basename(ty)
 
     -- Check for ASDL types
-    if cls then
-        if scalar_labels[cls.kind] then return scalar_labels[cls.kind] end
+    if class then
+        if scalar_labels[class] then return scalar_labels[class] end
 
-        if cls.kind == "TScalar" then
-            local scls = ty.scalar and asdl.classof(ty.scalar)
-            return (scls and scalar_labels[scls.kind]) or cls.kind
+        if class == "TScalar" then
+            local scalar_class = ty.scalar and asdl.class_basename(ty.scalar)
+            return (scalar_class and scalar_labels[scalar_class]) or class
         end
-        if cls.kind == "TPtr" then return "ptr(" .. M.type_name(ty.elem) .. ")" end
-        if cls.kind == "TView" then return "view(" .. M.type_name(ty.elem) .. ")" end
-        if cls.kind == "TLease" then
+        if class == "TPtr" then return "ptr(" .. M.type_name(ty.elem) .. ")" end
+        if class == "TView" then return "view(" .. M.type_name(ty.elem) .. ")" end
+        if class == "TLease" then
             local origin = ""
-            local ocls = ty.origin and asdl.classof(ty.origin)
-            if ocls and ocls.kind == "LeaseOriginParam" then origin = "(" .. tostring(ty.origin.name) .. ")" end
+            if ty.origin and asdl.class_basename(ty.origin) == "LeaseOriginParam" then origin = "(" .. tostring(ty.origin.name) .. ")" end
             return "lease" .. origin .. " " .. M.type_name(ty.base)
         end
-        if cls.kind == "TOwned" then return "owned " .. M.type_name(ty.base) end
-        if cls.kind == "TAccess" then
-            local acls = ty.access and asdl.classof(ty.access)
+        if class == "TOwned" then return "owned " .. M.type_name(ty.base) end
+        if class == "TAccess" then
+            local access_class = ty.access and asdl.class_basename(ty.access)
             local label = ({
                 TypeAccessNoAlias = "noalias",
                 TypeAccessReadonly = "readonly",
@@ -52,38 +51,38 @@ function M.type_name(ty)
                 TypeAccessNoEscape = "noescape",
                 TypeAccessInvalidate = "invalidate",
                 TypeAccessPreserve = "preserve",
-            })[acls and acls.kind] or tostring(ty.access)
+            })[access_class] or tostring(ty.access)
             return label .. " " .. M.type_name(ty.base)
         end
-        if cls.kind == "THandle" then
+        if class == "THandle" then
             local ref = ty.ref
-            local rcls = ref and asdl.classof(ref)
-            if rcls and rcls.kind == "TypeRefGlobal" then return ref.type_name end
-            if rcls and rcls.kind == "TypeRefPath" and ref.path then
+            local ref_class = ref and asdl.class_basename(ref)
+            if ref_class == "TypeRefGlobal" then return ref.type_name end
+            if ref_class == "TypeRefPath" and ref.path then
                 local parts = {}
                 for i = 1, #(ref.path.parts or {}) do parts[i] = ref.path.parts[i].text end
                 if #parts > 0 then return table.concat(parts, ".") end
             end
             return "handle"
         end
-        if cls.kind == "TSlice" then return "slice(" .. M.type_name(ty.elem) .. ")" end
-        if cls.kind == "TArray" then return "array(" .. M.type_name(ty.elem) .. ")" end
-        if cls.kind == "TFunc" then return "func(...): " .. M.type_name(ty.result) end
-        if cls.kind == "TClosure" then return "closure(...): " .. M.type_name(ty.result) end
-        if cls.kind == "TNamed" then
+        if class == "TSlice" then return "slice(" .. M.type_name(ty.elem) .. ")" end
+        if class == "TArray" then return "array(" .. M.type_name(ty.elem) .. ")" end
+        if class == "TFunc" then return "func(...): " .. M.type_name(ty.result) end
+        if class == "TClosure" then return "closure(...): " .. M.type_name(ty.result) end
+        if class == "TNamed" then
             local ref = ty.ref
             if ref then
-                local rcls = asdl.classof(ref)
-                if rcls and rcls.kind == "TypeRefGlobal" then return ref.type_name end
-                if rcls and rcls.kind == "TypeRefLocal" then return ref.sym and ref.sym.name or ref.sym end
-                if rcls and rcls.kind == "TypeRefPath" and ref.path then
+                local ref_class = asdl.class_basename(ref)
+                if ref_class == "TypeRefGlobal" then return ref.type_name end
+                if ref_class == "TypeRefLocal" then return ref.sym and ref.sym.name or ref.sym end
+                if ref_class == "TypeRefPath" and ref.path then
                     local parts = {}
                     for i = 1, #(ref.path.parts or {}) do parts[i] = ref.path.parts[i].text end
                     return table.concat(parts, ".")
                 end
             end
         end
-        return cls.kind
+        return class
     end
 
     -- Fallback for simple tables
@@ -128,24 +127,24 @@ end
 function M.scalar_name(scalar)
     if not scalar then return "?" end
     local asdl = require("lalin.asdl")
-    local cls = asdl.classof(scalar)
-    if cls and scalar_labels[cls.kind] then return scalar_labels[cls.kind] end
+    local class = asdl.class_basename(scalar)
+    if class and scalar_labels[class] then return scalar_labels[class] end
     return tostring(scalar)
 end
 
 -------------------------------------------------------------------------------
--- Access mode name formatting (for BackAccessMode values)
+-- Access mode name formatting (for BackAccessEffect values)
 -------------------------------------------------------------------------------
 
 function M.access_mode_name(mode)
     if not mode then return "?" end
     local asdl = require("lalin.asdl")
-    local cls = asdl.classof(mode)
-    if not cls then return tostring(mode) end
-    if cls.kind == "AccessModeLoad" then return "load" end
-    if cls.kind == "AccessModeStore" then return "store" end
-    if cls.kind == "AccessModeLoadStore" then return "load-store" end
-    return cls.kind
+    local class = asdl.class_basename(mode)
+    if not class then return tostring(mode) end
+    if class == "AccessModeLoad" then return "load" end
+    if class == "AccessModeStore" then return "store" end
+    if class == "AccessModeLoadStore" then return "load-store" end
+    return class
 end
 
 -------------------------------------------------------------------------------

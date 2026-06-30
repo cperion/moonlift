@@ -98,9 +98,21 @@ return function(T)
 
     function C.Scalar:typecheck_tree_cast_is_int() return self:typecheck_tree_cast_is_signed_int() or self:typecheck_tree_cast_is_unsigned_int() end
 
-    function Ty.Type:typecheck_tree_scalar_cast_op() return nil end
+    function Ty.Type:typecheck_tree_scalar_cast_op(op, to)
+        if op == C.SurfaceCast and self == to then return C.MachineCastIdentity end
+        return nil
+    end
     function Ty.TScalar:typecheck_tree_scalar_cast_op(op, to)
         return to:typecheck_tree_scalar_cast_from(op, self.scalar)
+    end
+    function Ty.TPtr:typecheck_tree_scalar_cast_op(op, to)
+        if op == C.SurfaceCast
+            and asdl.classof(to) == Ty.TPtr
+            and (type_eq(self.pointee, to.pointee) or tostring(self.pointee) == tostring(to.pointee))
+        then
+            return C.MachineCastIdentity
+        end
+        return nil
     end
     function Ty.Type:typecheck_tree_scalar_cast_from() return nil end
     function Ty.TScalar:typecheck_tree_scalar_cast_from(op, from)
@@ -162,6 +174,12 @@ return function(T)
 
     function Tr.ExprLit:typecheck_tree_expr_expected(input)
         local ty = self.value:typecheck_tree_literal_expected(input.expected)
+        if input.expected ~= nil
+            and ty:typecheck_tree_is_integer_scalar()
+            and input.expected:typecheck_tree_is_integer_scalar()
+        then
+            ty = input.expected
+        end
         return Tr.TypeExprResult(Tr.ExprLit(Tr.ExprTyped(ty), self.value), ty, {})
     end
 
@@ -186,6 +204,9 @@ return function(T)
         local value = self.value:typecheck_tree_expr(input)
         local ty = canonical_type(input.scope, self.ty)
         local machine_op = value.ty:typecheck_tree_scalar_cast_op(self.op, ty)
+        if machine_op == nil and self.op == C.SurfaceCast and tostring(value.ty) == tostring(ty) then
+            machine_op = C.MachineCastIdentity
+        end
         if machine_op ~= nil then
             return Tr.TypeExprResult(Tr.ExprMachineCast(Tr.ExprTyped(ty), machine_op, ty, value.expr), ty, value.issues)
         end
@@ -216,7 +237,14 @@ return function(T)
 
     function Tr.ExprBinary:typecheck_tree_expr(input)
         local lhs = self.lhs:typecheck_tree_expr(input)
-        local rhs = self.rhs:typecheck_tree_expr(input)
+        local rhs = self.op:typecheck_tree_binary_rhs(self.rhs, input, lhs.ty)
+        if lhs.ty:typecheck_tree_is_integer_scalar()
+            and rhs.ty:typecheck_tree_is_integer_scalar()
+            and rawget(rhs.expr, "value") ~= nil
+            and tostring(asdl.classof(rawget(rhs.expr, "value"))):find("LalinCore.Lit", 1, true)
+        then
+            rhs = Tr.TypeExprResult(Tr.ExprLit(Tr.ExprTyped(lhs.ty), rhs.expr.value), lhs.ty, rhs.issues)
+        end
         local issues = {}
         append_all(issues, lhs.issues)
         append_all(issues, rhs.issues)
@@ -240,6 +268,30 @@ return function(T)
             ty = Ty.TScalar(C.ScalarBool)
         end
         return Tr.TypeExprResult(Tr.ExprLogic(Tr.ExprTyped(ty), self.op, lhs.expr, rhs.expr), ty, issues)
+    end
+
+    local function type_conditional_expr(expr, input)
+        local cond = expr.cond:typecheck_tree_expr_expected(Tr.TypeExpectedExprInput(input.scope, Ty.TScalar(C.ScalarBool)))
+        local then_expr = expr.then_expr:typecheck_tree_expr(input)
+        local else_expr = expr.else_expr:typecheck_tree_expr_expected(Tr.TypeExpectedExprInput(input.scope, then_expr.ty))
+        local issues = {}
+        append_all(issues, cond.issues)
+        append_all(issues, then_expr.issues)
+        append_all(issues, else_expr.issues)
+        if not type_eq(then_expr.ty, else_expr.ty) then
+            issues[#issues + 1] = Tr.TypeIssueExpected("conditional branch", then_expr.ty, else_expr.ty)
+        end
+        return cond, then_expr, else_expr, issues
+    end
+
+    function Tr.ExprIf:typecheck_tree_expr(input)
+        local cond, then_expr, else_expr, issues = type_conditional_expr(self, input)
+        return Tr.TypeExprResult(Tr.ExprIf(Tr.ExprTyped(then_expr.ty), cond.expr, then_expr.expr, else_expr.expr), then_expr.ty, issues)
+    end
+
+    function Tr.ExprSelect:typecheck_tree_expr(input)
+        local cond, then_expr, else_expr, issues = type_conditional_expr(self, input)
+        return Tr.TypeExprResult(Tr.ExprSelect(Tr.ExprTyped(then_expr.ty), cond.expr, then_expr.expr, else_expr.expr), then_expr.ty, issues)
     end
 
     function Tr.ExprCompare:typecheck_tree_expr(input)
@@ -275,6 +327,43 @@ return function(T)
             ty = void_ty()
         end
         return Tr.TypeExprResult(Tr.ExprDeref(Tr.ExprTyped(ty), value.expr), ty, issues)
+    end
+
+    function Tr.ExprCall:typecheck_tree_expr(input)
+        local callee = self.callee:typecheck_tree_expr(input)
+        local result_ty, param_tys = callee.ty:typecheck_tree_callable_result()
+        local issues = {}
+        append_all(issues, callee.issues)
+        if result_ty == nil then
+            issues[#issues + 1] = Tr.TypeIssueNotCallable(callee.ty)
+            result_ty, param_tys = void_ty(), {}
+        end
+        if #self.args ~= #(param_tys or {}) then
+            issues[#issues + 1] = Tr.TypeIssueArgCount("call", #(param_tys or {}), #self.args)
+        end
+        local args = {}
+        for i = 1, #self.args do
+            local expected = param_tys and param_tys[i] or nil
+            local arg = expected ~= nil
+                and self.args[i]:typecheck_tree_expr_expected(Tr.TypeExpectedExprInput(input.scope, expected))
+                or self.args[i]:typecheck_tree_expr(input)
+            append_all(issues, arg.issues)
+            if expected ~= nil and not type_eq(expected, arg.ty) then
+                issues[#issues + 1] = Tr.TypeIssueExpected("call arg", expected, arg.ty)
+            end
+            args[#args + 1] = arg.expr
+        end
+        return Tr.TypeExprResult(Tr.ExprCall(Tr.ExprTyped(result_ty), callee.expr, args), result_ty, issues)
+    end
+
+    function Tr.ExprLoad:typecheck_tree_expr(input)
+        local addr = self.addr:typecheck_tree_expr_expected(Tr.TypeExpectedExprInput(input.scope, Ty.TPtr(self.ty)))
+        local issues = {}
+        append_all(issues, addr.issues)
+        if not type_eq(Ty.TPtr(self.ty), addr.ty) then
+            issues[#issues + 1] = Tr.TypeIssueExpected("load addr", Ty.TPtr(self.ty), addr.ty)
+        end
+        return Tr.TypeExprResult(Tr.ExprLoad(Tr.ExprTyped(self.ty), self.ty, addr.expr), self.ty, issues)
     end
 
     function Tr.ExprLen:typecheck_tree_expr(input)
@@ -340,6 +429,18 @@ return function(T)
         return Tr.TypePlaceResult(Tr.PlaceRef(Tr.PlaceTyped(ref_result.ty), ref_result.ref), ref_result.ty, ref_result.issues)
     end
 
+    function Tr.PlaceDeref:typecheck_tree_place(input)
+        local base = self.base:typecheck_tree_expr(Tr.TypeExprInput(input.scope))
+        local issues = {}
+        append_all(issues, base.issues)
+        local ty = base.ty:typecheck_tree_deref_result()
+        if ty == nil then
+            issues[#issues + 1] = Tr.TypeIssueNotPointer(base.ty)
+            ty = void_ty()
+        end
+        return Tr.TypePlaceResult(Tr.PlaceDeref(Tr.PlaceTyped(ty), base.expr), ty, issues)
+    end
+
     function Tr.PlaceDot:typecheck_tree_place(input)
         local base = self.base:typecheck_tree_place(input)
         local typed_ty = self.h:typecheck_tree_typed_ty()
@@ -352,12 +453,44 @@ return function(T)
         return Tr.TypePlaceResult(Tr.PlaceDot(Tr.PlaceTyped(void_ty()), base.place, self.name), void_ty(), base.issues)
     end
 
+    function Tr.PlaceIndex:typecheck_tree_place(input)
+        local base = self.base:typecheck_tree_index_base(Tr.TypeIndexBaseInput(input.scope))
+        local index = self.index:typecheck_tree_expr(Tr.TypeExprInput(input.scope))
+        local issues = {}
+        append_all(issues, base.issues)
+        append_all(issues, index.issues)
+        if not index.ty:typecheck_tree_is_integer_scalar() then
+            issues[#issues + 1] = Tr.TypeIssueExpected("index", Ty.TScalar(C.ScalarIndex), index.ty)
+        end
+        return Tr.TypePlaceResult(Tr.PlaceIndex(Tr.PlaceTyped(base.elem), base.base, index.expr), base.elem, issues)
+    end
+
     function Tr.Expr:typecheck_tree_expr_expected(input)
-        return self:typecheck_tree_expr(Tr.TypeExprInput(input.scope))
+        local result = self:typecheck_tree_expr(Tr.TypeExprInput(input.scope))
+        if input.expected ~= nil
+            and result.ty:typecheck_tree_is_integer_scalar()
+            and input.expected:typecheck_tree_is_integer_scalar()
+            and asdl.classof(result.expr) == Tr.ExprLit
+        then
+            return Tr.TypeExprResult(Tr.ExprLit(Tr.ExprTyped(input.expected), result.expr.value), input.expected, result.issues)
+        end
+        return result
     end
 
     function Tr.ExprAgg:typecheck_tree_expr_expected(input)
         return input.expected:typecheck_tree_expr_agg_expected(self, input)
+    end
+
+    function Tr.ExprAgg:typecheck_tree_expr(input)
+        local fields = {}
+        local issues = {}
+        for i = 1, #(self.fields or {}) do
+            local field = self.fields[i]
+            local value = field.value:typecheck_tree_expr(Tr.TypeExprInput(input.scope))
+            append_all(issues, value.issues)
+            fields[#fields + 1] = Tr.FieldInit(field.name, value.expr, field.offset)
+        end
+        return Tr.TypeExprResult(Tr.ExprAgg(Tr.ExprTyped(self.ty), self.ty, fields), self.ty, issues)
     end
 
     function Ty.Type:typecheck_tree_expr_agg_expected(expr, input)
@@ -365,6 +498,10 @@ return function(T)
     end
 
     function Ty.TNamed:typecheck_tree_expr_agg_expected(expr, input)
+        return Tr.ExprAgg(Tr.ExprSurface, self, expr.fields):typecheck_tree_expr(Tr.TypeExprInput(input.scope))
+    end
+
+    function Ty.TClosure:typecheck_tree_expr_agg_expected(expr, input)
         return Tr.ExprAgg(Tr.ExprSurface, self, expr.fields):typecheck_tree_expr(Tr.TypeExprInput(input.scope))
     end
 

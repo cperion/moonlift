@@ -175,8 +175,8 @@ local issue_code_map = {
     BackIssueDuplicateAccess = "E0602",
     BackIssueMissingAccess = "E0601",
     BackIssueInvalidAlignment = "E0506",
-    BackIssueLoadAccessMode = "E0301",
-    BackIssueStoreAccessMode = "E0301",
+    BackIssueLoadAccessEffect = "E0301",
+    BackIssueStoreAccessEffect = "E0301",
     BackIssueDereferenceTooSmall = "E0301",
     BackIssueIntScalarExpected = "E0304",
     BackIssueFloatScalarExpected = "E0304",
@@ -211,19 +211,21 @@ function M.code_for_issue(issue)
     if type(issue) ~= "table" then return "E9999" end
 
     -- Check for explicit code
-    if issue.error_code then return issue.error_code end
+    local explicit_code = rawget(issue, "error_code")
+    if type(explicit_code) == "string" then return explicit_code end
 
     -- Map by class kind
     local asdl = require("lalin.asdl")
     local cls = asdl.classof(issue)
     if cls then
-        local code = issue_code_map[cls.kind]
+        local code = issue_code_map[rawget(cls, "kind")]
         if code then return code end
     end
 
     -- Check for issue kind field
-    if issue.kind then
-        local code = issue_code_map[issue.kind]
+    local issue_kind = rawget(issue, "kind")
+    if type(issue_kind) == "string" then
+        local code = issue_code_map[issue_kind]
         if code then return code end
     end
 
@@ -247,8 +249,7 @@ local function ensure_explainers()
     explainers.link = require("lalin.link_plan_validate").explain_link_issue
     explainers.vec = function(issue, analysis)
         local asdl = require("lalin.asdl")
-        local cls = asdl.classof(issue)
-        local kind = (cls and cls.kind) or issue.kind or "VecReject"
+        local kind = asdl.class_basename(issue) or issue.kind or "VecReject"
         local reason = issue.reason or issue.message or kind
         return {
             code = M.code_for_issue(issue),

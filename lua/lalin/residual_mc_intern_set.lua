@@ -77,29 +77,29 @@ local function bind_context(T)
         return const_expr(i32, raw)
     end
 
-    local function reduction_identity(kind, ty)
-        local identity, reason = ReductionAlgebra.identity_expr(kind, ty)
+    local function reduction_identity(op, ty)
+        local identity, reason = ReductionAlgebra.identity_expr(op, ty)
         assert(identity ~= nil, "residual_mc_intern_set: reduction identity missing: " .. tostring(reason))
         return identity
     end
 
-    local function reduction(kind, ty)
+    local function reduction(op, ty)
         return {
-            kind = kind,
-            init = reduction_identity(kind, ty),
+            op = op,
+            init = reduction_identity(op, ty),
             int_semantics = sem,
             float_mode = nil,
         }
     end
 
-    local reduction_kinds = {
-        { name = "add", kind = Value.ReductionAdd, numeric = true },
-        { name = "mul", kind = Value.ReductionMul, numeric = true },
-        { name = "min", kind = Value.ReductionMin, numeric = true },
-        { name = "max", kind = Value.ReductionMax, numeric = true },
-        { name = "and", kind = Value.ReductionAnd, int_only = true },
-        { name = "or", kind = Value.ReductionOr, int_only = true },
-        { name = "xor", kind = Value.ReductionXor, int_only = true },
+    local reduction_ops = {
+        { name = "add", op = Value.ReductionAdd, numeric = true },
+        { name = "mul", op = Value.ReductionMul, numeric = true },
+        { name = "min", op = Value.ReductionMin, numeric = true },
+        { name = "max", op = Value.ReductionMax, numeric = true },
+        { name = "and", op = Value.ReductionAnd, int_only = true },
+        { name = "or", op = Value.ReductionOr, int_only = true },
+        { name = "xor", op = Value.ReductionXor, int_only = true },
     }
 
     local function view_layout(name)
@@ -504,7 +504,7 @@ local function bind_context(T)
         local producer = Matrix.producers[producer_group and producer_group.matrix_key]
         assert(producer and producer.status == Matrix.status.supported, "residual_mc_intern_set: unsupported producer cell " .. tostring(cell.producer_group))
         if cell.kind == "reduce_n" or cell.kind == "scan_n" or cell.kind == "scatter_reduce_n" then
-            assert(cell.reduction ~= nil and cell.reduction.kind ~= nil, "residual_mc_intern_set: sink cell requires reduction")
+            assert(cell.reduction ~= nil and cell.reduction.op ~= nil, "residual_mc_intern_set: sink cell requires reduction")
         end
     end
 
@@ -692,7 +692,7 @@ local function bind_context(T)
             return { false }
         end
         local out = {}
-        for _, red in ipairs(reduction_kinds) do
+        for _, red in ipairs(reduction_ops) do
             if red.int_only then
                 if is_bitwise_ty(spec.result_ty) then out[#out + 1] = red end
             elseif red.numeric then
@@ -738,8 +738,8 @@ local function bind_context(T)
         if red ~= nil then
             cell.reduction = {
                 name = red.name,
-                kind = red.kind,
-                init = reduction_identity(red.kind, spec.result_ty),
+                op = red.op,
+                init = reduction_identity(red.op, spec.result_ty),
             }
         end
         check_cell(cell)
@@ -1069,7 +1069,7 @@ local function bind_context(T)
                 expr = input("x1"),
                 result_ty = i32,
                 item_ty = i32,
-                reduction = { name = "add", kind = Value.ReductionAdd, init = 0 },
+                reduction = { name = "add", op = Value.ReductionAdd, init = 0 },
                 scope = Stencil.StencilReduceScopeAxes({ Stencil.StencilAxisRef(2) }, Stencil.StencilAccessRef("dst")),
                 estimated_bytes = estimated_bytes_for_cell({ kind = "reduce_n", input_count = 1, order = 1 }),
                 serial = "rank_axis_reduce",
@@ -1088,7 +1088,7 @@ local function bind_context(T)
                 expr = input("x1"),
                 result_ty = i32,
                 item_ty = i32,
-                reduction = { name = "add", kind = Value.ReductionAdd, init = 0 },
+                reduction = { name = "add", op = Value.ReductionAdd, init = 0 },
                 scope = Stencil.StencilReduceScopeWindow({ Stencil.StencilAxisRef(1) }, Stencil.StencilAccessRef("dst")),
                 estimated_bytes = estimated_bytes_for_cell({ kind = "reduce_n", input_count = 1, order = 1 }),
                 serial = "rank_window_reduce",
@@ -1232,7 +1232,7 @@ local function bind_context(T)
 
     local function cell_reduction(cell)
         local red = assert(cell.reduction, "residual_mc_intern_set: sink cell missing reduction")
-        return reduction(assert(red.kind, "residual_mc_intern_set: reduction missing kind"), cell.result_ty or cell.item_ty or i32)
+        return reduction(assert(red.op, "residual_mc_intern_set: reduction missing op"), cell.result_ty or cell.item_ty or i32)
     end
 
     local function cell_tag(cell, prefix)

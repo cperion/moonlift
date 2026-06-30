@@ -27,35 +27,27 @@ local reduction = Value.ReductionFact(Value.AlgebraFactId("red:test"), domain, a
 local closed_form = Value.ClosedFormFact(Value.AlgebraFactId("cf:test"), reduction, zero, Value.AlgebraProofReduction(reduction, "closed form"))
 
 local function input(spec)
-    return Kernel.KernelLoopPlanInput(
-        spec.counted ~= false,
-        spec.has_func_id ~= false,
-        spec.has_func ~= false,
-        spec.rejects or {},
-        { reject_not_counted },
-        { reject_no_owner },
-        spec.closed_form,
-        spec.reduction,
-        spec.skeleton_result,
-        spec.trip_count or Flow.FlowTripCountNonNegative(Code.CodeValueId("trip:test"), nil)
-    )
+    if spec.counted == false then return Kernel.KernelLoopNotCounted({ reject_not_counted }) end
+    if spec.has_func_id == false then return Kernel.KernelLoopMissingOwner({ reject_no_owner }) end
+    if spec.rejects ~= nil then return Kernel.KernelLoopRejectedFacts(spec.rejects) end
+    if spec.closed_form ~= nil then return Kernel.KernelLoopClosedFormCandidate(spec.closed_form, spec.trip_count or Flow.FlowTripCountNonNegative(Code.CodeValueId("trip:test"), nil)) end
+    if spec.reduction ~= nil then return Kernel.KernelLoopReductionCandidate(spec.reduction) end
+    if spec.skeleton_result ~= nil then return Kernel.KernelLoopSkeletonCandidate(spec.skeleton_result) end
+    return Kernel.KernelLoopOriginalControlCandidate
 end
 
 do
     local selection = input { counted = false, has_func_id = false }:select_kernel_loop_plan()
-    assert(selection:kernel_plan_is_no_plan(), "uncounted loop must reject")
     assert(selection.rejects[1] == reject_not_counted, "uncounted loop must use counted-domain reject")
 end
 
 do
     local selection = input { has_func_id = false }:select_kernel_loop_plan()
-    assert(selection:kernel_plan_is_no_plan(), "ownerless loop must reject")
     assert(selection.rejects[1] == reject_no_owner, "ownerless loop must use graph-owner reject")
 end
 
 do
     local selection = input { rejects = { reject_memory, reject_effect } }:select_kernel_loop_plan()
-    assert(selection:kernel_plan_is_no_plan(), "loop rejects must prevent planning")
     assert(#selection.rejects == 2 and selection.rejects[2] == reject_effect, "semantic rejects must be preserved")
 end
 
@@ -65,27 +57,24 @@ do
         reduction = reduction,
         trip_count = Flow.FlowTripCountUnknown("test unknown"),
     }:select_kernel_loop_plan()
-    assert(selection:kernel_plan_is_closed_form(), "closed form must win over reduction")
     assert(selection.closed_form == closed_form, "closed-form fact must be returned")
     assert(selection.add_trip_unknown_proof == true, "trip-count proof bit must be carried")
 end
 
 do
     local selection = input { reduction = reduction }:select_kernel_loop_plan()
-    assert(selection:kernel_plan_is_reduction(), "reduction result must be selected")
     assert(selection.reduction == reduction, "reduction fact must be returned")
 end
 
 do
     local skeleton = Kernel.KernelResultVoid
     local selection = input { skeleton_result = skeleton }:select_kernel_loop_plan()
-    assert(selection:kernel_plan_is_skeleton(), "skeleton result must be selected")
     assert(selection.result == skeleton, "skeleton result must be returned")
 end
 
 do
     local selection = input {}:select_kernel_loop_plan()
-    assert(selection:kernel_plan_is_original_control(), "original-control result must be the semantic default")
+    assert(selection == Kernel.KernelLoopPlanOriginalControl, "original-control result must be the semantic default")
 end
 
 local ok = pcall(require, "lalin.code_kernel_plan_rules")

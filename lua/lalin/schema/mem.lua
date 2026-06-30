@@ -8,7 +8,7 @@ return schema. LalinMem {
   product. MemScopeId { interned, text [str], },
   product. MemProofId { interned, text [str], },
   product. MemLeaseId { interned, text [str], },
-  sum. MemAccessKind {
+  sum. MemAccessOp {
     MemLoad,
     MemStore,
     MemAtomicLoad,
@@ -29,12 +29,12 @@ return schema. LalinMem {
     MemBaseProjection {
       variant_unique,
       base [LalinMem.MemBase],
-      projection [LalinMem.MemProjectionKind],
+      projection [LalinMem.MemProjectionStep],
       byte_offset [number],
     },
     MemBaseUnknown { variant_unique, reason [str], },
   },
-  sum. MemObjectKind {
+  sum. MemObjectForm {
     MemObjectParam,
     MemObjectLocal,
     MemObjectGlobal,
@@ -47,7 +47,7 @@ return schema. LalinMem {
     MemObjectLease,
     MemObjectUnknown,
   },
-  sum. MemProjectionKind {
+  sum. MemProjectionStep {
     MemProjectField,
     MemProjectBytes,
     MemProjectPtrOffset,
@@ -86,7 +86,7 @@ return schema. LalinMem {
     MemProvProjection {
       variant_unique,
       parent [LalinMem.MemObjectId],
-      projection [LalinMem.MemProjectionKind],
+      projection [LalinMem.MemProjectionStep],
       byte_offset [number],
     },
     MemProvUnknown { variant_unique, reason [str], },
@@ -112,7 +112,7 @@ return schema. LalinMem {
     interned,
     field. id [LalinMem.MemObjectId],
     func [optional [LalinCode.CodeFuncId]],
-    kind [LalinMem.MemObjectKind],
+    form [LalinMem.MemObjectForm],
     provenance [LalinMem.MemObjectProvenance],
     elem_ty [optional [LalinCode.CodeType]],
     extent [LalinMem.MemObjectExtent],
@@ -181,7 +181,7 @@ return schema. LalinMem {
     func [LalinCode.CodeFuncId],
     block [LalinGraph.GraphBlockId],
     inst [optional [LalinCode.CodeInstId]],
-    kind [LalinMem.MemAccessKind],
+    op [LalinMem.MemAccessOp],
     place [LalinCode.CodePlace],
     access [LalinCode.CodeMemoryAccess],
     base [LalinMem.MemBase],
@@ -370,6 +370,32 @@ return schema. LalinMem {
     deref_bytes [optional [number]],
     movable [bool],
     proofs [many [LalinMem.MemProof]],
+  },
+  product. MemAccessByIdEntry {
+    interned,
+    access_name [str],
+    access [LalinMem.MemAccessFact],
+  },
+  product. MemObjectByAccessEntry {
+    interned,
+    access_name [str],
+    object [LalinMem.MemObjectId],
+  },
+  product. MemBackendByAccessEntry {
+    interned,
+    access_name [str],
+    backend [LalinMem.MemBackendAccessInfo],
+  },
+  product. MemProofByAccessEntry {
+    interned,
+    access_name [str],
+    proof [LalinMem.MemProof],
+  },
+  product. MemAccessProjection {
+    access_by_id [many [LalinMem.MemAccessByIdEntry]],
+    object_by_access [many [LalinMem.MemObjectByAccessEntry]],
+    backend_by_access [many [LalinMem.MemBackendByAccessEntry]],
+    proof_by_access [many [LalinMem.MemProofByAccessEntry]],
   },
   product. MemSemanticFactSet {
     interned,

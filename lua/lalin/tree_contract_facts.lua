@@ -126,7 +126,7 @@ local function bind_context(T)
             return single(Tr.ContractFactPreserve(base))
             end)(node, ...)
         else
-            error("phase lalin_tree_contract_fact: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_contract_fact: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -155,7 +155,7 @@ local function bind_context(T)
  return single(facts_from_contracts(self.contracts))
             end)(node, ...)
         else
-            error("phase lalin_tree_func_contract_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_func_contract_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

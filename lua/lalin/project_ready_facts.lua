@@ -54,7 +54,7 @@ local function bind_context(T)
             return flat_map(function(fact) return single(fact) end, facts)
             end)(node, ...)
         else
-            error("phase lalin_project_task_base_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_project_task_base_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -66,7 +66,7 @@ local function bind_context(T)
             return flat_map(task_base_facts, project.tasks)
             end)(node, ...)
         else
-            error("phase lalin_project_base_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_project_base_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -103,7 +103,7 @@ local function bind_context(T)
             return flat_map(function(fact) return single(fact) end, facts)
             end)(node, ...)
         else
-            error("phase lalin_project_ready_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_project_ready_facts: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

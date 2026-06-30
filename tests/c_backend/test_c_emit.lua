@@ -23,8 +23,8 @@ local a = C.CBackendLocal(C.CBackendLocalId("a"), C.CBackendName("a"), i32)
 local b = C.CBackendLocal(C.CBackendLocalId("b"), C.CBackendName("b"), i32)
 local r = C.CBackendLocal(C.CBackendLocalId("r"), C.CBackendName("r"), i32)
 
-local helper_kind = C.CBackendHelperIntBinary(Core.BinAdd, i32, C.CBackendIntWrap)
-local helper = C.CBackendHelperUse(Helpers.helper_id(helper_kind), helper_kind)
+local helper_spec = C.CBackendHelperIntBinary(Core.BinAdd, i32, C.CBackendIntWrap)
+local helper = C.CBackendHelperUse(Helpers.helper_id(helper_spec), helper_spec)
 
 local entry = C.CBackendBlock(
     C.CBackendLabel("entry"),
@@ -107,8 +107,8 @@ local func2 = C.CBackendFunc(C.CBackendName("complex"), "complex", Core.Visibili
 local scalar_glob = C.CBackendGlobal(C.CBackendGlobalId("counter"), C.CBackendName("counter"), Core.VisibilityLocal, i32, 4, 4, { C.CBackendDataScalar(0, i32, Core.LitInt("99")) })
 local reloc_glob = C.CBackendGlobal(C.CBackendGlobalId("rel"), C.CBackendName("rel"), Core.VisibilityLocal, C.CBackendDataPtr(nil), 8, 8, { C.CBackendDataReloc(0, C.CBackendRelocFunc(C.CBackendName("complex")), 0) })
 local access = C.CBackendMemoryAccess(i32, 4, C.CBackendMayTrap, false, Core.AtomicSeqCst)
-local atomic_kind = C.CBackendHelperAtomicLoad(access)
-local atomic_helper = C.CBackendHelperUse(Helpers.helper_id(atomic_kind), atomic_kind)
+local atomic_spec = C.CBackendHelperAtomicLoad(access)
+local atomic_helper = C.CBackendHelperUse(Helpers.helper_id(atomic_spec), atomic_spec)
 local complex_unit = C.CBackendUnit("complex", CodeType.default_target({ dialect = "c11", index_bits = 32 }), { sig, void_sig }, { pair_decl }, { scalar_glob, reloc_glob }, {}, { atomic_helper }, { func2 })
 local complex_src = Emit.emit_artifact(complex_unit).source
 assert(complex_src:match("#include <stdatomic.h>"), "atomics include")

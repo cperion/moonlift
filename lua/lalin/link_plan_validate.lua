@@ -73,7 +73,7 @@ local function bind_context(T)
  return single(validate(self))
             end)(node, ...)
         else
-            error("phase lalin_link_plan_validate: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_link_plan_validate: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -126,7 +126,7 @@ local function flat_map(fn, values, n)
 end
     local cls = schema.classof(issue)
     if not cls then return { code = "E9999", severity = "error", primary = { span = nil, message = tostring(issue) } } end
-    local kind = cls.kind
+    local kind = schema.class_basename(issue)
 
     if kind == "LinkIssueMissingOutput" then
         return { code = "E0901", severity = "error", phase_context = "while checking link plan", primary = { span = nil, message = "link plan has no output path" } }

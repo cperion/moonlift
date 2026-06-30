@@ -42,12 +42,12 @@ local function inst(id, kind) return Code.CodeInst(Code.CodeInstId("inst:" .. id
 local function term(id, kind) return Code.CodeTerm(Code.CodeTermId("term:" .. id), kind, origin) end
 local function place(base, index, ty) return Code.CodePlaceIndex(Code.CodePlaceDeref(base, ty, bytes(ty)), index, ty, bytes(ty)) end
 
-local function store_provider(func, vocab, op, plan, info)
-    return Backend.artifact_for(vocab, op, nil, plan, info)
+local function store_provider(func, vocab, op, plan, descriptor)
+    return Backend.artifact_for(vocab, op, nil, plan, descriptor)
 end
 
-local function reduce_provider(func, vocab, op, reduction, plan, info)
-    return Backend.artifact_for(vocab, op, reduction, plan, info)
+local function reduce_provider(func, vocab, op, reduction, plan, descriptor)
+    return Backend.artifact_for(vocab, op, reduction, plan, descriptor)
 end
 
 local function compile_module(module, contracts, opts)
@@ -56,13 +56,13 @@ local function compile_module(module, contracts, opts)
         contracts = contracts,
         flow = opts.flow,
         collect_rejects = rejects,
-        stencil_store_artifact_for = opts.store and function(func, vocab, op, plan, info)
-            local artifact = store_provider(func, vocab, op, plan, info)
+        stencil_store_artifact_for = opts.store and function(func, vocab, op, plan, descriptor)
+            local artifact = store_provider(func, vocab, op, plan, descriptor)
             artifacts[#artifacts + 1] = artifact
             return artifact
         end or nil,
-        stencil_reduce_artifact_for = opts.reduce and function(func, vocab, op, reduction, plan, info)
-            local artifact = reduce_provider(func, vocab, op, reduction, plan, info)
+        stencil_reduce_artifact_for = opts.reduce and function(func, vocab, op, reduction, plan, descriptor)
+            local artifact = reduce_provider(func, vocab, op, reduction, plan, descriptor)
             artifacts[#artifacts + 1] = artifact
             return artifact
         end or nil,
@@ -77,7 +77,7 @@ local function compile_module(module, contracts, opts)
     if expected_producer == Stencil.StencilProduceRange1D then
         assert(shape.start == nil and shape.stop == nil, opts.name .. " producer bounds should be runtime call arguments, not descriptor identity")
     end
-    assert(asdl.classof(lj_module.funcs[1].machines[1].kind) == (opts.reduce and LJ.LJMachineStencilCall or LJ.LJMachineStencilEffect), opts.name .. " should lower through stencil machine")
+    assert(asdl.classof(lj_module.funcs[1].machines[1].op) == (opts.reduce and LJ.LJMachineStencilCall or LJ.LJMachineStencilEffect), opts.name .. " should lower through stencil machine")
     local build, build_err, csrc = StencilBinary.compile(T, artifacts, { stem = "test_luajit_lower_stencil_extended_" .. opts.name })
     assert(build ~= nil, tostring(build_err) .. "\n" .. tostring(csrc))
     local compiled, err, src = Emit.compile_module(lj_module, {

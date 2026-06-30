@@ -29,11 +29,11 @@ local function assert_no_c_phase_unreachable(root, site)
         seen[node] = true
         local cls = asdl.classof(node)
         if cls then
-            local kind = cls.kind
+            local kind = asdl.class_basename(node)
             if kind ~= nil and phase_unreachable[kind] then
                 found[#found + 1] = tostring(kind) .. ": " .. phase_unreachable[kind]
             end
-            local fields = cls.__fields or {}
+            local fields = asdl.fields(cls) or {}
             for i = 1, #fields do walk(node[fields[i].name]) end
         else
             for _, value in pairs(node) do walk(value) end

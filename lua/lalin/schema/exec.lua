@@ -43,7 +43,7 @@ return schema. LalinExec {
     },
   },
 
-  sum. ExecFragmentKind {
+  sum. ExecFragmentBody {
     ExecFragmentStencil {
       variant_unique,
       artifact [LalinStencil.StencilArtifact],
@@ -79,7 +79,7 @@ return schema. LalinExec {
     field. id [LalinExec.ExecFragmentId],
     source_func [LalinCode.CodeFuncId],
     source_blocks [many [LalinCode.CodeBlockId]],
-    kind [LalinExec.ExecFragmentKind],
+    body [LalinExec.ExecFragmentBody],
   },
 
   sum. ExecStencilDecision {

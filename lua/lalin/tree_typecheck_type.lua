@@ -9,7 +9,9 @@ return function(T)
     local function void_ty() return Ty.TScalar(C.ScalarVoid) end
 
     local function type_eq(a, b)
-        return a == b
+        if a == b then return true end
+        if a == nil or b == nil then return false end
+        return tostring(a) == tostring(b)
     end
 
     function C.Scalar:typecheck_tree_is_bool() return false end
@@ -78,23 +80,38 @@ return function(T)
 
     function Ty.Type:typecheck_tree_same_binary_result(rhs_ty) return nil end
     function Ty.TScalar:typecheck_tree_same_binary_result(rhs_ty)
-        if not type_eq(self, rhs_ty) then return nil end
-        if self:typecheck_tree_is_numeric_scalar() or self:typecheck_tree_is_integer_scalar() then return self end
+        if type_eq(self, rhs_ty) and (self:typecheck_tree_is_numeric_scalar() or self:typecheck_tree_is_integer_scalar()) then return self end
+        if self:typecheck_tree_is_integer_scalar() and rhs_ty:typecheck_tree_is_integer_scalar() then return self end
         return nil
     end
 
     function Ty.Type:typecheck_tree_same_integer_binary_result(rhs_ty) return nil end
     function Ty.TScalar:typecheck_tree_same_integer_binary_result(rhs_ty)
-        if type_eq(self, rhs_ty) and self:typecheck_tree_is_integer_scalar() then return self end
+        if self:typecheck_tree_is_integer_scalar() and rhs_ty:typecheck_tree_is_integer_scalar() then return self end
         return nil
     end
 
     function C.BinaryOp:typecheck_tree_binary_result(lhs_ty, rhs_ty) return lhs_ty:typecheck_tree_same_binary_result(rhs_ty) end
+    function C.BinaryOp:typecheck_tree_binary_rhs(expr, input, lhs_ty)
+        return expr:typecheck_tree_expr(input)
+    end
     function C.BinAdd:typecheck_tree_binary_result(lhs_ty, rhs_ty)
         return lhs_ty:typecheck_tree_bin_add(rhs_ty) or lhs_ty:typecheck_tree_same_binary_result(rhs_ty)
     end
+    function C.BinAdd:typecheck_tree_binary_rhs(expr, input, lhs_ty)
+        if lhs_ty:typecheck_tree_is_integer_scalar() then
+            return expr:typecheck_tree_expr_expected(Tr.TypeExpectedExprInput(input.scope, lhs_ty))
+        end
+        return expr:typecheck_tree_expr(input)
+    end
     function C.BinSub:typecheck_tree_binary_result(lhs_ty, rhs_ty)
         return lhs_ty:typecheck_tree_bin_sub(rhs_ty) or lhs_ty:typecheck_tree_same_binary_result(rhs_ty)
+    end
+    function C.BinSub:typecheck_tree_binary_rhs(expr, input, lhs_ty)
+        if lhs_ty:typecheck_tree_is_integer_scalar() then
+            return expr:typecheck_tree_expr_expected(Tr.TypeExpectedExprInput(input.scope, lhs_ty))
+        end
+        return expr:typecheck_tree_expr(input)
     end
     function C.BinBitAnd:typecheck_tree_binary_result(lhs_ty, rhs_ty) return lhs_ty:typecheck_tree_same_integer_binary_result(rhs_ty) end
     function C.BinBitOr:typecheck_tree_binary_result(lhs_ty, rhs_ty) return lhs_ty:typecheck_tree_same_integer_binary_result(rhs_ty) end
@@ -512,7 +529,15 @@ return function(T)
         if expected ~= nil and expected:typecheck_tree_accept_nil_literal() then return expected end
         return self:typecheck_tree_literal()
     end
-    function C.Literal:typecheck_tree_literal_expected() return self:typecheck_tree_literal() end
+    function C.Literal:typecheck_tree_literal_expected(expected)
+        if expected ~= nil
+            and self:typecheck_tree_literal():typecheck_tree_is_integer_scalar()
+            and expected:typecheck_tree_is_integer_scalar()
+        then
+            return expected
+        end
+        return self:typecheck_tree_literal()
+    end
 
     function T.LalinTree.ModuleHeader:typecheck_tree_is_typed_module() return false end
     function T.LalinTree.ModuleTyped:typecheck_tree_is_typed_module() return true end

@@ -19,28 +19,6 @@ local function bind_context(T)
 
     local api = {}
 
-    local function access_objects(mem)
-        local by_access = {}
-        for _, interval in ipairs(mem and mem.intervals or {}) do by_access[interval.access.text] = interval.object end
-        return by_access
-    end
-
-    local function access_proofs(mem)
-        local by_access = {}
-        for _, proof in ipairs(mem and mem.proofs or {}) do
-            local cls = asdl.classof(proof)
-            if cls == Mem.MemProofBackend then by_access[proof.access.text] = proof end
-            if cls == Mem.MemProofInterval then by_access[proof.interval.access.text] = proof end
-        end
-        return by_access
-    end
-
-    local function backend_info_by_access(mem)
-        local out = {}
-        for _, info in ipairs(mem and mem.backend_info or {}) do out[info.access.text] = info end
-        return out
-    end
-
     local function access_id_text(func, block, inst)
         local function sanitize(s)
             s = tostring(s or "x"):gsub("[^%w_]", "_")
@@ -89,13 +67,13 @@ local function bind_context(T)
             local ok = true
             for _, block in ipairs(func.blocks or {}) do
                 for _, inst in ipairs(block.insts or {}) do
-                    local cls = asdl.classof(inst.kind)
+                    local cls = asdl.classof(inst.op)
                     if cls == Code.CodeInstLoad or cls == Code.CodeInstStore or cls == Code.CodeInstAtomicLoad or cls == Code.CodeInstAtomicStore
                         or cls == Code.CodeInstAtomicRmw or cls == Code.CodeInstAtomicCas or cls == Code.CodeInstAtomicFence or cls == Code.CodeInstCall then
                         ok = false
                     end
                 end
-                local tcls = asdl.classof(block.term and block.term.kind or nil)
+                local tcls = asdl.classof(block.term and block.term.op or nil)
                 if tcls == Code.CodeTermTrap or tcls == Code.CodeTermUnreachable then ok = false end
             end
             if ok then pure[func.id.text] = true end
@@ -123,21 +101,19 @@ local function bind_context(T)
     end
 
     local function inst_effects(module, mem, contracts)
-        local obj_by_access = access_objects(mem)
-        local proof_by_access = access_proofs(mem)
-        local backend_by_access = backend_info_by_access(mem)
+        local mem_projection = CodeMemFacts.access_projection(mem)
         local pure_funcs = pure_internal_functions(module)
         local insts, calls = {}, {}
         for _, func in ipairs(module.funcs or {}) do
             for _, block in ipairs(func.blocks or {}) do
                 for _, inst in ipairs(block.insts or {}) do
-                    local k = inst.kind
+                    local k = inst.op
                     local cls = asdl.classof(k)
                     local effects = {}
                     if cls == Code.CodeInstLoad or cls == Code.CodeInstStore or cls == Code.CodeInstAtomicLoad or cls == Code.CodeInstAtomicStore or cls == Code.CodeInstAtomicRmw or cls == Code.CodeInstAtomicCas then
                         local aid = access_id_text(func, block, inst)
-                        local obj = obj_by_access[aid]
-                        local proof = proof_by_access[aid]
+                        local obj = mem_projection:object_for_access(aid)
+                        local proof = mem_projection:proof_for_access(aid)
                         local eobj = obj and Effect.EffectObjectMem(obj) or Effect.EffectObjectUnknown("memory access object is unknown")
                         if cls == Code.CodeInstLoad or cls == Code.CodeInstAtomicLoad then effects[#effects + 1] = Effect.EffectRead(eobj, proof) end
                         if cls == Code.CodeInstStore or cls == Code.CodeInstAtomicStore then effects[#effects + 1] = Effect.EffectWrite(eobj, proof) end
@@ -145,7 +121,7 @@ local function bind_context(T)
                             effects[#effects + 1] = Effect.EffectRead(eobj, proof)
                             effects[#effects + 1] = Effect.EffectWrite(eobj, proof)
                         end
-                        local backend = backend_by_access[aid]
+                        local backend = mem_projection:backend_for_access(aid)
                         if backend ~= nil and asdl.classof(backend.trap) == Mem.MemNonTrapping then
                             effects[#effects + 1] = Effect.EffectNoTrap(backend.trap.reason or "memory backend info proves non-trapping")
                         elseif k.access.trap == Code.CodeMustNotTrap then
@@ -176,7 +152,7 @@ local function bind_context(T)
             local effects = entry_effects[func.id.text]
             if effects ~= nil and #effects > 0 then terms[#terms + 1] = Effect.TermEffect(func.entry, effects) end
             for _, block in ipairs(func.blocks or {}) do
-                local term = block.term and block.term.kind or nil
+                local term = block.term and block.term.op or nil
                 local cls = asdl.classof(term)
                 if cls == Code.CodeTermTrap then
                     terms[#terms + 1] = Effect.TermEffect(block.id, { Effect.EffectMayTrap(term.reason or "explicit trap terminator") })

@@ -39,7 +39,7 @@ local function bind_context(T)
         local key = tostring(a) .. "|" .. tostring(b)
         if seen[key] then return true end
         seen[key] = true
-        local fields = ac.__fields or {}
+        local fields = asdl.fields(ac) or {}
         for i = 1, #fields do
             local name = fields[i].name
             local av, bv = a[name], b[name]
@@ -308,9 +308,9 @@ local function bind_context(T)
         end
 
         for i = 1, #unit.helpers do
-            local kind = unit.helpers[i].kind
-            local kcls = asdl.classof(kind)
-            if helper_requires_c11_atomic(kind) and not target_has_c11_atomics(unit.target) then
+            local spec = unit.helpers[i].spec
+            local kcls = asdl.classof(spec)
+            if helper_requires_c11_atomic(spec) and not target_has_c11_atomics(unit.target) then
                 add_issue(issues, collector, C.CBackendIssueInvalidTargetFeature(C.CBackendFeatureC11Atomics, "atomic helper requires C11 atomics or runtime provider"))
             elseif kcls == C.CBackendHelperRequireFeature then
                 add_issue(issues, collector, C.CBackendIssueInvalidTargetFeature(kind.feature, kind.reason))

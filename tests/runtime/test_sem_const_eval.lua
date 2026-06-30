@@ -25,7 +25,7 @@ assert(E.value(Tr.ExprCompare(Tr.ExprTyped(bool), C.CmpLt, int("1"), int("2"))) 
 assert(E.value(Tr.ExprLogic(Tr.ExprTyped(bool), C.LogicAnd, boolean(true), boolean(false))) == Sem.ConstBool(false))
 assert(E.value(Tr.ExprSelect(Tr.ExprTyped(i32), boolean(false), int("1"), int("9"))) == Sem.ConstInt(i32, "9"))
 
-local x = B.Binding(C.Id("x"), "x", i32, B.BindingClassLocalValue)
+local x = B.Binding(C.Id("x"), "x", i32, B.BindingRoleLocalValue)
 local block = Tr.ExprBlock(Tr.ExprTyped(i32), {
     Tr.StmtLet(Tr.StmtSurface, x, int("10")),
 }, Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, Tr.ExprRef(Tr.ExprTyped(i32), B.ValueRefBinding(x)), int("5")))
@@ -38,7 +38,7 @@ local agg = Tr.ExprAgg(Tr.ExprTyped(agg_ty), agg_ty, {
 })
 assert(E.value(Tr.ExprField(Tr.ExprTyped(i32), agg, Sem.FieldByName("right", i32))) == Sem.ConstInt(i32, "2"))
 
-local global_binding = B.Binding(C.Id("global"), "global", i32, B.BindingClassGlobalConst("Demo", "answer"))
+local global_binding = B.Binding(C.Id("global"), "global", i32, B.BindingRoleGlobalConst("Demo", "answer"))
 local const_env = B.ConstEnv({ B.ConstEntry("Demo", "answer", i32, int("99")) })
 assert(E.value(Tr.ExprRef(Tr.ExprTyped(i32), B.ValueRefBinding(global_binding)), const_env) == Sem.ConstInt(i32, "99"))
 
@@ -46,6 +46,6 @@ local result = E.stmts({
     Tr.StmtLet(Tr.StmtSurface, x, int("4")),
     Tr.StmtReturnValue(Tr.StmtSurface, Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, Tr.ExprRef(Tr.ExprTyped(i32), B.ValueRefBinding(x)), int("6"))),
 })
-assert(result.kind == "return_value" and result.value == Sem.ConstInt(i32, "10"))
+assert(result == Sem.ConstReturnValue(Sem.ConstLocalEnv({ Sem.ConstLocalEntry(x, Sem.ConstInt(i32, "4")) }), Sem.ConstInt(i32, "10")))
 
 print("lalin sem_const_eval ok")

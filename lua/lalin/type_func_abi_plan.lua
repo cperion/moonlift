@@ -13,7 +13,7 @@ local function bind_context(T)
     local classify_api = require("lalin.type_classify")(T)
 
     local function arg_binding_for_param(func_name, param, index)
-        return B.Binding(C.Id("arg:" .. func_name .. ":" .. param.name), param.name, param.ty, B.BindingClassArg(index - 1))
+        return B.Binding(C.Id("arg:" .. func_name .. ":" .. param.name), param.name, param.ty, B.BindingRoleArg(index - 1))
     end
 
     local function back_scalar(ty)
@@ -42,7 +42,7 @@ local function bind_context(T)
         -- lowered calling convention passes a pointer to the aggregate storage.
         -- Tree-to-back already treats aggregate bindings whose local value is a
         -- BackPtr as addressable aggregate values for field/index access.
-        if asdl.classof(param.ty) == Ty.TNamed or asdl.classof(classify_api.classify(param.ty)) == Ty.TypeClassAggregate then
+        if asdl.classof(param.ty) == Ty.TNamed or asdl.classof(classify_api.classify(param.ty)) == Ty.TypeShapeAggregate then
             return Ty.AbiParamScalar(param.name, binding, Back.BackPtr, Back.BackValId("arg:" .. func_name .. ":" .. param.name))
         end
         if asdl.classof(param.ty) == Ty.TArray then

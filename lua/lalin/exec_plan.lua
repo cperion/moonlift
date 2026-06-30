@@ -37,11 +37,6 @@ local function bind_context(T)
         return Exec.ExecSelectStencil(input.selected_reason)
     end
 
-    function Exec.ExecStencilSelection:exec_plan_is_stencil() return false end
-    function Exec.ExecSelectStencil:exec_plan_is_stencil() return true end
-    function Exec.ExecStencilSelection:exec_plan_is_skip() return false end
-    function Exec.ExecSelectSkip:exec_plan_is_skip() return true end
-
     function Exec.ExecStencilSelection:add_exec_stencil(entries, by_func, entry, index, kernel_plan, loop_by_id, artifact, func_id)
         error("exec_plan: unsupported exec stencil selection", 2)
     end

@@ -28,8 +28,8 @@ local function bind_context(T)
         issues[#issues + 1] = issue
     end
 
-    local function check_field(issues, value, field_name, expected_class, expected_name)
-        if asdl.classof(value) ~= expected_class then
+    local function check_field(issues, value, field_name, expected_type, expected_name)
+        if asdl.classof(value) ~= expected_type then
             add(issues, Compiler.CodeResultIssueInvalidField(field_name, expected_name, class_name(value)))
             return false
         end
@@ -41,7 +41,7 @@ local function bind_context(T)
         local issues = {}
 
         if asdl.classof(code_result) ~= Compiler.CodeResult then
-            add(issues, Compiler.CodeResultIssueWrongClass("LalinCompiler.CodeResult", class_name(code_result)))
+            add(issues, Compiler.CodeResultIssueUnexpectedValue("LalinCompiler.CodeResult", class_name(code_result)))
             return Compiler.CodeResultReport(issues)
         end
 
@@ -70,7 +70,7 @@ local function bind_context(T)
 
     function api.issue_text(issue)
         local cls = asdl.classof(issue)
-        if cls == Compiler.CodeResultIssueWrongClass then
+        if cls == Compiler.CodeResultIssueUnexpectedValue then
             return "expected " .. tostring(issue.expected) .. ", got " .. tostring(issue.actual)
         elseif cls == Compiler.CodeResultIssueInvalidField then
             return "field " .. tostring(issue.name) .. " expected " .. tostring(issue.expected) .. ", got " .. tostring(issue.actual)

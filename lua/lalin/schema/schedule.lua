@@ -9,7 +9,7 @@ return schema. LalinSchedule {
     LaneVector { variant_unique, elem_ty [LalinCode.CodeType], lanes [number], },
   },
   sum. TailPlan { TailNone, TailScalar, TailMasked, TailPeel { variant_unique, elems [number], }, },
-  sum. ScheduleKind {
+  sum. ScheduleForm {
     ScheduleScalarIndex,
     ScheduleScalarPointer,
     ScheduleVector {
@@ -42,16 +42,16 @@ return schema. LalinSchedule {
   },
   product. SchedulePlanInput {
     interned,
-    vector_kind [optional [LalinSchedule.ScheduleKind]],
+    vector_form [optional [LalinSchedule.ScheduleForm]],
     vector_capability [optional [LalinSchedule.ScheduleEmitterCapability]],
-    scalar_kind [LalinSchedule.ScheduleKind],
+    scalar_form [LalinSchedule.ScheduleForm],
     scalar_capability [optional [LalinSchedule.ScheduleEmitterCapability]],
   },
   sum. SchedulePlanSelection {
     ScheduleSelectionNoPlan { variant_unique, rejects [many [LalinSchedule.ScheduleReject]], },
     ScheduleSelectionPlanned {
       variant_unique,
-      schedule [LalinSchedule.ScheduleKind],
+      form [LalinSchedule.ScheduleForm],
       capability [LalinSchedule.ScheduleEmitterCapability],
       rejected_alternatives [many [LalinSchedule.ScheduleReject]],
     },
@@ -66,7 +66,7 @@ return schema. LalinSchedule {
       variant_unique,
       field. id [LalinSchedule.ScheduleId],
       kernel [LalinKernel.KernelId],
-      kind [LalinSchedule.ScheduleKind],
+      form [LalinSchedule.ScheduleForm],
       proofs [many [LalinSchedule.ScheduleProof]],
       rejected_alternatives [many [LalinSchedule.ScheduleReject]],
     },

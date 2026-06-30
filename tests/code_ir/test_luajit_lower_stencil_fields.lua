@@ -176,13 +176,13 @@ local artifacts, rejects = {}, {}
 local lj_module, facts = Lower.lower_module(module, {
     contracts = contracts,
     collect_rejects = rejects,
-    stencil_reduce_artifact_for = function(func, vocab, op, reduction, plan, info)
-        local artifact = Backend.artifact_for(vocab, op, reduction, plan, info)
+    stencil_reduce_artifact_for = function(func, vocab, op, reduction, plan, descriptor)
+        local artifact = Backend.artifact_for(vocab, op, reduction, plan, descriptor)
         artifacts[#artifacts + 1] = artifact
         return artifact
     end,
-    stencil_store_artifact_for = function(func, vocab, op, plan, info)
-        local artifact = Backend.artifact_for(vocab, op, nil, plan, info)
+    stencil_store_artifact_for = function(func, vocab, op, plan, descriptor)
+        local artifact = Backend.artifact_for(vocab, op, nil, plan, descriptor)
         artifacts[#artifacts + 1] = artifact
         return artifact
     end,
@@ -191,7 +191,8 @@ local lj_module, facts = Lower.lower_module(module, {
 local function plan_summary()
     local out = {}
     for _, plan in ipairs(facts.kernel.plans or {}) do
-        out[#out + 1] = tostring(asdl.classof(plan)) .. ":" .. tostring(plan.rejects and plan.rejects[1] and plan.rejects[1].reason or "ok")
+        local rejects = plan:kernel_plan_rejects()
+        out[#out + 1] = tostring(asdl.classof(plan)) .. ":" .. tostring(rejects and rejects[1] and rejects[1].reason or "ok")
     end
     return table.concat(out, ",")
 end

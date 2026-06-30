@@ -107,7 +107,7 @@ local function memflags(m)
     if m.motion.kind == "BackCanMove" then
         bits = bit.bor(bits, 4)
     end
-    if m.mode.kind == "BackAccessReadonly" then
+    if m.effect.kind == "BackAccessReadonly" then
         bits = bit.bor(bits, 8)
     end
     return bits

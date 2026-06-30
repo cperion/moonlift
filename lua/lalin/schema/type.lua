@@ -46,38 +46,38 @@ return schema. LalinType {
     TCType { variant_unique, field. id [LalinC.CTypeId], },
     TCFuncPtr { variant_unique, sig [LalinC.CFuncSigId], },
   },
-  sum. TypeClass {
-    TypeClassScalar { variant_unique, scalar [LalinCore.Scalar], },
-    TypeClassPointer { variant_unique, elem [LalinType.Type], },
-    TypeClassArray { variant_unique, elem [LalinType.Type], count [number], },
-    TypeClassSlice { variant_unique, elem [LalinType.Type], },
-    TypeClassView { variant_unique, elem [LalinType.Type], },
-    TypeClassLease {
+  sum. TypeShape {
+    TypeShapeScalar { variant_unique, scalar [LalinCore.Scalar], },
+    TypeShapePointer { variant_unique, elem [LalinType.Type], },
+    TypeShapeArray { variant_unique, elem [LalinType.Type], count [number], },
+    TypeShapeSlice { variant_unique, elem [LalinType.Type], },
+    TypeShapeView { variant_unique, elem [LalinType.Type], },
+    TypeShapeLease {
       variant_unique,
       base [LalinType.Type],
       origin [LalinType.LeaseOrigin],
     },
-    TypeClassOwned { variant_unique, base [LalinType.Type], },
-    TypeClassHandle { variant_unique, repr [LalinType.HandleRepr], },
-    TypeClassCallable {
+    TypeShapeOwned { variant_unique, base [LalinType.Type], },
+    TypeShapeHandle { variant_unique, repr [LalinType.HandleRepr], },
+    TypeShapeCallable {
       variant_unique,
       params [many [LalinType.Type]],
       result [LalinType.Type],
     },
-    TypeClassClosure {
+    TypeShapeClosure {
       variant_unique,
       params [many [LalinType.Type]],
       result [LalinType.Type],
     },
-    TypeClassAggregate { variant_unique, module_name [str], type_name [str], },
-    TypeClassUnknown,
+    TypeShapeAggregate { variant_unique, module_name [str], type_name [str], },
+    TypeShapeUnknown,
   },
   sum. TypeBackScalarResult {
     TypeBackScalarKnown { variant_unique, scalar [LalinBack.BackScalar], },
     TypeBackScalarUnavailable {
       variant_unique,
       field. ty [LalinType.Type],
-      class [LalinType.TypeClass],
+      shape [LalinType.TypeShape],
     },
   },
   sum. TypeMemLayoutResult {
@@ -85,7 +85,7 @@ return schema. LalinType {
     TypeMemLayoutUnknown {
       variant_unique,
       field. ty [LalinType.Type],
-      class [LalinType.TypeClass],
+      shape [LalinType.TypeShape],
     },
   },
   sum. AbiClass {
@@ -93,12 +93,12 @@ return schema. LalinType {
     AbiDirect { variant_unique, scalar [LalinBack.BackScalar], },
     AbiIndirect { variant_unique, layout [LalinSem.MemLayout], },
     AbiDescriptor { variant_unique, layout [LalinSem.MemLayout], },
-    AbiUnknown { variant_unique, class [LalinType.TypeClass], },
+    AbiUnknown { variant_unique, shape [LalinType.TypeShape], },
   },
   product. AbiDecision {
     interned,
     field. ty [LalinType.Type],
-    class [LalinType.AbiClass],
+    abi [LalinType.AbiClass],
   },
   sum. AbiParamPlan {
     AbiParamScalar {

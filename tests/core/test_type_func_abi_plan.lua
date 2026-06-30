@@ -27,19 +27,19 @@ assert(dst.name == "dst")
 assert(dst.data == Back.BackValId("arg:f:dst:data"))
 assert(dst.len == Back.BackValId("arg:f:dst:len"))
 assert(dst.stride == Back.BackValId("arg:f:dst:stride"))
-assert(asdl.classof(dst.binding.class) == B.BindingClassArg)
-assert(dst.binding.class.index == 0)
+assert(asdl.classof(dst.binding.role) == B.BindingRoleArg)
+assert(dst.binding.role.index == 0)
 
 local n = plan.params[2]
 assert(asdl.classof(n) == Ty.AbiParamScalar)
 assert(n.scalar == Back.BackIndex)
 assert(n.value == Back.BackValId("arg:f:n"))
-assert(n.binding.class.index == 1)
+assert(n.binding.role.index == 1)
 
 local x = plan.params[3]
 assert(asdl.classof(x) == Ty.AbiParamScalar)
 assert(x.scalar == Back.BackI32)
-assert(x.binding.class.index == 2)
+assert(x.binding.role.index == 2)
 assert(asdl.classof(plan.result) == Ty.AbiResultScalar)
 assert(plan.result.scalar == Back.BackI32)
 

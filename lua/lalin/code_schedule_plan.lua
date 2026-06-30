@@ -34,22 +34,17 @@ local function bind_context(T)
     end
 
     function Schedule.SchedulePlanInput:select_kernel_schedule()
-        if self.vector_kind ~= nil and capability_executable(self.vector_capability) then
-            return Schedule.ScheduleSelectionPlanned(self.vector_kind, self.vector_capability, {})
+        if self.vector_form ~= nil and capability_executable(self.vector_capability) then
+            return Schedule.ScheduleSelectionPlanned(self.vector_form, self.vector_capability, {})
         end
-        if self.vector_kind ~= nil and (not capability_executable(self.vector_capability)) and capability_executable(self.scalar_capability) then
-            return Schedule.ScheduleSelectionPlanned(self.scalar_kind, self.scalar_capability, capability_rejects(self.vector_capability))
+        if self.vector_form ~= nil and (not capability_executable(self.vector_capability)) and capability_executable(self.scalar_capability) then
+            return Schedule.ScheduleSelectionPlanned(self.scalar_form, self.scalar_capability, capability_rejects(self.vector_capability))
         end
-        if self.vector_kind == nil and capability_executable(self.scalar_capability) then
-            return Schedule.ScheduleSelectionPlanned(self.scalar_kind, self.scalar_capability, {})
+        if self.vector_form == nil and capability_executable(self.scalar_capability) then
+            return Schedule.ScheduleSelectionPlanned(self.scalar_form, self.scalar_capability, {})
         end
         return Schedule.ScheduleSelectionNoPlan(capability_rejects(self.scalar_capability))
     end
-
-    function Schedule.SchedulePlanSelection:schedule_plan_is_planned() return false end
-    function Schedule.ScheduleSelectionPlanned:schedule_plan_is_planned() return true end
-    function Schedule.SchedulePlanSelection:schedule_plan_is_no_plan() return false end
-    function Schedule.ScheduleSelectionNoPlan:schedule_plan_is_no_plan() return true end
 
     function Schedule.SchedulePlanSelection:to_kernel_schedule(kid, plan, proofs_for_selection)
         error("code_schedule_plan: unsupported schedule selection", 2)
@@ -64,7 +59,7 @@ local function bind_context(T)
         return Schedule.SchedulePlanned(
             Schedule.ScheduleId("schedule:" .. sanitize(kid.text) .. ":" .. sanitize(capability.kind)),
             kid,
-            self.schedule,
+            self.form,
             proofs_for_selection(plan, capability),
             self.rejected_alternatives or {}
         )
@@ -117,7 +112,7 @@ local function bind_context(T)
         return nil
     end
 
-    local function vector_schedule_kind(plan, target)
+    local function vector_schedule_form(plan, target)
         local body = plan.body
         if body == nil or #(body.lanes or {}) == 0 then return nil end
         if asdl.classof(body.result) == Kernel.KernelResultClosedForm then return nil end
@@ -137,7 +132,7 @@ local function bind_context(T)
         return nil
     end
 
-    local function scalar_or_closed_kind_for(plan)
+    local function scalar_or_closed_form_for(plan)
         local result = plan.body and plan.body.result or nil
         if asdl.classof(result) == Kernel.KernelResultClosedForm then return Schedule.ScheduleClosedForm end
         return Schedule.ScheduleScalarIndex
@@ -145,14 +140,14 @@ local function bind_context(T)
 
     local function schedule_for_plan(plan, target, flow)
         local kid = plan.id
-        local vector_kind = vector_schedule_kind(plan, target)
+        local vector_form = vector_schedule_form(plan, target)
         local vector_cap = nil
-        if vector_kind ~= nil then
-            vector_cap = KernelEmitSupport.classify(plan, vector_kind, target, flow)
+        if vector_form ~= nil then
+            vector_cap = KernelEmitSupport.classify(plan, vector_form, target, flow)
         end
-        local scalar_kind = scalar_or_closed_kind_for(plan)
-        local scalar_cap = vector_cap and vector_cap.executable and nil or KernelEmitSupport.classify(plan, scalar_kind, target, flow)
-        local selection = Schedule.SchedulePlanInput(vector_kind, vector_cap, scalar_kind, scalar_cap):select_kernel_schedule()
+        local scalar_form = scalar_or_closed_form_for(plan)
+        local scalar_cap = vector_cap and vector_cap.executable and nil or KernelEmitSupport.classify(plan, scalar_form, target, flow)
+        local selection = Schedule.SchedulePlanInput(vector_form, vector_cap, scalar_form, scalar_cap):select_kernel_schedule()
         return selection:to_kernel_schedule(kid, plan, proofs_for)
     end
 

@@ -29,41 +29,70 @@ local function bind_context(T)
 
     local api = {}
 
+    function Kernel.KernelPlan:kernel_plan_rejects() return nil end
+    function Kernel.KernelNoPlan:kernel_plan_rejects() return self.rejects end
+
+    function Kernel.KernelSkeletonSelection:kernel_skeleton_effects()
+        return self.effects or {}
+    end
+
+    function Kernel.KernelSkeletonSelection:kernel_skeleton_result()
+        return self.result
+    end
+
+    function Kernel.KernelSkeletonSelection:kernel_skeleton_handles_dependences()
+        return false
+    end
+
+    function Kernel.KernelSkeletonCopy:kernel_skeleton_handles_dependences()
+        return true
+    end
+
+    function Kernel.KernelSkeletonScatterReduce:kernel_skeleton_handles_dependences()
+        return true
+    end
+
+    function Kernel.KernelFunctionSkeletonSelection:add_function_skeleton_plan(plans)
+    end
+
+    function Kernel.KernelFunctionSkeletonPartition:add_function_skeleton_plan(plans)
+        plans[#plans + 1] = self.plan
+    end
+
+    function Kernel.KernelFunctionSkeletonNoSelection:add_function_skeleton_plan(plans)
+        plans[#plans + 1] = Kernel.KernelNoPlan(self.subject, self.rejects)
+    end
+
     function Flow.FlowTripCount:kernel_plan_closed_form_trip_unknown_proof() return false end
     function Flow.FlowTripCountUnknown:kernel_plan_closed_form_trip_unknown_proof() return true end
 
-    function Kernel.KernelLoopPlanInput:select_kernel_loop_plan()
-        if not self.counted then
-            return Kernel.KernelLoopNoPlan(self.not_counted_rejects)
-        end
-        if not self.has_func_id then
-            return Kernel.KernelLoopNoPlan(self.no_owner_rejects)
-        end
-        if #(self.rejects or {}) > 0 then
-            return Kernel.KernelLoopNoPlan(self.rejects)
-        end
-        if self.has_func and self.closed_form ~= nil then
-            return Kernel.KernelLoopPlanClosedForm(self.closed_form, self.trip_count:kernel_plan_closed_form_trip_unknown_proof())
-        end
-        if self.has_func and self.reduction ~= nil then
-            return Kernel.KernelLoopPlanReduction(self.reduction)
-        end
-        if self.has_func and self.skeleton_result ~= nil then
-            return Kernel.KernelLoopPlanSkeleton(self.skeleton_result)
-        end
+    function Kernel.KernelLoopCandidate:select_kernel_loop_plan()
         return Kernel.KernelLoopPlanOriginalControl
     end
 
-    function Kernel.KernelLoopPlanSelection:kernel_plan_is_no_plan() return false end
-    function Kernel.KernelLoopNoPlan:kernel_plan_is_no_plan() return true end
-    function Kernel.KernelLoopPlanSelection:kernel_plan_is_closed_form() return false end
-    function Kernel.KernelLoopPlanClosedForm:kernel_plan_is_closed_form() return true end
-    function Kernel.KernelLoopPlanSelection:kernel_plan_is_reduction() return false end
-    function Kernel.KernelLoopPlanReduction:kernel_plan_is_reduction() return true end
-    function Kernel.KernelLoopPlanSelection:kernel_plan_is_skeleton() return false end
-    function Kernel.KernelLoopPlanSkeleton:kernel_plan_is_skeleton() return true end
-    function Kernel.KernelLoopPlanSelection:kernel_plan_is_original_control() return false end
-    function Kernel.KernelLoopPlanOriginalControl:kernel_plan_is_original_control() return true end
+    function Kernel.KernelLoopNotCounted:select_kernel_loop_plan()
+        return Kernel.KernelLoopNoPlan(self.rejects)
+    end
+
+    function Kernel.KernelLoopMissingOwner:select_kernel_loop_plan()
+        return Kernel.KernelLoopNoPlan(self.rejects)
+    end
+
+    function Kernel.KernelLoopRejectedFacts:select_kernel_loop_plan()
+        return Kernel.KernelLoopNoPlan(self.rejects)
+    end
+
+    function Kernel.KernelLoopClosedFormCandidate:select_kernel_loop_plan()
+        return Kernel.KernelLoopPlanClosedForm(self.closed_form, self.trip_count:kernel_plan_closed_form_trip_unknown_proof())
+    end
+
+    function Kernel.KernelLoopReductionCandidate:select_kernel_loop_plan()
+        return Kernel.KernelLoopPlanReduction(self.reduction)
+    end
+
+    function Kernel.KernelLoopSkeletonCandidate:select_kernel_loop_plan()
+        return Kernel.KernelLoopPlanSkeleton(self.result)
+    end
 
     function Kernel.KernelLoopPlanSelection:add_selected_loop_plan(plans, subject, state)
         local body = Kernel.KernelBody(
@@ -167,22 +196,44 @@ local function bind_context(T)
         return out
     end
 
-    local function access_indexes(mem)
-        local access_by_id, object_by_access, backend_by_access = {}, {}, {}
-        for _, access in ipairs(mem and mem.accesses or {}) do access_by_id[access.id.text] = access end
-        for _, interval in ipairs(mem and mem.intervals or {}) do object_by_access[interval.access.text] = interval.object end
-        for _, info in ipairs(mem and mem.backend_info or {}) do backend_by_access[info.access.text] = info end
-        return access_by_id, object_by_access, backend_by_access
+    local function add_dependence_reject(a, b, dep_unknown, dep_proved, dependence_rejects)
+        local key = a.id.text .. "\0" .. b.id.text
+        if dep_unknown[key] or not dep_proved[key] then
+            dependence_rejects[#dependence_rejects + 1] = {
+                before = a.id,
+                after = b.id,
+                reason = "loop write pair lacks pairwise no-dependence proof: " .. a.id.text .. " / " .. b.id.text,
+            }
+        end
     end
 
-    function Mem.MemAccessKind:kernel_plan_is_write_access() return false end
-    function Mem.MemStore:kernel_plan_is_write_access() return true end
-    function Mem.MemAtomicStore:kernel_plan_is_write_access() return true end
-    function Mem.MemAtomicRmw:kernel_plan_is_write_access() return true end
-    function Mem.MemAtomicCas:kernel_plan_is_write_access() return true end
-
-    local function is_write_access(kind)
-        return kind:kernel_plan_is_write_access()
+    function Mem.MemAccessOp:kernel_plan_add_dependence_reject(a, b, dep_unknown, dep_proved, dependence_rejects)
+        b.op:kernel_plan_add_dependence_reject_after_read(a, b, dep_unknown, dep_proved, dependence_rejects)
+    end
+    function Mem.MemAccessOp:kernel_plan_add_dependence_reject_after_read(a, b, dep_unknown, dep_proved, dependence_rejects) end
+    function Mem.MemStore:kernel_plan_add_dependence_reject(a, b, dep_unknown, dep_proved, dependence_rejects)
+        add_dependence_reject(a, b, dep_unknown, dep_proved, dependence_rejects)
+    end
+    function Mem.MemStore:kernel_plan_add_dependence_reject_after_read(a, b, dep_unknown, dep_proved, dependence_rejects)
+        add_dependence_reject(a, b, dep_unknown, dep_proved, dependence_rejects)
+    end
+    function Mem.MemAtomicStore:kernel_plan_add_dependence_reject(a, b, dep_unknown, dep_proved, dependence_rejects)
+        add_dependence_reject(a, b, dep_unknown, dep_proved, dependence_rejects)
+    end
+    function Mem.MemAtomicStore:kernel_plan_add_dependence_reject_after_read(a, b, dep_unknown, dep_proved, dependence_rejects)
+        add_dependence_reject(a, b, dep_unknown, dep_proved, dependence_rejects)
+    end
+    function Mem.MemAtomicRmw:kernel_plan_add_dependence_reject(a, b, dep_unknown, dep_proved, dependence_rejects)
+        add_dependence_reject(a, b, dep_unknown, dep_proved, dependence_rejects)
+    end
+    function Mem.MemAtomicRmw:kernel_plan_add_dependence_reject_after_read(a, b, dep_unknown, dep_proved, dependence_rejects)
+        add_dependence_reject(a, b, dep_unknown, dep_proved, dependence_rejects)
+    end
+    function Mem.MemAtomicCas:kernel_plan_add_dependence_reject(a, b, dep_unknown, dep_proved, dependence_rejects)
+        add_dependence_reject(a, b, dep_unknown, dep_proved, dependence_rejects)
+    end
+    function Mem.MemAtomicCas:kernel_plan_add_dependence_reject_after_read(a, b, dep_unknown, dep_proved, dependence_rejects)
+        add_dependence_reject(a, b, dep_unknown, dep_proved, dependence_rejects)
     end
 
     local function block_set(blocks)
@@ -203,14 +254,14 @@ local function bind_context(T)
     end
 
     local function lanes_for_accesses(func_id, loop_id, loop_blocks, mem, rejects, proofs)
-        local _, object_by_access, backend_by_access = access_indexes(mem)
+        local mem_projection = CodeMemFacts.access_projection(mem)
         local lane_by_access = {}
         local grouped = {}
         local loop_accesses = {}
         for _, access in ipairs(mem and mem.accesses or {}) do
             if access.func == func_id and loop_blocks[access.block.block.text] then
-                local object = object_by_access[access.id.text]
-                local backend = backend_by_access[access.id.text]
+                local object = mem_projection:object_for_access(access.id)
+                local backend = mem_projection:backend_for_access(access.id)
                 if backend == nil then
                     rejects[#rejects + 1] = Kernel.KernelRejectUnsupportedMemory(access.id, "missing MemBackendAccessInfo for loop-local access")
                 elseif asdl.classof(backend.trap) ~= Mem.MemNonTrapping then
@@ -252,16 +303,7 @@ local function bind_context(T)
         for i = 1, #loop_accesses do
             for j = i + 1, #loop_accesses do
                 local a, b = loop_accesses[i], loop_accesses[j]
-                if is_write_access(a.kind) or is_write_access(b.kind) then
-                    local key = a.id.text .. "\0" .. b.id.text
-                    if dep_unknown[key] or not dep_proved[key] then
-                        dependence_rejects[#dependence_rejects + 1] = {
-                            before = a.id,
-                            after = b.id,
-                            reason = "loop write pair lacks pairwise no-dependence proof: " .. a.id.text .. " / " .. b.id.text,
-                        }
-                    end
-                end
+                a.op:kernel_plan_add_dependence_reject(a, b, dep_unknown, dep_proved, dependence_rejects)
             end
         end
         local lanes = {}
@@ -347,7 +389,7 @@ local function bind_context(T)
     local function kernel_value_expr(value_index, bindings_by_value, id)
         if id == nil then return nil end
         if bindings_by_value[id.text] ~= nil then return Kernel.KernelExprKernelValue(bindings_by_value[id.text]) end
-        local expr = value_index.expr_by_value[id.text] or Value.ValueExprValue(id)
+        local expr = value_index:expr_for_value(id)
         return Kernel.KernelExprAlgebra(expr)
     end
 
@@ -375,7 +417,7 @@ local function bind_context(T)
         for _, block in ipairs(func.blocks or {}) do
             if loop_blocks[block.id.text] then
                 for _, inst in ipairs(block.insts or {}) do
-                    local k = inst.kind
+                    local k = inst.op
                     local cls = asdl.classof(k)
                     if cls == Code.CodeInstLoad then
                         local aid = Mem.MemAccessId(access_id_text(func, block, inst))
@@ -394,7 +436,7 @@ local function bind_context(T)
                     elseif cls == Code.CodeInstConst or cls == Code.CodeInstAlias or cls == Code.CodeInstUnary or cls == Code.CodeInstBinary or cls == Code.CodeInstFloatBinary or cls == Code.CodeInstCompare or cls == Code.CodeInstSelect or cls == Code.CodeInstCast then
                         local dst = k.dst
                         if dst ~= nil then
-                            local expr = value_index.expr_by_value[dst.text]
+                            local expr = value_index:expr_for_value_or_nil(dst)
                             if expr ~= nil then add_binding(dst, inst_result_ty(k), Kernel.KernelExprAlgebra(expr))
                             elseif reduction_backedges and reduction_backedges[dst.text] then
                                 -- The loop-carried recurrence result is represented by
@@ -430,24 +472,39 @@ local function bind_context(T)
         return out
     end
 
-    local function resolve_kernel_expr(expr, bindings, seen)
+    local function expr_projection(bindings, aliases)
+        return Kernel.KernelExprProjection(binding_index(bindings), aliases or {})
+    end
+
+    function Kernel.KernelExprProjection:kernel_binding(id)
+        if id == nil then return nil end
+        local key = type(id) == "string" and id or id.text
+        return self.binding_by_kernel_value[key]
+    end
+
+    function Kernel.KernelExprProjection:kernel_binding_for_code_value(value)
+        if value == nil then return nil end
+        return self:kernel_binding("kval:" .. value.text)
+    end
+
+    function Kernel.KernelExprProjection:canonical_value(value)
+        local seen = {}
+        while value ~= nil and self.alias_by_value ~= nil and self.alias_by_value[value.text] ~= nil and not seen[value.text] do
+            seen[value.text] = true
+            value = self.alias_by_value[value.text]
+        end
+        return value
+    end
+
+    local function resolve_kernel_expr(expr, projection, seen)
         if expr == nil then return nil end
         if asdl.classof(expr) ~= Kernel.KernelExprKernelValue then return expr end
         seen = seen or {}
         if seen[expr.value.text] then return expr end
         seen[expr.value.text] = true
-        local binding = bindings[expr.value.text]
+        local binding = projection:kernel_binding(expr.value)
         if binding == nil then return expr end
-        return resolve_kernel_expr(binding.expr, bindings, seen)
-    end
-
-    local function canonical_value(value, aliases)
-        local seen = {}
-        while value ~= nil and aliases ~= nil and aliases[value.text] ~= nil and not seen[value.text] do
-            seen[value.text] = true
-            value = aliases[value.text]
-        end
-        return value
+        return resolve_kernel_expr(binding.expr, projection, seen)
     end
 
     local function loop_body_aliases(graph_loop, flow)
@@ -462,7 +519,7 @@ local function bind_context(T)
                 local edge = fact.edge
                 if edge ~= latch and loop_blocks[edge.from.block.text] and loop_blocks[edge.to.block.text] then
                     for _, arg in ipairs(fact.args or {}) do
-                        local src = canonical_value(arg.src, aliases)
+                        local src = Kernel.KernelExprProjection({}, aliases):canonical_value(arg.src)
                         if src ~= nil and src ~= arg.dst_param and aliases[arg.dst_param.text] == nil then
                             aliases[arg.dst_param.text] = src
                             changed = true
@@ -474,16 +531,16 @@ local function bind_context(T)
         return aliases
     end
 
-    local function value_expr_is_value(expr, id, aliases)
+    local function value_expr_is_value(expr, id, projection)
         if id == nil or asdl.classof(expr) ~= Value.ValueExprValue then return false end
-        return canonical_value(expr.value, aliases) == canonical_value(id, aliases)
+        return projection:canonical_value(expr.value) == projection:canonical_value(id)
     end
 
-    local function same_value_expr(a, b, aliases)
+    local function same_value_expr(a, b, projection)
         if a == b then return true end
         local ac, bc = asdl.classof(a), asdl.classof(b)
         if ac ~= bc then return false end
-        if ac == Value.ValueExprValue then return canonical_value(a.value, aliases) == canonical_value(b.value, aliases) end
+        if ac == Value.ValueExprValue then return projection:canonical_value(a.value) == projection:canonical_value(b.value) end
         if ac == Value.ValueExprConst then return a.const == b.const end
         return false
     end
@@ -499,86 +556,99 @@ local function bind_context(T)
         return const_int_expr(expr) == -1
     end
 
-    function Value.ReductionKind:kernel_plan_update_matches_expr(expr, reduction, aliases)
+    function Value.ReductionOp:kernel_plan_update_matches_expr(expr, reduction, projection)
         return false
     end
-    function Value.ReductionAdd:kernel_plan_update_matches_expr(expr, reduction, aliases)
-        return expr:kernel_plan_matches_add_update(reduction, aliases)
+    function Value.ReductionAdd:kernel_plan_update_matches_expr(expr, reduction, projection)
+        return expr:kernel_plan_matches_add_update(reduction, projection)
     end
-    function Value.ReductionMul:kernel_plan_update_matches_expr(expr, reduction, aliases)
-        return expr:kernel_plan_matches_mul_update(reduction, aliases)
+    function Value.ReductionMul:kernel_plan_update_matches_expr(expr, reduction, projection)
+        return expr:kernel_plan_matches_mul_update(reduction, projection)
     end
-    function Kernel.KernelExpr:kernel_plan_matches_add_update(reduction, aliases) return false end
-    function Kernel.KernelExpr:kernel_plan_matches_mul_update(reduction, aliases) return false end
-    function Kernel.KernelExprAlgebra:kernel_plan_matches_add_update(reduction, aliases)
-        return self.expr:kernel_plan_matches_add_update(reduction, aliases)
+    function Kernel.KernelExpr:kernel_plan_matches_add_update(reduction, projection) return false end
+    function Kernel.KernelExpr:kernel_plan_matches_mul_update(reduction, projection) return false end
+    function Kernel.KernelExprAlgebra:kernel_plan_matches_add_update(reduction, projection)
+        return self.expr:kernel_plan_matches_add_update(reduction, projection)
     end
-    function Kernel.KernelExprAlgebra:kernel_plan_matches_mul_update(reduction, aliases)
-        return self.expr:kernel_plan_matches_mul_update(reduction, aliases)
+    function Kernel.KernelExprAlgebra:kernel_plan_matches_mul_update(reduction, projection)
+        return self.expr:kernel_plan_matches_mul_update(reduction, projection)
     end
-    function Value.ValueExpr:kernel_plan_matches_add_update(reduction, aliases) return false end
-    function Value.ValueExpr:kernel_plan_matches_mul_update(reduction, aliases) return false end
-    function Value.ValueExprAdd:kernel_plan_matches_add_update(reduction, aliases)
+    function Value.ValueExpr:kernel_plan_matches_add_update(reduction, projection) return false end
+    function Value.ValueExpr:kernel_plan_matches_mul_update(reduction, projection) return false end
+    function Value.ValueExprAdd:kernel_plan_matches_add_update(reduction, projection)
         local acc = reduction.accumulator
         local contrib = reduction.contribution
-        return (value_expr_is_value(self.a, acc, aliases) and same_value_expr(self.b, contrib, aliases))
-            or (value_expr_is_value(self.b, acc, aliases) and same_value_expr(self.a, contrib, aliases))
+        return (value_expr_is_value(self.a, acc, projection) and same_value_expr(self.b, contrib, projection))
+            or (value_expr_is_value(self.b, acc, projection) and same_value_expr(self.a, contrib, projection))
     end
-    function Value.ValueExprMul:kernel_plan_matches_mul_update(reduction, aliases)
+    function Value.ValueExprMul:kernel_plan_matches_mul_update(reduction, projection)
         local acc = reduction.accumulator
         local contrib = reduction.contribution
-        return (value_expr_is_value(self.a, acc, aliases) and same_value_expr(self.b, contrib, aliases))
-            or (value_expr_is_value(self.b, acc, aliases) and same_value_expr(self.a, contrib, aliases))
+        return (value_expr_is_value(self.a, acc, projection) and same_value_expr(self.b, contrib, projection))
+            or (value_expr_is_value(self.b, acc, projection) and same_value_expr(self.a, contrib, projection))
     end
 
-    local function reduction_update_matches(expr, reduction, aliases)
-        return reduction.kind:kernel_plan_update_matches_expr(expr, reduction, aliases)
+    local function reduction_update_matches(expr, reduction, projection)
+        return reduction.op:kernel_plan_update_matches_expr(expr, reduction, projection)
     end
 
     local function loop_primary_induction(loop)
         for _, induction in ipairs(loop and loop.inductions or {}) do
-            local value = induction.kind:kernel_plan_primary_induction_value(induction)
+            local value = induction.role:kernel_plan_primary_induction_value(induction)
             if value ~= nil then return value end
         end
         return nil
     end
 
-    function Flow.FlowInductionKind:kernel_plan_primary_induction_value(induction) return nil end
+    function Flow.FlowInductionRole:kernel_plan_primary_induction_value(induction) return nil end
     function Flow.FlowPrimaryInduction:kernel_plan_primary_induction_value(induction) return induction.value end
 
-    local function value_expr_binding(value, bindings)
-        if value == nil or bindings == nil then return nil end
-        local binding = bindings["kval:" .. value.text]
+    function Kernel.KernelExprProjection:value_expr_binding(value)
+        if value == nil then return nil end
+        local binding = self:kernel_binding_for_code_value(value)
         if binding == nil then return nil end
-        local expr = resolve_kernel_expr(binding.expr, bindings)
+        local expr = resolve_kernel_expr(binding.expr, self)
         if asdl.classof(expr) == Kernel.KernelExprAlgebra then return expr.expr end
         return nil
     end
 
-    local function expr_is_primary(expr, loop, aliases, bindings, seen)
-        if expr == nil then return false end
-        if value_expr_is_value(expr, loop_primary_induction(loop), aliases) then return true end
-        local cls = asdl.classof(expr)
-        if cls == Value.ValueExprValue then
-            seen = seen or {}
-            if seen[expr.value.text] then return false end
-            seen[expr.value.text] = true
-            return expr_is_primary(value_expr_binding(expr.value, bindings), loop, aliases, bindings, seen)
-        end
-        if cls == Value.ValueExprCast then return expr_is_primary(expr.value, loop, aliases, bindings, seen) end
-        if cls == Value.ValueExprMul then
-            if const_int_expr(expr.a) == 1 then return expr_is_primary(expr.b, loop, aliases, bindings, seen) end
-            if const_int_expr(expr.b) == 1 then return expr_is_primary(expr.a, loop, aliases, bindings, seen) end
-        end
-        if cls == Value.ValueExprAdd then
-            if const_int_expr(expr.a) == 0 then return expr_is_primary(expr.b, loop, aliases, bindings, seen) end
-            if const_int_expr(expr.b) == 0 then return expr_is_primary(expr.a, loop, aliases, bindings, seen) end
-        end
+    local expr_is_primary
+
+    function Value.ValueExpr:kernel_plan_is_primary_index()
         return false
     end
 
-    local function index_is_primary(index, loop, aliases, bindings)
-        return expr_is_primary(index, loop, aliases, bindings)
+    function Value.ValueExprValue:kernel_plan_is_primary_index(loop, projection, seen)
+        seen = seen or {}
+        if seen[self.value.text] then return false end
+        seen[self.value.text] = true
+        return expr_is_primary(projection:value_expr_binding(self.value), loop, projection, seen)
+    end
+
+    function Value.ValueExprCast:kernel_plan_is_primary_index(loop, projection, seen)
+        return expr_is_primary(self.value, loop, projection, seen)
+    end
+
+    function Value.ValueExprMul:kernel_plan_is_primary_index(loop, projection, seen)
+        if const_int_expr(self.a) == 1 then return expr_is_primary(self.b, loop, projection, seen) end
+        if const_int_expr(self.b) == 1 then return expr_is_primary(self.a, loop, projection, seen) end
+        return false
+    end
+
+    function Value.ValueExprAdd:kernel_plan_is_primary_index(loop, projection, seen)
+        if const_int_expr(self.a) == 0 then return expr_is_primary(self.b, loop, projection, seen) end
+        if const_int_expr(self.b) == 0 then return expr_is_primary(self.a, loop, projection, seen) end
+        return false
+    end
+
+    expr_is_primary = function(expr, loop, projection, seen)
+        if expr == nil then return false end
+        if value_expr_is_value(expr, loop_primary_induction(loop), projection) then return true end
+        return expr:kernel_plan_is_primary_index(loop, projection, seen)
+    end
+
+    local function index_is_primary(index, loop, projection)
+        return expr_is_primary(index, loop, projection)
     end
 
     local function lane_has_access(lane, id)
@@ -605,7 +675,7 @@ local function bind_context(T)
     end
 
     local function term_args_to_dest(term, dest)
-        local k = term and term.kind
+        local k = term and term.op
         local cls = asdl.classof(k)
         if cls == Code.CodeTermJump and k.dest == dest then return k.args or {} end
         if cls == Code.CodeTermBranch then
@@ -641,13 +711,13 @@ local function bind_context(T)
         local seen = {}
         while block ~= nil and not seen[block.id.text] do
             seen[block.id.text] = true
-            local term = block.term and block.term.kind or nil
+            local term = block.term and block.term.op or nil
             local cls = asdl.classof(term)
             if cls == Code.CodeTermReturn then
                 if #(term.values or {}) ~= 1 then return nil end
                 local value = substitute_value(term.values[1], env)
                 if value == nil then return nil end
-                return value_index.expr_by_value[value.text] or Value.ValueExprValue(value), value
+                return value_index:expr_for_value(value), value
             end
             if cls ~= Code.CodeTermJump then return nil end
             local dest = blocks[term.dest.text]
@@ -663,7 +733,7 @@ local function bind_context(T)
 
     local function edge_branch_polarity(blocks, edge)
         local from = blocks[edge.from.block.text]
-        local term = from and from.term and from.term.kind or nil
+        local term = from and from.term and from.term.op or nil
         if asdl.classof(term) ~= Code.CodeTermBranch then return nil, nil end
         if term.then_dest == edge.to.block then return term.cond, true end
         if term.else_dest == edge.to.block then return term.cond, false end
@@ -695,22 +765,22 @@ local function bind_context(T)
         return nil
     end
 
-    local function same_load_expr(a, b)
+    local function same_load_expr(a, b, projection)
         if asdl.classof(a) ~= Kernel.KernelExprLaneLoad or asdl.classof(b) ~= Kernel.KernelExprLaneLoad then return false end
-        return a.lane == b.lane and same_value_expr(a.index, b.index)
+        return a.lane == b.lane and same_value_expr(a.index, b.index, projection)
     end
 
-    local function expr_as_kernel_value(expr, bindings)
+    local function expr_as_kernel_value(expr, projection)
         if asdl.classof(expr) ~= Value.ValueExprValue then return nil end
-        return resolve_kernel_expr(Kernel.KernelExprKernelValue(Kernel.KernelValueId("kval:" .. expr.value.text)), bindings)
+        return resolve_kernel_expr(Kernel.KernelExprKernelValue(Kernel.KernelValueId("kval:" .. expr.value.text)), projection)
     end
 
-    local function find_predicate_from_cond(cond, polarity, bindings, value_index)
-        local expr = cond and value_index.expr_by_value[cond.text] or nil
+    local function find_predicate_from_cond(cond, polarity, projection, value_index)
+        local expr = value_index:expr_for_value_or_nil(cond)
         if asdl.classof(expr) ~= Value.ValueExprCmp then return nil end
         local op = polarity and expr.op or invert_cmp(expr.op)
         if op == nil then return nil end
-        local a_kernel, b_kernel = expr_as_kernel_value(expr.a, bindings), expr_as_kernel_value(expr.b, bindings)
+        local a_kernel, b_kernel = expr_as_kernel_value(expr.a, projection), expr_as_kernel_value(expr.b, projection)
         local a_const = asdl.classof(expr.a) == Value.ValueExprConst and expr.a or nil
         local b_const = asdl.classof(expr.b) == Value.ValueExprConst and expr.b or nil
         if a_kernel ~= nil and b_const ~= nil and asdl.classof(a_kernel) == Kernel.KernelExprLaneLoad then
@@ -736,28 +806,28 @@ local function bind_context(T)
         return nil
     end
 
-    local function infer_scan_skeleton(func, graph_loop, loop, effects, reductions, bindings, aliases, proofs)
+    local function infer_scan_skeleton(func, graph_loop, loop, effects, reductions, projection, proofs)
         if #reductions ~= 1 then return nil end
         local store = first_effect(effects, Kernel.KernelEffectStore)
         if store == nil then return nil end
         local reduction = reductions[1]
-        if not reduction_update_matches(resolve_kernel_expr(store.value, bindings), reduction, aliases) then return nil end
+        if not reduction_update_matches(resolve_kernel_expr(store.value, projection), reduction, projection) then return nil end
         proofs[#proofs + 1] = Kernel.KernelProofFunctionEquivalence("store of loop-carried reduction update is a prefix scan")
-        return {
-            effects = {
+        return Kernel.KernelSkeletonScan(
+            {
                 Kernel.KernelEffectScan(store.dst, store.index, reduction, Stencil.StencilScanInclusive, scan_axis_from_header(func, graph_loop)),
                 Kernel.KernelEffectFold(reduction),
             },
-            result = Kernel.KernelResultReduction(reduction),
-        }
+            Kernel.KernelResultReduction(reduction)
+        )
     end
 
-    local function infer_copy_skeleton(loop, effects, bindings, dependence_rejects, aliases, proofs)
+    local function infer_copy_skeleton(loop, effects, projection, dependence_rejects, proofs)
         local store = first_effect(effects, Kernel.KernelEffectStore)
-        if store == nil or not index_is_primary(store.index, loop, aliases, bindings) then return nil end
-        local src = resolve_kernel_expr(store.value, bindings)
+        if store == nil or not index_is_primary(store.index, loop, projection) then return nil end
+        local src = resolve_kernel_expr(store.value, projection)
         if asdl.classof(src) ~= Kernel.KernelExprLaneLoad then return nil end
-        if not index_is_primary(src.index, loop, aliases, bindings) then return nil end
+        if not index_is_primary(src.index, loop, projection) then return nil end
         if store.dst.elem_ty ~= src.lane.elem_ty then return nil end
         local semantics, dep_reason = copy_dependence_semantics(store.dst, src.lane, dependence_rejects)
         if semantics == nil then return nil, dep_reason end
@@ -765,136 +835,184 @@ local function bind_context(T)
         if semantics == Stencil.StencilCopyMemMove then
             proofs[#proofs + 1] = Kernel.KernelProofFunctionEquivalence("copy skeleton uses memmove semantics for unresolved source/destination overlap")
         end
-        return {
-            effects = {
+        return Kernel.KernelSkeletonCopy(
+            {
                 Kernel.KernelEffectCopy(store.dst, src, semantics),
             },
-            result = Kernel.KernelResultVoid,
-            handles_dependences = true,
-        }
+            Kernel.KernelResultVoid
+        )
     end
 
-    local function scatter_reduce_kind(expr)
-        local cls = asdl.classof(expr)
-        if cls == Value.ValueExprAdd then return Value.ReductionAdd, expr.a, expr.b, expr.ty, expr.sem end
-        if cls == Value.ValueExprMul then return Value.ReductionMul, expr.a, expr.b, expr.ty, expr.sem end
-        if cls == Value.ValueExprBinary then
-            local kind = ReductionAlgebra.binary_reduction_kind(expr.op, false)
-            if kind ~= nil then return kind, expr.a, expr.b, expr.ty, expr.sem end
-        end
+    function Value.ValueExpr:kernel_plan_scatter_reduce_op()
         return nil
     end
 
-    local function resolved_value_expr(expr, bindings, seen)
-        if expr == nil then return nil end
-        if asdl.classof(expr) ~= Value.ValueExprValue then return expr end
-        seen = seen or {}
-        if seen[expr.value.text] then return expr end
-        seen[expr.value.text] = true
-        return resolved_value_expr(value_expr_binding(expr.value, bindings) or expr, bindings, seen)
+    function Value.ValueExprAdd:kernel_plan_scatter_reduce_op()
+        return Value.ReductionAdd, self.a, self.b, self.ty, self.sem
     end
 
-    local function value_expr_key(expr, bindings, aliases)
-        expr = resolved_value_expr(expr, bindings)
-        if expr == nil then return "nil" end
-        local cls = asdl.classof(expr)
-        if cls == Value.ValueExprConst and asdl.classof(expr.const) == Code.CodeConstLiteral then
-            local lit = expr.const.literal
+    function Value.ValueExprMul:kernel_plan_scatter_reduce_op()
+        return Value.ReductionMul, self.a, self.b, self.ty, self.sem
+    end
+
+    function Value.ValueExprBinary:kernel_plan_scatter_reduce_op()
+        local op = ReductionAlgebra.binary_reduction_op(self.op, false)
+        if op ~= nil then return op, self.a, self.b, self.ty, self.sem end
+        return nil
+    end
+
+    local function scatter_reduce_op(expr)
+        return expr:kernel_plan_scatter_reduce_op()
+    end
+
+    local resolved_value_expr
+
+    function Value.ValueExpr:kernel_plan_resolved_value_expr()
+        return self
+    end
+
+    function Value.ValueExprValue:kernel_plan_resolved_value_expr(projection, seen)
+        seen = seen or {}
+        if seen[self.value.text] then return self end
+        seen[self.value.text] = true
+        return resolved_value_expr(projection:value_expr_binding(self.value) or self, projection, seen)
+    end
+
+    resolved_value_expr = function(expr, projection, seen)
+        if expr == nil then return nil end
+        return expr:kernel_plan_resolved_value_expr(projection, seen)
+    end
+
+    local value_expr_key
+
+    function Value.ValueExpr:kernel_plan_value_key()
+        return tostring(self)
+    end
+
+    function Value.ValueExprConst:kernel_plan_value_key()
+        if asdl.classof(self.const) == Code.CodeConstLiteral then
+            local lit = self.const.literal
             return "const:" .. tostring(asdl.classof(lit)) .. ":" .. tostring(lit and (lit.raw or lit.value))
         end
-        if cls == Value.ValueExprValue then
-            local binding = bindings and bindings["kval:" .. expr.value.text] or nil
-            if binding ~= nil and asdl.classof(binding.expr) == Kernel.KernelExprLaneLoad then
-                return "load:" .. tostring(binding.expr.lane.id.text) .. ":" .. value_expr_key(binding.expr.index, bindings, aliases)
-            end
-            local v = canonical_value(expr.value, aliases)
-            return "value:" .. tostring(v and v.text)
-        end
-        if cls == Value.ValueExprCast then return value_expr_key(expr.value, bindings, aliases) end
-        if cls == Value.ValueExprAdd or cls == Value.ValueExprSub or cls == Value.ValueExprMul or cls == Value.ValueExprDiv or cls == Value.ValueExprRem then
-            return tostring(cls) .. "(" .. value_expr_key(expr.a, bindings, aliases) .. "," .. value_expr_key(expr.b, bindings, aliases) .. ")"
-        end
-        if cls == Value.ValueExprBinary then
-            return "binary:" .. tostring(expr.op) .. "(" .. value_expr_key(expr.a, bindings, aliases) .. "," .. value_expr_key(expr.b, bindings, aliases) .. ")"
-        end
-        return tostring(expr)
+        return tostring(self)
     end
 
-    local function same_index_expr(a, b, bindings, aliases)
-        return value_expr_key(a, bindings, aliases) == value_expr_key(b, bindings, aliases)
+    function Value.ValueExprValue:kernel_plan_value_key(projection)
+        local binding = projection:kernel_binding_for_code_value(self.value)
+        if binding ~= nil and asdl.classof(binding.expr) == Kernel.KernelExprLaneLoad then
+            return "load:" .. tostring(binding.expr.lane.id.text) .. ":" .. value_expr_key(binding.expr.index, projection)
+        end
+        local v = projection:canonical_value(self.value)
+        return "value:" .. tostring(v and v.text)
     end
 
-    local function scatter_reduce_contribution(store, a, b, bindings, aliases)
-        local ka = expr_as_kernel_value(a, bindings)
-        local kb = expr_as_kernel_value(b, bindings)
+    function Value.ValueExprCast:kernel_plan_value_key(projection)
+        return value_expr_key(self.value, projection)
+    end
+
+    function Value.ValueExprAdd:kernel_plan_value_key(projection)
+        return tostring(asdl.classof(self)) .. "(" .. value_expr_key(self.a, projection) .. "," .. value_expr_key(self.b, projection) .. ")"
+    end
+
+    function Value.ValueExprSub:kernel_plan_value_key(projection)
+        return tostring(asdl.classof(self)) .. "(" .. value_expr_key(self.a, projection) .. "," .. value_expr_key(self.b, projection) .. ")"
+    end
+
+    function Value.ValueExprMul:kernel_plan_value_key(projection)
+        return tostring(asdl.classof(self)) .. "(" .. value_expr_key(self.a, projection) .. "," .. value_expr_key(self.b, projection) .. ")"
+    end
+
+    function Value.ValueExprDiv:kernel_plan_value_key(projection)
+        return tostring(asdl.classof(self)) .. "(" .. value_expr_key(self.a, projection) .. "," .. value_expr_key(self.b, projection) .. ")"
+    end
+
+    function Value.ValueExprRem:kernel_plan_value_key(projection)
+        return tostring(asdl.classof(self)) .. "(" .. value_expr_key(self.a, projection) .. "," .. value_expr_key(self.b, projection) .. ")"
+    end
+
+    function Value.ValueExprBinary:kernel_plan_value_key(projection)
+        return "binary:" .. tostring(self.op) .. "(" .. value_expr_key(self.a, projection) .. "," .. value_expr_key(self.b, projection) .. ")"
+    end
+
+    value_expr_key = function(expr, projection)
+        expr = resolved_value_expr(expr, projection)
+        if expr == nil then return "nil" end
+        return expr:kernel_plan_value_key(projection)
+    end
+
+    local function same_index_expr(a, b, projection)
+        return value_expr_key(a, projection) == value_expr_key(b, projection)
+    end
+
+    local function scatter_reduce_contribution(store, a, b, projection)
+        local ka = expr_as_kernel_value(a, projection)
+        local kb = expr_as_kernel_value(b, projection)
         if asdl.classof(ka) == Kernel.KernelExprLaneLoad
             and ka.lane == store.dst
-            and same_index_expr(ka.index, store.index, bindings, aliases) then
+            and same_index_expr(ka.index, store.index, projection) then
             return kb or Kernel.KernelExprAlgebra(b)
         end
         if asdl.classof(kb) == Kernel.KernelExprLaneLoad
             and kb.lane == store.dst
-            and same_index_expr(kb.index, store.index, bindings, aliases) then
+            and same_index_expr(kb.index, store.index, projection) then
             return ka or Kernel.KernelExprAlgebra(a)
         end
         return nil
     end
 
-    local function scatter_reduce_select_kind(expr, bindings, aliases)
+    local function scatter_reduce_select_op(expr, projection)
         if asdl.classof(expr) ~= Value.ValueExprSelect then return nil end
-        local cond = resolved_value_expr(expr.cond, bindings)
+        local cond = resolved_value_expr(expr.cond, projection)
         if asdl.classof(cond) ~= Value.ValueExprCmp then return nil end
-        local lhs_key = value_expr_key(cond.a, bindings, aliases)
-        local rhs_key = value_expr_key(cond.b, bindings, aliases)
-        local t_key = value_expr_key(expr.t, bindings, aliases)
-        local f_key = value_expr_key(expr.f, bindings, aliases)
+        local lhs_key = value_expr_key(cond.a, projection)
+        local rhs_key = value_expr_key(cond.b, projection)
+        local t_key = value_expr_key(expr.t, projection)
+        local f_key = value_expr_key(expr.f, projection)
         if lhs_key == t_key and rhs_key == f_key then
-            return ReductionAlgebra.select_minmax_kind(cond.op, true), expr.t, expr.f
+            return ReductionAlgebra.select_minmax_op(cond.op, true), expr.t, expr.f
         end
         if lhs_key == f_key and rhs_key == t_key then
-            return ReductionAlgebra.select_minmax_kind(cond.op, false), expr.t, expr.f
+            return ReductionAlgebra.select_minmax_op(cond.op, false), expr.t, expr.f
         end
         return nil
     end
 
-    local function infer_scatter_reduce_skeleton(loop, effects, bindings, aliases, proofs)
+    local function infer_scatter_reduce_skeleton(loop, effects, projection, proofs)
         local store = first_effect(effects, Kernel.KernelEffectStore)
         if store == nil then return nil end
-        local value = resolve_kernel_expr(store.value, bindings)
+        local value = resolve_kernel_expr(store.value, projection)
         if asdl.classof(value) ~= Kernel.KernelExprAlgebra then return nil end
-        local kind, a, b, ty, sem = scatter_reduce_kind(value.expr)
-        if kind == nil then
-            kind, a, b = scatter_reduce_select_kind(value.expr, bindings, aliases)
+        local op, a, b, ty, sem = scatter_reduce_op(value.expr)
+        if op == nil then
+            op, a, b = scatter_reduce_select_op(value.expr, projection)
             ty = store.dst.elem_ty
         end
-        if kind == nil then return nil end
-        local contribution = scatter_reduce_contribution(store, a, b, bindings, aliases)
+        if op == nil then return nil end
+        local contribution = scatter_reduce_contribution(store, a, b, projection)
         if contribution == nil then return nil end
-        local identity, reason = ReductionAlgebra.identity_expr(kind, store.dst.elem_ty)
+        local identity, reason = ReductionAlgebra.identity_expr(op, store.dst.elem_ty)
         if identity == nil then return nil, reason end
-        local reducer = Stencil.StencilReducer(kind, store.dst.elem_ty, identity, sem, nil)
+        local reducer = Stencil.StencilReducer(op, store.dst.elem_ty, identity, sem, nil)
         proofs[#proofs + 1] = Kernel.KernelProofFunctionEquivalence("indexed read-modify-write store is a scatter-reduce skeleton")
-        return {
-            effects = {
+        return Kernel.KernelSkeletonScatterReduce(
+            {
                 Kernel.KernelEffectScatterReduce(store.dst, store.index, contribution, reducer),
             },
-            result = Kernel.KernelResultVoid,
-            handles_dependences = true,
-        }
+            Kernel.KernelResultVoid
+        )
     end
 
-    local function infer_find_skeleton(func, graph_loop, loop, body_bindings, value_index, aliases, proofs)
+    local function infer_find_skeleton(func, graph_loop, loop, projection, value_index, proofs)
         if graph_loop == nil or #(graph_loop.exits or {}) ~= 2 then return nil end
         local primary = loop_primary_induction(loop)
         if primary == nil then return nil end
-        local bindings = binding_index(body_bindings)
         local blocks = block_index(func)
         local hit_src, hit_pred, not_found = nil, nil, nil
         for _, edge in ipairs(graph_loop.exits or {}) do
             local ret_expr, ret_value = edge_return_expr(blocks, edge, value_index)
-            if ret_expr ~= nil and (canonical_value(ret_value, aliases) == canonical_value(primary, aliases) or value_expr_is_value(ret_expr, primary, aliases)) then
+            if ret_expr ~= nil and (projection:canonical_value(ret_value) == projection:canonical_value(primary) or value_expr_is_value(ret_expr, primary, projection)) then
                 local cond, polarity = edge_branch_polarity(blocks, edge)
-                local src, pred = find_predicate_from_cond(cond, polarity, bindings, value_index)
+                local src, pred = find_predicate_from_cond(cond, polarity, projection, value_index)
                 if src == nil or pred == nil then return nil end
                 hit_src, hit_pred = src, pred
             elseif ret_expr ~= nil and is_minus_one_expr(ret_expr) then
@@ -904,24 +1022,21 @@ local function bind_context(T)
             end
         end
         if hit_src == nil or hit_pred == nil or not_found == nil then return nil end
-        if asdl.classof(hit_src) ~= Kernel.KernelExprLaneLoad or not index_is_primary(hit_src.index, loop, aliases, bindings) then return nil end
+        if asdl.classof(hit_src) ~= Kernel.KernelExprLaneLoad or not index_is_primary(hit_src.index, loop, projection) then return nil end
         proofs[#proofs + 1] = Kernel.KernelProofFunctionEquivalence("early-exit primary-index search is an array find skeleton")
-        return {
-            effects = {},
-            result = Kernel.KernelResultFind(hit_src, hit_pred, not_found),
-        }
+        return Kernel.KernelSkeletonFind({}, Kernel.KernelResultFind(hit_src, hit_pred, not_found))
     end
 
     local function infer_loop_skeleton(func, graph_loop, loop, effects, reductions, body_bindings, dependence_rejects, value_index, aliases, proofs)
-        local bindings = binding_index(body_bindings)
-        local scan = infer_scan_skeleton(func, graph_loop, loop, effects, reductions, bindings, aliases, proofs)
+        local projection = expr_projection(body_bindings, aliases)
+        local scan = infer_scan_skeleton(func, graph_loop, loop, effects, reductions, projection, proofs)
         if scan ~= nil then return scan end
         if #reductions == 0 then
-            local scatter_reduce = infer_scatter_reduce_skeleton(loop, effects, bindings, aliases, proofs)
+            local scatter_reduce = infer_scatter_reduce_skeleton(loop, effects, projection, proofs)
             if scatter_reduce ~= nil then return scatter_reduce end
-            local find = infer_find_skeleton(func, graph_loop, loop, body_bindings, value_index, aliases, proofs)
+            local find = infer_find_skeleton(func, graph_loop, loop, projection, value_index, proofs)
             if find ~= nil then return find end
-            local copy = infer_copy_skeleton(loop, effects, bindings, dependence_rejects, aliases, proofs)
+            local copy = infer_copy_skeleton(loop, effects, projection, dependence_rejects, proofs)
             if copy ~= nil then return copy end
         end
         return nil
@@ -939,8 +1054,8 @@ local function bind_context(T)
 
     local function same_value_id_semantic(a, b, value_index)
         if a == b then return true end
-        local ae = a and value_index and value_index.expr_by_value[a.text] or nil
-        local be = b and value_index and value_index.expr_by_value[b.text] or nil
+        local ae = value_index and value_index:expr_for_value_or_nil(a) or nil
+        local be = value_index and value_index:expr_for_value_or_nil(b) or nil
         if asdl.classof(ae) == Value.ValueExprConst and asdl.classof(be) == Value.ValueExprConst then return same_code_const(ae.const, be.const) end
         return false
     end
@@ -961,7 +1076,13 @@ local function bind_context(T)
     end
 
     local function infer_partition_skeleton(func, graph_func, flow, flow_loops, value, mem, trip_counts)
-        if graph_func == nil then return nil end
+        local subject = Kernel.KernelSubjectFunction(func.id)
+        local function no_partition(reason)
+            return Kernel.KernelFunctionSkeletonNoSelection(subject, {
+                Kernel.KernelRejectUnsupportedSubject(subject, reason),
+            })
+        end
+        if graph_func == nil then return no_partition("function has no graph facts") end
         local grouped, order = {}, {}
         for _, graph_loop in ipairs(graph_func.loops or {}) do
             local key = graph_loop.header.block.text
@@ -971,15 +1092,14 @@ local function bind_context(T)
             end
             grouped[key][#grouped[key] + 1] = graph_loop
         end
-        if #order ~= 2 then return nil end
+        if #order ~= 2 then return no_partition("function does not have the two-loop partition shape") end
         local group_a, group_b = grouped[order[1]], grouped[order[2]]
         local loop_a = flow_loops[group_a[1].id.text]
         local loop_b = flow_loops[group_b[1].id.text]
         local value_index = CodeValueFacts.expr_index(value)
-        if loop_a == nil or loop_b == nil or not same_counted_domain(loop_a.counted, loop_b.counted, value_index) then return nil end
-        if loop_primary_induction(loop_a) == nil or loop_primary_induction(loop_b) == nil then return nil end
+        if loop_a == nil or loop_b == nil or not same_counted_domain(loop_a.counted, loop_b.counted, value_index) then return no_partition("partition loops do not share one counted domain") end
+        if loop_primary_induction(loop_a) == nil or loop_primary_induction(loop_b) == nil then return no_partition("partition loops have no primary induction") end
 
-        local subject = Kernel.KernelSubjectFunction(func.id)
         local domain = Flow.FlowDomainLoop(loop_a.loop)
         local proofs = { Kernel.KernelProofFlow(domain, "two counted loops recognized as stable partition domain") }
         local rejects = {}
@@ -993,20 +1113,20 @@ local function bind_context(T)
             if facts ~= nil then add_blocks_to_set(loop_blocks, facts.body_blocks or facts.body) end
         end
         local lanes, lane_by_access, dependence_rejects = lanes_for_accesses(func.id, loop_a.loop, loop_blocks, mem, rejects, proofs)
-        if #rejects > 0 then return nil end
+        if #rejects > 0 then return Kernel.KernelFunctionSkeletonNoSelection(subject, rejects) end
 
         local body_bindings, body_effects = build_kernel_body(func, loop_blocks, value, mem, lane_by_access, {}, rejects)
-        if #rejects > 0 then return nil end
+        if #rejects > 0 then return Kernel.KernelFunctionSkeletonNoSelection(subject, rejects) end
         local store = first_store_effect(body_effects)
-        if store == nil then return nil end
-        local bindings = binding_index(body_bindings)
+        if store == nil then return no_partition("partition body has no store effect") end
         local aliases = loop_body_aliases(group_a[1], flow)
+        local projection = expr_projection(body_bindings, aliases)
         local src, pred = nil, nil
         for _, block in ipairs(func.blocks or {}) do
             if loop_blocks[block.id.text] then
-                local term = block.term and block.term.kind or nil
+                local term = block.term and block.term.op or nil
                 if asdl.classof(term) == Code.CodeTermBranch then
-                    local candidate_src, candidate_pred = find_predicate_from_cond(term.cond, true, bindings, value_index)
+                    local candidate_src, candidate_pred = find_predicate_from_cond(term.cond, true, projection, value_index)
                     if candidate_src ~= nil and candidate_pred ~= nil and asdl.classof(candidate_src) == Kernel.KernelExprLaneLoad then
                         src, pred = candidate_src, candidate_pred
                         break
@@ -1014,12 +1134,12 @@ local function bind_context(T)
                 end
             end
         end
-        if src == nil or pred == nil or not index_is_primary(src.index, loop_a, aliases, bindings) then return nil end
-        if store.dst.elem_ty ~= src.lane.elem_ty then return nil end
+        if src == nil or pred == nil or not index_is_primary(src.index, loop_a, projection) then return no_partition("partition predicate/source pattern was not recognized") end
+        if store.dst.elem_ty ~= src.lane.elem_ty then return no_partition("partition source and destination element types differ") end
         for _, dep in ipairs(dependence_rejects or {}) do
             local before_dst, before_src = lane_has_access(store.dst, dep.before), lane_has_access(src.lane, dep.before)
             local after_dst, after_src = lane_has_access(store.dst, dep.after), lane_has_access(src.lane, dep.after)
-            if not ((before_dst and after_src) or (before_src and after_dst) or (before_dst and after_dst)) then return nil end
+            if not ((before_dst and after_src) or (before_src and after_dst) or (before_dst and after_dst)) then return no_partition(dep.reason) end
         end
         proofs[#proofs + 1] = Kernel.KernelProofFunctionEquivalence("two-pass predicate-preserving copy is a stable partition skeleton")
         local body = Kernel.KernelBody(
@@ -1030,7 +1150,7 @@ local function bind_context(T)
             Kernel.KernelResultValue(Kernel.KernelExprAlgebra(Value.ValueExprValue(loop_primary_induction(loop_a)))),
             Kernel.KernelEquivalenceProof(proofs)
         )
-        return Kernel.KernelPlanned(Kernel.KernelId("kernel:" .. sanitize(func.id.text) .. ":partition"), subject, body)
+        return Kernel.KernelFunctionSkeletonPartition(Kernel.KernelPlanned(Kernel.KernelId("kernel:" .. sanitize(func.id.text) .. ":partition"), subject, body))
     end
 
     local function function_plans(module, graph, flow, value, mem, effect)
@@ -1048,32 +1168,14 @@ local function bind_context(T)
             local subject = Kernel.KernelSubjectLoop(loop.loop)
             local func_id = loop_func[loop.loop.text]
             if loop.counted == nil then
-                local selection = Kernel.KernelLoopPlanInput(
-                    false,
-                    func_id ~= nil,
-                    false,
-                    {},
-                    { Kernel.KernelRejectNoFacts(subject, "loop is not a counted Flow domain") },
-                    { Kernel.KernelRejectNoFacts(subject, "graph loop has no function owner") },
-                    nil,
-                    nil,
-                    nil,
-                    Flow.FlowTripCountUnknown("uncounted loop")
-                ):select_kernel_loop_plan()
+                local selection = Kernel.KernelLoopNotCounted({
+                    Kernel.KernelRejectNoFacts(subject, "loop is not a counted Flow domain"),
+                }):select_kernel_loop_plan()
                 selection:add_selected_loop_plan(plans, subject)
             elseif func_id == nil then
-                local selection = Kernel.KernelLoopPlanInput(
-                    true,
-                    false,
-                    false,
-                    {},
-                    { Kernel.KernelRejectNoFacts(subject, "loop is not a counted Flow domain") },
-                    { Kernel.KernelRejectNoFacts(subject, "graph loop has no function owner") },
-                    nil,
-                    nil,
-                    nil,
-                    Flow.FlowTripCountUnknown("ownerless loop")
-                ):select_kernel_loop_plan()
+                local selection = Kernel.KernelLoopMissingOwner({
+                    Kernel.KernelRejectNoFacts(subject, "graph loop has no function owner"),
+                }):select_kernel_loop_plan()
                 selection:add_selected_loop_plan(plans, subject)
             else
                 local func = funcs[func_id.text]
@@ -1108,8 +1210,8 @@ local function bind_context(T)
                     skeleton = infer_loop_skeleton(func, graph_loop, loop, body_effects, reductions, body_bindings, dependence_rejects, value_index, aliases, proofs)
                 end
                 if skeleton ~= nil then
-                    for _, e in ipairs(skeleton.effects or {}) do effects[#effects + 1] = e end
-                    if not skeleton.handles_dependences then
+                    for _, e in ipairs(skeleton:kernel_skeleton_effects()) do effects[#effects + 1] = e end
+                    if not skeleton:kernel_skeleton_handles_dependences() then
                         for _, dep in ipairs(dependence_rejects or {}) do
                             rejects[#rejects + 1] = Kernel.KernelRejectNoFacts(subject, dep.reason)
                         end
@@ -1125,18 +1227,19 @@ local function bind_context(T)
                     proofs[#proofs + 1] = Kernel.KernelProofValue(reduction.proof, "reduction fact justifies kernel fold")
                 end
                 local trip = trip_counts[loop.loop.text] or Flow.FlowTripCountUnknown("no semantic trip-count fact")
-                local selection = Kernel.KernelLoopPlanInput(
-                    true,
-                    true,
-                    func ~= nil,
-                    rejects,
-                    { Kernel.KernelRejectNoFacts(subject, "loop is not a counted Flow domain") },
-                    { Kernel.KernelRejectNoFacts(subject, "graph loop has no function owner") },
-                    closed_forms[1],
-                    reductions[1],
-                    skeleton and skeleton.result or nil,
-                    trip
-                ):select_kernel_loop_plan()
+                local candidate
+                if #rejects > 0 then
+                    candidate = Kernel.KernelLoopRejectedFacts(rejects)
+                elseif closed_forms[1] ~= nil then
+                    candidate = Kernel.KernelLoopClosedFormCandidate(closed_forms[1], trip)
+                elseif reductions[1] ~= nil then
+                    candidate = Kernel.KernelLoopReductionCandidate(reductions[1])
+                elseif skeleton ~= nil and skeleton:kernel_skeleton_result() ~= nil then
+                    candidate = Kernel.KernelLoopSkeletonCandidate(skeleton:kernel_skeleton_result())
+                else
+                    candidate = Kernel.KernelLoopOriginalControlCandidate
+                end
+                local selection = candidate:select_kernel_loop_plan()
                 local counter = loop.inductions and loop.inductions[1] and loop.inductions[1].value or nil
                 selection:add_selected_loop_plan(plans, subject, Kernel.KernelLoopPlanBuild(domain, trip, counter, lanes, body_bindings, effects, proofs))
             end
@@ -1144,11 +1247,7 @@ local function bind_context(T)
 
         for _, func in ipairs(module.funcs or {}) do
             local partition = infer_partition_skeleton(func, graph_funcs[func.id.text], flow, flow_loops, value, mem, trip_counts)
-            if partition ~= nil then
-                plans[#plans + 1] = partition
-            else
-                plans[#plans + 1] = Kernel.KernelNoPlan(Kernel.KernelSubjectFunction(func.id), { Kernel.KernelRejectUnsupportedSubject(Kernel.KernelSubjectFunction(func.id), "function-level replacement is not a semantic kernel plan") })
-            end
+            partition:add_function_skeleton_plan(plans)
         end
         return plans
     end

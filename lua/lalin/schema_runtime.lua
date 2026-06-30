@@ -26,9 +26,31 @@ function M.classof(node)
 end
 
 function M.class(value)
-    if type(value) ~= "table" then return false end
-    if rawget(value, "__class") == value then return value end
-    return M.classof(value)
+    return get_schema_context().Class(value)
+end
+
+function M.class_name(value)
+    return get_schema_context().ClassName(value)
+end
+
+function M.class_basename(value)
+    return get_schema_context().ClassBasename(value)
+end
+
+function M.context_of(value)
+    return get_schema_context().ContextOf(value)
+end
+
+function M.fields(value)
+    return get_schema_context().Fields(value)
+end
+
+function M.members(value)
+    return get_schema_context().Members(value)
+end
+
+function M.is_sum_parent(value)
+    return get_schema_context().IsSumParent(value)
 end
 
 function M.isa(node, class_or_singleton)
@@ -37,15 +59,12 @@ function M.isa(node, class_or_singleton)
     if node_class == class_or_singleton then return true end
     local target_class = M.class(class_or_singleton)
     if not target_class then return false end
-    return node_class == target_class or (target_class.members and target_class.members[node_class]) or false
+    local members = M.members(target_class)
+    return node_class == target_class or (members and members[node_class]) or false
 end
 
 function M.with(node, overrides)
-    local cls = M.classof(node)
-    if not cls or not cls.__fields then
-        error("schema.with: not a schema node", 2)
-    end
-    return cls.__with(node, overrides, M.NIL)
+    return get_schema_context().With(node, overrides, M.NIL)
 end
 
 return M

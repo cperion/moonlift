@@ -900,14 +900,14 @@ local function selected_label(descriptor)
     if sink_kind == 'LalinStencil.StencilSinkScan' then return 'scan' end
     if sink_kind == 'LalinStencil.StencilSinkScatterReduce' then return 'scatter_reduce' end
     if sink_kind == 'LalinStencil.StencilSinkReduce' then
-        local mode_kind = class_name(descriptor.sink.mode)
-        if mode_kind == 'LalinStencil.StencilReduceFind' then return 'find' end
+        local semantics_kind = class_name(descriptor.sink.semantics)
+        if semantics_kind == 'LalinStencil.StencilReduceFind' then return 'find' end
         if expr_kind ~= 'LalinStencil.StencilPointInput' then return 'reduce_n' end
         return 'reduce'
     end
     if sink_kind == 'LalinStencil.StencilSinkStore' then
-        local mode_kind = class_name(descriptor.sink.mode)
-        if mode_kind == 'LalinStencil.StencilStorePartition' then return 'partition' end
+        local semantics_kind = class_name(descriptor.sink.semantics)
+        if semantics_kind == 'LalinStencil.StencilStorePartition' then return 'partition' end
         return 'store_n'
     end
     return nil

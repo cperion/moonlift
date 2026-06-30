@@ -1,4 +1,5 @@
 return function(T)
+    local asdl = require("lalin.asdl")
     local C = T.LalinCore
     local B = T.LalinBind
     local Ty = T.LalinType
@@ -20,8 +21,8 @@ return function(T)
         return expr:typecheck_tree_expr_expected(input:typecheck_tree_expected_expr_input(expected))
     end
 
-    local function block_param_binding(region_id, label, param, index, class)
-        return B.Binding(C.Id("control:param:" .. region_id .. ":" .. label.name .. ":" .. param.name), param.name, param.ty, class)
+    local function block_param_binding(region_id, label, param, index, role)
+        return B.Binding(C.Id("control:param:" .. region_id .. ":" .. label.name .. ":" .. param.name), param.name, param.ty, role)
     end
 
     function Tr.EntryBlockParam:typecheck_tree_add_to_scope(input, region_id, label, index)
@@ -29,13 +30,13 @@ return function(T)
         local issues = {}
         append_all(issues, init.issues)
         check_expected("entry param", self.ty, init.ty, issues)
-        local binding = block_param_binding(region_id, label, self, index, B.BindingClassEntryBlockParam(region_id, label.name, index))
+        local binding = block_param_binding(region_id, label, self, index, B.BindingRoleEntryBlockParam(region_id, label.name, index))
         local scope = input.scope:typecheck_tree_add_value(B.ValueEntry(self.name, binding))
         return input:typecheck_tree_with_scope(scope), Tr.EntryBlockParam(self.name, self.ty, init.expr), issues
     end
 
     function Tr.BlockParam:typecheck_tree_add_to_scope(input, region_id, label, index)
-        local binding = block_param_binding(region_id, label, self, index, B.BindingClassBlockParam(region_id, label.name, index))
+        local binding = block_param_binding(region_id, label, self, index, B.BindingRoleBlockParam(region_id, label.name, index))
         local scope = input.scope:typecheck_tree_add_value(B.ValueEntry(self.name, binding))
         return input:typecheck_tree_with_scope(scope), self, {}
     end
@@ -47,6 +48,13 @@ return function(T)
 
     function Tr.StmtReturnValue:typecheck_tree_stmt(input)
         local value = type_expr_expect(self.value, input, input.return_ty)
+        if (input.return_ty:typecheck_tree_accept_nil_literal() or asdl.classof(input.return_ty) == Ty.TPtr)
+            and tostring(value.ty) == tostring(Ty.TScalar(C.ScalarVoid))
+            and tostring(asdl.classof(value.expr)):find("LalinTree.ExprLit", 1, true)
+            and tostring(asdl.classof(value.expr.value)):find("LalinCore.LitNil", 1, true)
+        then
+            value = Tr.TypeExprResult(Tr.ExprLit(Tr.ExprTyped(input.return_ty), value.expr.value), input.return_ty, value.issues)
+        end
         local issues = {}
         append_all(issues, value.issues)
         check_expected("return", input.return_ty, value.ty, issues)
@@ -179,7 +187,7 @@ return function(T)
         return Tr.TypeStmtResult(input, { Tr.StmtJumpCont(self.h, self.cont, args) }, issues)
     end
 
-    function Tr.TypeYieldMode:typecheck_tree_yield_void(stmt, input)
+    function Tr.TypeYieldResult:typecheck_tree_yield_void(stmt, input)
         return Tr.TypeStmtResult(input, { stmt }, { Tr.TypeIssueUnexpectedYield("yield") })
     end
 
@@ -187,7 +195,7 @@ return function(T)
         return Tr.TypeStmtResult(input, { stmt }, {})
     end
 
-    function Tr.TypeYieldMode:typecheck_tree_yield_value(stmt, input)
+    function Tr.TypeYieldResult:typecheck_tree_yield_value(stmt, input)
         local value = stmt.value:typecheck_tree_expr(input:typecheck_tree_expr_input())
         local issues = {}
         append_all(issues, value.issues)
@@ -242,7 +250,7 @@ return function(T)
     end
 
     function Tr.ControlStmtRegion:typecheck_tree_control_stmt_region(input)
-        local control_input = Tr.TypeControlInput(input.stmt, self.region_id)
+        local control_input = Tr.TypeControlInput(input.stmt:typecheck_tree_with_yield(Tr.TypeYieldVoid), self.region_id)
         local entry, entry_issues = self.entry:typecheck_tree_control_entry(control_input)
         local issues = {}
         append_all(issues, entry_issues)
@@ -256,7 +264,7 @@ return function(T)
     end
 
     function Tr.ControlExprRegion:typecheck_tree_control_expr_region(input)
-        local control_input = Tr.TypeControlInput(input.stmt, self.region_id)
+        local control_input = Tr.TypeControlInput(input.stmt:typecheck_tree_with_yield(Tr.TypeYieldValue(self.result_ty)), self.region_id)
         local entry, entry_issues = self.entry:typecheck_tree_control_entry(control_input)
         local issues = {}
         append_all(issues, entry_issues)

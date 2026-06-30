@@ -4,7 +4,6 @@
 -- package describes the compiler as LalinPhase worlds, machines, phases, and
 -- roots; execution is handled by lalin.phase_plan + lalin.phase_execute.
 
-local asdl = require("lalin.asdl")
 local CompilerModel = require("lalin.compiler_model")
 local PhaseDsl = require("lalin.phase_dsl")
 local PhasePlan = require("lalin.phase_plan")
@@ -87,7 +86,7 @@ return package "lalin.compiler" {
 ]]
 
 local function bind_context(T)
-    T = T or asdl.context()
+    assert(T ~= nil, "lalin.compiler_package(T) expects a caller-owned schema context")
     CompilerModel(T)
     PhaseDsl(T)
     local chunk = assert(PhaseDsl.loadstring(SOURCE, "lalin.compiler_package.lua"))

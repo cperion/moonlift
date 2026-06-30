@@ -101,7 +101,7 @@ local function bind_context(T)
  return single(C.ScalarFamilyIndex)
             end)(node, ...)
         else
-            error("phase lalin_core_scalar_family: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_core_scalar_family: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -164,7 +164,7 @@ local function bind_context(T)
  return single(C.ScalarBits(64))
             end)(node, ...)
         else
-            error("phase lalin_core_scalar_bits: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_core_scalar_bits: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

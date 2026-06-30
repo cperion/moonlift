@@ -86,7 +86,7 @@ local function bind_context(T)
             return single(ref_for_field(self))
             end)(node, ...)
         else
-            error("phase lalin_tree_field_resolve: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_tree_field_resolve: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

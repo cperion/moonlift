@@ -58,7 +58,7 @@ local function bind_context(T)
             return {}
             end)(node, ...)
         else
-            error("phase lalin_type_array_len_count: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_type_array_len_count: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -67,20 +67,20 @@ local function bind_context(T)
         if schema.isa(node, Ty.TypeRefGlobal) then
             return (function(self)
 
-            return single(Ty.TypeClassAggregate(self.module_name, self.type_name))
+            return single(Ty.TypeShapeAggregate(self.module_name, self.type_name))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeRefPath) then
             return (function()
 
-            return single(Ty.TypeClassUnknown)
+            return single(Ty.TypeShapeUnknown)
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeRefLocal) then
             return (function()
 
-            return single(Ty.TypeClassUnknown)
+            return single(Ty.TypeShapeUnknown)
             end)(node, ...)
         else
-            error("phase lalin_type_ref_classify: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_type_ref_classify: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -89,41 +89,41 @@ local function bind_context(T)
         if schema.isa(node, Ty.TScalar) then
             return (function(self)
 
-            return single(Ty.TypeClassScalar(self.scalar))
+            return single(Ty.TypeShapeScalar(self.scalar))
             end)(node, ...)
         elseif schema.isa(node, Ty.TPtr) then
             return (function(self)
 
-            return single(Ty.TypeClassPointer(self.elem))
+            return single(Ty.TypeShapePointer(self.elem))
             end)(node, ...)
         elseif schema.isa(node, Ty.TArray) then
             return (function(self)
 
             local counts = array_len_count(self.count)
             if #counts == 0 then
-                return single(Ty.TypeClassUnknown)
+                return single(Ty.TypeShapeUnknown)
             end
-            return single(Ty.TypeClassArray(self.elem, counts[1]))
+            return single(Ty.TypeShapeArray(self.elem, counts[1]))
             end)(node, ...)
         elseif schema.isa(node, Ty.TSlice) then
             return (function(self)
 
-            return single(Ty.TypeClassSlice(self.elem))
+            return single(Ty.TypeShapeSlice(self.elem))
             end)(node, ...)
         elseif schema.isa(node, Ty.TView) then
             return (function(self)
 
-            return single(Ty.TypeClassView(self.elem))
+            return single(Ty.TypeShapeView(self.elem))
             end)(node, ...)
         elseif schema.isa(node, Ty.TLease) then
             return (function(self)
 
-            return single(Ty.TypeClassLease(self.base, self.origin))
+            return single(Ty.TypeShapeLease(self.base, self.origin))
             end)(node, ...)
         elseif schema.isa(node, Ty.TOwned) then
             return (function(self)
 
-            return single(Ty.TypeClassOwned(self.base))
+            return single(Ty.TypeShapeOwned(self.base))
             end)(node, ...)
         elseif schema.isa(node, Ty.TAccess) then
             return (function(self)
@@ -133,17 +133,17 @@ local function bind_context(T)
         elseif schema.isa(node, Ty.THandle) then
             return (function(self)
 
-            return single(Ty.TypeClassHandle(self.repr))
+            return single(Ty.TypeShapeHandle(self.repr))
             end)(node, ...)
         elseif schema.isa(node, Ty.TFunc) then
             return (function(self)
 
-            return single(Ty.TypeClassCallable(self.params, self.result))
+            return single(Ty.TypeShapeCallable(self.params, self.result))
             end)(node, ...)
         elseif schema.isa(node, Ty.TClosure) then
             return (function(self)
 
-            return single(Ty.TypeClassClosure(self.params, self.result))
+            return single(Ty.TypeShapeClosure(self.params, self.result))
             end)(node, ...)
         elseif schema.isa(node, Ty.TNamed) then
             return (function(self)
@@ -153,15 +153,15 @@ local function bind_context(T)
         elseif schema.isa(node, Ty.TCType) then
             return (function()
 
-            return single(Ty.TypeClassUnknown)
+            return single(Ty.TypeShapeUnknown)
             end)(node, ...)
         elseif schema.isa(node, Ty.TCFuncPtr) then
             return (function()
 
-            return single(Ty.TypeClassUnknown)
+            return single(Ty.TypeShapeUnknown)
             end)(node, ...)
         else
-            error("phase lalin_type_classify: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_type_classify: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

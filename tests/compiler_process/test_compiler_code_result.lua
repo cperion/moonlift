@@ -20,7 +20,7 @@ return unit. CodeResultSmoke {
 
 local decl = session:loadstring(src, "compiler_code_result_test.lua")()
 local module_ast = decl:ast()
-local T = rawget(asdl.classof(module_ast), "__context")
+local T = asdl.context_of(module_ast)
 local C = T.LalinCompiler
 
 local checked = Machines.typecheck_module(module_ast, nil, { opts = { context = T, site = "test_compiler_code_result" } })
@@ -37,6 +37,6 @@ assert(tostring(asdl.classof(c_unit)):match("LalinC%.CBackendUnit"))
 
 local bad_report = abi.validate_code_result(c_code.module)
 assert(#bad_report.issues == 1)
-assert(asdl.classof(bad_report.issues[1]) == C.CodeResultIssueWrongClass)
+assert(asdl.classof(bad_report.issues[1]) == C.CodeResultIssueUnexpectedValue)
 
 io.write("lalin compiler_code_result ok\n")

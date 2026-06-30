@@ -21,9 +21,9 @@ local function iconst(ty, raw)
     return Value.ValueExprConst(Code.CodeConstLiteral(ty, Core.LitInt(tostring(raw))))
 end
 
-local function reduction(kind, init)
+local function reduction(op, init)
     return {
-        kind = kind,
+        op = op,
         init = init,
         int_semantics = sem,
         float_mode = nil,
@@ -31,7 +31,7 @@ local function reduction(kind, init)
 end
 
 local function raw_identity(artifact)
-    return ReductionAlgebra.literal_identity_raw(artifact.instance.descriptor.sink.mode.reducer.identity)
+    return ReductionAlgebra.literal_identity_raw(artifact.instance.descriptor.sink.semantics.reducer.identity)
 end
 
 local add = Plan.reduce_array_artifact(reduction(Value.ReductionAdd, iconst(i32, 0)), nil, {
@@ -40,7 +40,7 @@ local add = Plan.reduce_array_artifact(reduction(Value.ReductionAdd, iconst(i32,
     step_num = 1,
 })
 assert(raw_identity(add) == "0", "add identity should be derived as 0")
-assert(Plan.artifact_shape(add).identity == add.instance.descriptor.sink.mode.reducer.identity, "shape should expose reducer identity")
+assert(Plan.artifact_shape(add).identity == add.instance.descriptor.sink.semantics.reducer.identity, "shape should expose reducer identity")
 
 local max_u8 = Plan.reduce_array_artifact(reduction(Value.ReductionMax, nil), nil, {
     elem_ty = u8,

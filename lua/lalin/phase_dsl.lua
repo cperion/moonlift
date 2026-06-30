@@ -12,10 +12,15 @@ local function ensure(T)
     return T.LalinPhase
 end
 
-local T = asdl.context()
-local P = ensure(T)
+local P = nil
+
+local function require_phase()
+    assert(P ~= nil, "lalin.phase_dsl must be bound with PhaseDsl(T) before use")
+    return P
+end
 
 local function type_ref(spec)
+    local P = require_phase()
     if type(spec) == "table" then
         local cls = asdl.classof(spec)
         if cls == P.TypeRef or spec == P.TypeRefAny or cls == P.TypeRefValue then return spec end
@@ -44,13 +49,14 @@ local function ident_text(v, what)
     error("phase_dsl: expected " .. what, 3)
 end
 
-local function world_id(v) return P.WorldId(ident_text(v, "world name")) end
-local function phase_id(v) return P.PhaseId(ident_text(v, "phase name")) end
-local function machine_id(v) return P.MachineId(ident_text(v, "machine name")) end
-local function root_id(v) return P.RootId(ident_text(v, "root name")) end
-local function package_id(v) return P.PackageId(ident_text(v, "package name")) end
+local function world_id(v) local P = require_phase(); return P.WorldId(ident_text(v, "world name")) end
+local function phase_id(v) local P = require_phase(); return P.PhaseId(ident_text(v, "phase name")) end
+local function machine_id(v) local P = require_phase(); return P.MachineId(ident_text(v, "machine name")) end
+local function root_id(v) local P = require_phase(); return P.RootId(ident_text(v, "root name")) end
+local function package_id(v) local P = require_phase(); return P.PackageId(ident_text(v, "package name")) end
 
 local function cache_policy(spec)
+    local P = require_phase()
     if spec == P.CacheIdentity or spec == P.CacheNode or spec == P.CacheFull or spec == P.CacheNone then return spec end
     spec = ident_text(spec or "identity", "cache policy")
     if spec == "identity" then return P.CacheIdentity end
@@ -61,6 +67,7 @@ local function cache_policy(spec)
 end
 
 local function machine_abi(spec)
+    local P = require_phase()
     if spec == P.MachineAbiStatusReturning or spec == P.MachineAbiPure or spec == P.MachineAbiProcess or spec == P.MachineAbiC then return spec end
     spec = ident_text(spec or "status_returning", "machine ABI")
     if spec == "status" or spec == "status_returning" then return P.MachineAbiStatusReturning end
@@ -101,6 +108,7 @@ local function string_array(v, what)
 end
 
 local function impl_from(kind, spec)
+    local P = require_phase()
     spec = spec or {}
     if kind == "lalin" then return P.ImplLalin(assert(spec.module or spec.module_name, "impl.lalin requires module"), assert(spec.func or spec.function_name or spec.symbol, "impl.lalin requires func/function_name/symbol")) end
     if kind == "lua" then return P.ImplLua(assert(spec.module or spec.module_name, "impl.lua requires module"), assert(spec.func or spec.function_name or spec.symbol, "impl.lua requires func/function_name/symbol")) end
@@ -257,6 +265,7 @@ local function bind_context(context)
 end
 
 function M.use(opts)
+    require_phase()
     opts = opts or {}
     opts.provides = opts.provides or { "lalinphase.dsl" }
     local session = Lang:use(opts)
@@ -277,13 +286,11 @@ function M.use(opts)
     return session
 end
 
-function M.env(opts) return Lang:env(opts) end
-function M.loadstring(src, chunkname, opts) return Lang:loadstring(src, chunkname, opts) end
-function M.loadfile(path, opts) return Lang:loadfile(path, opts) end
+function M.env(opts) require_phase(); return Lang:env(opts) end
+function M.loadstring(src, chunkname, opts) require_phase(); return Lang:loadstring(src, chunkname, opts) end
+function M.loadfile(path, opts) require_phase(); return Lang:loadfile(path, opts) end
 
 M.Dialect = Lang
-M.T = T
-M.P = P
 
 -- Formatting ----------------------------------------------------------------
 
@@ -296,6 +303,7 @@ local function id_text(v)
 end
 
 local function type_ref_text(v)
+    local P = require_phase()
     local cls = asdl.classof(v)
     if cls == P.TypeRefAny then return "any" end
     if cls == P.TypeRefValue then return "value. " .. tostring(v.field_name) end
@@ -304,6 +312,7 @@ local function type_ref_text(v)
 end
 
 local function cache_text(v)
+    local P = require_phase()
     if v == P.CacheIdentity then return "identity" end
     if v == P.CacheNode then return "node" end
     if v == P.CacheFull then return "full" end
@@ -312,6 +321,7 @@ local function cache_text(v)
 end
 
 local function abi_text(v)
+    local P = require_phase()
     if v == P.MachineAbiStatusReturning then return "status_returning" end
     if v == P.MachineAbiPure then return "pure" end
     if v == P.MachineAbiProcess then return "process" end
@@ -344,6 +354,7 @@ local function body_block(items, f)
 end
 
 function M.format_doc(value, f)
+    local P = require_phase()
     f = getmetatable(f) == llbl.FormatContext and f or setmetatable({ indent_width = 2, seen = {} }, llbl.FormatContext)
     local cls = type(value) == "table" and asdl.classof(value) or nil
     if cls == P.Package then
@@ -399,10 +410,12 @@ function M.format_doc(value, f)
 end
 
 function M.format(value, opts)
+    require_phase()
     return llbl.render(M.format_doc(value, setmetatable({ indent_width = opts and opts.indent or 2, seen = {} }, llbl.FormatContext)), opts or {})
 end
 
 function M.file_text(value, opts)
+    require_phase()
     return table.concat({
         'local Phase = require("lalin.phase_dsl")',
         'Phase.use()',

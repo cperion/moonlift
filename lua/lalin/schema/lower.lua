@@ -47,15 +47,17 @@ return schema. LalinLower {
     LowerIssueGap { variant_unique, func [LalinCode.CodeFuncId], reason [str], },
     LowerIssueFallback { variant_unique, cover [LalinLower.LowerCover], reason [str], },
   },
-  product. LowerFragmentPlanInput {
-    interned,
-    kernel [optional [LalinKernel.KernelPlanned]],
-    kernel_no_plan [optional [LalinKernel.KernelNoPlan]],
-    schedule [optional [LalinSchedule.KernelSchedule]],
-    closed_form [optional [LalinValue.ClosedFormFact]],
-    closed_form_missing_reason [str],
-    no_schedule_reason [str],
-    kernel_no_plan_reason [str],
+  sum. LowerFragmentCandidate {
+    LowerFragmentClosedFormCandidate { variant_unique, closed_form [LalinValue.ClosedFormFact], },
+    LowerFragmentClosedFormMissing { variant_unique, reason [str], },
+    LowerFragmentKernelCandidate {
+      variant_unique,
+      kernel [LalinKernel.KernelPlanned],
+      schedule [LalinSchedule.KernelSchedule],
+    },
+    LowerFragmentNoSchedule { variant_unique, reason [str], },
+    LowerFragmentKernelRejected { variant_unique, reason [str], },
+    LowerFragmentNoCandidate,
   },
   sum. LowerFragmentSelection {
     LowerSelectClosedForm {
@@ -66,11 +68,12 @@ return schema. LalinLower {
     LowerSelectFallback { variant_unique, reason [str], },
     LowerSelectNone,
   },
-  product. LowerEmitInput {
-    interned,
-    schedule [optional [LalinSchedule.KernelSchedule]],
-    missing_schedule_reason [str],
-    unsupported_reason [str],
+  sum. LowerEmitCandidate {
+    LowerEmitCodeCandidate,
+    LowerEmitClosedFormCandidate,
+    LowerEmitKernelCandidate { variant_unique, schedule [LalinSchedule.KernelSchedule], },
+    LowerEmitMissingScheduleCandidate { variant_unique, reason [str], },
+    LowerEmitUnsupportedCandidate { variant_unique, reason [str], },
   },
   sum. LowerEmitSelection {
     LowerEmitCode,
@@ -79,6 +82,26 @@ return schema. LalinLower {
     LowerEmitVectorKernel,
     LowerEmitMissingSchedule { variant_unique, reason [str], },
     LowerEmitUnsupported { variant_unique, reason [str], },
+  },
+  product. LowerBackEmitInput {
+    code_module [LalinCode.CodeModule],
+    graph [LalinGraph.CodeGraph],
+    flow [LalinFlow.FlowFactSet],
+    value_facts [LalinValue.ValueFactSet],
+    mem [LalinMem.MemSemanticFactSet],
+    effect [LalinEffect.EffectFactSet],
+    kernels [LalinKernel.KernelModulePlan],
+    schedules [LalinSchedule.ScheduleModulePlan],
+    fragment [LalinLower.LowerFragment],
+  },
+  product. LowerCEmitInput {
+    graph [LalinGraph.CodeGraph],
+    flow [LalinFlow.FlowFactSet],
+    kernels [LalinKernel.KernelModulePlan],
+    schedules [LalinSchedule.ScheduleModulePlan],
+    code_func [LalinCode.CodeFunc],
+    fragment [LalinLower.LowerFragment],
+    baseline_blocks [many [LalinC.CBackendBlock]],
   },
   product. LowerFragment {
     interned,

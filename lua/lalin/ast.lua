@@ -14,13 +14,10 @@
 ---local m = ast.new(T).module { ... }
 ---```
 ---
----For standalone generation, `require("lalin.ast")` is itself a default
----API bound to a fresh Lalin ASDL context.  Compiler pipelines that already
----own a context should prefer `ast.new(T)` so all nodes share the same ASDL
----universe.
+---The module itself is not bound to a hidden context. Call `ast.new(T)` or
+---`ast(T)` with the schema context that owns the values being built.
 
 local asdl = require("lalin.asdl")
-local schema = require("lalin.schema_projection")
 
 local M = {}
 
@@ -135,10 +132,6 @@ end
 local function install(api, T)
     local C, Ty, B, Sem, Tr = T.LalinCore, T.LalinType, T.LalinBind, T.LalinSem, T.LalinTree
 
-    api.T = T
-    api.raw = T
-    api.builders = T:Builders()
-    api.fast_builders = T:FastBuilders()
     api._region_seq = api._region_seq or 0
 
     local function next_region_id(prefix)
@@ -211,10 +204,10 @@ local function install(api, T)
         return as_type(v, "result type")
     end
 
-    local function binding(name, ty, class, id)
+    local function binding(name, ty, role, id)
         name = assert_name(name, "binding")
         ty = as_type(ty, "binding type")
-        return B.Binding(C.Id(id or ("local:" .. name)), name, ty, class or B.BindingClassLocalValue)
+        return B.Binding(C.Id(id or ("local:" .. name)), name, ty, role or B.BindingRoleLocalValue)
     end
 
     -- Core atoms -----------------------------------------------------------
@@ -420,14 +413,14 @@ local function install(api, T)
     ---@param ty lalin.ast.Type User-authored binding type.
     ---@param id_text string? Stable id. Defaults to `local:<name>`.
     ---@return LalinBind.Binding
-    function api.binding(name, ty, id_text) return binding(name, ty, B.BindingClassLocalValue, id_text) end
+    function api.binding(name, ty, id_text) return binding(name, ty, B.BindingRoleLocalValue, id_text) end
 
     ---Create an explicit mutable-cell binding value. Most users should call `var`.
     ---@param name string Source binding name.
     ---@param ty lalin.ast.Type User-authored binding type.
     ---@param id_text string? Stable id. Defaults to `local:<name>`.
     ---@return LalinBind.Binding
-    function api.cell_binding(name, ty, id_text) return binding(name, ty, B.BindingClassLocalCell, id_text) end
+    function api.cell_binding(name, ty, id_text) return binding(name, ty, B.BindingRoleLocalCell, id_text) end
 
     ---Create a value reference by source name, dotted path, or explicit binding.
     ---@param v string|string[]|LalinBind.Binding|LalinBind.ValueRef Reference subject.
@@ -787,7 +780,7 @@ local function install(api, T)
     ---@param spec table `{ name, ty, init }` or `{ binding, init }`.
     ---@return lalin.ast.Stmt
     function api.let(spec)
-        local bind = spec.binding or binding(spec.name, spec.ty or spec.type, B.BindingClassLocalValue, spec.id)
+        local bind = spec.binding or binding(spec.name, spec.ty or spec.type, B.BindingRoleLocalValue, spec.id)
         return Tr.StmtLet(Tr.StmtSurface, bind, as_expr(spec.init or spec.value, "let init"))
     end
 
@@ -795,7 +788,7 @@ local function install(api, T)
     ---@param spec table `{ name, ty, init }` or `{ binding, init }`.
     ---@return lalin.ast.Stmt
     function api.var(spec)
-        local bind = spec.binding or binding(spec.name, spec.ty or spec.type, B.BindingClassLocalCell, spec.id)
+        local bind = spec.binding or binding(spec.name, spec.ty or spec.type, B.BindingRoleLocalCell, spec.id)
         return Tr.StmtVar(Tr.StmtSurface, bind, as_expr(spec.init or spec.value, "var init"))
     end
 
@@ -1131,13 +1124,7 @@ local function bind_context(T)
     return M.new(T)
 end
 
-local default_T = asdl.context()
-schema(default_T)
-local default_api = install(M, default_T)
-
-default_api.new = M.new
-
-return setmetatable(default_api, {
+return setmetatable(M, {
     __call = function(_, ...)
         return bind_context(...)
     end,

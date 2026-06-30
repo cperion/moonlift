@@ -29,7 +29,7 @@ assert(L.field(right_name, pair, env) == Sem.FieldByOffset("right", 4, i32, i32_
 assert(L.field(Sem.FieldByOffset("left", 0, i32, i32_rep), pair, env) == Sem.FieldByOffset("left", 0, i32, i32_rep))
 assert(L.field(Sem.FieldByName("missing", i32), pair, env) == Sem.FieldByName("missing", i32))
 
-local binding = B.Binding(C.Id("p"), "p", pair, B.BindingClassLocalValue)
+local binding = B.Binding(C.Id("p"), "p", pair, B.BindingRoleLocalValue)
 local base_place = Tr.PlaceRef(Tr.PlaceTyped(pair), B.ValueRefBinding(binding))
 local field_place = Tr.PlaceField(Tr.PlaceTyped(i32), base_place, right_name)
 assert(L.place(field_place, env) == Tr.PlaceField(Tr.PlaceTyped(i32), base_place, Sem.FieldByOffset("right", 4, i32, i32_rep)))

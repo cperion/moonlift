@@ -13,7 +13,7 @@ local Bind = T.LalinBind
 
 local typed_i32 = Tr.ExprTyped(Ty.TScalar(Core.ScalarI32))
 local typed_place_i32 = Tr.PlaceTyped(Ty.TScalar(Core.ScalarI32))
-local binding = Bind.Binding(Core.Id("b:x"), "x", Ty.TScalar(Core.ScalarI32), Bind.BindingClassLocalValue)
+local binding = Bind.Binding(Core.Id("b:x"), "x", Ty.TScalar(Core.ScalarI32), Bind.BindingRoleLocalValue)
 
 local function assert_method(node, name)
     assert(type(node[name]) == "function", "missing method " .. name)

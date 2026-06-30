@@ -41,14 +41,14 @@ local function bind_context(T)
 
     local function tool_path(tool)
         if tool.path and tool.path.text ~= "" then return tool.path.text end
-        local kind = tool.kind
-        if kind == Link.LinkerClang then return "clang" end
-        if kind == Link.LinkerGcc then return "gcc" end
-        if kind == Link.LinkerLd then return "ld" end
-        if kind == Link.LinkerLld then return "ld.lld" end
-        if kind == Link.LinkerAr then return "ar" end
-        if kind == Link.LinkerLibtool then return "libtool" end
-        if schema.classof(kind) == Link.LinkerCustom then return kind.name end
+        local driver = tool.driver
+        if driver == Link.LinkerClang then return "clang" end
+        if driver == Link.LinkerGcc then return "gcc" end
+        if driver == Link.LinkerLd then return "ld" end
+        if driver == Link.LinkerLld then return "ld.lld" end
+        if driver == Link.LinkerAr then return "ar" end
+        if driver == Link.LinkerLibtool then return "libtool" end
+        if schema.classof(driver) == Link.LinkerCustom then return driver.name end
         return "cc"
     end
 
@@ -111,21 +111,21 @@ local function bind_context(T)
 
     local function command_plan(plan)
         local args = {}
-        if plan.kind == Link.LinkArtifactStaticArchive then
+        if plan.output_form == Link.LinkArtifactStaticArchive then
             args[#args + 1] = "rcs"
             args[#args + 1] = plan.output.text
             for i = 1, #plan.inputs do append_input(args, plan.inputs[i]) end
             return Link.LinkCommandPlan(plan, { Link.LinkCmdRun(Link.LinkTool(Link.LinkerAr, Link.LinkPath(tool_path(plan.tool) == "cc" and "ar" or tool_path(plan.tool))), args, {}) })
         end
 
-        if plan.kind == Link.LinkArtifactSharedLibrary then
+        if plan.output_form == Link.LinkArtifactSharedLibrary then
             if plan.target.platform == Link.LinkPlatformMacOS then args[#args + 1] = "-dynamiclib"
             else args[#args + 1] = "-shared" end
-        elseif plan.kind == Link.LinkArtifactExecutable and plan.target.platform == Link.LinkPlatformWindows then
+        elseif plan.output_form == Link.LinkArtifactExecutable and plan.target.platform == Link.LinkPlatformWindows then
             -- cc default is executable; no flag needed.
         end
 
-        if plan.externs == Link.LinkExternRequireResolved and plan.kind == Link.LinkArtifactSharedLibrary and plan.target.platform == Link.LinkPlatformLinux then
+        if plan.externs == Link.LinkExternRequireResolved and plan.output_form == Link.LinkArtifactSharedLibrary and plan.target.platform == Link.LinkPlatformLinux then
             args[#args + 1] = "-Wl,--no-undefined"
         end
         for i = 1, #plan.options do append_option(args, plan.target, plan.options[i]) end
@@ -133,7 +133,7 @@ local function bind_context(T)
         for i = 1, #plan.inputs do append_input(args, plan.inputs[i]) end
         args[#args + 1] = "-o"
         args[#args + 1] = plan.output.text
-        return Link.LinkCommandPlan(plan, { Link.LinkCmdRun(Link.LinkTool(plan.tool.kind, Link.LinkPath(tool_path(plan.tool))), args, {}) })
+        return Link.LinkCommandPlan(plan, { Link.LinkCmdRun(Link.LinkTool(plan.tool.driver, Link.LinkPath(tool_path(plan.tool))), args, {}) })
     end
 
     local function phase(node, ...)
@@ -143,7 +143,7 @@ local function bind_context(T)
  return single(command_plan(self))
             end)(node, ...)
         else
-            error("phase lalin_link_command_plan: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_link_command_plan: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 

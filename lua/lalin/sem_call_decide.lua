@@ -44,60 +44,60 @@ local function bind_context(T)
 
     local classify_api = require("lalin.type_classify")(T)
 
-    local binding_class_call_target
+    local binding_role_call_target
     local value_ref_call_target
     local callee_call_target
 
     local function closure_or_indirect(callee, fn_ty)
-        local class = classify_api.classify(fn_ty)
-        if schema.classof(class) == Ty.TypeClassClosure then
+        local shape = classify_api.classify(fn_ty)
+        if schema.classof(shape) == Ty.TypeShapeClosure then
             return { kind = "closure", closure = callee, fn_ty = fn_ty }
         end
         return { kind = "indirect", callee = callee, fn_ty = fn_ty }
     end
 
-    function binding_class_call_target(node, ...)
+    function binding_role_call_target(node, ...)
         local cls = schema.classof(node)
-        if schema.isa(node, B.BindingClassGlobalFunc) then
+        if schema.isa(node, B.BindingRoleGlobalFunc) then
             return (function(self, callee, fn_ty)
 
             return single({ kind = "direct", module_name = self.module_name, item_name = self.item_name, fn_ty = fn_ty })
             end)(node, ...)
-        elseif schema.isa(node, B.BindingClassExtern) then
+        elseif schema.isa(node, B.BindingRoleExtern) then
             return (function(self, callee, fn_ty)
 
             return single({ kind = "extern", symbol = self.symbol, fn_ty = fn_ty })
             end)(node, ...)
-        elseif schema.isa(node, B.BindingClassLocalValue) then
+        elseif schema.isa(node, B.BindingRoleLocalValue) then
             return (function(_, callee, fn_ty)
  return single(closure_or_indirect(callee, fn_ty))
             end)(node, ...)
-        elseif schema.isa(node, B.BindingClassLocalCell) then
+        elseif schema.isa(node, B.BindingRoleLocalCell) then
             return (function(_, callee, fn_ty)
  return single(closure_or_indirect(callee, fn_ty))
             end)(node, ...)
-        elseif schema.isa(node, B.BindingClassArg) then
+        elseif schema.isa(node, B.BindingRoleArg) then
             return (function(_, callee, fn_ty)
  return single(closure_or_indirect(callee, fn_ty))
             end)(node, ...)
-        elseif schema.isa(node, B.BindingClassEntryBlockParam) then
+        elseif schema.isa(node, B.BindingRoleEntryBlockParam) then
             return (function(_, callee, fn_ty)
  return single(closure_or_indirect(callee, fn_ty))
             end)(node, ...)
-        elseif schema.isa(node, B.BindingClassBlockParam) then
+        elseif schema.isa(node, B.BindingRoleBlockParam) then
             return (function(_, callee, fn_ty)
  return single(closure_or_indirect(callee, fn_ty))
             end)(node, ...)
-        elseif schema.isa(node, B.BindingClassGlobalConst) then
+        elseif schema.isa(node, B.BindingRoleGlobalConst) then
             return (function(_, callee, fn_ty)
  return single(closure_or_indirect(callee, fn_ty))
             end)(node, ...)
-        elseif schema.isa(node, B.BindingClassGlobalStatic) then
+        elseif schema.isa(node, B.BindingRoleGlobalStatic) then
             return (function(_, callee, fn_ty)
  return single(closure_or_indirect(callee, fn_ty))
             end)(node, ...)
         else
-            error("phase lalin_sem_binding_class_call_target: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_binding_role_call_target: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -106,7 +106,7 @@ local function bind_context(T)
         if schema.isa(node, B.ValueRefBinding) then
             return (function(ref, callee, fn_ty)
 
-            return binding_class_call_target(ref.binding.class, callee, fn_ty)
+            return binding_role_call_target(ref.binding.role, callee, fn_ty)
             end)(node, ...)
         elseif schema.isa(node, B.ValueRefName) then
             return (function(_, callee)
@@ -117,7 +117,7 @@ local function bind_context(T)
  return single({ kind = "unresolved", callee = callee })
             end)(node, ...)
         else
-            error("phase lalin_sem_value_ref_call_target: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_value_ref_call_target: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
@@ -225,12 +225,12 @@ local function bind_context(T)
  return single(closure_or_indirect(callee, fn_ty))
             end)(node, ...)
         else
-            error("phase lalin_sem_call_decide: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase lalin_sem_call_decide: no handler for " .. tostring(cls or type(node)), 2)
         end
     end
 
     return {
-        binding_class_call_target = binding_class_call_target,
+        binding_role_call_target = binding_role_call_target,
         value_ref_call_target = value_ref_call_target,
         callee_call_target = callee_call_target,
         decide = function(callee, fn_ty) return only(callee_call_target(callee, fn_ty)) end,

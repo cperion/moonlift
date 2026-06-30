@@ -129,14 +129,14 @@ return schema. LalinCode {
       align [number],
     },
   },
-  sum. CodeTrapMode { CodeMayTrap, CodeMustNotTrap, CodeCheckedTrap, },
-  sum. CodeMemoryMode { CodeMemoryRead, CodeMemoryWrite, CodeMemoryReadWrite, },
+  sum. CodeTrapPolicy { CodeMayTrap, CodeMustNotTrap, CodeCheckedTrap, },
+  sum. CodeMemoryEffect { CodeMemoryRead, CodeMemoryWrite, CodeMemoryReadWrite, },
   product. CodeMemoryAccess {
     interned,
-    mode [LalinCode.CodeMemoryMode],
+    effect [LalinCode.CodeMemoryEffect],
     field. ty [LalinCode.CodeType],
     align [number],
-    trap [LalinCode.CodeTrapMode],
+    trap [LalinCode.CodeTrapPolicy],
     volatile [bool],
     ordering [optional [LalinCore.AtomicOrdering]],
   },
@@ -154,13 +154,13 @@ return schema. LalinCode {
     CodeIntTrapOnOverflow,
     CodeIntAssumeNoOverflow { variant_unique, reason [str], },
   },
-  sum. CodeDivMode { CodeDivTrapOnZero, CodeDivTrapOnZeroOrOverflow, },
-  sum. CodeShiftMode { CodeShiftMaskCount, CodeShiftTrapOutOfRange, },
+  sum. CodeDivPolicy { CodeDivTrapOnZero, CodeDivTrapOnZeroOrOverflow, },
+  sum. CodeShiftPolicy { CodeShiftMaskCount, CodeShiftTrapOutOfRange, },
   product. CodeIntSemantics {
     interned,
     overflow [LalinCode.CodeIntOverflow],
-    div [LalinCode.CodeDivMode],
-    shift [LalinCode.CodeShiftMode],
+    div [LalinCode.CodeDivPolicy],
+    shift [LalinCode.CodeShiftPolicy],
   },
   sum. CodeFloatMode {
     CodeFloatStrict,
@@ -220,7 +220,7 @@ return schema. LalinCode {
     dest [LalinCode.CodeBlockId],
     args [many [LalinCode.CodeValueId]],
   },
-  sum. CodeInstKind {
+  sum. CodeInstOp {
     CodeInstConst {
       variant_unique,
       dst [LalinCode.CodeValueId],
@@ -460,10 +460,10 @@ return schema. LalinCode {
   product. CodeInst {
     interned,
     field. id [LalinCode.CodeInstId],
-    kind [LalinCode.CodeInstKind],
+    op [LalinCode.CodeInstOp],
     origin [LalinCode.CodeOrigin],
   },
-  sum. CodeTermKind {
+  sum. CodeTermOp {
     CodeTermJump {
       variant_unique,
       dest [LalinCode.CodeBlockId],
@@ -498,7 +498,7 @@ return schema. LalinCode {
   product. CodeTerm {
     interned,
     field. id [LalinCode.CodeTermId],
-    kind [LalinCode.CodeTermKind],
+    op [LalinCode.CodeTermOp],
     origin [LalinCode.CodeOrigin],
   },
   product. CodeBackSigAbi {
@@ -515,32 +515,120 @@ return schema. LalinCode {
     size [number],
     align [number],
   },
+  product. CodeIntSemanticsByValueEntry {
+    interned,
+    value_key [str],
+    sem [LalinCode.CodeIntSemantics],
+  },
+  product. CodeFloatModeByValueEntry {
+    interned,
+    value_key [str],
+    mode [LalinCode.CodeFloatMode],
+  },
+  product. CodeValueSemanticsProjection {
+    int_semantics_by_value [many [LalinCode.CodeIntSemanticsByValueEntry]],
+    float_mode_by_value [many [LalinCode.CodeFloatModeByValueEntry]],
+  },
+  product. CodeReadonlyByInstEntry {
+    interned,
+    inst_key [str],
+    readonly [bool],
+  },
+  product. CodeBackReadonlyProjection {
+    readonly_by_inst [many [LalinCode.CodeReadonlyByInstEntry]],
+  },
+  product. CodeSigByIdEntry {
+    interned,
+    sig_key [str],
+    sig [LalinCode.CodeSig],
+  },
+  product. CodeSigAbiBySigEntry {
+    interned,
+    sig_key [str],
+    abi [LalinCode.CodeBackSigAbi],
+  },
+  product. CodeMemBackendByInstEntry {
+    interned,
+    inst_key [str],
+    backend [LalinMem.MemBackendAccessInfo],
+  },
+  product. CodeEffectByInstEntry {
+    interned,
+    inst_key [str],
+    effect [LalinEffect.InstEffect],
+  },
   product. CodeBackModuleFacts {
-    sigs [map [str] [LalinCode.CodeSig]],
-    sig_abi_by_sig [map [str] [LalinCode.CodeBackSigAbi]],
-    mem_backend_by_inst [map [str] [LalinMem.MemBackendAccessInfo]],
-    value_int_semantics_by_value [map [str] [LalinCode.CodeIntSemantics]],
-    value_float_mode_by_value [map [str] [LalinCode.CodeFloatMode]],
-    effect_by_inst [map [str] [LalinEffect.InstEffect]],
-    readonly_inst [map [str] [bool]],
+    sigs [many [LalinCode.CodeSigByIdEntry]],
+    sig_abi_by_sig [many [LalinCode.CodeSigAbiBySigEntry]],
+    mem_backend_by_inst [many [LalinCode.CodeMemBackendByInstEntry]],
+    value_semantics [LalinCode.CodeValueSemanticsProjection],
+    effect_by_inst [many [LalinCode.CodeEffectByInstEntry]],
+    readonly [LalinCode.CodeBackReadonlyProjection],
     layout_env [optional [LalinSem.LayoutEnv]],
     target [optional [LalinBack.BackTarget]],
+  },
+  product. CodeTypeByValueEntry {
+    interned,
+    value_key [str],
+    field. ty [LalinCode.CodeType],
+  },
+  product. CodeParamsByBlockEntry {
+    interned,
+    block_key [str],
+    params [many [LalinCode.CodeParam]],
   },
   product. CodeBackFunctionFacts {
     func [LalinCode.CodeFuncId],
     current_return_sret [optional [LalinBack.BackValId]],
-    value_types [map [str] [LalinCode.CodeType]],
-    block_params [map [str] [many [LalinCode.CodeParam]]],
+    value_types [many [LalinCode.CodeTypeByValueEntry]],
+    block_params [many [LalinCode.CodeParamsByBlockEntry]],
+  },
+  product. CodeLocalAddrByValueEntry {
+    interned,
+    value_key [str],
+    addr [LalinBack.BackValId],
+  },
+  product. CodeValueAddrByValueEntry {
+    interned,
+    value_key [str],
+    addr [LalinBack.BackValId],
+  },
+  product. CodeValueSizeByValueEntry {
+    interned,
+    value_key [str],
+    size [number],
+  },
+  product. CodeBackAggregateState {
+    local_addr_by_value [many [LalinCode.CodeLocalAddrByValueEntry]],
+    value_addr_by_value [many [LalinCode.CodeValueAddrByValueEntry]],
+    value_size_by_value [many [LalinCode.CodeValueSizeByValueEntry]],
+  },
+  product. CodeCaptureByValueEntry {
+    interned,
+    value_key [str],
+    has_captures [bool],
+  },
+  product. CodeBackClosureState {
+    has_captures_by_value [many [LalinCode.CodeCaptureByValueEntry]],
+  },
+  product. CodeSlotByLocalEntry {
+    interned,
+    local_key [str],
+    slot [LalinCode.CodeBackLocalSlot],
+  },
+  product. CodeBackLocalSlotState {
+    slot_by_local [many [LalinCode.CodeSlotByLocalEntry]],
+  },
+  product. CodeBackTempState {
+    tmp_index [number],
+    next_tmp [number],
   },
   product. CodeBackFunctionState {
     cmds [many [LalinBack.Cmd]],
-    aggregate_local_addr [map [str] [LalinBack.BackValId]],
-    aggregate_value_addr [map [str] [LalinBack.BackValId]],
-    aggregate_value_size [map [str] [number]],
-    closure_value_has_captures [map [str] [bool]],
-    local_stack_slots [map [str] [LalinCode.CodeBackLocalSlot]],
-    tmp_index [number],
-    next_tmp [number],
+    aggregates [LalinCode.CodeBackAggregateState],
+    closures [LalinCode.CodeBackClosureState],
+    local_slots [LalinCode.CodeBackLocalSlotState],
+    temps [LalinCode.CodeBackTempState],
   },
   product. CodeBackInstInput {
     field. module [LalinCode.CodeBackModuleFacts],

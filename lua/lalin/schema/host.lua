@@ -43,7 +43,7 @@ return schema. LalinHost {
     index_bits [number],
     endian [LalinHost.HostEndian],
   },
-  sum. HostLayoutKind {
+  sum. HostLayoutShape {
     HostLayoutStruct,
     HostLayoutSlice,
     HostLayoutArray,
@@ -131,7 +131,7 @@ return schema. LalinHost {
     layout_env [LalinHost.HostLayoutEnv],
   },
   product. HostValueId { interned, key [str], pretty [str], },
-  sum. HostValueKind {
+  sum. HostValueSubject {
     HostValueType,
     HostValueDecl,
     HostValueModule,
@@ -140,7 +140,7 @@ return schema. LalinHost {
   product. HostValueRef {
     interned,
     field. id [LalinHost.HostValueId],
-    kind [LalinHost.HostValueKind],
+    subject [LalinHost.HostValueSubject],
   },
   product. ProtocolRole { interned, role [str], target [str], },
   product. RegionProtocol {
@@ -187,7 +187,7 @@ return schema. LalinHost {
     field. id [LalinHost.HostLayoutId],
     field. name [str],
     ctype [str],
-    kind [LalinHost.HostLayoutKind],
+    shape [LalinHost.HostLayoutShape],
     size [number],
     align [number],
     fields [many [LalinHost.HostFieldLayout]],
@@ -242,7 +242,7 @@ return schema. LalinHost {
   sum. HostExposeTarget { HostExposeLua, HostExposeTerra, HostExposeC, HostExposeLalin, },
   sum. HostMutability { HostReadonly, HostMutable, HostInteriorMutable, },
   sum. HostBoundsPolicy { HostBoundsChecked, HostBoundsUnchecked, },
-  sum. HostProxyKind {
+  sum. HostProxyShape {
     HostProxyPtr,
     HostProxyView,
     HostProxyBufferView,
@@ -255,10 +255,10 @@ return schema. LalinHost {
     HostMaterializeFullCopy,
     HostMaterializeBorrowedView,
   },
-  sum. HostExposeMode {
+  sum. HostExposeStrategy {
     HostExposeProxy {
       variant_unique,
-      kind [LalinHost.HostProxyKind],
+      proxy [LalinHost.HostProxyShape],
       cache [LalinHost.HostProxyCachePolicy],
       mutability [LalinHost.HostMutability],
       bounds [LalinHost.HostBoundsPolicy],
@@ -279,7 +279,7 @@ return schema. LalinHost {
     interned,
     target [LalinHost.HostExposeTarget],
     abi [LalinHost.HostExposeAbi],
-    mode [LalinHost.HostExposeMode],
+    strategy [LalinHost.HostExposeStrategy],
   },
   product. HostExposeDecl {
     interned,
@@ -342,10 +342,10 @@ return schema. LalinHost {
     interned,
     layout [LalinHost.HostTypeLayout],
     owner [LalinHost.HostOwner],
-    expose [LalinHost.HostExposeMode],
+    expose [LalinHost.HostExposeStrategy],
     access [LalinHost.HostAccessPlan],
   },
-  sum. HostProducerKind {
+  sum. HostProducerBackend {
     HostProducerLowLevelLalin,
     HostProducerLuaFfi,
     HostProducerTypedRecordMemory,
@@ -354,7 +354,7 @@ return schema. LalinHost {
   product. HostProducerPlan {
     interned,
     field. name [str],
-    kind [LalinHost.HostProducerKind],
+    backend [LalinHost.HostProducerBackend],
     outputs [many [LalinHost.HostTypeLayout]],
   },
   sum. HostLayoutFact {
@@ -383,7 +383,7 @@ return schema. LalinHost {
   sum. HostLayoutReject {
     HostRejectJsonInTypedRecordMemory,
     HostRejectDynamicObjectArena { variant_unique, reason [str], },
-    HostRejectUnknownFieldKind { variant_unique, kind [str], },
+    HostRejectUnknownFieldRep { variant_unique, field_rep [str], },
     HostRejectInvalidLayout { variant_unique, reason [str], },
     HostRejectBareBoolInBoundaryStruct { variant_unique, type_name [str], field_name [str], },
     HostRejectInvalidPackedAlign { variant_unique, type_name [str], align [number], },

@@ -41,7 +41,7 @@ local function active_languages(opts)
 end
 
 local function default_env()
-  return require("lalin.dsl").make_env { no_namespaces = true }
+  return require("lalin").dsl.make_env { no_namespaces = true }
 end
 
 local function merge_env(user_env)

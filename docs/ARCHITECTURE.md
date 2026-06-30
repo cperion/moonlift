@@ -443,7 +443,6 @@ the ASDL types for that domain:
 | `bind.lua` | Binding, ValueRef |
 | `sem.lua` | FieldRef, FieldLayout, TypeLayout, LayoutEnv, ConstValue |
 | `link.lua` | Link plan and target model |
-| `dasm.lua` | Disassembly types |
 | `host.lua` | Host field representation |
 | `parse.lua` | Parse tree types |
 | `source.lua` | Source location types |

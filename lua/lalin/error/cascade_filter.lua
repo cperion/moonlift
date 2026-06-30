@@ -76,18 +76,15 @@ local void_kinds = {
 
 local function is_void_type(ty)
     if not ty then return false end
-    local cls = asdl.classof(ty)
-    if cls and cls.kind == "TScalar" and ty.scalar then
-        local scls = asdl.classof(ty.scalar)
-        return scls and void_kinds[scls.kind] or false
+    if asdl.class_basename(ty) == "TScalar" and ty.scalar then
+        return void_kinds[asdl.class_basename(ty.scalar)] or false
     end
     return false
 end
 
 local function is_cascade(ri, unresolved_names)
-    local cls = asdl.classof(ri.issue)
-    if not cls then return false end
-    local kind = cls.kind
+    local kind = asdl.class_basename(ri.issue)
+    if not kind then return false end
 
     -- If there are no unresolved names, no cascade detection based on void
     if not next(unresolved_names) then
@@ -185,8 +182,7 @@ function M.filter(resolved_issues)
     local seen_keys = {}
 
     for _, ri in ipairs(resolved_issues) do
-        local cls = asdl.classof(ri.issue)
-        local kind = cls and cls.kind or ""
+        local kind = asdl.class_basename(ri.issue) or ""
 
         if ROOT_CAUSE_KINDS[kind] then
             root_keys[resolved_key(ri)] = true
@@ -210,8 +206,7 @@ function M.filter(resolved_issues)
     -- Second pass: filter cascades and deduplicate
     local out = {}
     for _, ri in ipairs(resolved_issues) do
-        local cls = asdl.classof(ri.issue)
-        local kind = cls and cls.kind or ""
+        local kind = asdl.class_basename(ri.issue) or ""
 
         -- Root causes always pass
         if ROOT_CAUSE_KINDS[kind] then

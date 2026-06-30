@@ -6,7 +6,7 @@ local M = {}
 
 local function context_of(node)
     local cls = asdl.classof(node)
-    local ctx = cls and rawget(cls, "__context")
+    local ctx = cls and asdl.context_of(cls)
     if ctx then return ctx end
     error("lalin.compiler_machines: input value does not carry a schema context", 3)
 end

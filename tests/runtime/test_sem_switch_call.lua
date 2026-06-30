@@ -31,7 +31,7 @@ assert_switch_decision(S.keys({ key1, key2 }), Tr.SwitchConstKeys)
 assert_switch_decision(S.keys({ expr_key }), Tr.SwitchExprKeys)
 assert_switch_decision(S.keys({ key1, expr_key }), Tr.SwitchCompareFallback, "mixed const and expression switch keys")
 
-local direct_binding = B.Binding(C.Id("f"), "f", fn_ty, B.BindingClassGlobalFunc("Demo", "f"))
+local direct_binding = B.Binding(C.Id("f"), "f", fn_ty, B.BindingRoleGlobalFunc("Demo", "f"))
 local direct_expr = Tr.ExprRef(Tr.ExprTyped(fn_ty), B.ValueRefBinding(direct_binding))
 local function assert_call_equal(a, b)
     assert(a.kind == b.kind)
@@ -43,17 +43,17 @@ end
 local r1 = CallD.decide(direct_expr, fn_ty)
 assert_call_equal(r1, { kind = "direct", module_name = "Demo", item_name = "f", fn_ty = fn_ty })
 
-local extern_binding = B.Binding(C.Id("puts"), "puts", fn_ty, B.BindingClassExtern("puts"))
+local extern_binding = B.Binding(C.Id("puts"), "puts", fn_ty, B.BindingRoleExtern("puts"))
 local extern_expr = Tr.ExprRef(Tr.ExprTyped(fn_ty), B.ValueRefBinding(extern_binding))
 local r2 = CallD.decide(extern_expr, fn_ty)
 assert_call_equal(r2, { kind = "extern", symbol = "puts", fn_ty = fn_ty })
 
-local local_binding = B.Binding(C.Id("fp"), "fp", fn_ty, B.BindingClassLocalValue)
+local local_binding = B.Binding(C.Id("fp"), "fp", fn_ty, B.BindingRoleLocalValue)
 local local_expr = Tr.ExprRef(Tr.ExprTyped(fn_ty), B.ValueRefBinding(local_binding))
 local r4 = CallD.decide(local_expr, fn_ty)
 assert_call_equal(r4, { kind = "indirect", callee = local_expr, fn_ty = fn_ty })
 
-local closure_expr = Tr.ExprRef(Tr.ExprTyped(closure_ty), B.ValueRefBinding(B.Binding(C.Id("cl"), "cl", closure_ty, B.BindingClassLocalValue)))
+local closure_expr = Tr.ExprRef(Tr.ExprTyped(closure_ty), B.ValueRefBinding(B.Binding(C.Id("cl"), "cl", closure_ty, B.BindingRoleLocalValue)))
 local r5 = CallD.decide(closure_expr, closure_ty)
 assert_call_equal(r5, { kind = "closure", closure = closure_expr, fn_ty = closure_ty })
 

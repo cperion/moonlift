@@ -287,13 +287,13 @@ return schema. LalinStencil {
   },
   product. StencilReducer {
     interned,
-    reduction [LalinValue.ReductionKind],
+    reduction [LalinValue.ReductionOp],
     result_ty [LalinCode.CodeType],
     field. identity [LalinValue.ValueExpr],
     int_semantics [optional [LalinCode.CodeIntSemantics]],
     float_mode [optional [LalinCode.CodeFloatMode]],
   },
-  sum. StencilStoreMode {
+  sum. StencilStoreSemantics {
     StencilStoreElementwise,
     StencilStoreCopy { variant_unique, semantics [LalinStencil.StencilCopySemantics], },
     StencilStoreScatter {
@@ -302,7 +302,7 @@ return schema. LalinStencil {
     },
     StencilStorePartition { variant_unique, semantics [LalinStencil.StencilPartitionSemantics], },
   },
-  sum. StencilReduceMode {
+  sum. StencilReductionSemantics {
     StencilReduceFold { variant_unique, reducer [LalinStencil.StencilReducer], },
     StencilReduceCount { variant_unique, pred [LalinStencil.StencilPredicate], },
     StencilReduceFind {
@@ -361,7 +361,7 @@ return schema. LalinStencil {
     StencilProofBoundaryContract,
     StencilProofAuthorAsserted,
   },
-  sum. StencilProofObligationKind {
+  sum. StencilProofRequirement {
     StencilProofNoAlias {
       variant_unique,
       left [LalinStencil.StencilAccessRef],
@@ -378,7 +378,7 @@ return schema. LalinStencil {
   },
   product. StencilProofObligation {
     interned,
-    kind [LalinStencil.StencilProofObligationKind],
+    requirement [LalinStencil.StencilProofRequirement],
     origin [LalinStencil.StencilProofOrigin],
     proof [optional [LalinKernel.KernelProof]],
   },
@@ -543,13 +543,13 @@ return schema. LalinStencil {
     StencilSinkStore {
       variant_unique,
       dst [LalinStencil.StencilAccessRef],
-      mode [LalinStencil.StencilStoreMode],
+      semantics [LalinStencil.StencilStoreSemantics],
     },
     StencilSinkReduce {
       variant_unique,
       result_ty [LalinCode.CodeType],
       scope [LalinStencil.StencilReduceScope],
-      mode [LalinStencil.StencilReduceMode],
+      semantics [LalinStencil.StencilReductionSemantics],
     },
     StencilSinkScan {
       variant_unique,
@@ -596,7 +596,7 @@ return schema. LalinStencil {
     StencilRejectUnsupportedType { variant_unique, ty [LalinCode.CodeType], reason [str], },
     StencilRejectUnsupportedReduction {
       variant_unique,
-      reduction [LalinValue.ReductionKind],
+      reduction [LalinValue.ReductionOp],
       reason [str],
     },
     StencilRejectUnsupportedProducer {
@@ -611,7 +611,7 @@ return schema. LalinStencil {
     },
     StencilRejectMissingProof {
       variant_unique,
-      obligation [LalinStencil.StencilProofObligationKind],
+      requirement [LalinStencil.StencilProofRequirement],
     },
     StencilRejectProvider { variant_unique, provider [LalinStencil.StencilProvider], reason [str], },
     StencilRejectSchedule { variant_unique, reject [LalinStencil.StencilScheduleReject], },
@@ -763,7 +763,7 @@ return schema. LalinStencil {
     },
     StencilFusionRejectMissingProof {
       variant_unique,
-      obligation [LalinStencil.StencilProofObligationKind],
+      requirement [LalinStencil.StencilProofRequirement],
     },
     StencilFusionRejectUnsupportedComposition {
       variant_unique,
