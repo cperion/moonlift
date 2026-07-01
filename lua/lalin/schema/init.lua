@@ -29,6 +29,7 @@ local SCHEMA_MODULES = {
     "stencil",
     "stencil_machine",
     "exec",
+    "residual",
     "schedule",
     "lower",
     "compiler",

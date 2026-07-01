@@ -9,6 +9,7 @@ local function bind_context(T)
     local Value = T.LalinValue
     local LJ = T.LalinLuaJIT
     local Back = T.LalinBack
+    local ResidualNative = require("lalin.residual_native")(T)
 
     local api = {}
 
@@ -1463,26 +1464,25 @@ local function bind_context(T)
 
     local function emit_native_residuals(out, module, opts)
         if not (opts.native_residual == true or opts.native_residual == "tcc" or opts.tcc_residual == true) then return end
-        local sigs = sig_index(module)
+        local plan = ResidualNative.select_luajit_module(module, opts)
         local c_units, replacements, host_symbols = {}, {}, {}
-        local seen_symbols = {}
-        for _, func in ipairs(module.funcs or {}) do
-            local op, op_cls = native_residual_candidate(func)
-            if op ~= nil then
-                local sig = sigs[func.sig.text]
-                local source, wrapper, stencil_symbol = native_wrapper_source(func, sig, op, op_cls)
-                c_units[#c_units + 1] = source
-                replacements[#replacements + 1] = {
-                    func_name = func_name(func.name),
-                    wrapper = wrapper,
-                    ctype = native_func_pointer_ctype(func, sig, op, op_cls),
-                }
-                seen_symbols[stencil_symbol] = true
+        local function has_host_symbol(name)
+            for _, existing in ipairs(host_symbols) do
+                if existing.name == name then return true end
+            end
+            return false
+        end
+        for _, unit in ipairs(plan.c_units or {}) do
+            c_units[#c_units + 1] = unit.source
+            for _, wrapper in ipairs(unit.wrappers or {}) do
+                replacements[#replacements + 1] = wrapper
+            end
+            for _, symbol in ipairs(unit.host_symbols or {}) do
+                if not has_host_symbol(symbol.name) then host_symbols[#host_symbols + 1] = symbol end
             end
         end
         if #replacements == 0 then return end
-        for symbol in pairs(seen_symbols) do host_symbols[#host_symbols + 1] = symbol end
-        table.sort(host_symbols)
+        table.sort(host_symbols, function(a, b) return a.name < b.name end)
         c_units[#c_units + 1] = ""
         table.insert(c_units, 1, "#include <stdint.h>")
         table.insert(c_units, 2, "#include <stdbool.h>")
@@ -1493,14 +1493,14 @@ local function bind_context(T)
         line(out, 1, "local __native_source = " .. native_c_string(table.concat(c_units, "\n\n") .. "\n"))
         line(out, 1, "local __native_host_symbols = {}")
         for _, symbol in ipairs(host_symbols) do
-            line(out, 1, "if __lalin_luajit_stencil_symbols[" .. lua_string(symbol) .. "] == nil then error(" .. lua_string("missing LalinStencil symbol " .. symbol) .. ", 0) end")
-            line(out, 1, "__native_host_symbols[" .. lua_string(symbol) .. "] = ffi.cast('void *', ffi.cast('uintptr_t', __lalin_luajit_stencil_symbols[" .. lua_string(symbol) .. "]))")
+            line(out, 1, "if __lalin_luajit_stencil_symbols[" .. lua_string(symbol.name) .. "] == nil then error(" .. lua_string("missing LalinStencil symbol " .. symbol.name) .. ", 0) end")
+            line(out, 1, "__native_host_symbols[" .. lua_string(symbol.name) .. "] = ffi.cast('void *', ffi.cast('uintptr_t', __lalin_luajit_stencil_symbols[" .. lua_string(symbol.name) .. "]))")
         end
         line(out, 1, "local __session, __err = __c_tcc.compile(__native_source, { libraries = { 'm' }, host_symbols = __native_host_symbols })")
         line(out, 1, "if not __session then error((__err and __err.message) or 'native residual TCC compile failed', 0) end")
         line(out, 1, "__lalin_native_residual_sessions[#__lalin_native_residual_sessions + 1] = __session")
         for _, replacement in ipairs(replacements) do
-            line(out, 1, replacement.func_name .. " = assert(__session:symbol(" .. lua_string(replacement.wrapper) .. ", " .. lua_string(replacement.ctype) .. "))")
+            line(out, 1, replacement.func_name .. " = assert(__session:symbol(" .. lua_string(replacement.wrapper_symbol) .. ", " .. lua_string(replacement.wrapper_ctype) .. "))")
         end
         line(out, 0, "end")
     end

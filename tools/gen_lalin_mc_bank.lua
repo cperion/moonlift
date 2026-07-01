@@ -8,28 +8,17 @@ package.path = table.concat({
 
 local out_c = assert(arg[1], "usage: luajit tools/gen_lalin_mc_bank.lua OUT_C OUT_H")
 local out_h = assert(arg[2], "usage: luajit tools/gen_lalin_mc_bank.lua OUT_C OUT_H")
-local script_path = arg[0] or "tools/gen_lalin_mc_bank.lua"
 
-local pvm = require("lalin.asdl")
+local asdl = require("lalin.asdl")
 local Schema = require("lalin.schema")
 
-local T = pvm.context()
+local T = asdl.context()
 Schema(T)
 
-local LJ = T.LalinLuaJIT
 local InternSet = require("lalin.residual_mc_intern_set")(T)
-local Bank = require("lalin.residual_mc")(T)
-
-local embedded_mc_cflags = os.getenv("LALIN_MC_BANK_CFLAGS")
-    or "-std=c99 -O3 -march=native -fno-builtin -fno-builtin-memmove -fno-builtin-memcpy -fno-builtin-memset -ffunction-sections -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -c"
 
 local function shell_quote(s)
     return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
-end
-
-local function command_ok(cmd)
-    local ok = os.execute(cmd)
-    return ok == true or ok == 0
 end
 
 local function mkdir_parent(path)
@@ -42,63 +31,6 @@ local function write_file(path, text)
     local f = assert(io.open(path, "wb"))
     f:write(text)
     f:close()
-end
-
-local function append_text(path, text)
-    mkdir_parent(path)
-    local f = assert(io.open(path, "ab"))
-    f:write(text)
-    f:close()
-end
-
-local function append_file(dst, src_path)
-    local src = assert(io.open(src_path, "rb"))
-    while true do
-        local chunk = src:read(1024 * 1024)
-        if chunk == nil or chunk == "" then break end
-        dst:write(chunk)
-    end
-    src:close()
-end
-
-local function read_file(path)
-    local f = assert(io.open(path, "rb"))
-    local s = f:read("*a")
-    f:close()
-    return s
-end
-
-local function basename(path)
-    return tostring(path):match("([^/]+)$") or tostring(path)
-end
-
-local function sanitize(s)
-    s = tostring(s or "x"):gsub("[^%w_]", "_")
-    if s == "" then s = "x" end
-    if s:match("^%d") then s = "_" .. s end
-    return s
-end
-
-local function bounded_text(s, limit)
-    s = tostring(s or "")
-    limit = limit or 12000
-    if #s <= limit then return s end
-    local half = math.floor(limit / 2)
-    return s:sub(1, half) .. "\n... truncated " .. tostring(#s - limit) .. " bytes ...\n" .. s:sub(#s - half + 1)
-end
-
-local function bytes_array(bytes)
-    local out, line = {}, {}
-    for i = 1, #bytes do
-        line[#line + 1] = string.format("0x%02x", bytes:byte(i))
-        if #line == 12 then
-            out[#out + 1] = "  " .. table.concat(line, ", ") .. ","
-            line = {}
-        end
-    end
-    if #line > 0 then out[#out + 1] = "  " .. table.concat(line, ", ") .. "," end
-    if #out == 0 then out[1] = "  0x00," end
-    return table.concat(out, "\n")
 end
 
 local function c_string(s)
@@ -114,24 +46,17 @@ local function emit_header()
         "#include <stddef.h>",
         "#include \"lua.h\"",
         "",
-        "typedef struct LalinEmbeddedMCEntry {",
-        "  const char *symbol;",
-        "  const char *c_signature;",
-        "  const unsigned char *data;",
-        "  size_t size;",
-        "} LalinEmbeddedMCEntry;",
+        "typedef struct LalinEmbeddedMCTemplateEntry {",
+        "  const char *family_key;",
+        "  const char *instance_id;",
+        "  size_t estimated_template_bytes;",
+        "  size_t coordinate_count;",
+        "} LalinEmbeddedMCTemplateEntry;",
         "",
-        "typedef const LalinEmbeddedMCEntry *(*LalinEmbeddedMCShardEntriesFn)(void);",
-        "typedef size_t (*LalinEmbeddedMCShardCountFn)(void);",
-        "",
-        "typedef struct LalinEmbeddedMCShard {",
-        "  LalinEmbeddedMCShardEntriesFn entries;",
-        "  LalinEmbeddedMCShardCountFn count;",
-        "} LalinEmbeddedMCShard;",
-        "",
-        "const LalinEmbeddedMCShard *lalin_embedded_mc_bank_shards(void);",
-        "size_t lalin_embedded_mc_bank_shard_count(void);",
-        "size_t lalin_embedded_mc_bank_count(void);",
+        "const LalinEmbeddedMCTemplateEntry *lalin_embedded_mc_template_bank_entries(void);",
+        "size_t lalin_embedded_mc_template_bank_count(void);",
+        "size_t lalin_embedded_mc_template_bank_estimated_bytes(void);",
+        "size_t lalin_embedded_mc_template_bank_coordinate_count(void);",
         "int lalin_install_embedded_mc_bank(lua_State *L);",
         "",
         "#endif",
@@ -139,274 +64,72 @@ local function emit_header()
     }, "\n")
 end
 
-local function bank_fragments(mc_bank)
-    local arrays = {}
-    local entries = {}
-    local payload_bytes = 0
-    for _, entry in ipairs(mc_bank.entries or {}) do
-        local sym = "lalin_mc_" .. sanitize(entry.symbol)
-        payload_bytes = payload_bytes + #(entry.binary or "")
-        arrays[#arrays + 1] = "static const unsigned char " .. sym .. "_bytes[] = {"
-        arrays[#arrays + 1] = bytes_array(entry.binary)
-        arrays[#arrays + 1] = "};"
-        arrays[#arrays + 1] = ""
-        entries[#entries + 1] = string.format(
-            "  { %s, %s, %s_bytes, sizeof(%s_bytes) },",
-            c_string(entry.symbol),
-            c_string(entry.c_signature),
-            sym,
-            sym
-        )
-    end
-    return table.concat(arrays, "\n"), table.concat(entries, "\n"), #(mc_bank.entries or {}), payload_bytes
-end
-
-local function artifact_symbol(artifact)
-    return assert(artifact and artifact.symbol and artifact.symbol.text, "embedded MC bank artifact missing symbol")
-end
-
-local function artifact_fingerprint(artifact)
-    return artifact.fingerprint and artifact.fingerprint.text or ""
-end
-
-local function append_unique_artifacts(out, seen, artifacts)
-    for _, artifact in ipairs(artifacts or {}) do
-        local symbol = artifact_symbol(artifact)
-        local fingerprint = artifact_fingerprint(artifact)
-        local previous = seen[symbol]
-        if previous == nil then
-            out[#out + 1] = artifact
-            seen[symbol] = fingerprint
-        elseif previous ~= fingerprint then
-            error("embedded MC bank symbol collision for " .. tostring(symbol), 0)
-        end
-    end
-    return out
-end
-
-local function build_bank(artifacts, stem, dir)
-    if #artifacts == 0 then
-        return { entries = {} }
-    end
-    local mc_bank, err, source = Bank.build_mc_bank(artifacts, {
-        stem = stem,
-        dir = dir,
-        c_decls = InternSet.c_decls(),
-        ffi_preamble = InternSet.ffi_preamble(),
-        cflags = embedded_mc_cflags,
+local function template_bank()
+    local request = InternSet.request({
+        max_templates = tonumber(os.getenv("LALIN_MC_BANK_MAX_TEMPLATES") or ""),
+        input_count_max = tonumber(os.getenv("LALIN_MC_BANK_INPUT_MAX") or "") or 3,
     })
-    if mc_bank == nil then
-        error(tostring(err) .. "\n" .. bounded_text(source), 0)
-    end
-    return mc_bank
+    return request:template_bank()
 end
 
-local function shard_prefix_base()
-    local dir = tostring(out_c):match("^(.*)/[^/]+$") or "target/lalin_binary"
-    local stem = sanitize((basename(out_c):gsub("%.[^.]*$", "")))
-    return dir .. "/mc_bank_build/" .. stem
-end
-
-local function output_c_stem()
-    local dir = tostring(out_c):match("^(.*)/[^/]+$")
-    local stem = sanitize((basename(out_c):gsub("%.[^.]*$", "")))
-    if dir == nil or dir == "" then return stem end
-    return dir .. "/" .. stem
-end
-
-local function shard_source_path(i)
-    return output_c_stem() .. "_shard_" .. tostring(i) .. ".c"
-end
-
-local function build_shard_fragments(shard_index, shard_count, prefix)
-    local arrays_path = prefix .. ".arrays.cfrag"
-    local entries_path = prefix .. ".entries.cfrag"
-    write_file(arrays_path, "")
-    write_file(entries_path, "")
-    local total = 0
-    local payload_bytes = 0
-    local seen_symbols = {}
-    InternSet.artifact_batches({
-        shard_index = shard_index,
-        shard_count = shard_count,
-    }, function(artifacts, batch_index)
-        local unique_artifacts = append_unique_artifacts({}, seen_symbols, artifacts)
-        if #unique_artifacts == 0 then return true end
-        local mc_bank = build_bank(
-            unique_artifacts,
-            "lalin_embedded_mc_bank_shard_" .. tostring(shard_index) .. "_batch_" .. tostring(batch_index),
-            prefix .. ".build/batch_" .. tostring(batch_index)
-        )
-        local arrays, entries, count, batch_payload_bytes = bank_fragments(mc_bank)
-        append_text(arrays_path, arrays)
-        append_text(arrays_path, "\n")
-        append_text(entries_path, entries)
-        append_text(entries_path, "\n")
-        total = total + count
-        payload_bytes = payload_bytes + batch_payload_bytes
-        collectgarbage("collect")
-        return true
-    end)
-    write_file(prefix .. ".count", tostring(total) .. "\n")
-    write_file(prefix .. ".payload_bytes", tostring(payload_bytes) .. "\n")
-    io.stderr:write(
-        "embedded shard ", tostring(shard_index), "/", tostring(shard_count),
-        ": ", tostring(total), " Lalin MC bank entries, ",
-        tostring(payload_bytes), " payload bytes\n"
-    )
-    return {
-        prefix = prefix,
-        arrays_path = arrays_path,
-        entries_path = entries_path,
-        count = total,
-        payload_bytes = payload_bytes,
+local function emit_source(bank)
+    local out = {
+        "#include <stddef.h>",
+        "#include \"lua.h\"",
+        "#include \"lauxlib.h\"",
+        "#include \"" .. tostring(out_h):match("([^/]+)$") .. "\"",
+        "",
+        "static const LalinEmbeddedMCTemplateEntry lalin_mc_template_entries[] = {",
     }
-end
-
-local function run_worker()
-    local shard_index = assert(tonumber(os.getenv("LALIN_MC_BANK_SHARD_INDEX")), "worker missing LALIN_MC_BANK_SHARD_INDEX")
-    local shard_count = assert(tonumber(os.getenv("LALIN_MC_BANK_SHARD_COUNT")), "worker missing LALIN_MC_BANK_SHARD_COUNT")
-    local prefix = assert(os.getenv("LALIN_MC_BANK_SHARD_PREFIX"), "worker missing LALIN_MC_BANK_SHARD_PREFIX")
-    build_shard_fragments(shard_index, shard_count, prefix)
-end
-
-local function build_sharded(jobs)
-    local prefix = shard_prefix_base()
-    mkdir_parent(prefix .. ".sentinel")
-    os.execute("rm -f " .. shell_quote(prefix) .. ".shard_" .. "*.cfrag " .. shell_quote(prefix) .. ".shard_" .. "*.count " .. shell_quote(prefix) .. ".shard_" .. "*.payload_bytes " .. shell_quote(prefix) .. ".shard_" .. "*.status " .. shell_quote(prefix) .. ".shard_" .. "*.log " .. shell_quote(prefix) .. ".shard_" .. "*.out")
-    local total = 0
-    local payload_bytes = 0
-    local shard_prefixes = {}
-    local launches = {}
-    for i = 1, jobs do
-        local shard_prefix = prefix .. ".shard_" .. tostring(i)
-        shard_prefixes[#shard_prefixes + 1] = shard_prefix
-        local cmd = table.concat({
-            "LALIN_MC_BANK_WORKER=1",
-            "LALIN_MC_BANK_SHARD_INDEX=" .. tostring(i),
-            "LALIN_MC_BANK_SHARD_COUNT=" .. tostring(jobs),
-            "LALIN_MC_BANK_SHARD_PREFIX=" .. shell_quote(shard_prefix),
-            "luajit",
-            shell_quote(script_path),
-            shell_quote(out_c),
-            shell_quote(out_h),
-            ">",
-            shell_quote(shard_prefix .. ".out"),
-            "2>",
-            shell_quote(shard_prefix .. ".log"),
-            "&& echo 0 >",
-            shell_quote(shard_prefix .. ".status"),
-            "|| echo $? >",
-            shell_quote(shard_prefix .. ".status"),
-        }, " ")
-        launches[#launches + 1] = "(" .. cmd .. ") &"
-    end
-    launches[#launches + 1] = "wait"
-    if not command_ok(table.concat(launches, " ")) then
-        error("embedded MC bank worker wait failed", 0)
-    end
-    for i, shard_prefix in ipairs(shard_prefixes) do
-        local status = tonumber((read_file(shard_prefix .. ".status"):match("%d+")))
-        if status ~= 0 then
-            error(
-                "embedded MC bank shard " .. tostring(i) .. " failed with status " .. tostring(status) ..
-                "\n" .. bounded_text(read_file(shard_prefix .. ".log")),
-                0
-            )
-        end
-        total = total + (tonumber(read_file(shard_prefix .. ".count"):match("%d+")) or 0)
-        payload_bytes = payload_bytes + (tonumber(read_file(shard_prefix .. ".payload_bytes"):match("%d+")) or 0)
-    end
-    return shard_prefixes, total, payload_bytes
-end
-
-local function detected_jobs()
-    local f = io.popen("getconf _NPROCESSORS_ONLN 2>/dev/null", "r")
-    if f ~= nil then
-        local n = tonumber((f:read("*a") or ""):match("%d+"))
-        f:close()
-        if n ~= nil and n > 0 then return math.min(n, 16) end
-    end
-    return 1
-end
-
-local function write_shard_source(path, index, arrays_path, entries_path, count)
-    mkdir_parent(path)
-    local f = assert(io.open(path, "wb"))
-    f:write("#include <stddef.h>\n#include \"lua.h\"\n#include \"", basename(out_h), "\"\n\n")
-    append_file(f, arrays_path)
-    f:write("\n")
-    f:write("static const LalinEmbeddedMCEntry lalin_mc_shard_", tostring(index), "_entries[] = {\n")
-    append_file(f, entries_path)
-    f:write("\n")
-    f:write("  { NULL, NULL, NULL, 0 },\n};\n\n")
-    f:write("const LalinEmbeddedMCEntry *lalin_embedded_mc_bank_shard_", tostring(index), "(void) {\n")
-    f:write("  return lalin_mc_shard_", tostring(index), "_entries;\n}\n\n")
-    f:write("size_t lalin_embedded_mc_bank_shard_", tostring(index), "_count(void) {\n")
-    f:write("  return ", tostring(count), ";\n}\n")
-    f:close()
-end
-
-local function write_index_source(path, shard_count)
-    mkdir_parent(path)
-    local f = assert(io.open(path, "wb"))
-    f:write("#include <stddef.h>\n#include \"lua.h\"\n#include \"", basename(out_h), "\"\n\n")
-    for i = 1, shard_count do
-        f:write("const LalinEmbeddedMCEntry *lalin_embedded_mc_bank_shard_", tostring(i), "(void);\n")
-        f:write("size_t lalin_embedded_mc_bank_shard_", tostring(i), "_count(void);\n")
-    end
-    f:write("\nstatic const LalinEmbeddedMCShard lalin_mc_shards[] = {\n")
-    for i = 1, shard_count do
-        f:write("  { lalin_embedded_mc_bank_shard_", tostring(i), ", lalin_embedded_mc_bank_shard_", tostring(i), "_count },\n")
-    end
-    f:write("};\n\n")
-    f:write("const LalinEmbeddedMCShard *lalin_embedded_mc_bank_shards(void) {\n  return lalin_mc_shards;\n}\n\n")
-    f:write("size_t lalin_embedded_mc_bank_shard_count(void) {\n  return ", tostring(shard_count), ";\n}\n\n")
-    f:write("size_t lalin_embedded_mc_bank_count(void) {\n")
-    f:write("  size_t total = 0;\n")
-    f:write("  size_t i;\n")
-    f:write("  for (i = 0; i < lalin_embedded_mc_bank_shard_count(); ++i) {\n")
-    f:write("    total += lalin_mc_shards[i].count();\n")
-    f:write("  }\n")
-    f:write("  return total;\n")
-    f:write("}\n\n")
-    f:write("int lalin_install_embedded_mc_bank(lua_State *L) {\n")
-    f:write("  lua_pushinteger(L, (lua_Integer)lalin_embedded_mc_bank_count());\n")
-    f:write("  lua_setfield(L, LUA_REGISTRYINDEX, \"lalin.embedded_mc_bank.count\");\n")
-    f:write("  return 0;\n}\n")
-    f:close()
-end
-
-local function write_source_from_shards(path, shard_prefixes)
-    for i, shard_prefix in ipairs(shard_prefixes or {}) do
-        write_shard_source(
-            shard_source_path(i),
-            i,
-            shard_prefix .. ".arrays.cfrag",
-            shard_prefix .. ".entries.cfrag",
-            tonumber(read_file(shard_prefix .. ".count"):match("%d+")) or 0
+    for _, entry in ipairs(bank.entries or {}) do
+        out[#out + 1] = string.format(
+            "  { %s, %s, %u, %u },",
+            c_string(entry.family:patch_template_key()),
+            c_string(entry.template_instance.id.text),
+            entry.estimated_template_bytes,
+            entry.coordinate_count
         )
     end
-    write_index_source(path, #(shard_prefixes or {}))
+    out[#out + 1] = "  { NULL, NULL, 0, 0 },"
+    out[#out + 1] = "};"
+    out[#out + 1] = ""
+    out[#out + 1] = "const LalinEmbeddedMCTemplateEntry *lalin_embedded_mc_template_bank_entries(void) {"
+    out[#out + 1] = "  return lalin_mc_template_entries;"
+    out[#out + 1] = "}"
+    out[#out + 1] = ""
+    out[#out + 1] = "size_t lalin_embedded_mc_template_bank_count(void) {"
+    out[#out + 1] = "  return " .. tostring(bank.template_count) .. ";"
+    out[#out + 1] = "}"
+    out[#out + 1] = ""
+    out[#out + 1] = "size_t lalin_embedded_mc_template_bank_estimated_bytes(void) {"
+    out[#out + 1] = "  return " .. tostring(bank.estimated_template_bytes) .. ";"
+    out[#out + 1] = "}"
+    out[#out + 1] = ""
+    out[#out + 1] = "size_t lalin_embedded_mc_template_bank_coordinate_count(void) {"
+    out[#out + 1] = "  return " .. tostring(bank.coordinate_count) .. ";"
+    out[#out + 1] = "}"
+    out[#out + 1] = ""
+    out[#out + 1] = "int lalin_install_embedded_mc_bank(lua_State *L) {"
+    out[#out + 1] = "  lua_pushinteger(L, (lua_Integer)lalin_embedded_mc_template_bank_count());"
+    out[#out + 1] = "  lua_setfield(L, LUA_REGISTRYINDEX, \"lalin.embedded_mc_bank.count\");"
+    out[#out + 1] = "  lua_pushinteger(L, (lua_Integer)lalin_embedded_mc_template_bank_estimated_bytes());"
+    out[#out + 1] = "  lua_setfield(L, LUA_REGISTRYINDEX, \"lalin.embedded_mc_template_bank.estimated_bytes\");"
+    out[#out + 1] = "  lua_pushinteger(L, (lua_Integer)lalin_embedded_mc_template_bank_coordinate_count());"
+    out[#out + 1] = "  lua_setfield(L, LUA_REGISTRYINDEX, \"lalin.embedded_mc_template_bank.coordinate_count\");"
+    out[#out + 1] = "  return 0;"
+    out[#out + 1] = "}"
+    out[#out + 1] = ""
+    return table.concat(out, "\n")
 end
 
-if os.getenv("LALIN_MC_BANK_WORKER") == "1" then
-    run_worker()
-    return
-end
-
-local jobs = tonumber(os.getenv("LALIN_MC_BANK_JOBS")) or detected_jobs()
-if jobs < 1 then jobs = 1 end
-jobs = math.floor(jobs)
-os.execute("rm -f " .. shell_quote(output_c_stem()) .. "_shard_" .. "*.c")
-
-local shard_prefixes, count, payload_bytes = build_sharded(jobs)
-
+local bank = template_bank()
 write_file(out_h, emit_header())
-write_source_from_shards(out_c, shard_prefixes)
+write_file(out_c, emit_source(bank))
 io.stderr:write(
-    "embedded ", tostring(count), " Lalin MC bank entries, ",
-    tostring(payload_bytes or 0), " payload bytes"
+    "embedded ", tostring(bank.template_count),
+    " Lalin MC patch-template bank entries, ",
+    tostring(bank.estimated_template_bytes),
+    " estimated template bytes, ",
+    tostring(bank.coordinate_count),
+    " patch coordinates\n"
 )
-if jobs > 1 then io.stderr:write(" using ", tostring(jobs), " jobs") end
-io.stderr:write("\n")

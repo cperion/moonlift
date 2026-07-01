@@ -433,6 +433,7 @@ the ASDL types for that domain:
 | `schedule.lua` | KernelSchedule, ScheduleKind, ScheduleModulePlan |
 | `lower.lua` | LowerFragment, LowerStrategy, LowerModulePlan |
 | `exec.lua` | ExecFragment, ExecFragmentKind, ExecModulePlan |
+| `residual.lua` | ResidualFunctionPlan, stencil patch-template families/coordinates, patch plans, C residual units |
 | `back.lua` | BackTargetModel, BackFunc, BackBlock, BackInst, BackProgram |
 | `c.lua` | CBackendUnit, CBackendFunc, CBackendType, CBackendStmt |
 | `c_ast.lua` | C AST node types |
@@ -454,12 +455,30 @@ the ASDL types for that domain:
 ## Native Residual Direction
 
 The target backend direction is described in
-`docs/RESIDUAL_NATIVE_ARCHITECTURE.md`: saturated stencils define exact
-semantics, copy-patch compresses/decompresses saturated stencil artifacts, TCC
+`docs/RESIDUAL_NATIVE_ARCHITECTURE.md`: stencil instances define exact
+semantics, copy-patch expands binary patch templates for selected instances, TCC
 compiles non-stencil C residuals, and LuaJIT hosts/loads rather than silently
 executing fallback loops.
 
-The sections below describe the current materializers and C/AOT path.
+The target decision is a typed residual function plan:
+
+```text
+ResidualFunctionExactStencil
+| ResidualFunctionPatchTemplate
+| ResidualFunctionC
+| ResidualFunctionRejected
+```
+
+Stencil instances remain the semantic identity. Patch-template families are a
+typed projection of those instances into binary templates with holes, not a
+looser stencil language and not a SOAC storage category. C residuals are the
+native path for code that does not squarely fit a selected stencil template.
+Rejection is explicit and typed.
+
+The sections below describe the current materializers and C/AOT path. Some of
+that implementation still has LuaJIT-shaped names because LuaJIT remains the
+host and loader, but the architectural direction is native residual
+materialization.
 
 ## Two Copy-Patch Materialization Paths
 
@@ -488,10 +507,13 @@ RUNTIME / ARTIFACT EMISSION (emit_luajit_artifact):
     → emit Lua source with embedded MC blobs
     → at load: mmap() executable memory, ffi.copy() stencil bytes,
       mprotect() RW→X, ffi.cast() to function pointers
-  Optional: emit_native_residuals()
-    → libtcc compiles thin C wrappers in-memory
-    → wrappers call installed stencils at coarse function boundaries
+  Current optional step: emit_native_residuals()
+    → libtcc compiles C wrappers in-memory
+    → wrappers call installed stencils through host symbols
     → replaces LuaJIT trace calls with direct native FFI calls
+  Target step:
+    → ResidualFunctionC emits non-stencil residual code as C
+    → TCC links residual C to exact/patched stencils
   → load: installed native code, optionally wrapped by TCC glue
 ```
 
@@ -505,7 +527,8 @@ or materialization failures are hard errors.
 - Time: explicit prebuild only; runtime loads or embeds an existing bank
 - Output: binary blobs embedded in emitted Lua artifacts, or in the `lalin` host
   binary for prebuilt banks
-- TCC role: none for stencils; only for optional residual glue
+- TCC role: runtime C residuals and host-symbol linking to installed stencils;
+  not stencil optimization
 
 ### BC Path (explicit bytecode path)
 

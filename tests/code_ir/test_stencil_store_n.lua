@@ -115,7 +115,7 @@ local artifacts = {
 
 for i, artifact in ipairs(artifacts) do
     local shape = Plan.artifact_shape(artifact)
-    assert(shape.kind == "store_n", "artifact " .. tostring(i) .. " should be generic store_n")
+    assert(asdl.classof(shape) == Stencil.StencilArtifactStoreN, "artifact " .. tostring(i) .. " should be generic store_n")
     assert(#shape.inputs == i - 1, "artifact " .. tostring(i) .. " should have saturated arity " .. tostring(i - 1))
 end
 
@@ -287,23 +287,23 @@ local window_reduce_artifact = Plan.reduce_n_artifact(reduction(Value.ReductionA
 
 do
     local shape = Plan.artifact_shape(nd_artifact)
-    assert(shape.producer.kind == "range_nd", "RangeND StoreN should carry a producer execution plan")
+    assert(asdl.classof(shape.producer) == Stencil.StencilProducerExecRangeND, "RangeND StoreN should carry a producer execution plan")
     assert(shape.producer.rank == 2, "RangeND StoreN should preserve rank")
     local reduce_shape = Plan.artifact_shape(nd_reduce_artifact)
-    assert(reduce_shape.producer.kind == "range_nd", "RangeND ReduceN should carry a producer execution plan")
+    assert(asdl.classof(reduce_shape.producer) == Stencil.StencilProducerExecRangeND, "RangeND ReduceN should carry a producer execution plan")
     assert(reduce_shape.producer.rank == 2, "RangeND ReduceN should preserve rank")
-    assert(Plan.artifact_shape(scan_artifact).kind == "scan_n", "scan should lower through ScanN")
-    assert(Plan.artifact_shape(nd_scan_artifact).producer.kind == "range_nd", "RangeND ScanN should carry a producer execution plan")
+    assert(asdl.classof(Plan.artifact_shape(scan_artifact)) == Stencil.StencilArtifactScanN, "scan should lower through ScanN")
+    assert(asdl.classof(Plan.artifact_shape(nd_scan_artifact).producer) == Stencil.StencilProducerExecRangeND, "RangeND ScanN should carry a producer execution plan")
     assert(Plan.artifact_shape(nd_scan_artifact).axis.index == 2, "RangeND ScanN should preserve scan axis")
-    assert(Plan.artifact_shape(nd_axis_reduce_artifact).scope_kind == "axes", "RangeND axis reduce should preserve reduce scope")
-    assert(Plan.artifact_shape(nd_step_artifact).producer.kind == "range_nd", "non-unit RangeND should carry a producer execution plan")
-    assert(Plan.artifact_shape(nd_find_artifact).producer.kind == "range_nd", "RangeND FindN should carry a producer execution plan")
-    assert(Plan.artifact_shape(nd_scatter_reduce_artifact).producer.kind == "range_nd", "RangeND ScatterReduceN should carry a producer execution plan")
-    assert(Plan.artifact_shape(tiled_artifact).producer.kind == "tiled_nd", "TiledND StoreN should carry a producer execution plan")
-    assert(Plan.artifact_shape(tiled_reduce_artifact).producer.kind == "tiled_nd", "TiledND ReduceN should carry a producer execution plan")
-    assert(Plan.artifact_shape(tiled_scan_artifact).producer.kind == "tiled_nd", "TiledND ScanN should carry a producer execution plan")
+    assert(asdl.classof(Plan.artifact_shape(nd_axis_reduce_artifact).reduce_scope) == Stencil.StencilReduceExecAxes, "RangeND axis reduce should preserve reduce scope")
+    assert(asdl.classof(Plan.artifact_shape(nd_step_artifact).producer) == Stencil.StencilProducerExecRangeND, "non-unit RangeND should carry a producer execution plan")
+    assert(asdl.classof(Plan.artifact_shape(nd_find_artifact).producer) == Stencil.StencilProducerExecRangeND, "RangeND FindN should carry a producer execution plan")
+    assert(asdl.classof(Plan.artifact_shape(nd_scatter_reduce_artifact).producer) == Stencil.StencilProducerExecRangeND, "RangeND ScatterReduceN should carry a producer execution plan")
+    assert(asdl.classof(Plan.artifact_shape(tiled_artifact).producer) == Stencil.StencilProducerExecTiledND, "TiledND StoreN should carry a producer execution plan")
+    assert(asdl.classof(Plan.artifact_shape(tiled_reduce_artifact).producer) == Stencil.StencilProducerExecTiledND, "TiledND ReduceN should carry a producer execution plan")
+    assert(asdl.classof(Plan.artifact_shape(tiled_scan_artifact).producer) == Stencil.StencilProducerExecTiledND, "TiledND ScanN should carry a producer execution plan")
     for _, artifact in ipairs(window_artifacts) do
-        assert(Plan.artifact_shape(artifact).producer.kind == "window_nd", "WindowND StoreN should carry a producer execution plan")
+        assert(asdl.classof(Plan.artifact_shape(artifact).producer) == Stencil.StencilProducerExecWindowND, "WindowND StoreN should carry a producer execution plan")
     end
 end
 

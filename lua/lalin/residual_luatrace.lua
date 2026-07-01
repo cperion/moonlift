@@ -69,12 +69,17 @@ local function bind_context(T)
         return ref and ref.name or nil
     end
 
-    local function fact_map(facts)
-        local out = {}
-        for _, fact in ipairs(facts and facts.access_facts or {}) do
-            out[access_ref_name(fact.access)] = fact
+    function Stencil.StencilVectorizationFacts:luatrace_access_fact_for(access)
+        local name = type(access) == "string" and access or access.name
+        for _, fact in ipairs(self.access_facts or {}) do
+            if access_ref_name(fact.access) == name then return fact end
         end
-        return out
+        return nil
+    end
+
+    local function access_fact_for(facts, access)
+        if facts == nil then return nil end
+        return facts:luatrace_access_fact_for(access)
     end
 
     local function alias_relation(facts, left, right)
@@ -87,135 +92,156 @@ local function bind_context(T)
         return Stencil.StencilAliasUnknown
     end
 
-    local function access_kind(layout)
-        local cls = asdl.classof(layout)
-        if cls == Stencil.StencilLayoutContiguous then return "contiguous" end
-        if cls == Stencil.StencilLayoutIndexed then return "indexed" end
-        if cls == Stencil.StencilLayoutFieldProjection then return "field_projection" end
-        if cls == Stencil.StencilLayoutSoAComponent then return "soa_component" end
-        if cls == Stencil.StencilLayoutSliceDescriptor then return "slice_descriptor" end
-        if cls == Stencil.StencilLayoutByteSpanDescriptor then return "byte_span_descriptor" end
-        if cls == Stencil.StencilLayoutViewDescriptor then
-            return layout.stride_const ~= nil and "view_const_stride" or "view_dynamic_stride"
+    function LT.LTAccessPlanSet:access_named(name)
+        for _, plan in ipairs(self.entries or {}) do
+            if plan.name == name then return plan end
         end
-        if cls == Stencil.StencilLayoutScalar then return "scalar" end
-        return "unknown"
+        return nil
     end
 
-    local function plain_bulk_access(layout)
-        local cls = asdl.classof(layout)
-        if cls == Stencil.StencilLayoutContiguous then return tonumber(layout.stride) == 1 end
-        if cls == Stencil.StencilLayoutSliceDescriptor then return true end
-        if cls == Stencil.StencilLayoutByteSpanDescriptor then return true end
-        if cls == Stencil.StencilLayoutViewDescriptor then return tonumber(layout.stride_const) == 1 end
+    function Stencil.StencilAccessLayout:luatrace_plain_bulk_access()
         return false
     end
 
-    local function build_access_plan(access, facts_by_name)
-        local fact = facts_by_name and facts_by_name[access.name] or nil
-        local top = access.layout
-        local cls = asdl.classof(top)
-        local plan = {
-            kind = access_kind(top),
-            name = access.name,
-            safe_name = sanitize(access.name),
-            role = access.role,
-            ty = access.ty,
-            layout = top,
-            readonly = fact ~= nil and fact.readonly or access.role == Stencil.StencilAccessRead,
-            readwrite = access.role == Stencil.StencilAccessReadWrite,
-            alignment_fact = fact and fact.alignment or Stencil.StencilAlignmentUnknown,
-            unit_stride = fact and fact.unit_stride or false,
-            dynamic_stride_arg = nil,
-            stride_const = nil,
-            field_name = nil,
-            field_offset = nil,
-            component_index = nil,
-            parent = nil,
-            index_name = nil,
-            index_plan = nil,
-            index_stride = nil,
-            can_pointer_bump = false,
-            can_bulk_copy = false,
-            can_bulk_fill = false,
-        }
-        plan.element_bytes = elem_bytes(access.ty)
-        if plain_bulk_access(top) and plan.element_bytes ~= nil then
-            plan.can_bulk_copy = true
-            plan.can_bulk_fill = plan.element_bytes == 1
-        end
-        if cls == Stencil.StencilLayoutFieldProjection then
-            plan.field_name = top.field_name
-            plan.field_offset = top.field_offset
-            plan.parent = build_access_plan({ name = access.name, role = access.role, ty = access.ty, layout = top.parent }, facts_by_name)
-        elseif cls == Stencil.StencilLayoutSoAComponent then
-            plan.field_name = top.field_name
-            plan.component_index = top.component_index
-            plan.parent = build_access_plan({ name = access.name, role = access.role, ty = access.ty, layout = top.parent }, facts_by_name)
-        elseif cls == Stencil.StencilLayoutIndexed then
-            plan.index_name = tostring(top.index.name)
-            plan.index_stride = top.stride
-            plan.parent = build_access_plan({ name = access.name, role = access.role, ty = access.ty, layout = top.parent }, facts_by_name)
-        elseif cls == Stencil.StencilLayoutViewDescriptor then
-            plan.stride_const = top.stride_const
-            plan.dynamic_stride_arg = top.stride_const == nil and (sanitize(access.name) .. "_stride") or nil
-        end
-        return plan
+    function Stencil.StencilAccessLayout:luatrace_is_scalar_layout()
+        return false
+    end
+
+    function Stencil.StencilLayoutScalar:luatrace_is_scalar_layout()
+        return true
+    end
+
+    function LT.LTAccessPlanEntry:luatrace_is_scalar_layout()
+        return self.layout:luatrace_is_scalar_layout()
+    end
+
+    function Stencil.StencilLayoutContiguous:luatrace_plain_bulk_access()
+        return tonumber(self.stride) == 1
+    end
+
+    function Stencil.StencilLayoutSliceDescriptor:luatrace_plain_bulk_access()
+        return true
+    end
+
+    function Stencil.StencilLayoutByteSpanDescriptor:luatrace_plain_bulk_access()
+        return true
+    end
+
+    function Stencil.StencilLayoutViewDescriptor:luatrace_plain_bulk_access()
+        return tonumber(self.stride_const) == 1
+    end
+
+    local function access_plan_entry(access, fact, layout, parent, dynamic_stride_arg, stride_const, field_name, field_offset, component_index, index_name, index_stride)
+        local element_bytes = elem_bytes(access.ty)
+        local can_bulk_copy = layout:luatrace_plain_bulk_access() and element_bytes ~= nil
+        return LT.LTAccessPlanEntry(
+            access.name,
+            access.role,
+            access.ty,
+            layout,
+            fact ~= nil and fact.readonly or access.role == Stencil.StencilAccessRead,
+            access.role == Stencil.StencilAccessReadWrite,
+            fact and fact.alignment or Stencil.StencilAlignmentUnknown,
+            fact and fact.unit_stride or false,
+            dynamic_stride_arg,
+            stride_const,
+            field_name,
+            field_offset,
+            component_index,
+            index_name,
+            index_stride,
+            element_bytes,
+            parent,
+            false,
+            can_bulk_copy,
+            can_bulk_copy and element_bytes == 1
+        )
+    end
+
+    function Stencil.StencilAccessLayout:luatrace_access_plan(access, fact)
+        return access_plan_entry(access, fact, self, nil, nil, nil, nil, nil, nil, nil, nil)
+    end
+
+    function Stencil.StencilLayoutFieldProjection:luatrace_access_plan(access, fact)
+        local parent_access = Stencil.StencilAccess(access.name, access.role, access.ty, self.parent)
+        return access_plan_entry(access, fact, self, self.parent:luatrace_access_plan(parent_access, fact), nil, nil, self.field_name, self.field_offset, nil, nil, nil)
+    end
+
+    function Stencil.StencilLayoutSoAComponent:luatrace_access_plan(access, fact)
+        local parent_access = Stencil.StencilAccess(access.name, access.role, access.ty, self.parent)
+        return access_plan_entry(access, fact, self, self.parent:luatrace_access_plan(parent_access, fact), nil, nil, self.field_name, nil, self.component_index, nil, nil)
+    end
+
+    function Stencil.StencilLayoutIndexed:luatrace_access_plan(access, fact)
+        local parent_access = Stencil.StencilAccess(access.name, access.role, access.ty, self.parent)
+        return access_plan_entry(access, fact, self, self.parent:luatrace_access_plan(parent_access, fact), nil, nil, nil, nil, nil, tostring(self.index.name), self.stride)
+    end
+
+    function Stencil.StencilLayoutViewDescriptor:luatrace_access_plan(access, fact)
+        return access_plan_entry(access, fact, self, nil, self.stride_const == nil and (sanitize(access.name) .. "_stride") or nil, self.stride_const, nil, nil, nil, nil, nil)
     end
 
     local function build_access_plans(desc, facts)
-        local by_name = {}
         local list = {}
-        local facts_by_name = fact_map(facts)
         for _, access in ipairs(ArtifactPlan.descriptor_accesses(desc)) do
-            local plan = build_access_plan(access, facts_by_name)
+            local plan = access.layout:luatrace_access_plan(access, access_fact_for(facts, access))
             list[#list + 1] = plan
-            by_name[access.name] = plan
         end
-        for _, plan in ipairs(list) do
-            if plan.index_name ~= nil then plan.index_plan = by_name[plan.index_name] end
-        end
-        return list, by_name
+        return LT.LTAccessPlanSet(list)
     end
 
     local function lua_access_offset(plan, index)
-        index = tostring(index)
-        local top = plan.layout
-        local cls = asdl.classof(top)
-        if cls == Stencil.StencilLayoutFieldProjection then
-            return lua_access_offset(plan.parent, index)
-        end
-        if cls == Stencil.StencilLayoutSoAComponent then
-            return lua_access_offset(plan.parent, index)
-        end
-        if cls == Stencil.StencilLayoutIndexed then
-            local index_plan = assert(plan.index_plan, "residual_luatrace: indexed layout missing index access plan")
-            local indexed = table.concat({ tostring(plan.index_name), "[", lua_access_offset(index_plan, index), "]" })
-            if tonumber(plan.index_stride) ~= nil and tonumber(plan.index_stride) ~= 1 then
-                indexed = "((" .. indexed .. ") * " .. tostring(plan.index_stride) .. ")"
-            end
-            return lua_access_offset(plan.parent, indexed)
-        end
-        if cls == Stencil.StencilLayoutViewDescriptor then
-            local stride = plan.stride_const or plan.dynamic_stride_arg
-            if tonumber(stride) == 1 then return index end
-            return "((" .. index .. ") * " .. tostring(stride) .. ")"
-        end
-        return index
+        return plan:luatrace_offset(index)
     end
 
     local function lua_access_ref(plan, base, index)
-        base = tostring(base)
-        index = tostring(index)
-        local top = plan.layout
-        local cls = asdl.classof(top)
-        if cls == Stencil.StencilLayoutFieldProjection then
-            return base .. "[" .. lua_access_offset(plan.parent, index) .. "]." .. sanitize(top.field_name)
+        return plan:luatrace_ref(base, index)
+    end
+
+    function LT.LTAccessPlanEntry:luatrace_offset(index)
+        return self.layout:luatrace_offset(self, tostring(index))
+    end
+
+    function Stencil.StencilAccessLayout:luatrace_offset(_plan, index)
+        return index
+    end
+
+    function Stencil.StencilLayoutFieldProjection:luatrace_offset(plan, index)
+        return plan.parent:luatrace_offset(index)
+    end
+
+    function Stencil.StencilLayoutSoAComponent:luatrace_offset(plan, index)
+        return plan.parent:luatrace_offset(index)
+    end
+
+    function Stencil.StencilLayoutIndexed:luatrace_offset(plan, index)
+        local indexed = table.concat({ tostring(plan.index_name), "[", plan.parent:luatrace_offset(index), "]" })
+        if tonumber(plan.index_stride) ~= nil and tonumber(plan.index_stride) ~= 1 then
+            indexed = "((" .. indexed .. ") * " .. tostring(plan.index_stride) .. ")"
         end
-        if cls == Stencil.StencilLayoutSoAComponent then
-            return base .. "[" .. lua_access_offset(plan.parent, index) .. "]"
-        end
-        return base .. "[" .. lua_access_offset(plan, index) .. "]"
+        return plan.parent:luatrace_offset(indexed)
+    end
+
+    function Stencil.StencilLayoutViewDescriptor:luatrace_offset(plan, index)
+        local stride = plan.stride_const or plan.dynamic_stride_arg
+        if tonumber(stride) == 1 then return index end
+        return "((" .. index .. ") * " .. tostring(stride) .. ")"
+    end
+
+    function LT.LTAccessPlanEntry:luatrace_ref(base, index)
+        return self.layout:luatrace_ref(self, tostring(base), tostring(index))
+    end
+
+    function Stencil.StencilAccessLayout:luatrace_ref(plan, base, index)
+        return base .. "[" .. plan:luatrace_offset(index) .. "]"
+    end
+
+    function Stencil.StencilLayoutFieldProjection:luatrace_ref(plan, base, index)
+        return base .. "[" .. plan.parent:luatrace_offset(index) .. "]." .. sanitize(self.field_name)
+    end
+
+    function Stencil.StencilLayoutSoAComponent:luatrace_ref(plan, base, index)
+        return base .. "[" .. plan.parent:luatrace_offset(index) .. "]"
     end
 
     local function lua_unary_expr(op, v, ty, int_semantics, float_mode)
@@ -249,15 +275,40 @@ local function bind_context(T)
         error("residual_luatrace: unsupported binary op", 3)
     end
 
-    local function lua_reduce_expr(kind, acc, item, ty)
-        if kind == Value.ReductionAdd then return lua_int_expr(ty, "((" .. acc .. ") + (" .. item .. "))") end
-        if kind == Value.ReductionMul then return lua_int_expr(ty, "((" .. acc .. ") * (" .. item .. "))") end
-        if kind == Value.ReductionAnd then return "__ml_band(" .. acc .. ", " .. item .. ")" end
-        if kind == Value.ReductionOr then return "__ml_bor(" .. acc .. ", " .. item .. ")" end
-        if kind == Value.ReductionXor then return "__ml_bxor(" .. acc .. ", " .. item .. ")" end
-        if kind == Value.ReductionMin then return "((" .. item .. ") < (" .. acc .. ") and (" .. item .. ") or (" .. acc .. "))" end
-        if kind == Value.ReductionMax then return "((" .. item .. ") > (" .. acc .. ") and (" .. item .. ") or (" .. acc .. "))" end
+    function Value.ReductionOp:luatrace_update_expr(_acc, _item, _ty)
         error("residual_luatrace: unsupported reduction", 3)
+    end
+
+    function Value.ReductionAdd:luatrace_update_expr(acc, item, ty)
+        return lua_int_expr(ty, "((" .. acc .. ") + (" .. item .. "))")
+    end
+
+    function Value.ReductionMul:luatrace_update_expr(acc, item, ty)
+        return lua_int_expr(ty, "((" .. acc .. ") * (" .. item .. "))")
+    end
+
+    function Value.ReductionAnd:luatrace_update_expr(acc, item, _ty)
+        return "__ml_band(" .. acc .. ", " .. item .. ")"
+    end
+
+    function Value.ReductionOr:luatrace_update_expr(acc, item, _ty)
+        return "__ml_bor(" .. acc .. ", " .. item .. ")"
+    end
+
+    function Value.ReductionXor:luatrace_update_expr(acc, item, _ty)
+        return "__ml_bxor(" .. acc .. ", " .. item .. ")"
+    end
+
+    function Value.ReductionMin:luatrace_update_expr(acc, item, _ty)
+        return "((" .. item .. ") < (" .. acc .. ") and (" .. item .. ") or (" .. acc .. "))"
+    end
+
+    function Value.ReductionMax:luatrace_update_expr(acc, item, _ty)
+        return "((" .. item .. ") > (" .. acc .. ") and (" .. item .. ") or (" .. acc .. "))"
+    end
+
+    local function lua_reduce_expr(kind, acc, item, ty)
+        return kind:luatrace_update_expr(acc, item, ty)
     end
 
     local lua_cmp_expr
@@ -352,28 +403,31 @@ local function bind_context(T)
         return schedule and schedule:stencil_vectorization_facts() or nil
     end
 
+    function Stencil.StencilTripCountFact:luatrace_multiple_of(_group)
+        return false
+    end
+
+    function Stencil.StencilTripCountMultipleOf:luatrace_multiple_of(group)
+        local factor = tonumber(self.factor) or 1
+        return factor >= group and factor % group == 0
+    end
+
+    function Stencil.StencilTripCountExact:luatrace_multiple_of(group)
+        local count = tonumber(self.count) or 0
+        return count >= 0 and count % group == 0
+    end
+
     local function trip_count_multiple_of(facts, group)
         if facts == nil or group <= 1 then return false end
-        local trip = facts.trip_count
-        local cls = asdl.classof(trip)
-        if cls == Stencil.StencilTripCountMultipleOf then
-            local factor = tonumber(trip.factor) or 1
-            return factor >= group and factor % group == 0
-        end
-        if cls == Stencil.StencilTripCountExact then
-            local count = tonumber(trip.count) or 0
-            return count >= 0 and count % group == 0
-        end
-        return false
+        return facts.trip_count:luatrace_multiple_of(group)
     end
 
     local function facts_unit_stride(desc, facts)
         if facts == nil then return false end
-        local facts_by_name = fact_map(facts)
         local saw_memory_access = false
         for _, access in ipairs(ArtifactPlan.descriptor_accesses(desc)) do
-            if asdl.classof(access.layout) ~= Stencil.StencilLayoutScalar then
-                local fact = facts_by_name[access.name]
+            if not access.layout:luatrace_is_scalar_layout() then
+                local fact = access_fact_for(facts, access)
                 if fact == nil or not fact.unit_stride then return false end
                 saw_memory_access = true
             end
@@ -381,171 +435,262 @@ local function bind_context(T)
         return saw_memory_access
     end
 
-    local function kind_group_cap(shape)
-        local kind = shape.kind
-        if kind == "store_n" and asdl.classof(shape.store_mode) == Stencil.StencilStoreScatter then
-            return shape.store_mode.conflicts == Stencil.StencilScatterUniqueIndices and 4 or 1
-        end
-        if kind == "reduce_array" or kind == "scan_array" or kind == "scan_n" then return 16 end
-        if kind == "store_n" then return 8 end
-        if kind == "reduce_n" then return shape.external_init == false and 4 or 8 end
-        if kind == "count_array" then return 4 end
+    function Stencil.StencilArtifactShape:luatrace_group_cap()
         return 1
+    end
+
+    function Stencil.StencilStoreSemantics:luatrace_group_cap()
+        return 8
+    end
+
+    function Stencil.StencilStoreScatter:luatrace_group_cap()
+        return self.conflicts == Stencil.StencilScatterUniqueIndices and 4 or 1
+    end
+
+    function Stencil.StencilArtifactStoreN:luatrace_group_cap()
+        return self.store_mode:luatrace_group_cap()
+    end
+
+    function Stencil.StencilReduceInitMode:luatrace_group_cap()
+        return 8
+    end
+
+    function Stencil.StencilReduceInitIdentity:luatrace_group_cap()
+        return 4
+    end
+
+    function Stencil.StencilArtifactReduceN:luatrace_group_cap()
+        return self.init_mode:luatrace_group_cap()
+    end
+
+    function Stencil.StencilArtifactScanN:luatrace_group_cap()
+        return 16
+    end
+
+    function Stencil.StencilProducerExecution:luatrace_is_linear_range()
+        return false
+    end
+
+    function Stencil.StencilProducerExecRange1D:luatrace_is_linear_range()
+        return true
+    end
+
+    function Stencil.StencilProducerExecution:luatrace_loop_shape_name()
+        error("residual_luatrace: unsupported producer execution", 3)
+    end
+
+    function Stencil.StencilProducerExecRange1D:luatrace_loop_shape_name()
+        return "range1d"
+    end
+
+    function Stencil.StencilProducerExecRangeND:luatrace_loop_shape_name()
+        return "range_nd"
+    end
+
+    function Stencil.StencilProducerExecWindowND:luatrace_loop_shape_name()
+        return "window_nd"
+    end
+
+    function Stencil.StencilProducerExecTiledND:luatrace_loop_shape_name()
+        return "tiled_nd"
+    end
+
+    function Stencil.StencilProducerExecution:luatrace_loop_reason()
+        return self:luatrace_loop_shape_name() .. "_producer_scalar"
     end
 
     local function autovector_group(desc, shape, facts)
         if not facts_unit_stride(desc, facts) then return 1, "autovector_blocked_non_unit_stride" end
-        return kind_group_cap(shape), "autovector_trace_group"
+        return shape:luatrace_group_cap(), "autovector_trace_group"
+    end
+
+    function Stencil.StencilSchedule:luatrace_linear_loop_plan(desc, shape, stride)
+        local group, reason = 1, "scalar"
+        local tail_strategy = "generic_tail_loop"
+        if trip_count_multiple_of(schedule_facts(self), group) then
+            tail_strategy = "no_tail_trip_count_multiple"
+        end
+        return LT.LTLoopPlan(stride, group, reason, tail_strategy, "scalar_for")
+    end
+
+    function Stencil.StencilScheduleVector:luatrace_linear_loop_plan(_desc, _shape, stride)
+        local lanes = math.max(1, math.floor(tonumber(ArtifactPlan.schedule_lane_count(self)) or 1))
+        local unroll = math.max(1, math.floor(tonumber(self.vector_unroll) or 1))
+        local interleave = math.max(1, math.floor(tonumber(self.interleave) or 1))
+        local group = math.max(1, lanes * unroll * interleave)
+        local tail_strategy = trip_count_multiple_of(schedule_facts(self), group) and "no_tail_trip_count_multiple" or "generic_tail_loop"
+        return LT.LTLoopPlan(stride, group, "vector_as_trace_group", tail_strategy, group > 1 and "grouped_while" or "scalar_for")
+    end
+
+    function Stencil.StencilScheduleUnrolled:luatrace_linear_loop_plan(_desc, _shape, stride)
+        local group = math.max(1, math.floor(tonumber(self.factor) or 1))
+        local tail_strategy = trip_count_multiple_of(schedule_facts(self), group) and "no_tail_trip_count_multiple" or "generic_tail_loop"
+        return LT.LTLoopPlan(stride, group, "unrolled_trace_group", tail_strategy, group > 1 and "grouped_while" or "scalar_for")
+    end
+
+    function Stencil.StencilScheduleAutoVector:luatrace_linear_loop_plan(desc, shape, stride)
+        local group, reason = autovector_group(desc, shape, schedule_facts(self))
+        local cap = shape:luatrace_group_cap()
+        if #ArtifactPlan.dynamic_stride_accesses(desc) ~= 0 then cap = math.min(cap, 4) end
+        if group > cap then
+            group = cap
+            reason = reason .. "_capped_" .. tostring(cap)
+        end
+        local tail_strategy = trip_count_multiple_of(schedule_facts(self), math.max(1, group)) and "no_tail_trip_count_multiple" or "generic_tail_loop"
+        return LT.LTLoopPlan(stride, math.max(1, group), reason, tail_strategy, group > 1 and "grouped_while" or "scalar_for")
     end
 
     local function build_loop_plan(desc, schedule, shape)
-        if shape.producer ~= nil and shape.producer.kind ~= "range1d" then
-            return {
-                domain_stride = 1,
-                group = 1,
-                reason = tostring(shape.producer.kind) .. "_producer_scalar",
-                tail_strategy = "producer_loop",
-                loop_shape = tostring(shape.producer.kind),
-            }
+        if not shape.producer:luatrace_is_linear_range() then
+            return LT.LTLoopPlan(1, 1, shape.producer:luatrace_loop_reason(), "producer_loop", shape.producer:luatrace_loop_shape_name())
         end
         local stride = tonumber(shape.stride) or 1
-        local group, reason = 1, "scalar"
         if stride ~= 1 then
-            return { domain_stride = stride, group = 1, reason = "domain_stride", tail_strategy = "generic_tail_loop", loop_shape = "scalar_for" }
+            return LT.LTLoopPlan(stride, 1, "domain_stride", "generic_tail_loop", "scalar_for")
         end
-        local cls = asdl.classof(schedule)
-        if cls == Stencil.StencilScheduleVector then
-            local lanes = math.max(1, math.floor(tonumber(ArtifactPlan.schedule_lane_count(schedule)) or 1))
-            local unroll = math.max(1, math.floor(tonumber(schedule.vector_unroll) or 1))
-            local interleave = math.max(1, math.floor(tonumber(schedule.interleave) or 1))
-            group, reason = math.max(1, lanes * unroll * interleave), "vector_as_trace_group"
-        elseif cls == Stencil.StencilScheduleUnrolled then
-            group, reason = math.max(1, math.floor(tonumber(schedule.factor) or 1)), "unrolled_trace_group"
-        elseif cls == Stencil.StencilScheduleAutoVector then
-            group, reason = autovector_group(desc, shape, schedule_facts(schedule))
-            local cap = kind_group_cap(shape)
-            if #ArtifactPlan.dynamic_stride_accesses(desc) ~= 0 then cap = math.min(cap, 4) end
-            if group > cap then
-                group = cap
-                reason = reason .. "_capped_" .. tostring(cap)
-            end
-        end
-        local tail_strategy = "generic_tail_loop"
-        if trip_count_multiple_of(schedule_facts(schedule), math.max(1, group)) then
-            tail_strategy = "no_tail_trip_count_multiple"
-        end
-        return {
-            domain_stride = stride,
-            group = math.max(1, group),
-            reason = reason,
-            tail_strategy = tail_strategy,
-            loop_shape = group > 1 and "grouped_while" or "scalar_for",
-        }
+        return schedule:luatrace_linear_loop_plan(desc, shape, stride)
     end
 
-    local function build_predicate_plan(shape, access_by_name, loop_plan)
-        local expr_cls = asdl.classof(shape.expr)
-        if shape.kind == "count_array" then
-            if loop_plan ~= nil and loop_plan.group > 1 then
-                return {
-                    kind = "multi_counter_branch",
-                    counters = loop_plan.group,
-                    rejected = "numeric_count_measured_slower",
-                }
-            end
-            return {
-                kind = "branch",
-                rejected = "numeric_count_measured_slower",
-            }
-        end
-        if shape.kind == "reduce_n" and shape.external_init == false then
-            if loop_plan ~= nil and loop_plan.group > 1 then
-                return {
-                    kind = "multi_counter_branch",
-                    counters = loop_plan.group,
-                    rejected = "numeric_count_measured_slower",
-                }
-            end
-            return {
-                kind = "branch",
-                rejected = "numeric_count_measured_slower",
-            }
-        end
-        if shape.kind == "store_n" and expr_cls == Stencil.StencilPointPredicate then
-            local arg_cls = asdl.classof(shape.expr.arg)
-            local input = arg_cls == Stencil.StencilPointInput and access_by_name[shape.expr.arg.access.name] or nil
-            local numeric = input ~= nil and lua_numeric_pred_expr(shape.expr.pred, "__ml_x", input.ty) ~= nil
-            return {
-                kind = numeric and "numeric_store" or "lua_select",
-                rejected = numeric and "helper_branchless_measured_slower" or "numeric_predicate_unavailable",
-            }
-        end
-        if shape.kind == "store_n" and expr_cls == Stencil.StencilPointCompare then
-            local left_cls = asdl.classof(shape.expr.left)
-            local right_cls = asdl.classof(shape.expr.right)
-            local lhs = left_cls == Stencil.StencilPointInput and access_by_name[shape.expr.left.access.name] or nil
-            local rhs = right_cls == Stencil.StencilPointInput and access_by_name[shape.expr.right.access.name] or nil
-            local numeric = lhs ~= nil and rhs ~= nil and lua_numeric_cmp_expr(shape.expr.cmp, "__ml_a", "__ml_b", lhs.ty, rhs.ty) ~= nil
-            return {
-                kind = numeric and "numeric_store" or "lua_select",
-                rejected = numeric and "helper_branchless_measured_slower" or "numeric_compare_unavailable",
-            }
-        end
-        if shape.kind == "store_n" and expr_cls == Stencil.StencilPointSelect then
-            return {
-                kind = "lua_select",
-                rejected = "branchless_numeric_select_not_measured",
-            }
-        end
-        return { kind = "none" }
+    local function no_predicate_plan()
+        return LT.LTPredicateNone
     end
 
-    local function build_scatter_plan(shape)
-        if shape.kind == "store_n" and asdl.classof(shape.store_mode) == Stencil.StencilStoreScatter then
-            local conflicts = shape.store_mode.conflicts
-            if conflicts == Stencil.StencilScatterUniqueIndices then return { kind = "unique_indices", may_group = true } end
-            if conflicts == Stencil.StencilScatterLastWriteWins then return { kind = "ordered_last_write", may_group = false } end
-            if conflicts == Stencil.StencilScatterConflictUndefined then return { kind = "conflict_undefined", may_group = false } end
-            return { kind = "unknown_conflicts", may_group = false }
+    local function count_predicate_plan(loop_plan)
+        if loop_plan ~= nil and loop_plan.group > 1 then
+            return LT.LTPredicateMultiCounterBranch(loop_plan.group, "numeric_count_measured_slower")
         end
+        return LT.LTPredicateBranch("numeric_count_measured_slower")
+    end
+
+    function Stencil.StencilPointExpr:luatrace_input_name()
         return nil
     end
 
-    local function build_reduction_plan(shape, facts)
-        if shape.kind ~= "reduce_array" and shape.kind ~= "scan_array"
-            and shape.kind ~= "reduce_n" and shape.kind ~= "scan_n" then
-            return nil
-        end
+    function Stencil.StencilPointInput:luatrace_input_name()
+        return self.access.name
+    end
+
+    function Stencil.StencilPointExpr:luatrace_store_predicate_plan(_access_plans)
+        return no_predicate_plan()
+    end
+
+    function Stencil.StencilPointPredicate:luatrace_store_predicate_plan(access_plans)
+        local input_name = self.arg:luatrace_input_name()
+        local input = input_name ~= nil and access_plans:access_named(input_name) or nil
+        local numeric = input ~= nil and lua_numeric_pred_expr(self.pred, "__ml_x", input.ty) ~= nil
+        if numeric then return LT.LTPredicateNumericStore("helper_branchless_measured_slower") end
+        return LT.LTPredicateLuaSelect("numeric_predicate_unavailable")
+    end
+
+    function Stencil.StencilPointCompare:luatrace_store_predicate_plan(access_plans)
+        local left_name = self.left:luatrace_input_name()
+        local right_name = self.right:luatrace_input_name()
+        local lhs = left_name ~= nil and access_plans:access_named(left_name) or nil
+        local rhs = right_name ~= nil and access_plans:access_named(right_name) or nil
+        local numeric = lhs ~= nil and rhs ~= nil and lua_numeric_cmp_expr(self.cmp, "__ml_a", "__ml_b", lhs.ty, rhs.ty) ~= nil
+        if numeric then return LT.LTPredicateNumericStore("helper_branchless_measured_slower") end
+        return LT.LTPredicateLuaSelect("numeric_compare_unavailable")
+    end
+
+    function Stencil.StencilPointSelect:luatrace_store_predicate_plan(_access_plans)
+        return LT.LTPredicateLuaSelect("branchless_numeric_select_not_measured")
+    end
+
+    function Stencil.StencilArtifactShape:luatrace_predicate_plan(_access_plans, _loop_plan)
+        return no_predicate_plan()
+    end
+
+    function Stencil.StencilArtifactStoreN:luatrace_predicate_plan(access_plans, _loop_plan)
+        return self.expr:luatrace_store_predicate_plan(access_plans)
+    end
+
+    function Stencil.StencilReduceInitMode:luatrace_reduce_predicate_plan(_shape, _loop_plan)
+        return no_predicate_plan()
+    end
+
+    function Stencil.StencilReduceInitIdentity:luatrace_reduce_predicate_plan(_shape, loop_plan)
+        return count_predicate_plan(loop_plan)
+    end
+
+    function Stencil.StencilArtifactReduceN:luatrace_predicate_plan(_access_plans, loop_plan)
+        return self.init_mode:luatrace_reduce_predicate_plan(self, loop_plan)
+    end
+
+    function Stencil.StencilStoreSemantics:luatrace_scatter_plan()
+        return LT.LTScatterNone
+    end
+
+    function Stencil.StencilStoreScatter:luatrace_scatter_plan()
+        local conflicts = self.conflicts
+        if conflicts == Stencil.StencilScatterUniqueIndices then return LT.LTScatterUniqueIndices end
+        if conflicts == Stencil.StencilScatterLastWriteWins then return LT.LTScatterOrderedLastWrite end
+        if conflicts == Stencil.StencilScatterConflictUndefined then return LT.LTScatterConflictUndefined end
+        return LT.LTScatterUnknown("unknown_conflicts")
+    end
+
+    function Stencil.StencilArtifactShape:luatrace_scatter_plan()
+        return LT.LTScatterNone
+    end
+
+    function Stencil.StencilArtifactStoreN:luatrace_scatter_plan()
+        return self.store_mode:luatrace_scatter_plan()
+    end
+
+    local function reduction_plan_for_shape(shape, facts)
         local arithmetic = facts and facts.arithmetic or nil
         local reassociable = arithmetic ~= nil and arithmetic.reduction_reassociable or false
         local float_mode = arithmetic and arithmetic.float_mode or shape.float_mode
-        return {
-            kind = "ordered_single_accumulator",
-            reduction = shape.reduction,
-            reassociation_required = false,
-            reassociable = reassociable,
-            int_semantics = arithmetic and arithmetic.int_semantics or shape.int_semantics,
-            float_mode = float_mode,
-            multi_accumulator = false,
-            multi_accumulator_rejected = reassociable and "not_measured_faster_for_luatrace" or "reassociation_not_legal",
-        }
+        return LT.LTReductionOrderedSingleAccumulator(false, reassociable, false, reassociable and "not_measured_faster_for_luatrace" or "reassociation_not_legal")
     end
 
-    local function build_kernel_plan(shape, access_by_name, facts, loop_plan)
-        local primitive_plan = nil
-        local producer = shape.producer
-        local can_use_linear_range_primitive = producer == nil or producer.kind == "range1d"
-        local copy_src_name
-        if shape.kind == "store_n"
-            and asdl.classof(shape.store_mode) == Stencil.StencilStoreCopy
-            and asdl.classof(shape.expr) == Stencil.StencilPointInput then
-            copy_src_name = shape.expr.access.name
-        end
+    function Stencil.StencilArtifactShape:luatrace_reduction_plan(_facts)
+        return LT.LTReductionNone
+    end
+
+    function Stencil.StencilArtifactReduceN:luatrace_reduction_plan(facts)
+        return reduction_plan_for_shape(self, facts)
+    end
+
+    function Stencil.StencilArtifactScanN:luatrace_reduction_plan(facts)
+        return reduction_plan_for_shape(self, facts)
+    end
+
+    function Stencil.StencilStoreSemantics:luatrace_copy_src_name(_expr)
+        return nil
+    end
+
+    function Stencil.StencilStoreCopy:luatrace_copy_src_name(expr)
+        return expr:luatrace_input_name()
+    end
+
+    function Stencil.StencilStoreSemantics:luatrace_fill_value_name(_expr)
+        return nil
+    end
+
+    function Stencil.StencilStoreElementwise:luatrace_fill_value_name(expr)
+        return expr:luatrace_input_name()
+    end
+
+    function Stencil.StencilStoreSemantics:luatrace_copy_semantics()
+        return nil
+    end
+
+    function Stencil.StencilStoreCopy:luatrace_copy_semantics()
+        return self.semantics
+    end
+
+    function Stencil.StencilArtifactShape:luatrace_primitive_plan(_access_plans, _facts)
+        return LT.LTPrimitiveNone
+    end
+
+    function Stencil.StencilArtifactStoreN:luatrace_primitive_plan(access_plans, facts)
+        local can_use_linear_range_primitive = self.producer:luatrace_is_linear_range()
+        local copy_src_name = self.store_mode:luatrace_copy_src_name(self.expr)
         if copy_src_name ~= nil then
-            local dst_name = shape.dst_name or "dst"
+            local dst_name = self.dst_name or "dst"
             local src_name = copy_src_name or "src"
-            local dst, src = access_by_name[dst_name], access_by_name[src_name]
-            local semantics = shape.semantics or (shape.store_mode and shape.store_mode.semantics)
+            local dst, src = access_plans:access_named(dst_name), access_plans:access_named(src_name)
+            local semantics = self.store_mode:luatrace_copy_semantics()
             local no_overlap = semantics == Stencil.StencilCopyNoOverlap
                 or (dst ~= nil and src ~= nil and alias_relation(facts, dst_name, src_name) == Stencil.StencilAliasNoAlias)
             if can_use_linear_range_primitive
@@ -554,110 +699,151 @@ local function bind_context(T)
                 and not dst.readonly and src.readonly
                 and dst.can_bulk_copy and src.can_bulk_copy
                 and dst.element_bytes == src.element_bytes then
-                primitive_plan = {
-                    kind = "ffi_copy",
-                    bytes_per_element = dst.element_bytes,
-                    dst_name = dst_name,
-                    src_name = src_name,
-                    no_overlap_source = semantics == Stencil.StencilCopyNoOverlap and "copy_semantics" or "noalias_facts",
-                }
+                return LT.LTPrimitiveFfiCopy(
+                    dst.element_bytes,
+                    dst_name,
+                    src_name,
+                    semantics == Stencil.StencilCopyNoOverlap and "copy_semantics" or "noalias_facts"
+                )
             end
-        elseif shape.kind == "store_n"
-            and (shape.store_mode == Stencil.StencilStoreElementwise or asdl.classof(shape.store_mode) == Stencil.StencilStoreElementwise)
-            and asdl.classof(shape.expr) == Stencil.StencilPointInput then
-            local dst_name = shape.dst_name or "dst"
-            local value_name = shape.expr.access.name
-            local dst, value_access = access_by_name[dst_name], access_by_name[value_name]
+            return LT.LTPrimitiveNone
+        end
+        local value_name = self.store_mode:luatrace_fill_value_name(self.expr)
+        if value_name ~= nil then
+            local dst_name = self.dst_name or "dst"
+            local dst, value_access = access_plans:access_named(dst_name), access_plans:access_named(value_name)
             if can_use_linear_range_primitive
                 and dst ~= nil and value_access ~= nil
-                and asdl.classof(value_access.layout) == Stencil.StencilLayoutScalar
+                and value_access:luatrace_is_scalar_layout()
                 and not dst.readonly and dst.can_bulk_fill then
-                primitive_plan = {
-                    kind = "ffi_fill",
-                    bytes_per_element = dst.element_bytes,
-                    dst_name = dst_name,
-                    value_name = value_name,
-                }
+                return LT.LTPrimitiveFfiFill(dst.element_bytes, dst_name, value_name)
             end
         end
-        return {
-            kind = shape.kind,
-            primitive_plan = primitive_plan,
-            predicate_plan = build_predicate_plan(shape, access_by_name, loop_plan),
-            scatter_plan = build_scatter_plan(shape),
-            reduction_plan = build_reduction_plan(shape, facts),
-        }
+        return LT.LTPrimitiveNone
     end
 
-    local function lua_point_expr(expr, desc, access_by_name, index)
-        local cls = asdl.classof(expr)
-        if cls == Stencil.StencilPointInput then
-            local name = tostring(expr.access.name)
-            local access = assert(access_by_name[name], "residual_luatrace: missing point input access " .. tostring(name))
-            if asdl.classof(access.layout) == Stencil.StencilLayoutScalar then return name end
-            return lua_access_ref(access, name, index)
-        end
-        if cls == Stencil.StencilPointWindowInput then
-            error("residual_luatrace: window-relative point inputs are not materialized by LuaTrace", 3)
-        end
-        if cls == Stencil.StencilPointConst then return tostring(iconst(expr.value)) end
-        if cls == Stencil.StencilPointUnary then
-            return lua_unary_expr(expr.op, lua_point_expr(expr.arg, desc, access_by_name, index), expr.result_ty, expr.int_semantics, expr.float_mode)
-        end
-        if cls == Stencil.StencilPointBinary then
-            return lua_binary_expr(
-                expr.op,
-                lua_point_expr(expr.left, desc, access_by_name, index),
-                lua_point_expr(expr.right, desc, access_by_name, index),
-                expr.result_ty,
-                expr.int_semantics,
-                expr.float_mode
-            )
-        end
-        if cls == Stencil.StencilPointCast then
-            return lua_point_expr(expr.arg, desc, access_by_name, index)
-        end
-        if cls == Stencil.StencilPointPredicate then
-            return "(" .. lua_pred_expr(expr.pred, lua_point_expr(expr.arg, desc, access_by_name, index)) .. " and 1 or 0)"
-        end
-        if cls == Stencil.StencilPointCompare then
-            return "(" .. lua_cmp_expr(
-                expr.cmp,
-                lua_point_expr(expr.left, desc, access_by_name, index),
-                lua_point_expr(expr.right, desc, access_by_name, index)
-            ) .. " and 1 or 0)"
-        end
-        if cls == Stencil.StencilPointSelect then
-            return "("
-                .. lua_pred_expr(expr.pred, lua_point_expr(expr.cond, desc, access_by_name, index))
-                .. " and "
-                .. lua_point_expr(expr.then_expr, desc, access_by_name, index)
-                .. " or "
-                .. lua_point_expr(expr.else_expr, desc, access_by_name, index)
-                .. ")"
-        end
+    local function build_kernel_plan(shape, access_plans, facts, loop_plan)
+        return LT.LTKernelPlan(
+            shape:luatrace_primitive_plan(access_plans, facts),
+            shape:luatrace_predicate_plan(access_plans, loop_plan),
+            shape:luatrace_scatter_plan(),
+            shape:luatrace_reduction_plan(facts)
+        )
+    end
+
+    local function lua_point_expr(expr, desc, access_plans, index)
+        return expr:luatrace_point_expr(desc, access_plans, index)
+    end
+
+    function Stencil.StencilPointExpr:luatrace_point_expr(_desc, _access_plans, _index)
         error("residual_luatrace: unsupported apply expression", 3)
     end
 
-    local function luatrace_producer_reject_reason(shape)
-        local producer = shape.producer
-        if producer == nil or producer.kind == "range1d" then return nil end
-        if producer.kind == "range_nd" then
-            if shape.kind == "store_n"
-                and asdl.classof(shape.store_mode) == Stencil.StencilStoreCopy
-                and (shape.store_mode.semantics == Stencil.StencilCopyMemMove
-                    or shape.store_mode.semantics == Stencil.StencilCopyMayOverlapBackward) then
-                return "RangeND copy with overlapping memmove semantics is not materialized by LuaTrace yet"
-            end
-            if shape.kind == "store_n" or shape.kind == "reduce_n" or shape.kind == "scan_n" or shape.kind == "find_n" or shape.kind == "scatter_reduce_n" then
-                if shape.kind == "reduce_n" and shape.scope_kind == "window" then
-                    return "RangeND window-local reduction needs WindowND producer semantics"
-                end
-                return nil
-            end
-            return "RangeND producer is only materialized for generic StoreN/ReduceN/ScanN/FindN/ScatterReduceN in LuaTrace"
+    function Stencil.StencilPointInput:luatrace_point_expr(_desc, access_plans, index)
+        local name = tostring(self.access.name)
+        local access = assert(access_plans:access_named(name), "residual_luatrace: missing point input access " .. tostring(name))
+        if access:luatrace_is_scalar_layout() then return name end
+        return lua_access_ref(access, name, index)
+    end
+
+    function Stencil.StencilPointWindowInput:luatrace_point_expr(_desc, _access_plans, _index)
+        error("residual_luatrace: window-relative point inputs are not materialized by LuaTrace", 3)
+    end
+
+    function Stencil.StencilPointConst:luatrace_point_expr(_desc, _access_plans, _index)
+        return tostring(iconst(self.value))
+    end
+
+    function Stencil.StencilPointUnary:luatrace_point_expr(desc, access_plans, index)
+        return lua_unary_expr(self.op, lua_point_expr(self.arg, desc, access_plans, index), self.result_ty, self.int_semantics, self.float_mode)
+    end
+
+    function Stencil.StencilPointBinary:luatrace_point_expr(desc, access_plans, index)
+        return lua_binary_expr(
+            self.op,
+            lua_point_expr(self.left, desc, access_plans, index),
+            lua_point_expr(self.right, desc, access_plans, index),
+            self.result_ty,
+            self.int_semantics,
+            self.float_mode
+        )
+    end
+
+    function Stencil.StencilPointCast:luatrace_point_expr(desc, access_plans, index)
+        return lua_point_expr(self.arg, desc, access_plans, index)
+    end
+
+    function Stencil.StencilPointPredicate:luatrace_point_expr(desc, access_plans, index)
+        return "(" .. lua_pred_expr(self.pred, lua_point_expr(self.arg, desc, access_plans, index)) .. " and 1 or 0)"
+    end
+
+    function Stencil.StencilPointCompare:luatrace_point_expr(desc, access_plans, index)
+        return "(" .. lua_cmp_expr(
+            self.cmp,
+            lua_point_expr(self.left, desc, access_plans, index),
+            lua_point_expr(self.right, desc, access_plans, index)
+        ) .. " and 1 or 0)"
+    end
+
+    function Stencil.StencilPointSelect:luatrace_point_expr(desc, access_plans, index)
+        return "("
+            .. lua_pred_expr(self.pred, lua_point_expr(self.cond, desc, access_plans, index))
+            .. " and "
+            .. lua_point_expr(self.then_expr, desc, access_plans, index)
+            .. " or "
+            .. lua_point_expr(self.else_expr, desc, access_plans, index)
+            .. ")"
+    end
+
+    function Stencil.StencilStoreSemantics:luatrace_range_nd_reject_reason()
+        return nil
+    end
+
+    function Stencil.StencilStoreCopy:luatrace_range_nd_reject_reason()
+        if self.semantics == Stencil.StencilCopyMemMove or self.semantics == Stencil.StencilCopyMayOverlapBackward then
+            return "RangeND copy with overlapping memmove semantics is not materialized by LuaTrace yet"
         end
-        return "producer " .. tostring(producer.kind) .. " is not materialized by the LuaTrace bytecode path yet"
+        return nil
+    end
+
+    function Stencil.StencilReduceExecutionScope:luatrace_range_nd_reject_reason()
+        return nil
+    end
+
+    function Stencil.StencilReduceExecWindow:luatrace_range_nd_reject_reason()
+        return "RangeND window-local reduction needs WindowND producer semantics"
+    end
+
+    function Stencil.StencilArtifactShape:luatrace_range_nd_reject_reason()
+        return nil
+    end
+
+    function Stencil.StencilArtifactStoreN:luatrace_range_nd_reject_reason()
+        return self.store_mode:luatrace_range_nd_reject_reason()
+    end
+
+    function Stencil.StencilArtifactReduceN:luatrace_range_nd_reject_reason()
+        return self.reduce_scope:luatrace_range_nd_reject_reason()
+    end
+
+    function Stencil.StencilArtifactPartitionN:luatrace_range_nd_reject_reason()
+        return "RangeND producer is not materialized for PartitionN in LuaTrace"
+    end
+
+    function Stencil.StencilProducerExecution:luatrace_reject_shape(_shape)
+        return "producer " .. self:luatrace_loop_shape_name() .. " is not materialized by the LuaTrace bytecode path yet"
+    end
+
+    function Stencil.StencilProducerExecRange1D:luatrace_reject_shape(_shape)
+        return nil
+    end
+
+    function Stencil.StencilProducerExecRangeND:luatrace_reject_shape(shape)
+        return shape:luatrace_range_nd_reject_reason()
+    end
+
+    local function luatrace_producer_reject_reason(shape)
+        return shape.producer:luatrace_reject_shape(shape)
     end
 
     local function build_artifact_plan(artifact)
@@ -669,21 +855,19 @@ local function bind_context(T)
         end
         local schedule = artifact.instance.schedule
         local facts = schedule_facts(schedule)
-        local access_plans, access_by_name = build_access_plans(desc, facts)
+        local access_plans = build_access_plans(desc, facts)
         local loop_plan = build_loop_plan(desc, schedule, shape)
-        return {
-            kind = "LuaTraceArtifactPlan",
-            artifact = artifact,
-            descriptor = desc,
-            shape = shape,
-            schedule = schedule,
-            facts = facts,
-            access_plans = access_plans,
-            access_by_name = access_by_name,
-            loop_plan = loop_plan,
-            kernel_plan = build_kernel_plan(shape, access_by_name, facts, loop_plan),
-            source_name = sanitize(artifact.symbol.text),
-        }
+        return LT.LTArtifactPlan(
+            artifact,
+            desc,
+            shape,
+            schedule,
+            facts,
+            access_plans,
+            loop_plan,
+            build_kernel_plan(shape, access_plans, facts, loop_plan),
+            sanitize(artifact.symbol.text)
+        )
     end
 
     local function realized_bc_schedule(artifact)
@@ -708,21 +892,25 @@ local function bind_context(T)
             or conflicts == Stencil.StencilScatterReduceUniqueIndices
     end
 
-    local function producer_params(producer)
-        if producer == nil or producer.kind == "range1d" then return { "start", "stop" } end
-        if producer.kind == "range_nd" then
-            local params = {}
-            for _, axis in ipairs(producer.axes or {}) do
-                params[#params + 1] = axis.start_param
-                params[#params + 1] = axis.stop_param
-            end
-            return params
+    function Stencil.StencilProducerExecution:luatrace_params()
+        error("residual_luatrace: unsupported producer params for " .. self:luatrace_loop_shape_name(), 3)
+    end
+
+    function Stencil.StencilProducerExecRange1D:luatrace_params()
+        return { "start", "stop" }
+    end
+
+    function Stencil.StencilProducerExecRangeND:luatrace_params()
+        local params = {}
+        for _, axis in ipairs(self.axes or {}) do
+            params[#params + 1] = axis.start_param
+            params[#params + 1] = axis.stop_param
         end
-        error("residual_luatrace: unsupported producer params for " .. tostring(producer.kind), 3)
+        return params
     end
 
     local function append_producer_params(params, producer)
-        local p = producer_params(producer)
+        local p = producer:luatrace_params()
         for i = 1, #p do params[#params + 1] = p[i] end
     end
 
@@ -831,10 +1019,7 @@ local function bind_context(T)
 
     local function emit_forward_loop(out, artifact_plan, body)
         local producer = artifact_plan.shape.producer
-        if producer ~= nil and producer.kind == "range_nd" then
-            emit_range_nd_loop(out, producer, body)
-            return
-        end
+        if producer:luatrace_emit_loop(out, body) then return end
         local plan = artifact_plan.loop_plan
         local stride, group, reason = plan.domain_stride, plan.group, plan.reason
         if group <= 1 then
@@ -863,12 +1048,21 @@ local function bind_context(T)
         end
     end
 
+    function Stencil.StencilProducerExecution:luatrace_emit_loop(_out, _body)
+        return false
+    end
+
+    function Stencil.StencilProducerExecRangeND:luatrace_emit_loop(out, body)
+        emit_range_nd_loop(out, self, body)
+        return true
+    end
+
     local function emit_range_nd_axis_reduce(out, artifact_plan, body_expr)
         local shape = artifact_plan.shape
         local producer = shape.producer
-        local dst_name = assert(shape.dst_name, "residual_luatrace: axis reduce needs destination")
-        local dst_access = assert(artifact_plan.access_by_name[dst_name], "missing axis reduce destination access plan")
-        local reduce_axes = axis_ref_set(shape.axes)
+        local dst_name = assert(shape.reduce_scope.dst_name, "residual_luatrace: axis reduce needs destination")
+        local dst_access = assert(artifact_plan.access_plans:access_named(dst_name), "missing axis reduce destination access plan")
+        local reduce_axes = axis_ref_set(shape.reduce_scope.axes)
         local keep_axes = {}
         for axis_index = 1, #(producer.axes or {}) do keep_axes[axis_index] = not reduce_axes[axis_index] end
         local outer_axes = complement_axis_list(producer, reduce_axes)
@@ -886,13 +1080,41 @@ local function bind_context(T)
         end)
     end
 
+    function Stencil.StencilReduceExecutionScope:luatrace_append_result_param(_params)
+    end
+
+    function Stencil.StencilReduceExecAxes:luatrace_append_result_param(params)
+        params[#params + 1] = self.dst_name
+    end
+
+    function Stencil.StencilReduceExecWindow:luatrace_append_result_param(params)
+        params[#params + 1] = self.dst_name
+    end
+
+    function Stencil.StencilReduceExecutionScope:luatrace_emit_axis_reduce(_out, _artifact_plan, _body_expr)
+        return false
+    end
+
+    function Stencil.StencilReduceExecAxes:luatrace_emit_axis_reduce(out, artifact_plan, body_expr)
+        emit_range_nd_axis_reduce(out, artifact_plan, body_expr)
+        return true
+    end
+
+    function Stencil.StencilProducerExecution:luatrace_emit_axis_reduce(_out, _artifact_plan, _body_expr)
+        return false
+    end
+
+    function Stencil.StencilProducerExecRangeND:luatrace_emit_axis_reduce(out, artifact_plan, body_expr)
+        return artifact_plan.shape.reduce_scope:luatrace_emit_axis_reduce(out, artifact_plan, body_expr)
+    end
+
     local function emit_range_nd_axis_scan(out, artifact_plan, body_expr)
         local shape = artifact_plan.shape
         local producer = shape.producer
         local axis_index = tonumber(shape.axis and shape.axis.index) or 1
         local scan_axes = { [axis_index] = true }
         local outer_axes = complement_axis_list(producer, scan_axes)
-        local dst_access = assert(artifact_plan.access_by_name.dst, "missing scan destination access plan")
+        local dst_access = assert(artifact_plan.access_plans:access_named("dst"), "missing scan destination access plan")
         emit_range_nd_extents(out, producer, "    ")
         emit_range_nd_axis_loops(out, producer, outer_axes, "    ", function(outer_indent)
             out[#out + 1] = outer_indent .. "local acc = init"
@@ -909,262 +1131,291 @@ local function bind_context(T)
         end)
     end
 
+    function Stencil.StencilProducerExecution:luatrace_emit_axis_scan(_out, _artifact_plan, _body_expr)
+        return false
+    end
+
+    function Stencil.StencilProducerExecRangeND:luatrace_emit_axis_scan(out, artifact_plan, body_expr)
+        emit_range_nd_axis_scan(out, artifact_plan, body_expr)
+        return true
+    end
+
+    function Stencil.StencilReduceInitMode:luatrace_append_init_param(_params)
+    end
+
+    function Stencil.StencilReduceInitExternal:luatrace_append_init_param(params)
+        params[#params + 1] = "init"
+    end
+
+    function Stencil.StencilReduceInitMode:luatrace_initial_expr(shape)
+        return tostring(iconst(shape.identity))
+    end
+
+    function Stencil.StencilReduceInitExternal:luatrace_initial_expr(_shape)
+        return "init"
+    end
+
+    function Stencil.StencilStoreSemantics:luatrace_emit_overlap_copy(_shape, _out, _artifact_plan, _dst_access, _dst_name, _stride)
+        return false
+    end
+
+    function Stencil.StencilStoreCopy:luatrace_emit_overlap_copy(shape, out, artifact_plan, dst_access, dst_name, stride)
+        local src_name = shape.expr:luatrace_input_name()
+        if src_name == nil then return false end
+        if not shape.producer:luatrace_is_linear_range() then return false end
+        if self.semantics ~= Stencil.StencilCopyMemMove and self.semantics ~= Stencil.StencilCopyMayOverlapBackward then return false end
+        local access = artifact_plan.access_plans
+        local function emit_copy_loop(reverse)
+            if reverse then
+                out[#out + 1] = "        for i = stop - 1, start, -" .. tostring(stride) .. " do"
+            else
+                out[#out + 1] = "        for i = start, stop - 1, " .. tostring(stride) .. " do"
+            end
+            out[#out + 1] = "            " .. lua_access_ref(dst_access, dst_name, "i") .. " = " .. lua_point_expr(shape.expr, artifact_plan.descriptor, access, "i")
+            out[#out + 1] = "        end"
+        end
+        if self.semantics == Stencil.StencilCopyMayOverlapBackward then
+            out[#out + 1] = "    do"
+            emit_copy_loop(true)
+            out[#out + 1] = "    end"
+            return true
+        end
+        out[#out + 1] = "    if " .. dst_name .. " < " .. src_name .. " then"
+        emit_copy_loop(false)
+        out[#out + 1] = "    else"
+        emit_copy_loop(true)
+        out[#out + 1] = "    end"
+        return true
+    end
+
+    function LT.LTPrimitivePolicy:luatrace_comment_name()
+        return "none"
+    end
+
+    function LT.LTPrimitiveFfiCopy:luatrace_comment_name()
+        return "ffi_copy"
+    end
+
+    function LT.LTPrimitiveFfiFill:luatrace_comment_name()
+        return "ffi_fill"
+    end
+
+    function LT.LTPredicatePolicy:luatrace_comment_name()
+        return "none"
+    end
+
+    function LT.LTPredicateLuaSelect:luatrace_comment_name()
+        return "lua_select"
+    end
+
+    function LT.LTPredicateNumericStore:luatrace_comment_name()
+        return "numeric_store"
+    end
+
+    function LT.LTPredicateBranch:luatrace_comment_name()
+        return "branch"
+    end
+
+    function LT.LTPredicateMultiCounterBranch:luatrace_comment_name()
+        return "multi_counter_branch"
+    end
+
+    function LT.LTScatterPolicy:luatrace_comment_name()
+        return "none"
+    end
+
+    function LT.LTScatterUniqueIndices:luatrace_comment_name()
+        return "unique_indices"
+    end
+
+    function LT.LTScatterOrderedLastWrite:luatrace_comment_name()
+        return "ordered_last_write"
+    end
+
+    function LT.LTScatterConflictUndefined:luatrace_comment_name()
+        return "conflict_undefined"
+    end
+
+    function LT.LTScatterUnknown:luatrace_comment_name()
+        return "unknown"
+    end
+
+    function LT.LTReductionPolicy:luatrace_comment_name()
+        return "none"
+    end
+
+    function LT.LTReductionOrderedSingleAccumulator:luatrace_comment_name()
+        return "ordered_single_accumulator"
+    end
+
+    function LT.LTPrimitivePolicy:luatrace_emit_store(_out, _dst_name)
+        return false
+    end
+
+    function LT.LTPrimitiveFfiCopy:luatrace_emit_store(out, _dst_name)
+        out[#out + 1] = "    local __ml_n = stop - start"
+        out[#out + 1] = "    if __ml_n > 0 then ffi.copy(" .. self.dst_name .. " + start, " .. self.src_name .. " + start, __ml_n * " .. tostring(self.bytes_per_element) .. ") end"
+        return true
+    end
+
+    function LT.LTPrimitiveFfiFill:luatrace_emit_store(out, _dst_name)
+        out[#out + 1] = "    local __ml_n = stop - start"
+        out[#out + 1] = "    if __ml_n > 0 then ffi.fill(" .. self.dst_name .. " + start, __ml_n, " .. self.value_name .. ") end"
+        return true
+    end
+
+    function Stencil.StencilArtifactShape:luatrace_emit_body(_out, _artifact_plan)
+        error("residual_luatrace: unsupported stencil shape", 3)
+    end
+
+    function Stencil.StencilArtifactStoreN:luatrace_emit_body(out, artifact_plan)
+        local access = artifact_plan.access_plans
+        local kernel_plan = artifact_plan.kernel_plan
+        local stride = tonumber(self.stride) or 1
+        local dst_name = self.dst_name or "dst"
+        local dst_access = assert(access:access_named(dst_name), "missing destination access plan")
+        local scalar_params = {}
+        local input_params = {}
+        for _, input in ipairs(self.inputs or {}) do
+            if input.name ~= dst_name then
+                if input.layout:luatrace_is_scalar_layout() then
+                    scalar_params[#scalar_params + 1] = input.name
+                else
+                    input_params[#input_params + 1] = input.name
+                end
+            end
+        end
+        local params = { dst_name }
+        for i = 1, #input_params do params[#params + 1] = input_params[i] end
+        append_producer_params(params, self.producer)
+        for i = 1, #scalar_params do params[#params + 1] = scalar_params[i] end
+        out[#out + 1] = fn_header(artifact_plan.artifact, params)
+        if kernel_plan.primitive:luatrace_emit_store(out, dst_name) then
+            return
+        elseif self.store_mode:luatrace_emit_overlap_copy(self, out, artifact_plan, dst_access, dst_name, stride) then
+            return
+        else
+            emit_forward_loop(out, artifact_plan, function(i, indent)
+                out[#out + 1] = indent
+                    .. lua_access_ref(dst_access, dst_name, i)
+                    .. " = "
+                    .. lua_point_expr(self.expr, artifact_plan.descriptor, access, i)
+            end)
+        end
+    end
+
+    function Stencil.StencilArtifactReduceN:luatrace_emit_body(out, artifact_plan)
+        local access = artifact_plan.access_plans
+        local params = {}
+        self.reduce_scope:luatrace_append_result_param(params)
+        for _, input in ipairs(self.inputs or {}) do params[#params + 1] = input.name end
+        append_producer_params(params, self.producer)
+        self.init_mode:luatrace_append_init_param(params)
+        out[#out + 1] = fn_header(artifact_plan.artifact, params)
+        if self.producer:luatrace_emit_axis_reduce(out, artifact_plan, function(i)
+            return lua_point_expr(self.expr, artifact_plan.descriptor, access, i)
+        end) then
+            return
+        end
+        out[#out + 1] = "    local acc = " .. self.init_mode:luatrace_initial_expr(self)
+        emit_forward_loop(out, artifact_plan, function(i, indent)
+            out[#out + 1] = indent .. "acc = " .. lua_reduce_expr(self.reduction, "acc", lua_point_expr(self.expr, artifact_plan.descriptor, access, i), self.result_ty)
+        end)
+        out[#out + 1] = "    return acc"
+    end
+
+    function Stencil.StencilArtifactFindN:luatrace_emit_body(out, artifact_plan)
+        local access = artifact_plan.access_plans
+        local params = {}
+        for _, input in ipairs(self.inputs or {}) do params[#params + 1] = input.name end
+        append_producer_params(params, self.producer)
+        out[#out + 1] = fn_header(artifact_plan.artifact, params)
+        emit_forward_loop(out, artifact_plan, function(i, indent)
+            out[#out + 1] = indent .. "if " .. lua_point_expr(self.expr, artifact_plan.descriptor, access, i) .. " ~= 0 then return " .. i .. " end"
+        end)
+        out[#out + 1] = "    return " .. tostring(iconst(self.not_found))
+    end
+
+    function Stencil.StencilArtifactPartitionN:luatrace_emit_body(out, artifact_plan)
+        local access = artifact_plan.access_plans
+        local dst_name = self.dst_name or "dst"
+        local dst_access = assert(access:access_named(dst_name), "missing destination access plan")
+        local xs_access = assert(access:access_named("xs"), "missing xs access plan")
+        local params = { dst_name }
+        for _, input in ipairs(self.inputs or {}) do
+            if input.name ~= dst_name then params[#params + 1] = input.name end
+        end
+        append_producer_params(params, self.producer)
+        out[#out + 1] = fn_header(artifact_plan.artifact, params)
+        out[#out + 1] = "    local out_i = start"
+        emit_forward_loop(out, artifact_plan, function(i, indent)
+            local x = lua_access_ref(xs_access, "xs", i)
+            out[#out + 1] = indent .. "if " .. lua_point_expr(self.expr, artifact_plan.descriptor, access, i) .. " ~= 0 then " .. lua_access_ref(dst_access, dst_name, "out_i") .. " = " .. x .. "; out_i = out_i + 1 end"
+        end)
+        out[#out + 1] = "    local split = out_i"
+        emit_forward_loop(out, artifact_plan, function(i, indent)
+            local x = lua_access_ref(xs_access, "xs", i)
+            out[#out + 1] = indent .. "if " .. lua_point_expr(self.expr, artifact_plan.descriptor, access, i) .. " == 0 then " .. lua_access_ref(dst_access, dst_name, "out_i") .. " = " .. x .. "; out_i = out_i + 1 end"
+        end)
+        out[#out + 1] = "    return split"
+    end
+
+    function Stencil.StencilArtifactScanN:luatrace_emit_body(out, artifact_plan)
+        local access = artifact_plan.access_plans
+        local dst_access = assert(access:access_named("dst"), "missing dst access plan")
+        local params = { "dst" }
+        for _, input in ipairs(self.inputs or {}) do params[#params + 1] = input.name end
+        append_producer_params(params, self.producer)
+        params[#params + 1] = "init"
+        out[#out + 1] = fn_header(artifact_plan.artifact, params)
+        if self.producer:luatrace_emit_axis_scan(out, artifact_plan, function(i)
+            return lua_point_expr(self.expr, artifact_plan.descriptor, access, i)
+        end) then
+            return
+        end
+        out[#out + 1] = "    local acc = init"
+        emit_forward_loop(out, artifact_plan, function(i, indent)
+            if self.mode == Stencil.StencilScanExclusive then
+                out[#out + 1] = indent .. lua_access_ref(dst_access, "dst", i) .. " = acc"
+                out[#out + 1] = indent .. "acc = " .. lua_reduce_expr(self.reduction, "acc", lua_point_expr(self.expr, artifact_plan.descriptor, access, i), self.result_ty)
+            else
+                out[#out + 1] = indent .. "acc = " .. lua_reduce_expr(self.reduction, "acc", lua_point_expr(self.expr, artifact_plan.descriptor, access, i), self.result_ty)
+                out[#out + 1] = indent .. lua_access_ref(dst_access, "dst", i) .. " = acc"
+            end
+        end)
+        out[#out + 1] = "    return acc"
+    end
+
+    function Stencil.StencilArtifactScatterReduceN:luatrace_emit_body(out, artifact_plan)
+        if not scatter_reduce_conflicts_materialized(self.conflicts) then
+            error("residual_luatrace: unsupported scatter-reduce conflict semantics", 3)
+        end
+        local access = artifact_plan.access_plans
+        local dst_name = self.dst_name or "dst"
+        local dst_access = assert(access:access_named(dst_name), "missing scatter-reduce destination access plan")
+        local params = { dst_name }
+        for _, a in ipairs(ArtifactPlan.descriptor_accesses(artifact_plan.descriptor)) do
+            if a.name ~= dst_name and not a.layout:luatrace_is_scalar_layout() then
+                params[#params + 1] = a.name
+            end
+        end
+        append_producer_params(params, self.producer)
+        out[#out + 1] = fn_header(artifact_plan.artifact, params)
+        emit_forward_loop(out, artifact_plan, function(i, indent)
+            local slot = lua_access_ref(dst_access, dst_name, i)
+            out[#out + 1] = indent .. slot .. " = " .. lua_reduce_expr(self.reduction, slot, lua_point_expr(self.expr, artifact_plan.descriptor, access, i), self.result_ty)
+        end)
+    end
+
     local function emit_lua_function(artifact)
         local artifact_plan = build_artifact_plan(artifact)
         local shape = artifact_plan.shape
-        local kind = shape.kind
-        local stride = tonumber(shape.stride) or 1
         local trace_plan = artifact_plan.loop_plan
-        local access = artifact_plan.access_by_name
         local kernel_plan = artifact_plan.kernel_plan
         local out = {}
         out[#out + 1] = "-- " .. artifact.instance.id.text
-        out[#out + 1] = "-- luatrace plan: " .. trace_plan.reason .. " group=" .. tostring(trace_plan.group) .. " tail=" .. tostring(trace_plan.tail_strategy) .. " primitive=" .. tostring(kernel_plan.primitive_plan and kernel_plan.primitive_plan.kind or "none") .. " predicate=" .. tostring(kernel_plan.predicate_plan and kernel_plan.predicate_plan.kind or "none") .. " scatter=" .. tostring(kernel_plan.scatter_plan and kernel_plan.scatter_plan.kind or "none") .. " reduction=" .. tostring(kernel_plan.reduction_plan and kernel_plan.reduction_plan.kind or "none")
-
-        if kind == "reduce_array" then
-            local xs_access = assert(access.xs, "missing xs access plan")
-            out[#out + 1] = fn_header(artifact, { "xs", "start", "stop", "init" })
-            out[#out + 1] = "    local acc = init"
-            emit_forward_loop(out, artifact_plan, function(i, indent)
-                out[#out + 1] = indent .. "acc = " .. lua_reduce_expr(shape.reduction, "acc", lua_access_ref(xs_access, "xs", i), shape.result_ty)
-            end)
-            out[#out + 1] = "    return acc"
-        elseif kind == "scan_array" then
-            local dst_access, xs_access = assert(access.dst, "missing dst access plan"), assert(access.xs, "missing xs access plan")
-            out[#out + 1] = fn_header(artifact, { "dst", "xs", "start", "stop", "init" })
-            out[#out + 1] = "    local acc = init"
-            emit_forward_loop(out, artifact_plan, function(i, indent)
-                if shape.mode == Stencil.StencilScanExclusive then
-                    out[#out + 1] = indent .. lua_access_ref(dst_access, "dst", i) .. " = acc"
-                    out[#out + 1] = indent .. "acc = " .. lua_reduce_expr(shape.reduction, "acc", lua_access_ref(xs_access, "xs", i), shape.result_ty)
-                else
-                    out[#out + 1] = indent .. "acc = " .. lua_reduce_expr(shape.reduction, "acc", lua_access_ref(xs_access, "xs", i), shape.result_ty)
-                    out[#out + 1] = indent .. lua_access_ref(dst_access, "dst", i) .. " = acc"
-                end
-            end)
-            out[#out + 1] = "    return acc"
-        elseif kind == "find_array" then
-            local xs_access = assert(access.xs, "missing xs access plan")
-            out[#out + 1] = fn_header(artifact, { "xs", "start", "stop" })
-            emit_forward_loop(out, artifact_plan, function(i, indent)
-                out[#out + 1] = indent .. "if " .. lua_pred_expr(shape.pred, lua_access_ref(xs_access, "xs", i)) .. " then return " .. i .. " end"
-            end)
-            out[#out + 1] = "    return -1"
-        elseif kind == "partition_array" then
-            local dst_access, xs_access = assert(access.dst, "missing dst access plan"), assert(access.xs, "missing xs access plan")
-            out[#out + 1] = fn_header(artifact, { "dst", "xs", "start", "stop" })
-            out[#out + 1] = "    local out_i = start"
-            emit_forward_loop(out, artifact_plan, function(i, indent)
-                local x = lua_access_ref(xs_access, "xs", i)
-                out[#out + 1] = indent .. "if " .. lua_pred_expr(shape.pred, x) .. " then " .. lua_access_ref(dst_access, "dst", "out_i") .. " = " .. x .. "; out_i = out_i + 1 end"
-            end)
-            out[#out + 1] = "    local split = out_i"
-            emit_forward_loop(out, artifact_plan, function(i, indent)
-                local x = lua_access_ref(xs_access, "xs", i)
-                out[#out + 1] = indent .. "if not " .. lua_pred_expr(shape.pred, x) .. " then " .. lua_access_ref(dst_access, "dst", "out_i") .. " = " .. x .. "; out_i = out_i + 1 end"
-            end)
-            out[#out + 1] = "    return split"
-        elseif kind == "store_n" then
-            local dst_name = shape.dst_name or "dst"
-            local dst_access = assert(access[dst_name], "missing destination access plan")
-            local params = { dst_name }
-            local scalar_params = {}
-            for _, input in ipairs(shape.inputs or {}) do params[#params + 1] = input.name end
-            local input_params = {}
-            for _, input in ipairs(shape.inputs or {}) do
-                if input.name ~= dst_name then
-                    if asdl.classof(input.layout) == Stencil.StencilLayoutScalar then
-                        scalar_params[#scalar_params + 1] = input.name
-                    else
-                        input_params[#input_params + 1] = input.name
-                    end
-                end
-            end
-            params = { dst_name }
-            for i = 1, #input_params do params[#params + 1] = input_params[i] end
-            append_producer_params(params, shape.producer)
-            for i = 1, #scalar_params do params[#params + 1] = scalar_params[i] end
-            out[#out + 1] = fn_header(artifact, params)
-            if kernel_plan.primitive_plan and kernel_plan.primitive_plan.kind == "ffi_copy" then
-                local src_name = kernel_plan.primitive_plan.src_name
-                out[#out + 1] = "    local __ml_n = stop - start"
-                out[#out + 1] = "    if __ml_n > 0 then ffi.copy(" .. dst_name .. " + start, " .. src_name .. " + start, __ml_n * " .. tostring(kernel_plan.primitive_plan.bytes_per_element) .. ") end"
-            elseif kernel_plan.primitive_plan and kernel_plan.primitive_plan.kind == "ffi_fill" then
-                local value_name = kernel_plan.primitive_plan.value_name
-                out[#out + 1] = "    local __ml_n = stop - start"
-                out[#out + 1] = "    if __ml_n > 0 then ffi.fill(" .. dst_name .. " + start, __ml_n, " .. value_name .. ") end"
-            elseif asdl.classof(shape.store_mode) == Stencil.StencilStoreCopy
-                and asdl.classof(shape.expr) == Stencil.StencilPointInput
-                and (shape.producer == nil or shape.producer.kind == "range1d")
-                and (shape.store_mode.semantics == Stencil.StencilCopyMemMove or shape.store_mode.semantics == Stencil.StencilCopyMayOverlapBackward) then
-                local src_name = shape.expr.access.name
-                local function emit_copy_loop(reverse)
-                    if reverse then
-                        out[#out + 1] = "        for i = stop - 1, start, -" .. tostring(stride) .. " do"
-                    else
-                        out[#out + 1] = "        for i = start, stop - 1, " .. tostring(stride) .. " do"
-                    end
-                    out[#out + 1] = "            " .. lua_access_ref(dst_access, dst_name, "i") .. " = " .. lua_point_expr(shape.expr, artifact_plan.descriptor, access, "i")
-                    out[#out + 1] = "        end"
-                end
-                if shape.store_mode.semantics == Stencil.StencilCopyMayOverlapBackward then
-                    out[#out + 1] = "    do"
-                    emit_copy_loop(true)
-                    out[#out + 1] = "    end"
-                else
-                    out[#out + 1] = "    if " .. dst_name .. " < " .. src_name .. " then"
-                    emit_copy_loop(false)
-                    out[#out + 1] = "    else"
-                    emit_copy_loop(true)
-                    out[#out + 1] = "    end"
-                end
-            else
-                emit_forward_loop(out, artifact_plan, function(i, indent)
-                    out[#out + 1] = indent
-                        .. lua_access_ref(dst_access, dst_name, i)
-                        .. " = "
-                        .. lua_point_expr(shape.expr, artifact_plan.descriptor, access, i)
-                end)
-            end
-        elseif kind == "count_array" then
-            local xs_access = assert(access.xs, "missing xs access plan")
-            out[#out + 1] = fn_header(artifact, { "xs", "start", "stop" })
-            if kernel_plan.predicate_plan.kind == "multi_counter_branch" then
-                local group = trace_plan.group
-                local sum_terms = {}
-                for lane = 0, group - 1 do
-                    out[#out + 1] = "    local n" .. tostring(lane) .. " = 0"
-                    sum_terms[#sum_terms + 1] = "n" .. tostring(lane)
-                end
-                out[#out + 1] = "    local n_tail = 0"
-                sum_terms[#sum_terms + 1] = "n_tail"
-                out[#out + 1] = "    -- luatrace predicate: multi_counter_branch counters=" .. tostring(group)
-                out[#out + 1] = "    local __ml_i = start"
-                if trace_plan.tail_strategy == "no_tail_trip_count_multiple" then
-                    out[#out + 1] = "    local __ml_stop_group = stop"
-                else
-                    out[#out + 1] = "    local __ml_stop_group = stop - ((stop - start) % " .. tostring(group) .. ")"
-                end
-                out[#out + 1] = "    while __ml_i < __ml_stop_group do"
-                for lane = 0, group - 1 do
-                    local idx = lane == 0 and "__ml_i" or ("__ml_i + " .. tostring(lane))
-                    out[#out + 1] = "        if " .. lua_pred_expr(shape.pred, lua_access_ref(xs_access, "xs", idx)) .. " then n" .. tostring(lane) .. " = n" .. tostring(lane) .. " + 1 end"
-                end
-                out[#out + 1] = "        __ml_i = __ml_i + " .. tostring(group)
-                out[#out + 1] = "    end"
-                if trace_plan.tail_strategy ~= "no_tail_trip_count_multiple" then
-                    out[#out + 1] = "    for i = __ml_i, stop - 1, 1 do"
-                    out[#out + 1] = "        if " .. lua_pred_expr(shape.pred, lua_access_ref(xs_access, "xs", "i")) .. " then n_tail = n_tail + 1 end"
-                    out[#out + 1] = "    end"
-                end
-                out[#out + 1] = "    return " .. table.concat(sum_terms, " + ")
-            else
-                out[#out + 1] = "    local n = 0"
-                emit_forward_loop(out, artifact_plan, function(i, indent)
-                    local numeric = lua_numeric_pred_expr(shape.pred, "__ml_x", xs_access.ty)
-                    if numeric ~= nil then
-                        out[#out + 1] = indent .. "local __ml_x = __ml_tobit(" .. lua_access_ref(xs_access, "xs", i) .. ")"
-                        out[#out + 1] = indent .. "n = n + " .. numeric
-                    else
-                        out[#out + 1] = indent .. "if " .. lua_pred_expr(shape.pred, lua_access_ref(xs_access, "xs", i)) .. " then n = n + 1 end"
-                    end
-                end)
-                out[#out + 1] = "    return n"
-            end
-        elseif kind == "reduce_n" then
-            local params = {}
-            if shape.dst_name ~= nil then params[#params + 1] = shape.dst_name end
-            for _, input in ipairs(shape.inputs or {}) do params[#params + 1] = input.name end
-            append_producer_params(params, shape.producer)
-            if shape.external_init ~= false then params[#params + 1] = "init" end
-            out[#out + 1] = fn_header(artifact, params)
-            if shape.producer ~= nil and shape.producer.kind == "range_nd" and shape.scope_kind == "axes" then
-                emit_range_nd_axis_reduce(out, artifact_plan, function(i)
-                    return lua_point_expr(shape.expr, artifact_plan.descriptor, access, i)
-                end)
-            else
-                out[#out + 1] = "    local acc = " .. (shape.external_init == false and tostring(iconst(shape.identity)) or "init")
-                emit_forward_loop(out, artifact_plan, function(i, indent)
-                    out[#out + 1] = indent .. "acc = " .. lua_reduce_expr(shape.reduction, "acc", lua_point_expr(shape.expr, artifact_plan.descriptor, access, i), shape.result_ty)
-                end)
-                out[#out + 1] = "    return acc"
-            end
-        elseif kind == "find_n" then
-            local params = {}
-            for _, input in ipairs(shape.inputs or {}) do params[#params + 1] = input.name end
-            append_producer_params(params, shape.producer)
-            out[#out + 1] = fn_header(artifact, params)
-            emit_forward_loop(out, artifact_plan, function(i, indent)
-                out[#out + 1] = indent .. "if " .. lua_point_expr(shape.expr, artifact_plan.descriptor, access, i) .. " ~= 0 then return " .. i .. " end"
-            end)
-            out[#out + 1] = "    return " .. tostring(iconst(shape.not_found))
-        elseif kind == "partition_n" then
-            local dst_name = shape.dst_name or "dst"
-            local dst_access = assert(access[dst_name], "missing destination access plan")
-            local xs_access = assert(access.xs, "missing xs access plan")
-            local params = { dst_name }
-            for _, input in ipairs(shape.inputs or {}) do
-                if input.name ~= dst_name then params[#params + 1] = input.name end
-            end
-            params[#params + 1] = "start"
-            params[#params + 1] = "stop"
-            out[#out + 1] = fn_header(artifact, params)
-            out[#out + 1] = "    local out_i = start"
-            emit_forward_loop(out, artifact_plan, function(i, indent)
-                local x = lua_access_ref(xs_access, "xs", i)
-                out[#out + 1] = indent .. "if " .. lua_point_expr(shape.expr, artifact_plan.descriptor, access, i) .. " ~= 0 then " .. lua_access_ref(dst_access, dst_name, "out_i") .. " = " .. x .. "; out_i = out_i + 1 end"
-            end)
-            out[#out + 1] = "    local split = out_i"
-            emit_forward_loop(out, artifact_plan, function(i, indent)
-                local x = lua_access_ref(xs_access, "xs", i)
-                out[#out + 1] = indent .. "if " .. lua_point_expr(shape.expr, artifact_plan.descriptor, access, i) .. " == 0 then " .. lua_access_ref(dst_access, dst_name, "out_i") .. " = " .. x .. "; out_i = out_i + 1 end"
-            end)
-            out[#out + 1] = "    return split"
-        elseif kind == "scan_n" then
-            local dst_access = assert(access.dst, "missing dst access plan")
-            local params = { "dst" }
-            for _, input in ipairs(shape.inputs or {}) do params[#params + 1] = input.name end
-            append_producer_params(params, shape.producer)
-            params[#params + 1] = "init"
-            out[#out + 1] = fn_header(artifact, params)
-            if shape.producer ~= nil and shape.producer.kind == "range_nd" then
-                emit_range_nd_axis_scan(out, artifact_plan, function(i)
-                    return lua_point_expr(shape.expr, artifact_plan.descriptor, access, i)
-                end)
-            else
-                out[#out + 1] = "    local acc = init"
-                emit_forward_loop(out, artifact_plan, function(i, indent)
-                    if shape.mode == Stencil.StencilScanExclusive then
-                        out[#out + 1] = indent .. lua_access_ref(dst_access, "dst", i) .. " = acc"
-                        out[#out + 1] = indent .. "acc = " .. lua_reduce_expr(shape.reduction, "acc", lua_point_expr(shape.expr, artifact_plan.descriptor, access, i), shape.result_ty)
-                    else
-                        out[#out + 1] = indent .. "acc = " .. lua_reduce_expr(shape.reduction, "acc", lua_point_expr(shape.expr, artifact_plan.descriptor, access, i), shape.result_ty)
-                        out[#out + 1] = indent .. lua_access_ref(dst_access, "dst", i) .. " = acc"
-                    end
-                end)
-                out[#out + 1] = "    return acc"
-            end
-        elseif kind == "scatter_reduce_n" then
-            if not scatter_reduce_conflicts_materialized(shape.conflicts) then
-                error("residual_luatrace: unsupported scatter-reduce conflict semantics", 3)
-            end
-            local dst_name = shape.dst_name or "dst"
-            local dst_access = assert(access[dst_name], "missing scatter-reduce destination access plan")
-            local params = { dst_name }
-            for _, a in ipairs(ArtifactPlan.descriptor_accesses(artifact_plan.descriptor)) do
-                if a.name ~= dst_name and asdl.classof(a.layout) ~= Stencil.StencilLayoutScalar then
-                    params[#params + 1] = a.name
-                end
-            end
-            append_producer_params(params, shape.producer)
-            out[#out + 1] = fn_header(artifact, params)
-            emit_forward_loop(out, artifact_plan, function(i, indent)
-                local slot = lua_access_ref(dst_access, dst_name, i)
-                out[#out + 1] = indent .. slot .. " = " .. lua_reduce_expr(shape.reduction, slot, lua_point_expr(shape.expr, artifact_plan.descriptor, access, i), shape.result_ty)
-            end)
-        else
-            error("residual_luatrace: unsupported stencil shape " .. tostring(kind), 3)
-        end
+        out[#out + 1] = "-- luatrace plan: " .. trace_plan.reason .. " group=" .. tostring(trace_plan.group) .. " tail=" .. tostring(trace_plan.tail_strategy) .. " primitive=" .. kernel_plan.primitive:luatrace_comment_name() .. " predicate=" .. kernel_plan.predicate:luatrace_comment_name() .. " scatter=" .. kernel_plan.scatter:luatrace_comment_name() .. " reduction=" .. kernel_plan.reduction:luatrace_comment_name()
+        shape:luatrace_emit_body(out, artifact_plan)
 
         out[#out + 1] = "end"
         out[#out + 1] = "__lalin_luajit_stencil_symbols[" .. lua_string(artifact.symbol.text) .. "] = " .. sanitize(artifact.symbol.text)

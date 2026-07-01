@@ -1203,12 +1203,16 @@ local function bind_context(T)
 
     local function vector_proof_obligations(desc, info, access_facts, aliases, trip_count, arithmetic)
         local out = {}
-        local access_by_name = {}
-        for _, access in ipairs(descriptor_accesses(desc)) do access_by_name[access.name] = access end
+        local function descriptor_access_named(name)
+            for _, access in ipairs(descriptor_accesses(desc)) do
+                if access.name == name then return access end
+            end
+            return nil
+        end
 
         for _, fact in ipairs(access_facts) do
             local name = access_ref_name(fact.access)
-            local access = access_by_name[name]
+            local access = descriptor_access_named(name)
             if fact.unit_stride then
                 add_proof_obligation(
                     out,
@@ -2082,48 +2086,59 @@ local function bind_context(T)
         error("stencil_artifact_plan: unsupported stencil producer for artifact shape: " .. tostring(reason), 3)
     end
 
+    function Stencil.StencilProducerExecution:artifact_shape_stride()
+        return nil
+    end
+
+    function Stencil.StencilProducerExecRange1D:artifact_shape_stride()
+        return self.stride
+    end
+
+    function Stencil.StencilProducerShape:artifact_execution_plan()
+        error("stencil_artifact_plan: unsupported producer execution plan", 3)
+    end
+
+    function Stencil.StencilProduceRange1D:artifact_execution_plan()
+        return Stencil.StencilProducerExecRange1D(
+            tonumber(self.step) or 1,
+            self.order
+        )
+    end
+
+    local function nd_execution_axes(axes)
+        local out = {}
+        for i, axis in ipairs(axes or {}) do
+            out[#out + 1] = Stencil.StencilProducerExecutionAxis(
+                axis.index_ty,
+                tonumber(axis.step) or 1,
+                producer_param_name(i, "start"),
+                producer_param_name(i, "stop")
+            )
+        end
+        return out
+    end
+
+    function Stencil.StencilProduceRangeND:artifact_execution_plan()
+        local axes = nd_execution_axes(self.axes)
+        return Stencil.StencilProducerExecRangeND(#axes, axes)
+    end
+
+    function Stencil.StencilProduceWindowND:artifact_execution_plan()
+        local axes = nd_execution_axes(self.axes)
+        return Stencil.StencilProducerExecWindowND(#axes, axes, self.windows)
+    end
+
+    function Stencil.StencilProduceTiledND:artifact_execution_plan()
+        local axes = nd_execution_axes(self.axes)
+        return Stencil.StencilProducerExecTiledND(#axes, axes, self.tile_sizes)
+    end
+
     local function producer_execution_plan(desc)
         local producer = descriptor_producer(desc)
         local reason = producer_materializer_reject_reason(producer)
         if reason ~= nil then error("stencil_artifact_plan: unsupported stencil producer for artifact shape: " .. tostring(reason), 3) end
         local shape = producer_shape(producer)
-        local cls = asdl.classof(shape)
-        if cls == Stencil.StencilProduceRange1D then
-            return {
-                kind = "range1d",
-                stride = tonumber(shape.step) or 1,
-                order = shape.order == Stencil.StencilProducerBackward and "backward" or "forward",
-            }
-        end
-        if cls == Stencil.StencilProduceRangeND or cls == Stencil.StencilProduceWindowND or cls == Stencil.StencilProduceTiledND then
-            local axes = {}
-            for i, axis in ipairs(shape.axes or {}) do
-                axes[#axes + 1] = {
-                    index_ty = axis.index_ty,
-                    step = tonumber(axis.step) or 1,
-                    start_param = producer_param_name(i, "start"),
-                    stop_param = producer_param_name(i, "stop"),
-                }
-            end
-            local kind = "range_nd"
-            local plan = {
-                kind = kind,
-                rank = #axes,
-                axes = axes,
-            }
-            if cls == Stencil.StencilProduceWindowND then
-                plan.kind = "window_nd"
-                plan.windows = shape.windows
-                return plan
-            end
-            if cls == Stencil.StencilProduceTiledND then
-                plan.kind = "tiled_nd"
-                plan.tile_sizes = shape.tile_sizes
-                return plan
-            end
-            return plan
-        end
-        error("stencil_artifact_plan: unsupported producer execution plan", 3)
+        return shape:artifact_execution_plan()
     end
 
     local function indexed_ty(access)
@@ -2134,9 +2149,32 @@ local function bind_context(T)
         return top.index_ty
     end
 
-    local function local_shape(kind, fields)
-        fields.kind = kind
-        return fields
+    function Stencil.StencilReduceScope:artifact_reduce_execution_scope()
+        error("stencil_artifact_plan: unsupported reduce execution scope", 3)
+    end
+
+    function Stencil.StencilReduceScopeDomain:artifact_reduce_execution_scope()
+        return Stencil.StencilReduceExecDomain
+    end
+
+    function Stencil.StencilReduceExecDomain:artifact_reduce_init_mode()
+        return Stencil.StencilReduceInitExternal
+    end
+
+    function Stencil.StencilReduceScopeAxes:artifact_reduce_execution_scope()
+        return Stencil.StencilReduceExecAxes(self.dst.name, self.axes)
+    end
+
+    function Stencil.StencilReduceExecAxes:artifact_reduce_init_mode()
+        return Stencil.StencilReduceInitIdentity
+    end
+
+    function Stencil.StencilReduceScopeWindow:artifact_reduce_execution_scope()
+        return Stencil.StencilReduceExecWindow(self.dst.name, self.axes)
+    end
+
+    function Stencil.StencilReduceExecWindow:artifact_reduce_init_mode()
+        return Stencil.StencilReduceInitIdentity
     end
 
     local function expr_input_name(expr)
@@ -2209,34 +2247,30 @@ local function bind_context(T)
         local expr = descriptor_expr(desc)
         local inputs = expr_inputs_for_shape(desc, expr)
         local producer = producer_execution_plan(desc)
-        return local_shape("store_n", { inputs = inputs, result_ty = result_ty, dst_name = dst_name or "dst", store_mode = store_mode, expr = expr, producer = producer, stride = producer.kind == "range1d" and producer.stride or nil })
+        return Stencil.StencilArtifactStoreN(inputs, result_ty, dst_name or "dst", store_mode, expr, producer, producer:artifact_shape_stride())
     end
 
-    local function reduce_n_shape(desc, red)
+    local function reduce_n_shape(desc, red, init_mode)
         local expr = descriptor_expr(desc)
         local inputs = expr_inputs_for_shape(desc, expr)
         local producer = producer_execution_plan(desc)
         local scope = desc.sink.scope
-        local scope_cls = asdl.classof(scope)
-        local scope_kind = (scope == Stencil.StencilReduceScopeDomain or scope_cls == Stencil.StencilReduceScopeDomain) and "domain"
-            or (scope_cls == Stencil.StencilReduceScopeAxes and "axes" or "window")
-        return local_shape("reduce_n", {
-            inputs = inputs,
-            expr = expr,
-            item_ty = desc.sink.result_ty,
-            result_ty = red.result_ty,
-            reduction = red.reduction,
-            int_semantics = red.int_semantics,
-            float_mode = red.float_mode,
-            identity = red.identity,
-            scope = scope,
-            scope_kind = scope_kind,
-            dst_name = scope_kind ~= "domain" and scope.dst.name or nil,
-            axes = scope_kind ~= "domain" and scope.axes or nil,
-            external_init = scope_kind == "domain",
-            producer = producer,
-            stride = producer.kind == "range1d" and producer.stride or nil,
-        })
+        local reduce_scope = scope:artifact_reduce_execution_scope()
+        return Stencil.StencilArtifactReduceN(
+            inputs,
+            expr,
+            desc.sink.result_ty,
+            red.result_ty,
+            red.reduction,
+            red.int_semantics,
+            red.float_mode,
+            red.identity,
+            scope,
+            reduce_scope,
+            init_mode or reduce_scope:artifact_reduce_init_mode(),
+            producer,
+            producer:artifact_shape_stride()
+        )
     end
 
     local function count_reduce_shape(desc, mode)
@@ -2247,39 +2281,21 @@ local function bind_context(T)
             default_int_semantics(),
             nil
         )
-        local shape = reduce_n_shape(desc, red)
-        shape.external_init = false
-        return shape
+        return reduce_n_shape(desc, red, Stencil.StencilReduceInitIdentity)
     end
 
     local function find_n_shape(desc, mode)
         local expr = descriptor_expr(desc)
         local inputs = expr_inputs_for_shape(desc, expr)
         local producer = producer_execution_plan(desc)
-        return local_shape("find_n", {
-            inputs = inputs,
-            expr = expr,
-            result_ty = desc.sink.result_ty,
-            pred = mode.pred,
-            not_found = mode.not_found,
-            producer = producer,
-            stride = producer.kind == "range1d" and producer.stride or nil,
-        })
+        return Stencil.StencilArtifactFindN(inputs, expr, desc.sink.result_ty, mode.pred, mode.not_found, producer, producer:artifact_shape_stride())
     end
 
     local function partition_n_shape(desc, sink)
         local expr = descriptor_expr(desc)
         local inputs = expr_inputs_for_shape(desc, expr)
         local producer = producer_execution_plan(desc)
-        return local_shape("partition_n", {
-            inputs = inputs,
-            expr = expr,
-            result_ty = Code.CodeTyInt(32, Code.CodeSigned),
-            dst_name = sink.dst.name,
-            mode = sink.semantics,
-            producer = producer,
-            stride = producer.kind == "range1d" and producer.stride or nil,
-        })
+        return Stencil.StencilArtifactPartitionN(inputs, expr, Code.CodeTyInt(32, Code.CodeSigned), sink.dst.name, sink.semantics, producer, producer:artifact_shape_stride())
     end
 
     local function scan_n_shape(desc, sink)
@@ -2287,19 +2303,19 @@ local function bind_context(T)
         local inputs = expr_inputs_for_shape(desc, expr)
         local producer = producer_execution_plan(desc)
         local red = sink.reducer
-        return local_shape("scan_n", {
-            inputs = inputs,
-            expr = expr,
-            result_ty = sink.result_ty,
-            reduction = red.reduction,
-            int_semantics = red.int_semantics,
-            float_mode = red.float_mode,
-            identity = red.identity,
-            mode = sink.mode,
-            axis = sink.axis,
-            producer = producer,
-            stride = producer.kind == "range1d" and producer.stride or nil,
-        })
+        return Stencil.StencilArtifactScanN(
+            inputs,
+            expr,
+            sink.result_ty,
+            red.reduction,
+            red.int_semantics,
+            red.float_mode,
+            red.identity,
+            sink.mode,
+            sink.axis,
+            producer,
+            producer:artifact_shape_stride()
+        )
     end
 
     local function scatter_reduce_n_shape(desc, sink)
@@ -2307,54 +2323,77 @@ local function bind_context(T)
         local inputs = expr_inputs_for_shape(desc, expr)
         local producer = producer_execution_plan(desc)
         local red = sink.reducer
-        return local_shape("scatter_reduce_n", {
-            inputs = inputs,
-            expr = expr,
-            result_ty = sink.result_ty,
-            reduction = red.reduction,
-            int_semantics = red.int_semantics,
-            float_mode = red.float_mode,
-            identity = red.identity,
-            dst_name = sink.dst.name,
-            conflicts = sink.conflicts,
-            producer = producer,
-            stride = producer.kind == "range1d" and producer.stride or nil,
-        })
+        return Stencil.StencilArtifactScatterReduceN(
+            inputs,
+            expr,
+            sink.result_ty,
+            red.reduction,
+            red.int_semantics,
+            red.float_mode,
+            red.identity,
+            sink.dst.name,
+            sink.conflicts,
+            producer,
+            producer:artifact_shape_stride()
+        )
+    end
+
+    function Stencil.StencilArtifact:artifact_shape()
+        return self.instance.descriptor:artifact_shape()
+    end
+
+    function Stencil.StencilDescriptor:artifact_shape()
+        local sink_reason = sink_materializer_reject_reason(self)
+        if sink_reason ~= nil then error("stencil_artifact_plan: unsupported stencil sink: " .. tostring(sink_reason), 3) end
+        return self.sink:artifact_shape_for_descriptor(self)
+    end
+
+    function Stencil.StencilSink:artifact_shape_for_descriptor(_desc)
+        error("stencil_artifact_plan: unsupported stencil descriptor", 3)
+    end
+
+    function Stencil.StencilReductionSemantics:artifact_reduce_shape(_desc)
+        error("stencil_artifact_plan: unsupported reduce sink semantics", 3)
+    end
+
+    function Stencil.StencilReduceFold:artifact_reduce_shape(desc)
+        return reduce_n_shape(desc, self.reducer)
+    end
+
+    function Stencil.StencilReduceCount:artifact_reduce_shape(desc)
+        return count_reduce_shape(desc, self)
+    end
+
+    function Stencil.StencilReduceFind:artifact_reduce_shape(desc)
+        return find_n_shape(desc, self)
+    end
+
+    function Stencil.StencilSinkReduce:artifact_shape_for_descriptor(desc)
+        return self.semantics:artifact_reduce_shape(desc)
+    end
+
+    function Stencil.StencilStoreSemantics:artifact_store_shape(desc, sink)
+        return store_n_shape(desc, access_named(desc, sink.dst.name).ty, sink.dst.name, self)
+    end
+
+    function Stencil.StencilStorePartition:artifact_store_shape(desc, sink)
+        return partition_n_shape(desc, sink)
+    end
+
+    function Stencil.StencilSinkStore:artifact_shape_for_descriptor(desc)
+        return self.semantics:artifact_store_shape(desc, self)
+    end
+
+    function Stencil.StencilSinkScan:artifact_shape_for_descriptor(desc)
+        return scan_n_shape(desc, self)
+    end
+
+    function Stencil.StencilSinkScatterReduce:artifact_shape_for_descriptor(desc)
+        return scatter_reduce_n_shape(desc, self)
     end
 
     local function artifact_shape(artifact)
-        local desc = artifact.instance.descriptor
-        local sink_reason = sink_materializer_reject_reason(desc)
-        if sink_reason ~= nil then error("stencil_artifact_plan: unsupported stencil sink: " .. tostring(sink_reason), 3) end
-        local sink = desc.sink
-        local sink_cls = asdl.classof(sink)
-        if sink_cls == Stencil.StencilSinkReduce then
-            local semantics = sink.semantics
-            local semantics_cls = asdl.classof(semantics)
-            if semantics_cls == Stencil.StencilReduceFold then
-                return reduce_n_shape(desc, semantics.reducer)
-            end
-            if semantics_cls == Stencil.StencilReduceCount then
-                return count_reduce_shape(desc, semantics)
-            end
-            if semantics_cls == Stencil.StencilReduceFind then
-                return find_n_shape(desc, semantics)
-            end
-            error("stencil_artifact_plan: unsupported reduce sink semantics", 3)
-        end
-        if sink_cls == Stencil.StencilSinkStore then
-            if asdl.classof(sink.semantics) == Stencil.StencilStorePartition then
-                return partition_n_shape(desc, sink)
-            end
-            return store_n_shape(desc, access_named(desc, sink.dst.name).ty, sink.dst.name, sink.semantics)
-        end
-        if sink_cls == Stencil.StencilSinkScan then
-            return scan_n_shape(desc, sink)
-        end
-        if sink_cls == Stencil.StencilSinkScatterReduce then
-            return scatter_reduce_n_shape(desc, sink)
-        end
-        error("stencil_artifact_plan: unsupported stencil descriptor", 3)
+        return artifact:artifact_shape()
     end
 
     source_params = function(artifact, params)

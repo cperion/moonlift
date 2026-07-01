@@ -1,472 +1,697 @@
-# Residual Native Architecture
+# Native Template Architecture
 
-This document describes the target backend architecture for saturated stencils,
-copy-patch compression, runtime C residuals, and AOT C emission.
+This document is the binding architecture for Lalin's native compiler.
 
-The key shift is:
+The historical filename says "residual", but the target architecture is
+residualless. "Residual" was a bag for undefined implementation: missing
+template methods, fallback C, host glue, exact precompiled stencils, unsupported
+control flow, and arbitrary code generation. That bag is an architectural smell.
+The native compiler must not represent it.
+
+The native backend is a copy-patch compiler:
 
 ```text
-Saturate semantics first.
-Compress saturated stencil artifacts second.
-Materialize everything executable as native code.
+Lalin semantic ASDL
+  -> native loop/template algebra
+  -> semantic saturation
+  -> template graph
+  -> copy plan
+  -> copy binary templates
+  -> patch typed holes
+  -> executable native code
 ```
 
-LuaJIT remains the host, loader, and integration layer. It should not be the
-default executor for non-stencil loops. A loop that cannot become a stencil
-should normally become a typed C residual compiled by TCC, or reject loudly when
-it is not C-lowerable.
+There is no "uncovered" result, no fallback residual category, and no exact
+stencil archive as the bank. If a valid Lalin semantic leaf belongs to native
+compilation, it owns a native method. If the method is missing, Lua errors
+loudly. Missing implementation is not compiler data.
 
-## Roles
+## Sources
 
-Each native mechanism has a distinct job.
+The design is informed by:
 
-| Mechanism | Role |
-|-----------|------|
-| ASDL stencil vocabulary | Exact mathematical semantics of stencil-shaped work |
-| GCC/Clang AOT | Builds high-quality exact stencil banks and whole-program C artifacts |
-| Copy-patch | Compresses and decompresses saturated stencil artifacts through typed families |
-| TCC/libtcc | Runtime JIT for residual C functions and linking against installed stencils |
-| LuaJIT | Host, loader, FFI boundary, and optional/debug LuaTrace path |
+- Copy-and-Patch Compilation:
+  <https://fredrikbk.com/publications/copy-and-patch.pdf>
+- Copy-and-Patch arXiv record:
+  <https://arxiv.org/abs/2011.13127>
+- PyPy/RPython JIT docs:
+  <https://rpython.readthedocs.io/en/latest/jit/pyjitpl5.html>
+- Applying a Tracing JIT to an Interpreter:
+  <https://pypy.org/posts/2009/03/applying-tracing-jit-to-interpreter-3287844903778799266.html>
+- Futhark performance guide:
+  <https://futhark.readthedocs.io/en/stable/performance.html>
+- Futhark redomap paper:
+  <https://www.futhark-lang.org/publications/array16.pdf>
 
-Copy-patch is not a weaker compiler. It is fast decompression from a compressed
-machine-code family to an exact executable stencil artifact.
+See also `docs/COPY_PATCH_TEMPLATE_ENUMERATION_NOTES.md`.
 
-TCC is not the premium stencil optimizer. It is the native residual executor for
-code that is not worth, or not able, to enter the saturated stencil bank.
+## Root Principles
 
-GCC/Clang remain the best path for expensive AOT stencil generation and
-whole-program native C artifacts.
+1. The native compiler is complete by construction over the ASDL semantics it
+   claims to compile.
+2. Missing native support is a missing ASDL method or hard implementation error,
+   not a typed fallback value.
+3. Copy-patch handles code, data, and structured control flow through templates
+   and typed holes.
+4. C can be a bank-build implementation language for templates, but it is not a
+   runtime fallback category.
+5. Host calls, ABI bridges, and runtime services are explicit native template
+   nodes or support calls, not residual code.
+6. Saturation is semantic algebra closure, not Cartesian product enumeration.
+7. The bank stores patchable binary templates and supertemplates, not exact
+   final loop functions.
+8. ASDL is the vocabulary. Lua methods implement behavior on the ASDL leaves.
 
-## Current Problem
+## Forbidden Concepts
 
-The existing stencil vocabulary is already close to complete for the important
-hot-loop algebra: producers, access layouts, point expressions, sinks,
-reducers, predicates, schedules, proofs, and targets are all typed ASDL.
-
-That creates a large exact artifact space:
+These are not part of the architecture:
 
 ```text
-producer shape
-x access layouts
-x point expression tree
-x sink semantics
-x reducer/predicate
-x schedule
-x proof facts
-x target
+ResidualFunctionPlan
+CResidual*
+StencilRequiresCompile
+NeedsResidualC
+Uncovered*
+Coverage*
+fallback native path
+exact embedded MC bank as the main bank
+exact-cell bank enumeration
+cell.kind
+producer.kind
+shape.kind
+artifact_shape(...).kind
+string dispatch
+side-table planning
+budget/cap-defined semantics
 ```
 
-The exact space is semantically correct, but storing one bank entry for every
-saturated combination can explode. This is especially visible with recursive
-SOAC-style composition, apply chains, field/component projection stacks, arity
-growth, and layout spines.
+Some of those names may still exist in the current code while the hard-yank is
+in progress. They are legacy code, not design.
 
-The missing concept is not looser stencils. The missing concept is compressed
-storage for exact stencils.
+## Copy-Patch Meaning
 
-## Core Model
-
-The backend should distinguish semantic identity from storage identity:
+Copy-patch means:
 
 ```text
-StencilDescriptor
-  exact semantic identity
-
-StencilInstance
-  saturated executable request
-
-StencilCompressionFamily
-  reusable storage representative for many exact instances
-
-StencilCompressionCoordinates
-  typed values needed to reconstruct one exact instance from the family
-
-StencilDecompressionPlan
-  target-specific copy-patch plan
-
-MaterializedStencil
-  exact executable native code
+precompiled binary template
+  + typed holes
+  + runtime coordinates
+  -> copied and patched executable code
 ```
 
-The invariant is:
+A template is not an exact function. A template is a reusable binary
+implementation of a semantic fragment or selected fused semantic form.
+
+Typical holes:
+
+- immediates;
+- constants;
+- field offsets;
+- SoA component indices;
+- affine coefficients and offsets;
+- strides when a stride-hole template is explicitly chosen;
+- branch targets;
+- loop backedges;
+- continuation targets;
+- call targets;
+- stack/frame offsets;
+- runtime support symbol addresses.
+
+The runtime copies template bytes into executable memory, patches holes with
+typed coordinates, seals memory, and exposes the resulting native entrypoints.
+
+## The Native ASDL Tower
+
+The native compiler should be a tower of ASDL values and methods:
 
 ```text
-family + coordinates = exact saturated artifact
+Code/Kernel facts
+  -> NativeAlgebraForm
+  -> NativeSaturation
+  -> NativeTemplateGraph
+  -> NativeCopyPlan
+  -> NativeExecutable
 ```
 
-Compression may remove detail from storage. It must never remove semantic detail
-without producing a typed coordinate that restores that detail before execution.
-
-## Backend Ladder
-
-The target execution ladder should be:
+Recommended schema names may change, but the roles must remain explicit.
 
 ```text
-CodeModule
-  -> facts
-  -> residual module plan
-  -> materialization
+NativeCompileRequest
+  module/function
+  target
+  template bank
+  runtime support policy
+
+NativeAlgebraForm
+  producer/control skeleton
+  access projections
+  body expression graph
+  consumer/sink
+  schedule intent
+  proofs/facts
+
+NativeSaturation
+  primitive basis
+  fused forms
+  selected supertemplates
+
+NativeTemplateGraph
+  template nodes
+  control edges
+  value edges
+  entry
+  exits
+
+NativeCopyPlan
+  graph
+  layout
+  copy order
+  patch bindings
+  elided jumps
+
+NativeExecutable
+  symbol
+  entrypoint
+  installed code
 ```
 
-Per function:
+The API shape should be method-owned:
 
-```text
-1. Exact stencil artifact
-2. Compressed stencil artifact decompressed by copy-patch
-3. C residual function compiled by TCC
-4. Rejected residual
+```lua
+local form = func:to_native_algebra(request)
+local saturation = form:saturate_native(request)
+local graph = saturation:select_native_template_graph(request)
+local plan = graph:select_native_copy_plan(request)
+local executable = plan:install_native(request)
 ```
 
-LuaJIT/LuaTrace can remain as an explicit debug/probe path, but it should not be
-the architectural fallback for normal native execution.
+No free helper should own the semantic step when an ASDL receiver exists.
 
-## Residual Function Plan
+## Native Algebra
 
-The backend decision should be an ASDL product/sum, not an option bag or hidden
-fallback:
+The native algebra is the normalized semantic language for loops and stencil-like
+work. It is not a storage format.
+
+Required families:
 
 ```text
-ResidualModulePlan {
-  module
-  functions [many ResidualFunctionPlan]
-  stencil_storage
-  c_unit
+NativeProducer =
+  Range1D
+| RangeND
+| TiledND
+| WindowND
+| PullStream
+
+NativeAccess =
+  Contiguous
+| Affine
+| ViewDescriptor
+| SliceDescriptor
+| ByteSpanDescriptor
+| FieldProjection
+| SoAComponent
+| Indexed
+
+NativeBody =
+  Input
+| Const
+| Unary
+| Binary
+| Compare
+| Select
+| Cast
+| Predicate
+| WindowInput
+| Tuple
+
+NativeConsumer =
+  Store
+| Reduce
+| Scan
+| Scatter
+| ScatterReduce
+| Partition
+| Find
+| HorizontalConsumers
+
+NativeSchedule =
+  Scalar
+| Vector
+| Unrolled
+| Tiled
+```
+
+These names describe ASDL sums/products. They are not `kind` strings.
+
+## Saturation
+
+Saturation is required, but it must be semantic.
+
+Correct:
+
+```text
+primitive semantic atoms
+  -> legal fusion/rewrite rules
+  -> normalized fused forms
+  -> selected template basis
+```
+
+Wrong:
+
+```text
+producer x layout x scalar x input_count x point x sink x schedule
+```
+
+Stage 0 is the primitive semantic basis:
+
+- producer/control leaves;
+- access leaves;
+- body atoms;
+- operator leaves;
+- consumer leaves;
+- schedule leaves;
+- proof requirement leaves;
+- type and ABI shape leaves.
+
+Stage 1 is algebraic fusion closure:
+
+- map/map fusion;
+- map-to-store;
+- map-to-reduce, i.e. redomap;
+- map-to-scan when legal;
+- horizontal fusion over the same producer;
+- field/SoA/view projection composition;
+- window-neighborhood map/store;
+- window reduction;
+- indexed/scatter forms when proofs allow them;
+- tupled reductions when algebraic laws prove them.
+
+Stage 2 selects supertemplates:
+
+- common fused forms;
+- forms that materially improve copied code;
+- forms that reduce runtime assembly overhead;
+- forms whose shape is common enough to justify a binary template.
+
+Stage 2 is not "all fused forms up to a cap." It is an implementation basis
+chosen from saturated semantics.
+
+## Fusion Rules
+
+Fusion rules are ASDL methods. They do not live in rule tables.
+
+Example method shape:
+
+```text
+NativeConsumerStore:fuse_native_producer(input)
+NativeConsumerReduce:fuse_native_producer(input)
+NativeAccessFieldProjection:compose_native_access(input)
+NativeBodyBinary:fuse_native_body(input)
+```
+
+A legal fusion returns a typed fused form. An illegal user semantic condition
+returns a typed diagnostic or proof failure only when that is a true language
+semantic. Missing implementation is not a result.
+
+No API should return:
+
+```text
+Unsupported
+Uncovered
+NeedsResidual
+NotImplemented
+```
+
+for valid native semantics. It should fail loudly by missing method or hard
+implementation error.
+
+## Template Graph
+
+A single native function can be assembled from multiple template fragments and
+selected supertemplates. The template graph is the implementation assembly
+graph.
+
+It is not a new semantic IR. Semantics remain in the native algebra and
+saturated forms. The graph says how selected binary templates are stitched.
+
+Required shape:
+
+```text
+NativeTemplateGraph
+  nodes [many NativeTemplateNode]
+  control_edges [many NativeControlEdge]
+  value_edges [many NativeValueEdge]
+  entry [NativeTemplateNodeRef]
+  exits [many NativeTemplateNodeRef]
+```
+
+Node examples:
+
+```text
+LoopHeaderTemplate
+LoopLatchTemplate
+LoadAccessTemplate
+StoreAccessTemplate
+UnaryTemplate
+BinaryTemplate
+CompareTemplate
+BranchTemplate
+ReduceUpdateTemplate
+ScanStepTemplate
+RuntimeCallTemplate
+SupertemplateNode
+```
+
+Control edge examples:
+
+```text
+FallthroughEdge
+ConditionalBranchEdge
+LoopBackedgeEdge
+ExitEdge
+ContinuationEdge
+RuntimeCallReturnEdge
+```
+
+Value edge examples:
+
+```text
+RegisterValueEdge
+StackSlotValueEdge
+RuntimeParamEdge
+PatchCoordinateEdge
+AccumulatorValueEdge
+```
+
+The copy plan chooses placement and can elide jumps when a control edge becomes
+fallthrough after layout. Non-fallthrough edges become branch/continuation holes.
+
+This is how copy-patch handles structured control flow. Control flow is not a
+reason to invent residual code.
+
+## Family Axes, Holes, And Runtime Params
+
+Every piece of data in native template compilation must be classified.
+
+### Family Axes
+
+Family axes select a binary template because they change instruction or control
+shape:
+
+- producer leaf and rank;
+- loop/control skeleton;
+- operation leaf;
+- operand/result type shape;
+- consumer/sink leaf;
+- reduction operation and type;
+- scan mode;
+- scatter semantics;
+- access projection constructor when address generation changes;
+- schedule strategy when binary code changes;
+- ABI/register protocol shape;
+- target ISA, pointer width, endianness, and calling convention;
+- proof requirement shape when it changes emitted code.
+
+### Patch Coordinates
+
+Patch coordinates fill holes:
+
+- scalar constants;
+- predicate constants;
+- field offsets;
+- component indices;
+- affine terms and offsets;
+- window offsets;
+- branch targets;
+- loop backedges;
+- continuation targets;
+- call targets;
+- frame offsets;
+- runtime support symbol addresses.
+
+Patch coordinates are not family axes unless a leaf method explicitly chooses a
+specialized template whose instruction shape changes.
+
+### Runtime Parameters
+
+Runtime parameters stay ABI parameters:
+
+- base pointers;
+- dynamic lengths;
+- dynamic starts/stops;
+- dynamic descriptor fields;
+- user values consumed by the loop;
+- dynamic external initialization values.
+
+Runtime parameters are not holes unless a template leaf explicitly defines that
+choice.
+
+## Register Protocol
+
+Copy-patch needs a typed register/value protocol to avoid combinatorial
+explosion.
+
+Required ASDL:
+
+```text
+NativeRegisterProtocol
+  live_inputs
+  produced_outputs
+  pass_through_values
+  clobbers
+  abi_param_classes
+  continuation
+```
+
+Pass-through values are crucial. A template must not specialize on values it
+does not inspect. If a fragment only carries a value to a later fragment, the
+protocol records pass-through. It does not multiply template families.
+
+This is the main anti-explosion lesson from copy-patch.
+
+## Bank Contents
+
+The native bank stores:
+
+```text
+NativeTemplate
+  family
+  target
+  register protocol
+  code blob
+  holes
+  metadata
+
+NativeSupertemplate
+  saturated form
+  family
+  register protocol
+  code blob
+  holes
+  metadata
+
+NativeTemplateBank
+  templates
+  supertemplates
+  target
+  runtime support symbols
+```
+
+The bank does not store:
+
+- exact final function bytes by symbol;
+- every Cartesian combination;
+- residual C source;
+- implementation TODOs;
+- "uncovered" reports;
+- arbitrary profile caps as semantics.
+
+## Bank Build
+
+The bank build is AOT template construction:
+
+1. Consume `NativeTemplateBankRequest`.
+2. Consume a semantic saturation result.
+3. For each selected template or supertemplate, generate template source or
+   lower-level template code.
+4. Compile once with the selected AOT compiler.
+5. Extract binary code and relocation records.
+6. Project raw tool output to ASDL hole/relocation leaves.
+7. Emit `NativeTemplateBank`.
+
+C may be used here as a template authoring language. That does not make runtime
+C a residual fallback. It is just one way to produce binary templates.
+
+Raw compiler/readelf/object data is IO boundary data. Before it affects
+semantics, it must become ASDL:
+
+```text
+NativeRelocation =
+  Rel32
+| AbsPtr
+| UnsupportedRelocationForThisTarget
+
+NativePatchHole =
+  Imm32
+| Imm64
+| Ptr
+| Rel32
+| BranchTarget
+| FieldOffset
+| ComponentIndex
+| Stride
+```
+
+`UnsupportedRelocationForThisTarget` is a build error for the template authoring
+pipeline. It is not a runtime fallback result.
+
+## Runtime Installation
+
+Runtime installation is:
+
+```text
+NativeTemplateGraph
+  -> NativeCopyPlan
+  -> allocate executable memory
+  -> copy selected template code blobs
+  -> bind holes with typed patch coordinates
+  -> patch holes
+  -> seal memory
+  -> NativeExecutable
+```
+
+The ASDL method chain should be direct:
+
+```lua
+local plan = graph:select_native_copy_plan(input)
+local executable = plan:install_native(input)
+```
+
+There is no lookup of exact precompiled final function bytes.
+
+## Host Calls And Runtime Services
+
+Host calls are not residual code. They are explicit semantics.
+
+Required native nodes:
+
+```text
+NativeRuntimeCallTemplate
+NativeForeignCallTemplate
+NativeHostSymbol
+NativeCallProtocol
+```
+
+If Lalin allows a host call inside a native loop, that call has an ASDL leaf and
+a template method. If the method is missing, native compilation is incomplete.
+
+ABI bridges and module entry wrappers should also be native templates or
+runtime-support stubs with explicit ASDL call protocol values.
+
+## Error Model
+
+The native compiler has only these failure classes:
+
+1. User/program semantic error.
+2. Proof failure for a required law or safety condition.
+3. Target build error while producing the bank.
+4. Missing implementation, visible as absent method or hard internal error.
+
+It must not encode missing implementation as normal compiler data.
+
+Examples:
+
+```text
+alias proof failed                -> typed proof diagnostic
+invalid reduction law             -> typed semantic diagnostic
+object relocation unsupported     -> bank build error
+missing NativeBodyFoo method      -> loud implementation error
+```
+
+There is no:
+
+```text
+NativeUncovered
+NeedsResidual
+TryFallback
+```
+
+## Method Ownership
+
+The final code should read like object-oriented ASDL:
+
+```lua
+function Native.NativeBodyBinary:select_native_template(input)
+  ...
+end
+
+function Native.NativeControlBranch:append_native_graph(input)
+  ...
+end
+
+function Native.NativeCopyPlan:install_native(input)
+  ...
+end
+```
+
+Not:
+
+```lua
+local handlers = {
+  Binary = ...,
+  Branch = ...,
 }
 
-ResidualFunctionPlan =
-  ResidualFunctionExactStencil
-| ResidualFunctionCompressedStencil
-| ResidualFunctionC
-| ResidualFunctionRejected
+return handlers[node.kind](node, ctx)
 ```
 
-Meaning:
+ASDL leaves own their semantics. Parent methods are shared defaults or explicit
+contracts only.
+
+## Current Code Is Legacy
+
+The current codebase still contains names and paths from the residual/exact-bank
+model. These must be hard-yanked:
 
 ```text
-ResidualFunctionExactStencil
-  function is exactly one selected native stencil artifact
-
-ResidualFunctionCompressedStencil
-  function is exactly one saturated stencil artifact represented by a
-  compression family plus coordinates
-
-ResidualFunctionC
-  function is emitted as residual C and compiled by TCC
-
-ResidualFunctionRejected
-  function is neither stencil-materializable nor C-lowerable
+lua/lalin/residual_native.lua
+lua/lalin/residual_mc.lua
+lua/lalin/residual_mc_intern_set.lua
+lua/lalin/schema/residual.lua
+ResidualFunctionPlan
+CResidual*
+StencilArtifactStorage
+StencilStoredExactMC
+StencilStoredPatchTemplateMC
+StencilRequiresCompile
+MaterializedExactStencil as architecture
+embedded exact MC bank APIs
 ```
 
-## Stencil Compression Families
+No compatibility wrapper should preserve those names as public architecture.
+During the rewrite, code may be broken until callers are moved to the new native
+template API.
 
-Families should be derived structurally from the existing ASDL descriptor tree.
-They should not be hand-written string tags such as `"arity2"`.
+## Implementation Target
 
-Each descriptor leaf can contribute one of:
-
-```text
-FamilyFixed(value)
-FamilyCoordinate(coordinate)
-FamilyRejected(reason)
-```
-
-The descriptor method composes those local decisions:
+The target public shape is:
 
 ```lua
-local view = descriptor:select_stencil_compression(policy)
+local native = require("lalin.native")
+
+local request = Native.NativeCompileRequest(module, target, bank, runtime)
+local compiled = request:compile_native()
 ```
 
-with result:
-
-```text
-StencilCompressionView =
-  StencilCompressionCovered(family, coordinates)
-| StencilCompressionRequiresCompile(reason)
-```
-
-This is the important ASDL rule:
-
-```text
-The same leaf that owns semantic meaning owns whether one of its fields may
-become a compression coordinate.
-```
-
-### Fixed Versus Coordinate
-
-Semantic variation usually remains fixed in the family:
-
-```text
-store vs reduce
-element type
-reduction operation
-layout constructor
-point-expression constructor
-copy/scatter conflict semantics
-vector schedule form
-target ABI
-```
-
-Backend-small variation may become a coordinate:
-
-```text
-scalar constants
-affine offsets
-strides, when instruction shape permits it
-field offsets
-component indices
-symbol addresses
-immediate values
-rel32 targets
-```
-
-Depth and arity need policy. Usually they are family structure, not
-coordinates:
-
-```text
-apply once  -> family ApplyChain1
-apply twice -> family ApplyChain2
-apply N     -> family ApplyChainN
-```
-
-Operators are also policy-sensitive. If an operator is fixed, generated code is
-better but family count grows. If an operator is a coordinate, code may need
-patched fragments, call thunks, or less optimized instruction sequences.
-
-## SOAC And Recursive Composition
-
-Recursive SOAC-style stacking is exactly where compression is useful.
-
-An exact descriptor may contain:
-
-```text
-map(f)
-  -> map(g)
-    -> map(h)
-```
-
-or a layout spine:
-
-```text
-field(component(field(component(input))))
-```
-
-The saturated descriptor is correct, but AOT storage can explode because each
-composition depth, arity, field path, expression shape, schedule, and type
-choice multiplies the bank.
-
-The compressed representation should be a structural spine:
-
-```text
-StencilCompressionSpine =
-  StoreNRange1D
-| ReduceRange1D
-| ScanRange1D
-| PointExprApplyChain
-| FieldProjectionChain
-| SoAComponentChain
-| LayoutAffineSpine
-```
-
-Then an exact descriptor derives:
-
-```text
-family spine
-+ fixed type/schedule/proof facts
-+ coordinates for constants, offsets, symbols, and allowed immediates
-```
-
-This lets recursive families cover many exact artifacts without weakening the
-stencil semantics.
-
-## Copy-Patch As Decompression
-
-Patch holes should be named as decompression coordinates, not semantic holes.
-
-```text
-StencilPatchHole =
-  PatchImm32
-| PatchImm64
-| PatchRel32
-| PatchPtr
-| PatchScalarConst
-| PatchFieldOffset
-| PatchStride
-```
-
-The materializer owns the target-specific encoding:
+Internally:
 
 ```lua
-coordinate:emit_patch_value(target)
-hole:apply_patch(buffer, value)
-template:decompress(plan)
+local form = func:to_native_algebra(input)
+local saturation = form:saturate_native(input)
+local graph = saturation:select_native_template_graph(input)
+local plan = graph:select_native_copy_plan(input)
+local executable = plan:install_native(input)
 ```
 
-The decompressed code is an exact materialized artifact for the saturated
-descriptor. The executor should not observe a generic stencil. It observes the
-exact artifact after decompression.
-
-## C Residuals
-
-A non-stencil function should normally lower to residual C:
-
-```text
-CodeFunc
-  -> ResidualFunctionC
-  -> C function source
-  -> TCC in-memory compilation
-  -> native function pointer
-```
-
-C residuals are for:
-
-```text
-irregular loops
-branchy scalar code
-control-heavy functions
-mixed code that calls stencils
-loops not covered by current stencil families
-glue around decompressed/exact stencils
-```
-
-TCC does not need to out-optimize GCC. It needs to compile native residual
-control quickly and predictably, with no Lua trace warmup and no Lua loop
-execution path.
-
-Residual C may call installed exact or decompressed stencils through host
-symbols:
-
-```text
-installed stencil symbol
-  -> tcc_add_symbol
-  -> residual C call
-```
-
-This keeps linking in TCC and avoids string-patching source code with raw
-addresses.
-
-## AOT GCC Path
-
-The AOT C path has two roles:
-
-1. Build stencil storage:
-
-```text
-compression families and exact artifacts
-  -> C source
-  -> GCC/Clang object code
-  -> extracted machine-code templates or exact blobs
-  -> embedded bank
-```
-
-2. Emit whole-program C artifacts:
-
-```text
-CodeModule
-  -> C source/header/support
-  -> user-controlled GCC/Clang build
-```
-
-This path is for maximum quality and native integration. It is separate from
-runtime TCC residuals.
-
-## ASDL Surface
-
-The next schema should make these concepts explicit:
-
-```text
-ResidualLoweringTarget =
-  ResidualTargetNativeTcc
-| ResidualTargetAotC
-| ResidualTargetLuaTraceDebug
-
-ResidualFunctionPlan =
-  ResidualFunctionExactStencil
-| ResidualFunctionCompressedStencil
-| ResidualFunctionC
-| ResidualFunctionRejected
-
-StencilArtifactStorage =
-  StencilStoredExactMC
-| StencilStoredCompressedMC
-| StencilRequiresCompile
-
-StencilCompressionView =
-  StencilCompressionCovered
-| StencilCompressionRequiresCompile
-
-StencilCompressionFamily
-StencilCompressionSpine
-StencilCompressionCoordinate
-StencilDecompressionPlan
-StencilPatchTemplate
-StencilPatchHole
-```
-
-The method surface should be direct:
-
-```lua
-local plan = code_module:select_residual_module(input)
-local materialized = plan:materialize_residual_module()
-
-local storage = artifact:select_stencil_storage(policy)
-local view = descriptor:select_stencil_compression(policy)
-local code = decompression_plan:materialize()
-
-local c = residual_function:emit_c_residual(input)
-local fn = c_unit:compile_with_tcc(input)
-```
-
-Avoid:
-
-```text
-backend option bags
-string tags for families
-Lua side tables of holes
-manual class dispatch
-silent LuaJIT fallback
-```
-
-## Failure Policy
-
-Misses must be typed.
-
-```text
-StencilCompressionRequiresCompile(reason)
-ResidualFunctionRejected(reason)
-CResidualRejected(reason)
-```
-
-A loop that was intended to become a stencil but cannot be represented by an
-exact or compressed stencil should either:
-
-1. become C residual, if C residual preserves the function semantics, or
-2. reject loudly, if the requested target requires stencil/native storage.
-
-It should not silently fall into a LuaJIT trace-shaped loop.
-
-## Migration Plan
-
-1. Add ASDL for residual module/function decisions.
-2. Move current exact stencil selection under `ResidualFunctionExactStencil`.
-3. Move current TCC wrapper emission under residual materialization.
-4. Add `ResidualFunctionC` using the existing C emitter as the first native
-   fallback.
-5. Keep LuaJIT block emission only as explicit `ResidualTargetLuaTraceDebug`.
-6. Add compression schema without implementing every family.
-7. Derive one family first: simple `reduce_n` or `store_n` with scalar constant
-   coordinates.
-8. Add copy-patch decompression for that family.
-9. Extend to SOAC/apply/layout spines once the family method shape is stable.
-
-The first implementation should prove the architecture with one small family,
-not attempt a universal patch system.
-
-## Design Law
-
-```text
-Exact semantics live in the saturated ASDL stencil descriptor.
-Compression families are projections of exact descriptors.
-Patch coordinates restore the projection to exactness.
-C residuals handle non-stencil native code.
-LuaJIT hosts; it does not hide semantic misses.
-```
+Every object in that chain is ASDL. Every semantic branch is a leaf method.
+Every missing native case is loud.

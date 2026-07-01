@@ -139,9 +139,16 @@ If lowering needs a fact, represent it in schema first.
 ## Backends
 
 The target fast backend architecture is native residual materialization. Use
-saturated stencil descriptors first, copy-patch only as compression/
-decompression of saturated stencil artifacts, and TCC-compiled C residuals for
-non-stencil native code. See `docs/RESIDUAL_NATIVE_ARCHITECTURE.md`.
+saturated stencil instances first, copy-patch to expand binary patch templates
+for selected instances, and TCC-compiled C residuals for non-stencil native
+code. See `docs/RESIDUAL_NATIVE_ARCHITECTURE.md`.
+
+Backend decisions must be ASDL values. Exact stencil selection, patch-template
+selection, patch coordinates, residual C calls to stencils, and
+typed rejection reasons are not option bags, string tags, raw hole tables, or
+side maps. The leaf that owns the semantic descriptor also owns whether its
+fields are fixed in the template family, runtime ABI parameters, or typed patch
+coordinates.
 
 The current implementation still contains `residual_mc` bank stencils, optional
 TCC residual wrappers, and the explicit `residual_bc` bytecode path. Treat the

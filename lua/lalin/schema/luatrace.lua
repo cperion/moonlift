@@ -19,6 +19,35 @@ return schema. LalinLuaTrace {
     field. name [str],
   },
 
+  product. LTAccessPlanEntry {
+    interned,
+    field. name [str],
+    role [LalinStencil.StencilAccessRole],
+    ty [LalinCode.CodeType],
+    layout [LalinStencil.StencilAccessLayout],
+    readonly [bool],
+    readwrite [bool],
+    alignment_fact [LalinStencil.StencilAlignmentFact],
+    unit_stride [bool],
+    dynamic_stride_arg [optional [str]],
+    stride_const [optional [number]],
+    field_name [optional [str]],
+    field_offset [optional [number]],
+    component_index [optional [number]],
+    index_name [optional [str]],
+    index_stride [optional [number]],
+    element_bytes [optional [number]],
+    parent [optional [LalinLuaTrace.LTAccessPlanEntry]],
+    can_pointer_bump [bool],
+    can_bulk_copy [bool],
+    can_bulk_fill [bool],
+  },
+
+  product. LTAccessPlanSet {
+    interned,
+    entries [many [LalinLuaTrace.LTAccessPlanEntry]],
+  },
+
   sum. LTPredicatePolicy {
     LTPredicateNone,
     LTPredicateLuaSelect {
@@ -45,11 +74,15 @@ return schema. LalinLuaTrace {
     LTPrimitiveFfiCopy {
       variant_unique,
       bytes_per_element [number],
+      dst_name [str],
+      src_name [str],
       no_overlap_source [str],
     },
     LTPrimitiveFfiFill {
       variant_unique,
       bytes_per_element [number],
+      dst_name [str],
+      value_name [str],
     },
   },
 
@@ -81,6 +114,36 @@ return schema. LalinLuaTrace {
     predicate [LalinLuaTrace.LTPredicatePolicy],
     scatter [LalinLuaTrace.LTScatterPolicy],
     reduction [LalinLuaTrace.LTReductionPolicy],
+  },
+
+  product. LTLoopPlan {
+    interned,
+    domain_stride [number],
+    group [number],
+    reason [str],
+    tail_strategy [str],
+    loop_shape [str],
+  },
+
+  product. LTKernelPlan {
+    interned,
+    primitive [LalinLuaTrace.LTPrimitivePolicy],
+    predicate [LalinLuaTrace.LTPredicatePolicy],
+    scatter [LalinLuaTrace.LTScatterPolicy],
+    reduction [LalinLuaTrace.LTReductionPolicy],
+  },
+
+  product. LTArtifactPlan {
+    interned,
+    artifact [LalinStencil.StencilArtifact],
+    descriptor [LalinStencil.StencilDescriptor],
+    shape [LalinStencil.StencilArtifactShape],
+    schedule [LalinStencil.StencilSchedule],
+    facts [optional [LalinStencil.StencilVectorizationFacts]],
+    access_plans [LalinLuaTrace.LTAccessPlanSet],
+    loop_plan [LalinLuaTrace.LTLoopPlan],
+    kernel_plan [LalinLuaTrace.LTKernelPlan],
+    source_name [str],
   },
 
   sum. LTOp {

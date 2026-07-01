@@ -195,7 +195,7 @@ local function parse_relocations(readelf_output)
                 if kind ~= nil then
                     by_section[current][#by_section[current] + 1] = {
                         offset = tonumber(off, 16),
-                        kind = kind,
+                        reloc_role = kind,
                         reloc_type = typ,
                         symbol = symbol,
                         addend = addend or 0,
@@ -288,9 +288,47 @@ local function bind_context(T)
     local Value = T.LalinValue
     local Stencil = T.LalinStencil
     local LJ = T.LalinLuaJIT
+    local Residual = T.LalinResidual
 
     local api = {}
     local ffi_preambles = {}
+
+    local function typed_reloc_patch(raw)
+        if raw.reloc_role == "rel32" and raw.symbol ~= nil then
+            return Residual.ResidualRelocPatchRel32(raw.offset, raw.reloc_type, raw.symbol, raw.addend or 0)
+        end
+        return Residual.ResidualRelocPatchUnsupported(
+            raw.offset or 0,
+            raw.reloc_type or "unknown",
+            raw.symbol,
+            raw.addend or 0,
+            raw.reloc_role or "unsupported_relocation"
+        )
+    end
+
+    local function typed_relocation_sections(raw_relocs)
+        local out = {}
+        for section, patches in pairs(raw_relocs or {}) do
+            local typed = {}
+            for _, patch in ipairs(patches or {}) do
+                typed[#typed + 1] = typed_reloc_patch(patch)
+            end
+            out[section] = typed
+        end
+        return out
+    end
+
+    function Residual.ResidualRelocPatch:materialize_local_relocation(_blob, _site, _target_addr)
+        error("residual_mc: unsupported local relocation", 3)
+    end
+
+    function Residual.ResidualRelocPatchRel32:materialize_local_relocation(blob, site, target_addr)
+        return patch_u32le(blob, site, target_addr + (self.addend or 0) - site)
+    end
+
+    function Residual.ResidualRelocPatchUnsupported:materialize_local_relocation(_blob, _site, _target_addr)
+        error("residual_mc: non-relative local relocation " .. tostring(self.reloc_type) .. " to " .. tostring(self.symbol) .. " cannot be represented in a no-patch MC bank", 3)
+    end
 
     local function install_policy(opts, low32)
         opts = opts or {}
@@ -343,17 +381,33 @@ local function bind_context(T)
         return asdl.classof(ty) == Code.CodeTyInt and tonumber(ty.bits) == 32 and ty.signedness == Code.CodeSigned
     end
 
+    function Stencil.StencilReduceExecutionScope:residual_mc_is_domain_reduce()
+        return false
+    end
+
+    function Stencil.StencilReduceExecDomain:residual_mc_is_domain_reduce()
+        return true
+    end
+
+    function Stencil.StencilArtifactShape:residual_mc_explicit_vector_path()
+        return false
+    end
+
+    function Stencil.StencilArtifactReduceN:residual_mc_explicit_vector_path(artifact)
+        if not self.reduce_scope:residual_mc_is_domain_reduce() then return false end
+        if self.reduction ~= Value.ReductionAdd then return false end
+        if not is_i32(self.item_ty) or not is_i32(self.result_ty) then return false end
+        if tonumber(self.stride) ~= 1 then return false end
+        local xs = ArtifactPlan.access_named(artifact.instance.descriptor, "xs")
+        local top = asdl.classof(xs.layout)
+        return top == Stencil.StencilLayoutContiguous or top == Stencil.StencilLayoutSliceDescriptor
+    end
+
     local function explicit_vector_mc_path(artifact)
         local schedule = artifact.instance and artifact.instance.schedule
         if asdl.classof(schedule) ~= Stencil.StencilScheduleVector then return false end
         local shape = ArtifactPlan.artifact_shape(artifact)
-        if shape.kind ~= "reduce_array" then return false end
-        if shape.reduction ~= Value.ReductionAdd then return false end
-        if not is_i32(shape.elem_ty) or not is_i32(shape.result_ty) then return false end
-        if tonumber(shape.stride) ~= 1 then return false end
-        local xs = ArtifactPlan.access_named(artifact.instance.descriptor, "xs")
-        local top = asdl.classof(xs.layout)
-        return top == Stencil.StencilLayoutContiguous or top == Stencil.StencilLayoutSliceDescriptor
+        return shape:residual_mc_explicit_vector_path(artifact)
     end
 
     local function realized_mc_schedule(artifact, cflags)
@@ -413,7 +467,7 @@ local function bind_context(T)
         if not (ok == true or ok == 0) then return nil, "residual_mc: MC bank object build failed: " .. cmd, source end
         local reloc_out, reloc_err = capture("readelf -Wr " .. shell_quote(o_path))
         if reloc_out == nil then return nil, "residual_mc: readelf relocations failed: " .. tostring(reloc_err), source end
-        local relocs = parse_relocations(reloc_out)
+        local relocs = typed_relocation_sections(parse_relocations(reloc_out))
         local section_out, section_err = capture("readelf -SW " .. shell_quote(o_path))
         if section_out == nil then return nil, "residual_mc: readelf sections failed: " .. tostring(section_err), source end
         local sections, sections_by_name = parse_sections(section_out)
@@ -471,14 +525,10 @@ local function bind_context(T)
                         local target_addr = base + target.offset
                         if target.section ~= section and not processing[target.section] then
                             processing[target.section] = true
-                            process_patches(target.section, relocs[".rela" .. target.section] or relocs[".rel" .. target.section] or {})
-                            processing[target.section] = nil
-                        end
-                        if patch.kind == "rel32" then
-                            blob = patch_u32le(blob, site, target_addr + (patch.addend or 0) - site)
-                        else
-                            error("residual_mc: non-relative local relocation " .. tostring(patch.reloc_type) .. " to " .. tostring(patch.symbol) .. " cannot be represented in a no-patch MC bank", 3)
-                        end
+	                            process_patches(target.section, relocs[".rela" .. target.section] or relocs[".rel" .. target.section] or {})
+	                            processing[target.section] = nil
+	                        end
+                        blob = patch:materialize_local_relocation(blob, site, target_addr)
                     else
                         error("residual_mc: unresolved relocation " .. tostring(patch.reloc_type) .. " to " .. tostring(patch.symbol) .. " cannot be represented in a no-patch MC bank", 3)
                     end
@@ -526,56 +576,6 @@ local function bind_context(T)
         return bank, nil, source
     end
 
-    local embedded_cdef_done = false
-
-    local function cdef_embedded_mc_bank()
-        if embedded_cdef_done then return true end
-        local ok = pcall(require("ffi").cdef, [[
-typedef struct LalinEmbeddedMCEntry {
-  const char *symbol;
-  const char *c_signature;
-  const unsigned char *data;
-  size_t size;
-} LalinEmbeddedMCEntry;
-typedef const LalinEmbeddedMCEntry *(*LalinEmbeddedMCShardEntriesFn)(void);
-typedef size_t (*LalinEmbeddedMCShardCountFn)(void);
-typedef struct LalinEmbeddedMCShard {
-  LalinEmbeddedMCShardEntriesFn entries;
-  LalinEmbeddedMCShardCountFn count;
-} LalinEmbeddedMCShard;
-const LalinEmbeddedMCShard *lalin_embedded_mc_bank_shards(void);
-size_t lalin_embedded_mc_bank_shard_count(void);
-size_t lalin_embedded_mc_bank_count(void);
-]])
-        embedded_cdef_done = ok
-        return ok
-    end
-
-    local function embedded_entry_index()
-        if not cdef_embedded_mc_bank() then return nil end
-        local ffi = require("ffi")
-        local ok, shard_count = pcall(function() return tonumber(ffi.C.lalin_embedded_mc_bank_shard_count()) end)
-        if not ok or shard_count == nil or shard_count == 0 then return nil end
-        local shards = ffi.C.lalin_embedded_mc_bank_shards()
-        if shards == nil then return nil end
-        local by_symbol = {}
-        for shard_index = 0, shard_count - 1 do
-            local shard = shards[shard_index]
-            local count = tonumber(shard.count())
-            local entries = shard.entries()
-            for entry_index = 0, count - 1 do
-                local entry = entries[entry_index]
-                local symbol = ffi.string(entry.symbol)
-                by_symbol[symbol] = {
-                    symbol = symbol,
-                    c_signature = ffi.string(entry.c_signature),
-                    binary = ffi.string(entry.data, tonumber(entry.size)),
-                }
-            end
-        end
-        return by_symbol
-    end
-
     function api.embedded_mc_bank_for(artifacts, opts)
         opts = opts or {}
         local metastencil_covers
@@ -595,37 +595,7 @@ size_t lalin_embedded_mc_bank_count(void);
                 metastencil_covers or {}
             )
         end
-        local embedded = embedded_entry_index()
-        if embedded == nil then return nil, "residual_mc: no embedded MC bank exported by host" end
-        local entries = {}
-        for _, artifact in ipairs(artifacts) do
-            local symbol = artifact_symbol(artifact)
-            local embedded_entry = embedded[symbol]
-            if embedded_entry == nil then return nil, "residual_mc: missing embedded mc stencil entry " .. symbol end
-            local signature = function_pointer_signature(artifact_signature(artifact), symbol)
-            if embedded_entry.c_signature ~= signature then
-                return nil, "residual_mc: embedded mc stencil signature mismatch for " .. symbol
-            end
-            entries[#entries + 1] = LJ.LJMCStencilEntry(
-                symbol,
-                "<embedded>",
-                embedded_entry.binary,
-                embedded_entry.c_signature,
-                artifact
-            )
-        end
-        return LJ.LJMCStencilBank(
-            bank_id("embedded"),
-            target_for(opts),
-            install_policy(opts, false),
-            "<embedded>",
-            "<embedded>",
-            "",
-            "",
-            opts.ffi_preamble,
-            entries,
-            metastencil_covers or {}
-        )
+        return nil, "residual_mc: embedded exact MC stencil bank was removed; use the patch-template bank path"
     end
 
     function api.entry_for(bank, symbol)

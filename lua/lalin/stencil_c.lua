@@ -427,15 +427,20 @@ local function bind_context(T)
         return c_type(ty)
     end
 
-    local function reduction_name(kind)
-        if kind == Value.ReductionAdd then return "add" end
-        if kind == Value.ReductionMul then return "mul" end
-        if kind == Value.ReductionAnd then return "and" end
-        if kind == Value.ReductionOr then return "or" end
-        if kind == Value.ReductionXor then return "xor" end
-        if kind == Value.ReductionMin then return "min" end
-        if kind == Value.ReductionMax then return "max" end
+    function Value.ReductionOp:stencil_c_name()
         return "reduction"
+    end
+
+    function Value.ReductionAdd:stencil_c_name() return "add" end
+    function Value.ReductionMul:stencil_c_name() return "mul" end
+    function Value.ReductionAnd:stencil_c_name() return "and" end
+    function Value.ReductionOr:stencil_c_name() return "or" end
+    function Value.ReductionXor:stencil_c_name() return "xor" end
+    function Value.ReductionMin:stencil_c_name() return "min" end
+    function Value.ReductionMax:stencil_c_name() return "max" end
+
+    local function reduction_name(kind)
+        return kind:stencil_c_name()
     end
 
     local function unary_name(op)
@@ -580,6 +585,11 @@ local function bind_context(T)
     local artifact_shape = ArtifactPlan.artifact_shape
     descriptor_accesses = ArtifactPlan.descriptor_accesses
     local access_named = ArtifactPlan.access_named
+
+    function Stencil.StencilDescriptor:stencil_c_access_named(name)
+        return access_named(self, name)
+    end
+
     local stride_param_name = ArtifactPlan.stride_param_name
     local dynamic_stride_accesses = ArtifactPlan.dynamic_stride_accesses
     local affine_offset_param_name = ArtifactPlan.affine_offset_param_name
@@ -640,57 +650,57 @@ local function bind_context(T)
     function Stencil.StencilLayoutScalar:stencil_c_is_scalar_layout()
         return true
     end
-    function Stencil.StencilAccessLayout:stencil_c_offset(access, index, access_by_name, loop_scope)
+    function Stencil.StencilAccessLayout:stencil_c_offset(access, index, access_scope, loop_scope)
         return index
     end
-    function Stencil.StencilLayoutFieldProjection:stencil_c_offset(access, index, access_by_name, loop_scope)
-        return access_offset_c_expr({ layout = self.parent, name = access.name }, index, access_by_name, loop_scope)
+    function Stencil.StencilLayoutFieldProjection:stencil_c_offset(access, index, access_scope, loop_scope)
+        return access_offset_c_expr({ layout = self.parent, name = access.name }, index, access_scope, loop_scope)
     end
-    function Stencil.StencilLayoutSoAComponent:stencil_c_offset(access, index, access_by_name, loop_scope)
-        return access_offset_c_expr({ layout = self.parent, name = access.name }, index, access_by_name, loop_scope)
+    function Stencil.StencilLayoutSoAComponent:stencil_c_offset(access, index, access_scope, loop_scope)
+        return access_offset_c_expr({ layout = self.parent, name = access.name }, index, access_scope, loop_scope)
     end
-    function Stencil.StencilLayoutIndexed:stencil_c_offset(access, index, access_by_name, loop_scope)
+    function Stencil.StencilLayoutIndexed:stencil_c_offset(access, index, access_scope, loop_scope)
         local index_name = self.index.name
-        local index_access = access_by_name and access_by_name[index_name] or { layout = Stencil.StencilLayoutContiguous(1), name = index_name }
-        local idx = access_c_expr(index_access, index_name, index, access_by_name, loop_scope)
+        local index_access = access_scope and access_scope:stencil_c_access_named(index_name) or Stencil.StencilAccess(index_name, Stencil.StencilAccessRead, Code.CodeTyIndex, Stencil.StencilLayoutContiguous(1))
+        local idx = access_c_expr(index_access, index_name, index, access_scope, loop_scope)
         local stride = tonumber(self.stride) or 1
         local logical = stride == 1 and idx or idx * stride
-        return access_offset_c_expr({ layout = self.parent, name = access.name }, logical, access_by_name, loop_scope)
+        return access_offset_c_expr({ layout = self.parent, name = access.name }, logical, access_scope, loop_scope)
     end
-    function Stencil.StencilLayoutAffine1D:stencil_c_offset(access, index, access_by_name, loop_scope)
+    function Stencil.StencilLayoutAffine1D:stencil_c_offset(access, index, access_scope, loop_scope)
         local scale = tonumber(self.scale) or 1
         local offset = self.offset ~= nil and cn(affine_offset_param_name(access)) or 0
         local logical = scale == 1 and (offset + index) or (offset + index * scale)
-        return access_offset_c_expr({ layout = self.parent, name = access.name }, logical, access_by_name, loop_scope)
+        return access_offset_c_expr({ layout = self.parent, name = access.name }, logical, access_scope, loop_scope)
     end
-    function Stencil.StencilLayoutAffineND:stencil_c_offset(access, index, access_by_name, loop_scope)
+    function Stencil.StencilLayoutAffineND:stencil_c_offset(access, index, access_scope, loop_scope)
         if loop_scope == nil or loop_scope.axis_values == nil then error("stencil_c: AffineND layout requires producer loop context", 3) end
         local logical = self.offset ~= nil and cn(affine_offset_param_name(access)) or 0
         for _, term in ipairs(self.terms or {}) do
             local axis_value = assert(loop_scope.axis_values[term.axis.index], "stencil_c: missing AffineND axis value")
             logical = logical + axis_value * value_expr_c_expr(term.coeff)
         end
-        return access_offset_c_expr({ layout = self.parent, name = access.name }, logical, access_by_name, loop_scope)
+        return access_offset_c_expr({ layout = self.parent, name = access.name }, logical, access_scope, loop_scope)
     end
-    function Stencil.StencilLayoutViewDescriptor:stencil_c_offset(access, index, access_by_name, loop_scope)
+    function Stencil.StencilLayoutViewDescriptor:stencil_c_offset(access, index, access_scope, loop_scope)
         local stride = self.stride_const or cn(stride_param_name(access))
         if tonumber(stride) == 1 then return index end
         return index * stride
     end
 
-    access_offset_c_expr = function(access, index, access_by_name, loop_scope)
-        return access.layout:stencil_c_offset(access, index, access_by_name, loop_scope)
+    access_offset_c_expr = function(access, index, access_scope, loop_scope)
+        return access.layout:stencil_c_offset(access, index, access_scope, loop_scope)
     end
 
-    function Stencil.StencilAccessLayout:stencil_c_access_expr(access, base, index, access_by_name, loop_scope)
-        return cn(base)[access_offset_c_expr(access, index, access_by_name, loop_scope)]
+    function Stencil.StencilAccessLayout:stencil_c_access_expr(access, base, index, access_scope, loop_scope)
+        return cn(base)[access_offset_c_expr(access, index, access_scope, loop_scope)]
     end
-    function Stencil.StencilLayoutFieldProjection:stencil_c_access_expr(access, base, index, access_by_name, loop_scope)
-        return cn(base)[access_offset_c_expr({ layout = self.parent, name = access.name }, index, access_by_name, loop_scope)][sanitize(self.field_name)]
+    function Stencil.StencilLayoutFieldProjection:stencil_c_access_expr(access, base, index, access_scope, loop_scope)
+        return cn(base)[access_offset_c_expr({ layout = self.parent, name = access.name }, index, access_scope, loop_scope)][sanitize(self.field_name)]
     end
 
-    access_c_expr = function(access, base, index, access_by_name, loop_scope)
-        return access.layout:stencil_c_access_expr(access, base, index, access_by_name, loop_scope)
+    access_c_expr = function(access, base, index, access_scope, loop_scope)
+        return access.layout:stencil_c_access_expr(access, base, index, access_scope, loop_scope)
     end
 
     function Stencil.StencilAccessLayout:stencil_c_field_layout_for_param()
@@ -840,12 +850,12 @@ local function bind_context(T)
         return true
     end
 
-    local function c_window_input_expr(expr, desc, access_by_name, loop_scope)
+    local function c_window_input_expr(expr, desc, access_scope, loop_scope)
         if loop_scope == nil or loop_scope.producer == nil or not loop_scope.producer:stencil_c_is_window_nd() then
             error("stencil_c: window-relative point input requires a WindowND producer context", 3)
         end
         local name = expr.access.name
-        local access = access_by_name[name] or access_named(desc, name)
+        local access = access_scope:stencil_c_access_named(name)
         local offsets = window_offset_by_axis(expr.offsets)
         local coords = {}
         local bounds = {}
@@ -855,7 +865,7 @@ local function bind_context(T)
             if in_bounds ~= nil then bounds[#bounds + 1] = in_bounds end
         end
         local index = range_nd_linear_index_from_coords(loop_scope.producer, coords)
-        local value = access_c_expr(access, name, index, access_by_name, loop_scope)
+        local value = access_c_expr(access, name, index, access_scope, loop_scope)
         if #bounds == 0 then return value end
         local in_bounds = all_c_node(bounds)
         local has_zero = false
@@ -945,87 +955,189 @@ local function bind_context(T)
     end
 
     local c_point_expr
-    function Stencil.StencilPointExpr:stencil_c_expr(desc, access_by_name, index, loop_scope)
+    function Stencil.StencilPointExpr:stencil_c_expr(desc, access_scope, index, loop_scope)
         error("stencil_c: unsupported generic point expression", 3)
     end
-    function Stencil.StencilPointInput:stencil_c_expr(desc, access_by_name, index, loop_scope)
+    function Stencil.StencilPointInput:stencil_c_expr(desc, access_scope, index, loop_scope)
         local name = self.access.name
-        local access = access_by_name[name] or access_named(desc, name)
+        local access = access_scope:stencil_c_access_named(name)
         if access.layout:stencil_c_is_scalar_layout() then return cn(name) end
-        return access_c_expr(access, name, index, access_by_name, loop_scope)
+        return access_c_expr(access, name, index, access_scope, loop_scope)
     end
-    function Stencil.StencilPointWindowInput:stencil_c_expr(desc, access_by_name, index, loop_scope)
-        return c_window_input_expr(self, desc, access_by_name, loop_scope)
+    function Stencil.StencilPointWindowInput:stencil_c_expr(desc, access_scope, index, loop_scope)
+        return c_window_input_expr(self, desc, access_scope, loop_scope)
     end
-    function Stencil.StencilPointConst:stencil_c_expr(desc, access_by_name, index, loop_scope)
+    function Stencil.StencilPointConst:stencil_c_expr(desc, access_scope, index, loop_scope)
         return c_value_const_expr(self.value, self.ty)
     end
-    function Stencil.StencilPointUnary:stencil_c_expr(desc, access_by_name, index, loop_scope)
+    function Stencil.StencilPointUnary:stencil_c_expr(desc, access_scope, index, loop_scope)
         local result_ty = assert(self.result_ty, "stencil_c: generic unary apply requires result_ty")
-        local arg = c_point_expr(self.arg, desc, access_by_name, index, loop_scope)
+        local arg = c_point_expr(self.arg, desc, access_scope, index, loop_scope)
         if self.op == Stencil.StencilUnaryIdentity then return c_cast(result_ty, arg) end
         if self.op == Stencil.StencilUnaryNeg then return c_cast(result_ty, C.cast[c_unsigned_type_node(result_ty)](0) - c_unsigned_cast(result_ty, arg)) end
         if self.op == Stencil.StencilUnaryBitNot then return c_cast(result_ty, C.bnot(c_unsigned_cast(result_ty, arg))) end
         if self.op == Stencil.StencilUnaryBoolNot then return c_cast(result_ty, C.not_(arg)) end
         error("stencil_c: unsupported generic unary apply " .. unary_name(self.op), 3)
     end
-    function Stencil.StencilPointBinary:stencil_c_expr(desc, access_by_name, index, loop_scope)
+    function Stencil.StencilPointBinary:stencil_c_expr(desc, access_scope, index, loop_scope)
         return c_binary_expr(
             self.op,
-            c_point_expr(self.left, desc, access_by_name, index, loop_scope),
-            c_point_expr(self.right, desc, access_by_name, index, loop_scope),
+            c_point_expr(self.left, desc, access_scope, index, loop_scope),
+            c_point_expr(self.right, desc, access_scope, index, loop_scope),
             assert(self.result_ty, "stencil_c: generic binary apply requires result_ty"),
             self.int_semantics,
             self.float_mode
         )
     end
-    function Stencil.StencilPointCast:stencil_c_expr(desc, access_by_name, index, loop_scope)
+    function Stencil.StencilPointCast:stencil_c_expr(desc, access_scope, index, loop_scope)
         if self.op == Core.MachineCastBitcast then error("stencil_c: generic point bitcast requires a dedicated lowering", 3) end
-        return c_cast(self.to, c_point_expr(self.arg, desc, access_by_name, index, loop_scope))
+        return c_cast(self.to, c_point_expr(self.arg, desc, access_scope, index, loop_scope))
     end
-    function Stencil.StencilPointPredicate:stencil_c_expr(desc, access_by_name, index, loop_scope)
-        return c_cast(self.result_ty, c_predicate_expr(self.pred, c_point_expr(self.arg, desc, access_by_name, index, loop_scope)))
+    function Stencil.StencilPointPredicate:stencil_c_expr(desc, access_scope, index, loop_scope)
+        return c_cast(self.result_ty, c_predicate_expr(self.pred, c_point_expr(self.arg, desc, access_scope, index, loop_scope)))
     end
-    function Stencil.StencilPointCompare:stencil_c_expr(desc, access_by_name, index, loop_scope)
+    function Stencil.StencilPointCompare:stencil_c_expr(desc, access_scope, index, loop_scope)
         return c_cast(
             self.result_ty,
             c_compare_expr(
                 self.cmp,
-                c_point_expr(self.left, desc, access_by_name, index, loop_scope),
-                c_point_expr(self.right, desc, access_by_name, index, loop_scope)
+                c_point_expr(self.left, desc, access_scope, index, loop_scope),
+                c_point_expr(self.right, desc, access_scope, index, loop_scope)
             )
         )
     end
-    function Stencil.StencilPointSelect:stencil_c_expr(desc, access_by_name, index, loop_scope)
+    function Stencil.StencilPointSelect:stencil_c_expr(desc, access_scope, index, loop_scope)
         return c_cast(
             self.result_ty,
-            C.select (c_predicate_expr(self.pred, c_point_expr(self.cond, desc, access_by_name, index, loop_scope)))(c_point_expr(self.then_expr, desc, access_by_name, index, loop_scope))(c_point_expr(self.else_expr, desc, access_by_name, index, loop_scope))
+            C.select (c_predicate_expr(self.pred, c_point_expr(self.cond, desc, access_scope, index, loop_scope)))(c_point_expr(self.then_expr, desc, access_scope, index, loop_scope))(c_point_expr(self.else_expr, desc, access_scope, index, loop_scope))
         )
     end
 
-    c_point_expr = function(expr, desc, access_by_name, index, loop_scope)
-        return expr:stencil_c_expr(desc, access_by_name, index, loop_scope)
+    c_point_expr = function(expr, desc, access_scope, index, loop_scope)
+        return expr:stencil_c_expr(desc, access_scope, index, loop_scope)
+    end
+
+    function Stencil.StencilPointExpr:stencil_c_input_name()
+        return nil
+    end
+
+    function Stencil.StencilPointInput:stencil_c_input_name()
+        return self.access.name
+    end
+
+    function Stencil.StencilStoreSemantics:stencil_c_copy_input_name(_expr, _dst_name)
+        return nil
+    end
+
+    function Stencil.StencilStoreCopy:stencil_c_copy_input_name(expr, dst_name)
+        local name = expr:stencil_c_input_name()
+        if name == dst_name then return nil end
+        return name
+    end
+
+    function Stencil.StencilStoreSemantics:stencil_c_copy_semantics()
+        return nil
+    end
+
+    function Stencil.StencilStoreCopy:stencil_c_copy_semantics()
+        return self.semantics
+    end
+
+    function Stencil.StencilReduceInitExternal:stencil_c_needs_init_param()
+        return true
+    end
+
+    function Stencil.StencilReduceInitIdentity:stencil_c_needs_init_param()
+        return false
+    end
+
+    function Stencil.StencilReduceInitExternal:stencil_c_initial_value(_shape)
+        return cn("init")
+    end
+
+    function Stencil.StencilReduceInitIdentity:stencil_c_initial_value(shape)
+        return c_value_const_expr(shape.identity, shape.result_ty)
+    end
+
+    function Stencil.StencilReduceExecutionScope:stencil_c_output_access(_desc, _artifact, _shape, _params)
+        error("stencil_c: unsupported reduce execution scope", 3)
+    end
+
+    function Stencil.StencilReduceExecDomain:stencil_c_output_access(_desc, _artifact, _shape, _params)
+        return nil
+    end
+
+    function Stencil.StencilReduceExecAxes:stencil_c_output_access(desc, artifact, _shape, params)
+        local dst_access = access_named(desc, self.dst_name)
+        params[#params + 1] = structured_param(self.dst_name, c_access_param_type_node(dst_access, true, artifact))
+        return dst_access
+    end
+
+    function Stencil.StencilReduceExecWindow:stencil_c_output_access(desc, artifact, _shape, params)
+        local dst_access = access_named(desc, self.dst_name)
+        params[#params + 1] = structured_param(self.dst_name, c_access_param_type_node(dst_access, true, artifact))
+        return dst_access
+    end
+
+    function Stencil.StencilReduceExecutionScope:stencil_c_is_axes_scope()
+        return false
+    end
+
+    function Stencil.StencilReduceExecAxes:stencil_c_is_axes_scope()
+        return true
+    end
+
+    function Stencil.StencilReduceExecutionScope:stencil_c_is_window_scope()
+        return false
+    end
+
+    function Stencil.StencilReduceExecWindow:stencil_c_is_window_scope()
+        return true
+    end
+
+    function Value.ReductionOp:stencil_c_update_expr(_acc, _item, _ty)
+        error("stencil_c: unsupported reduction " .. self:stencil_c_name(), 3)
+    end
+
+    function Value.ReductionAdd:stencil_c_update_expr(acc, item, ty)
+        return c_cast(ty, c_unsigned_cast(ty, acc) + c_unsigned_cast(ty, item))
+    end
+
+    function Value.ReductionMul:stencil_c_update_expr(acc, item, ty)
+        return c_cast(ty, c_unsigned_cast(ty, acc) * c_unsigned_cast(ty, item))
+    end
+
+    function Value.ReductionAnd:stencil_c_update_expr(acc, item, ty)
+        return c_cast(ty, C.band (c_unsigned_cast(ty, acc))(c_unsigned_cast(ty, item)))
+    end
+
+    function Value.ReductionOr:stencil_c_update_expr(acc, item, ty)
+        return c_cast(ty, C.bor (c_unsigned_cast(ty, acc))(c_unsigned_cast(ty, item)))
+    end
+
+    function Value.ReductionXor:stencil_c_update_expr(acc, item, ty)
+        return c_cast(ty, C.bxor (c_unsigned_cast(ty, acc))(c_unsigned_cast(ty, item)))
+    end
+
+    function Value.ReductionMin:stencil_c_update_expr(acc, item, _ty)
+        return C.select (C.lt (item)(acc))(item)(acc)
+    end
+
+    function Value.ReductionMax:stencil_c_update_expr(acc, item, _ty)
+        return C.select (C.gt (item)(acc))(item)(acc)
     end
 
     local function c_reduction_update_expr(kind, acc, item, ty)
-        if kind == Value.ReductionAdd then return c_cast(ty, c_unsigned_cast(ty, acc) + c_unsigned_cast(ty, item)) end
-        if kind == Value.ReductionMul then return c_cast(ty, c_unsigned_cast(ty, acc) * c_unsigned_cast(ty, item)) end
-        if kind == Value.ReductionAnd then return c_cast(ty, C.band (c_unsigned_cast(ty, acc))(c_unsigned_cast(ty, item))) end
-        if kind == Value.ReductionOr then return c_cast(ty, C.bor (c_unsigned_cast(ty, acc))(c_unsigned_cast(ty, item))) end
-        if kind == Value.ReductionXor then return c_cast(ty, C.bxor (c_unsigned_cast(ty, acc))(c_unsigned_cast(ty, item))) end
-        if kind == Value.ReductionMin then return C.select (C.lt (item)(acc))(item)(acc) end
-        if kind == Value.ReductionMax then return C.select (C.gt (item)(acc))(item)(acc) end
-        error("stencil_c: unsupported reduction " .. reduction_name(kind), 3)
+        return kind:stencil_c_update_expr(acc, item, ty)
     end
 
-    local function store_n_decl(artifact)
-        local shape = artifact_shape(artifact)
+    function Stencil.StencilArtifactStoreN:stencil_c_decl(artifact)
+        local shape = self
         local desc = artifact.instance.descriptor
         local producer_shape = desc.producer.shape
         local dst_name = shape.dst_name or "dst"
         local dst_access = access_named(desc, dst_name)
-        local access_by_name = {}
-        for _, access in ipairs(descriptor_accesses(desc)) do access_by_name[access.name] = access end
+        local access_scope = desc
         local params = {
             structured_param(dst_name, c_access_param_type_node(dst_access, true, artifact)),
         }
@@ -1050,20 +1162,13 @@ local function bind_context(T)
         local function assign_stmts(i, loop_scope)
             return {
                 C.assign(
-                    access_c_expr(dst_access, dst_name, i, access_by_name, loop_scope),
-                    c_point_expr(shape.expr, desc, access_by_name, i, loop_scope)
+                    access_c_expr(dst_access, dst_name, i, access_scope, loop_scope),
+                    c_point_expr(shape.expr, desc, access_scope, i, loop_scope)
                 ),
             }
         end
-        local function copy_input_name()
-            if asdl.classof(shape.store_mode) ~= Stencil.StencilStoreCopy then return nil end
-            if asdl.classof(shape.expr) ~= Stencil.StencilPointInput then return nil end
-            local name = shape.expr.access.name
-            if name == dst_name then return nil end
-            return name
-        end
-        local copy_src_name = copy_input_name()
-        local copy_semantics = asdl.classof(shape.store_mode) == Stencil.StencilStoreCopy and shape.store_mode.semantics or nil
+        local copy_src_name = shape.store_mode:stencil_c_copy_input_name(shape.expr, dst_name)
+        local copy_semantics = shape.store_mode:stencil_c_copy_semantics()
         local name = LLBL.N[artifact.symbol.text]
         if copy_src_name ~= nil and producer_shape:stencil_c_is_range1d() and (copy_semantics == Stencil.StencilCopyMemMove or copy_semantics == Stencil.StencilCopyMayOverlapBackward) then
             local forward_body = producer_loop(producer_shape, assign_stmts)
@@ -1087,25 +1192,20 @@ local function bind_context(T)
         }
     end
 
-    local function reduce_n_decl(artifact)
-        local shape = artifact_shape(artifact)
+    function Stencil.StencilArtifactReduceN:stencil_c_decl(artifact)
+        local shape = self
         local desc = artifact.instance.descriptor
         local producer_shape = desc.producer.shape
-        local access_by_name = {}
-        for _, access in ipairs(descriptor_accesses(desc)) do access_by_name[access.name] = access end
+        local access_scope = desc
         local result_ty = c_type(shape.result_ty)
         local acc_type_node = (shape.reduction == Value.ReductionMin or shape.reduction == Value.ReductionMax) and c_type_node(shape.result_ty) or c_unsigned_type_node(shape.result_ty)
         local params = {}
-        local dst_access
-        if shape.scope_kind ~= nil and shape.scope_kind ~= "domain" then
-            dst_access = access_named(desc, shape.dst_name)
-            params[#params + 1] = structured_param(shape.dst_name, c_access_param_type_node(dst_access, true, artifact))
-        end
+        local dst_access = shape.reduce_scope:stencil_c_output_access(desc, artifact, shape, params)
         for _, access in ipairs(shape.inputs or {}) do
             params[#params + 1] = structured_param(access.name, c_access_param_type_node(access, false, artifact))
         end
         append_producer_param_structs(params, producer_shape)
-        if shape.scope_kind == nil or shape.scope_kind == "domain" and shape.external_init ~= false then
+        if shape.init_mode:stencil_c_needs_init_param() then
             params[#params + 1] = structured_param("init", c_type_node(shape.result_ty))
         end
         for _, access in ipairs(dynamic_stride_accesses(desc)) do
@@ -1115,8 +1215,8 @@ local function bind_context(T)
             params[#params + 1] = structured_param(affine_offset_param_name(access), C.i32)
         end
         local name = LLBL.N[artifact.symbol.text]
-        if shape.scope_kind == "axes" then
-            local reduce_axes = axis_set_map(shape.axes)
+        if shape.reduce_scope:stencil_c_is_axes_scope() then
+            local reduce_axes = axis_set_map(shape.reduce_scope.axes)
             local kept_axes = axis_indices(producer_shape, function(axis_index) return not reduce_axes[axis_index] end)
             local folded_axes = axis_indices(producer_shape, function(axis_index) return reduce_axes[axis_index] end)
             local function folded_body()
@@ -1128,7 +1228,7 @@ local function bind_context(T)
                         c_reduction_update_expr(
                             shape.reduction,
                             cn("acc"),
-                            c_point_expr(shape.expr, desc, access_by_name, idx, loop_scope),
+                            c_point_expr(shape.expr, desc, access_scope, idx, loop_scope),
                             shape.result_ty
                         )
                     ),
@@ -1139,7 +1239,7 @@ local function bind_context(T)
                 local body = {
                     C.decl. acc[acc_type_node](C.cast[acc_type_node](c_value_const_expr(shape.identity, shape.result_ty))),
                     _(nest_axis_loops(producer_shape, folded_axes, folded_body)),
-                    C.assign(access_c_expr(dst_access, shape.dst_name, out_idx, access_by_name), c_cast(shape.result_ty, cn("acc"))),
+                    C.assign(access_c_expr(dst_access, shape.reduce_scope.dst_name, out_idx, access_scope), c_cast(shape.result_ty, cn("acc"))),
                 }
                 return body
             end
@@ -1149,9 +1249,9 @@ local function bind_context(T)
                 _(nest_axis_loops(producer_shape, kept_axes, outer_body)),
             }
         end
-        if shape.scope_kind == "window" then
+        if shape.reduce_scope:stencil_c_is_window_scope() then
             local reduce_axes = axis_indices(producer_shape, function(axis_index)
-                local reduce = axis_set_map(shape.axes)
+                local reduce = axis_set_map(shape.reduce_scope.axes)
                 return reduce[axis_index]
             end)
             local has_zero, has_reject = window_boundary_flags(producer_shape)
@@ -1159,7 +1259,7 @@ local function bind_context(T)
                 local coords, bounds = window_coords_with_offsets(producer_shape, offsets)
                 local idx = range_nd_linear_index_from_coords(producer_shape, coords)
                 local loop_scope = stencil_loop_scope(producer_shape, idx, coords)
-                local item = c_point_expr(shape.expr, desc, access_by_name, idx, loop_scope)
+                local item = c_point_expr(shape.expr, desc, access_scope, idx, loop_scope)
                 local prefix = {}
                 if #bounds > 0 then
                     local in_bounds = all_c_node(bounds)
@@ -1182,12 +1282,12 @@ local function bind_context(T)
                     return {
                         C.decl. acc[acc_type_node](C.cast[acc_type_node](c_value_const_expr(shape.identity, shape.result_ty))),
                         _(nest_window_offset_loops(producer_shape, reduce_axes, window_update_body)),
-                        C.assign(access_c_expr(dst_access, shape.dst_name, i, access_by_name), c_cast(shape.result_ty, cn("acc"))),
+                        C.assign(access_c_expr(dst_access, shape.reduce_scope.dst_name, i, access_scope), c_cast(shape.result_ty, cn("acc"))),
                     }
                 end)),
             }
         end
-        local init_value = shape.external_init == false and c_value_const_expr(shape.identity, shape.result_ty) or cn("init")
+        local init_value = shape.init_mode:stencil_c_initial_value(shape)
         return C.fn[name] { _(param_fragment(params)) } [C.type[result_ty]] {
             _(assume_aligned_stmts(artifact, pointer_access_names(artifact))),
             C.decl. acc[acc_type_node](C.cast[acc_type_node](init_value)),
@@ -1198,7 +1298,7 @@ local function bind_context(T)
                         c_reduction_update_expr(
                             shape.reduction,
                             cn("acc"),
-                            c_point_expr(shape.expr, desc, access_by_name, i, loop_scope),
+                            c_point_expr(shape.expr, desc, access_scope, i, loop_scope),
                             shape.result_ty
                         )
                     ),
@@ -1208,13 +1308,12 @@ local function bind_context(T)
         }
     end
 
-    local function scan_n_decl(artifact)
-        local shape = artifact_shape(artifact)
+    function Stencil.StencilArtifactScanN:stencil_c_decl(artifact)
+        local shape = self
         local desc = artifact.instance.descriptor
         local producer_shape = desc.producer.shape
         local dst_access = access_named(desc, "dst")
-        local access_by_name = {}
-        for _, access in ipairs(descriptor_accesses(desc)) do access_by_name[access.name] = access end
+        local access_scope = desc
         local result_ty = c_type(shape.result_ty)
         local acc_type_node = (shape.reduction == Value.ReductionMin or shape.reduction == Value.ReductionMax) and c_type_node(shape.result_ty) or c_unsigned_type_node(shape.result_ty)
         local params = {
@@ -1238,17 +1337,17 @@ local function bind_context(T)
             local function scan_line_body()
                 local i = cn("__ml_i")
                 local loop_scope = stencil_loop_scope(producer_shape, i, current_axis_values(producer_shape))
-                local item = c_point_expr(shape.expr, desc, access_by_name, i, loop_scope)
+                local item = c_point_expr(shape.expr, desc, access_scope, i, loop_scope)
                 local scan_stmts
                 if shape.mode == Stencil.StencilScanExclusive then
                     scan_stmts = {
-                        C.assign(access_c_expr(dst_access, "dst", i, access_by_name), c_cast(shape.result_ty, cn("acc"))),
+                        C.assign(access_c_expr(dst_access, "dst", i, access_scope), c_cast(shape.result_ty, cn("acc"))),
                         C.assign(cn("acc"), c_reduction_update_expr(shape.reduction, cn("acc"), item, shape.result_ty)),
                     }
                 else
                     scan_stmts = {
                         C.assign(cn("acc"), c_reduction_update_expr(shape.reduction, cn("acc"), item, shape.result_ty)),
-                        C.assign(access_c_expr(dst_access, "dst", i, access_by_name), c_cast(shape.result_ty, cn("acc"))),
+                        C.assign(access_c_expr(dst_access, "dst", i, access_scope), c_cast(shape.result_ty, cn("acc"))),
                     }
                 end
                 return {
@@ -1270,24 +1369,24 @@ local function bind_context(T)
             _(assume_aligned_stmts(artifact, pointer_access_names(artifact))),
             C.decl. acc[acc_type_node](C.cast[acc_type_node](cn("init"))),
             _(producer_loop(producer_shape, function(i, loop_scope)
-                local item = c_point_expr(shape.expr, desc, access_by_name, i, loop_scope)
+                local item = c_point_expr(shape.expr, desc, access_scope, i, loop_scope)
                 if shape.mode == Stencil.StencilScanExclusive then
                     return {
-                        C.assign(access_c_expr(dst_access, "dst", i, access_by_name), c_cast(shape.result_ty, cn("acc"))),
+                        C.assign(access_c_expr(dst_access, "dst", i, access_scope), c_cast(shape.result_ty, cn("acc"))),
                         C.assign(cn("acc"), c_reduction_update_expr(shape.reduction, cn("acc"), item, shape.result_ty)),
                     }
                 end
                 return {
                     C.assign(cn("acc"), c_reduction_update_expr(shape.reduction, cn("acc"), item, shape.result_ty)),
-                    C.assign(access_c_expr(dst_access, "dst", i, access_by_name), c_cast(shape.result_ty, cn("acc"))),
+                    C.assign(access_c_expr(dst_access, "dst", i, access_scope), c_cast(shape.result_ty, cn("acc"))),
                 }
             end)),
             C.return_(c_cast(shape.result_ty, cn("acc"))),
         }
     end
 
-    local function scatter_reduce_n_decl(artifact)
-        local shape = artifact_shape(artifact)
+    function Stencil.StencilArtifactScatterReduceN:stencil_c_decl(artifact)
+        local shape = self
         if not scatter_reduce_conflicts_materialized(shape.conflicts) then
             error("stencil_c: unsupported scatter-reduce conflict semantics", 3)
         end
@@ -1295,8 +1394,7 @@ local function bind_context(T)
         local producer_shape = desc.producer.shape
         local dst_name = shape.dst_name or "dst"
         local dst_access = access_named(desc, dst_name)
-        local access_by_name = {}
-        for _, access in ipairs(descriptor_accesses(desc)) do access_by_name[access.name] = access end
+        local access_scope = desc
         local params = {
             structured_param(dst_name, c_access_param_type_node(dst_access, true, artifact)),
         }
@@ -1316,14 +1414,14 @@ local function bind_context(T)
         return C.fn[name] { _(param_fragment(params)) } [C.void] {
             _(assume_aligned_stmts(artifact, pointer_access_names(artifact))),
             _(producer_loop(producer_shape, function(i, loop_scope)
-                local slot = access_c_expr(dst_access, dst_name, i, access_by_name)
+                local slot = access_c_expr(dst_access, dst_name, i, access_scope)
                 return {
                     C.assign(
                         slot,
                         c_reduction_update_expr(
                             shape.reduction,
                             slot,
-                            c_point_expr(shape.expr, desc, access_by_name, i, loop_scope),
+                            c_point_expr(shape.expr, desc, access_scope, i, loop_scope),
                             shape.result_ty
                         )
                     ),
@@ -1332,12 +1430,11 @@ local function bind_context(T)
         }
     end
 
-    local function find_n_decl(artifact)
-        local shape = artifact_shape(artifact)
+    function Stencil.StencilArtifactFindN:stencil_c_decl(artifact)
+        local shape = self
         local desc = artifact.instance.descriptor
         local producer_shape = desc.producer.shape
-        local access_by_name = {}
-        for _, access in ipairs(descriptor_accesses(desc)) do access_by_name[access.name] = access end
+        local access_scope = desc
         local params = {}
         for _, access in ipairs(shape.inputs or {}) do
             params[#params + 1] = structured_param(access.name, c_access_param_type_node(access, false, artifact))
@@ -1354,7 +1451,7 @@ local function bind_context(T)
             _(assume_aligned_stmts(artifact, pointer_access_names(artifact))),
             _(producer_loop(producer_shape, function(i, loop_scope)
                 return {
-                    C.if_(C.ne (c_point_expr(shape.expr, desc, access_by_name, i, loop_scope))(0)) {
+                    C.if_(C.ne (c_point_expr(shape.expr, desc, access_scope, i, loop_scope))(0)) {
                         C.return_(c_cast(shape.result_ty, i)),
                     },
                 }
@@ -1363,15 +1460,14 @@ local function bind_context(T)
         }
     end
 
-    local function partition_n_decl(artifact)
-        local shape = artifact_shape(artifact)
+    function Stencil.StencilArtifactPartitionN:stencil_c_decl(artifact)
+        local shape = self
         local desc = artifact.instance.descriptor
         local producer_shape = desc.producer.shape
         local dst_name = shape.dst_name or "dst"
         local dst_access = access_named(desc, dst_name)
         local src_access = access_named(desc, "xs")
-        local access_by_name = {}
-        for _, access in ipairs(descriptor_accesses(desc)) do access_by_name[access.name] = access end
+        local access_scope = desc
         local params = {
             structured_param(dst_name, c_access_param_type_node(dst_access, true, artifact)),
         }
@@ -1394,8 +1490,8 @@ local function bind_context(T)
             C.decl. out[C.i32](out_init),
             _(producer_loop(producer_shape, function(i, loop_scope)
                 return {
-                    C.if_(C.ne (c_point_expr(shape.expr, desc, access_by_name, i, loop_scope))(0)) {
-                        C.assign(access_c_expr(dst_access, dst_name, cn("out"), access_by_name), access_c_expr(src_access, "xs", i, access_by_name)),
+                    C.if_(C.ne (c_point_expr(shape.expr, desc, access_scope, i, loop_scope))(0)) {
+                        C.assign(access_c_expr(dst_access, dst_name, cn("out"), access_scope), access_c_expr(src_access, "xs", i, access_scope)),
                         C.assign(cn("out"), cn("out") + 1),
                     },
                 }
@@ -1403,8 +1499,8 @@ local function bind_context(T)
             C.decl. split[C.i32](cn("out")),
             _(producer_loop(producer_shape, function(i, loop_scope)
                 return {
-                    C.if_(C.eq (c_point_expr(shape.expr, desc, access_by_name, i, loop_scope))(0)) {
-                        C.assign(access_c_expr(dst_access, dst_name, cn("out"), access_by_name), access_c_expr(src_access, "xs", i, access_by_name)),
+                    C.if_(C.eq (c_point_expr(shape.expr, desc, access_scope, i, loop_scope))(0)) {
+                        C.assign(access_c_expr(dst_access, dst_name, cn("out"), access_scope), access_c_expr(src_access, "xs", i, access_scope)),
                         C.assign(cn("out"), cn("out") + 1),
                     },
                 }
@@ -1413,48 +1509,12 @@ local function bind_context(T)
         }
     end
 
-    function Stencil.StencilDescriptor:stencil_c_artifact_decl(artifact)
-        return self.sink:stencil_c_sink_decl(artifact, self)
-    end
-
-    function Stencil.StencilSink:stencil_c_sink_decl(artifact, desc)
-        error("stencil_c: unsupported stencil sink", 3)
-    end
-    function Stencil.StencilSinkStore:stencil_c_sink_decl(artifact, desc)
-        return self.semantics:stencil_c_store_decl(artifact, self, desc)
-    end
-    function Stencil.StencilSinkReduce:stencil_c_sink_decl(artifact, desc)
-        return self.semantics:stencil_c_reduce_decl(artifact, self, desc)
-    end
-    function Stencil.StencilSinkScan:stencil_c_sink_decl(artifact, desc)
-        return scan_n_decl(artifact)
-    end
-    function Stencil.StencilSinkScatterReduce:stencil_c_sink_decl(artifact, desc)
-        return scatter_reduce_n_decl(artifact)
-    end
-
-    function Stencil.StencilStoreSemantics:stencil_c_store_decl(artifact, sink, desc)
-        return store_n_decl(artifact)
-    end
-    function Stencil.StencilStorePartition:stencil_c_store_decl(artifact, sink, desc)
-        return partition_n_decl(artifact)
-    end
-
-    function Stencil.StencilReductionSemantics:stencil_c_reduce_decl(artifact, sink, desc)
-        error("stencil_c: unsupported reduce sink semantics", 3)
-    end
-    function Stencil.StencilReduceFold:stencil_c_reduce_decl(artifact, sink, desc)
-        return reduce_n_decl(artifact)
-    end
-    function Stencil.StencilReduceCount:stencil_c_reduce_decl(artifact, sink, desc)
-        return reduce_n_decl(artifact)
-    end
-    function Stencil.StencilReduceFind:stencil_c_reduce_decl(artifact, sink, desc)
-        return find_n_decl(artifact)
+    function Stencil.StencilArtifactShape:stencil_c_decl(_artifact)
+        error("stencil_c: unsupported stencil artifact shape", 3)
     end
 
     local function artifact_decl(artifact)
-        return artifact.instance.descriptor:stencil_c_artifact_decl(artifact)
+        return artifact_shape(artifact):stencil_c_decl(artifact)
     end
 
     function api.source(artifacts, opts)

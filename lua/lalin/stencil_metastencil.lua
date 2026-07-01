@@ -416,10 +416,11 @@ local function bind_context(T)
         return out
     end
 
-    local function access_by_name(desc)
-        local out = {}
-        for _, access in ipairs(Plan.descriptor_accesses(desc)) do out[access.name] = access end
-        return out
+    function Stencil.StencilDescriptor:metastencil_access_named(name)
+        for _, access in ipairs(Plan.descriptor_accesses(self)) do
+            if access.name == name then return access end
+        end
+        return nil
     end
 
     local function descriptor_access_role(desc, role)
@@ -479,6 +480,18 @@ local function bind_context(T)
         end
     end
 
+    function Stencil.StencilReduceScope:metastencil_dst_name()
+        return nil
+    end
+
+    function Stencil.StencilReduceScopeAxes:metastencil_dst_name()
+        return self.dst.name
+    end
+
+    function Stencil.StencilReduceScopeWindow:metastencil_dst_name()
+        return self.dst.name
+    end
+
     local function fused_store_reduce_artifact(desc)
         if #(desc.nodes or {}) ~= 2 then return nil, "fused cover currently requires exactly Store -> Reduce" end
         local nodes = node_by_id(desc)
@@ -495,10 +508,8 @@ local function bind_context(T)
         if store_node == nil then return nil, "fused cover is not a Store -> Reduce dataflow" end
         local store_desc = store_node.artifact.instance.descriptor
         local reduce_desc = reduce_node.artifact.instance.descriptor
-        local store_accesses = access_by_name(store_desc)
-        local reduce_accesses = access_by_name(reduce_desc)
-        local out_access = store_accesses[store_out]
-        local in_access = reduce_accesses[reduce_in]
+        local out_access = store_desc:metastencil_access_named(store_out)
+        local in_access = reduce_desc:metastencil_access_named(reduce_in)
         if out_access == nil or in_access == nil then return nil, "fused cover wire references missing Store/Reduce access" end
         if not same_value(out_access.ty, in_access.ty) then return nil, "fused Store output type does not match Reduce input type" end
         local inputs, seen = {}, {}
@@ -507,10 +518,9 @@ local function bind_context(T)
         local store_shape = Plan.artifact_shape(store_node.artifact)
         local scope = reduce_desc.sink.scope
         local dst_layout
-        if scope ~= nil and scope ~= Stencil.StencilReduceScopeDomain and asdl.classof(scope) ~= Stencil.StencilReduceScopeDomain then
-            local dst_name = scope.dst and scope.dst.name
-            dst_layout = dst_name and reduce_accesses[dst_name] and reduce_accesses[dst_name].layout or nil
-        end
+        local dst_name = scope:metastencil_dst_name()
+        local dst_access = dst_name and reduce_desc:metastencil_access_named(dst_name) or nil
+        dst_layout = dst_access and dst_access.layout or nil
         return Plan.reduce_n_artifact({
             op = reducer.reduction,
             int_semantics = reducer.int_semantics,
@@ -544,10 +554,8 @@ local function bind_context(T)
         if store_node == nil then return nil, "fused cover is not a Store -> Scan dataflow" end
         local store_desc = store_node.artifact.instance.descriptor
         local scan_desc = scan_node.artifact.instance.descriptor
-        local store_accesses = access_by_name(store_desc)
-        local scan_accesses = access_by_name(scan_desc)
-        local out_access = store_accesses[store_out]
-        local in_access = scan_accesses[scan_in]
+        local out_access = store_desc:metastencil_access_named(store_out)
+        local in_access = scan_desc:metastencil_access_named(scan_in)
         if out_access == nil or in_access == nil then return nil, "fused cover wire references missing Store/Scan access" end
         if not same_value(out_access.ty, in_access.ty) then return nil, "fused Store output type does not match Scan input type" end
         local inputs, seen = {}, {}
@@ -555,7 +563,7 @@ local function bind_context(T)
         append_sink_passthrough_inputs(inputs, seen, scan_desc, scan_in, scan_desc.sink.dst and scan_desc.sink.dst.name or "dst")
         local reducer = scan_desc.sink.reducer
         local dst_name = scan_desc.sink.dst and scan_desc.sink.dst.name or "dst"
-        local dst_access = scan_accesses[dst_name]
+        local dst_access = scan_desc:metastencil_access_named(dst_name)
         local store_shape = Plan.artifact_shape(store_node.artifact)
         return Plan.scan_n_artifact({
             op = reducer.reduction,
@@ -591,14 +599,12 @@ local function bind_context(T)
         if store_node == nil then return nil, "fused cover is not a Store -> ScatterReduce dataflow" end
         local store_desc = store_node.artifact.instance.descriptor
         local scatter_desc = scatter_node.artifact.instance.descriptor
-        local store_accesses = access_by_name(store_desc)
-        local scatter_accesses = access_by_name(scatter_desc)
-        local out_access = store_accesses[store_out]
-        local in_access = scatter_accesses[scatter_in]
+        local out_access = store_desc:metastencil_access_named(store_out)
+        local in_access = scatter_desc:metastencil_access_named(scatter_in)
         if out_access == nil or in_access == nil then return nil, "fused cover wire references missing Store/ScatterReduce access" end
         if not same_value(out_access.ty, in_access.ty) then return nil, "fused Store output type does not match ScatterReduce input type" end
         local dst_name = scatter_desc.sink.dst and scatter_desc.sink.dst.name or "dst"
-        local dst_access = scatter_accesses[dst_name]
+        local dst_access = scatter_desc:metastencil_access_named(dst_name)
         local index_access = descriptor_access_role(scatter_desc, Stencil.StencilAccessIndex)
         local inputs, seen = {}, {}
         append_store_inputs(inputs, seen, store_desc, store_out)

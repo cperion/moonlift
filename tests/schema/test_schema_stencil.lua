@@ -291,8 +291,8 @@ local nd_descriptor = Stencil.StencilDescriptor(
 local nd_instance = Stencil.StencilInstance(instance.id, nd_descriptor, instance.schedule, instance.abi, instance.proofs)
 local nd_artifact = Stencil.StencilArtifact(nd_instance, artifact.provider, artifact.symbol, artifact.c_signature, artifact.fingerprint, nil, {}, {})
 local nd_shape = StencilArtifactPlan.artifact_shape(nd_artifact)
-assert(nd_shape.kind == "store_n")
-assert(nd_shape.producer.kind == "range_nd")
+assert(asdl.classof(nd_shape) == Stencil.StencilArtifactStoreN)
+assert(asdl.classof(nd_shape.producer) == Stencil.StencilProducerExecRangeND)
 assert(nd_shape.producer.rank == 2)
 
 local bad_vector_schedule = Stencil.StencilScheduleVector(

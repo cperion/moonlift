@@ -723,7 +723,7 @@ function prepare_luajit_artifact(decl, name, opts)
     local module_ast = module_ast_from(decl, name)
     local cls = asdl.classof(module_ast)
     local T = (cls and asdl.context_of(cls)) or asdl.context()
-    if T.LalinCompiler == nil or T.LalinLuaJIT == nil or T.LalinStencil == nil then A2(T) end
+    if T.LalinCompiler == nil or T.LalinLuaJIT == nil or T.LalinStencil == nil or T.LalinResidual == nil then A2(T) end
 
     local Pipeline = require("lalin.frontend_pipeline")(T)
     local Backend = require("lalin.luajit_backend")(T)
